@@ -40,7 +40,7 @@ pub fn init(gpa: Allocator, initial_size: u32) !Self {
     var atlas: Image(u8) = try .init(gpa, initial_size, initial_size, 0);
     errdefer atlas.deinit(gpa);
 
-    const pack_ctx = try pack.Context.create(gpa, @intCast(initial_size), @intCast(initial_size), .{});
+    const pack_ctx = try pack.Context.init(gpa, @intCast(initial_size), @intCast(initial_size), .{});
 
     return .{ .atlas = atlas, .pack_ctx = pack_ctx };
 }

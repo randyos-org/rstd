@@ -6,7 +6,7 @@ detected and selected, where every kernel comes from, and how all of it is teste
 the matlab port's audit, the planned public `rstd.linalg` layer and sparse matrices, and the
 decisions behind all of them. It describes the code as it is, and says "Planned" where it is not. BLAS usage is in
 [`readme.md`](blas/readme.md), threading in [`threading.md`](blas/threading.md), problems in other
-projects in [`issues.md`](../../issues.md), and the numerical decisions measured against BLIS and the
+projects in [the upstream issues](https://github.com/randyos-org/rstd/labels?q=upstream), and the numerical decisions measured against BLIS and the
 reference in [`comparisons.md`](blas/comparisons.md).
 
 Upstream references are to the OpenBLAS checkout that `tools/blas_asm` converts, v0.3.34-317
@@ -50,12 +50,12 @@ Upstream references are to the OpenBLAS checkout that `tools/blas_asm` converts,
   `std.mem.Allocator`; nothing uses a global allocator.
 - **Every target.** The same source serves hosted, freestanding, UEFI and WebAssembly targets.
   A target with no per-core kernels runs the portable ones, with no special cases in callers.
-- **Zig 0.17.0 as well as 0.18.** Zfls vendors rstd with `minimum_zig_version = "0.17.0"`
-  (its `build.zig.zon`) and builds it on Zig 0.17.0 for x86_64 and aarch64 Linux, macOS 11 and
-  Windows (its `.github/workflows/ci.yml`). A shim for a 0.17 difference detects the API
-  (`@hasDecl`, `@hasField`, `zig_backend`), and checks the version only for a std bug with
-  nothing to detect (`threading.Evented`, [`issues.md`](../../issues.md)). `rstd-check-zig017`, run
-  with 0.17.0, builds the unit tests for those targets with every core's kernels.
+- **Zig 0.17.1 as well as 0.18.** Zfls vendors rstd and builds it on Zig 0.17.1 for x86_64 and
+  aarch64 Linux, macOS 11 and Windows (its `.github/workflows/ci.yml`). A shim for a 0.17
+  difference detects the API (`@hasDecl`, `@hasField`, `zig_backend`), and checks the version
+  only for a std bug with nothing to detect (`threading.Evented`, [#203](https://github.com/randyos-org/rstd/issues/203), [#211](https://github.com/randyos-org/rstd/issues/211); 0.17.1's `Io.Uring` still
+  does not compile). `rstd-check-zig017`, run with 0.17.1, builds the unit tests for those
+  targets with every core's kernels.
 
 ## Background
 
@@ -301,7 +301,7 @@ its C. What they compute is the contract every core keeps
   (Reference master, 0234cae25ceb01807a9b84333b732756559be4aa; not in 3.12.1).
 - `rotg` computes in `XDouble`, where the reference uses `long double` on x86
   (`interface/rotg.c:26`); `zrotg` follows
-  LAPACK's `zlartg`, since `zrotg.c`'s scaled branches are wrong ([`issues.md`](../../issues.md)).
+  LAPACK's `zlartg`, since `zrotg.c`'s scaled branches are wrong ([#241](https://github.com/randyos-org/rstd/issues/241)).
 - Wider than `f64`, the reductions and `gemv` take the order of the x87 `q`/`x` kernels and give
   their bits: `extendedDot` and `extendedZdot` in `blas1/dot/__root__.zig`, `util.extendedSum`
   for `asum` and `nrm2`, and `extendedGemv` and `extendedZgemv` in `blas2/gemv/__root__.zig`
@@ -322,7 +322,7 @@ Not reproduced, by design: the reference's accumulation order elsewhere (`generi
   VFPv4, PowerPC, RISC-V D, LoongArch D and s390x to `f64`; single-precision VFPv4, RISC-V F and
   LoongArch F to `f32`; MIPS release 6 to `f64`, but none with MSA under LLVM. Not on SPARC (its FMA extension of SPARC64 VI and `sparc4`, Oracle Solaris Studio 12.4 Fortran guide, `-xarch`, <https://docs.oracle.com/cd/E37069_01/html/E37076/aevia.html>, is left off, as OpenBLAS's gcc builds take `-mcpu=v9` without `-mfmaf`, `Makefile.sparc:7`), WebAssembly
   or earlier MIPS, whose `madd` rounds the product (Loongson 3A's fuses, and LLVM uses it for a
-  plain `a*b + c`: `issues.md`). WebAssembly's `relaxed_simd` madd is not used: `@mulAdd` there
+  plain `a*b + c`: [#196](https://github.com/randyos-org/rstd/issues/196)). WebAssembly's `relaxed_simd` madd is not used: `@mulAdd` there
   is a software `fma` per lane.
 - **Loongson 3A.** The `loongson3r3` and `loongson3r4` objects fuse (`Spec.fuse_fma`), and on MIPS
   before release 6 that means `madd.fmt` fuses (`fused_madd`): their multiply-adds are inline
@@ -365,7 +365,7 @@ Denormals are honored everywhere: where a vector unit flushes `f32` denormals
 - LLVM's loop and SLP vectorizers would still put scalar `f32` code in AltiVec lanes, so the
   AltiVec cores' objects are built without AltiVec (`cpu/corespec.zig`'s `without`), and the
   portable loops pass each `f32` result they store or accumulate through `util.scalar`, an empty
-  asm they cannot widen, compiled out everywhere else ([`issues.md`](../../issues.md)). ARMv7's
+  asm they cannot widen, compiled out everywhere else ([#188](https://github.com/randyos-org/rstd/issues/188)). ARMv7's
   vectorizers keep off NEON's `f32` lanes themselves (LLVM 21.1.0
   `llvm/lib/Target/ARM/ARMTargetTransformInfo.h:118`, `isFPVectorizationPotentiallyUnsafe`, true
   but on Darwin and MVE; checked by `Transforms/Vectorize/SLPVectorizer.cpp:9214` and `LoopVectorize.cpp:10042`).
@@ -421,7 +421,7 @@ cpu.Arch(family): vtableFromCoreType(core)
   link with LLD, except on Mach-O, which Zig's LLD driver cannot write (Zig's `src/link/Lld.zig`
   at 069480a1a takes COFF, ELF and wasm only); the self-hosted linker misplaced
   SPARC symbols when tried (calls landed in zeroed `.text`; our observation, b8f875b, not
-  reproduced since and not in `issues.md`).
+  reproduced since and not filed as an issue).
 - **Selection of objects.** `-Dblas-cores` (`BlasCores` in `src/buildutils/rstd.zig`): `target`
   builds only the group the target maps to (the host's detected core for a native target, else
   the group with the most features the target has), `all` every group the target can run,
@@ -514,7 +514,7 @@ x87) LLVM splits the vectors into scalar operations. The reductions keep their e
 sums, against the portable loop's one, and the extremes compare and select where `@max` would
 call libm's `fmax` per element (`vector.hasMinMax`, MSA included); [`comparisons.md`](blas/comparisons.md)
 (1) has the measurements. On MSA, `@abs` clears sign bits through a mask LLVM cannot fold back
-into `fmax_a` ([`issues.md`](../../issues.md)).
+into `fmax_a` ([#197](https://github.com/randyos-org/rstd/issues/197)).
 
 On arm64 these fill the slots whose upstream kernel is C, which the portable scalar loop served
 before; their converted kernels stay, unmeasured:
@@ -767,7 +767,7 @@ is the core's `sb`, `b` and `sh` sizes (`params.zig`), with `Blocking.of`'s fall
 family sets none; the unrolls are the portable kernels' (`settleGemm`), and `align_k` is unused,
 since the portable packing needs no padding. `gemmtHalf` is `interface/sbgemmt.c`: a half `gemv`
 per column of the triangle, serial, for all three types (upstream exports `sbgemmt` only).
-Upstream compares the bfloat16 scalars by their bits; rstd by value ([`issues.md`](../../issues.md)).
+Upstream compares the bfloat16 scalars by their bits; rstd by value ([#236](https://github.com/randyos-org/rstd/issues/236)).
 The `sbgemm` small-matrix slots stay null but on Cooper Lake, whose kernels keep these bits in
 their own 1024-deep slices (the level-3 small path above); the AVX-512 BF16, AMX, NEON, SVE and
 MMA kernels are T29 and T31.
@@ -786,7 +786,7 @@ upstream converts no assembly for these slots, only C and intrinsics (NEON, RVV,
   `c` are `InvalidTrans` where upstream takes `C` as `T` (`interface/zgeadd.c:65-66`).
 - **`omatcopy`, `imatcopy`** (`ext/matcopy.zig`, after `kernel/arm/*omatcopy_c*.c` and
   `kernel/generic/*imatcopy_c*.c`): one scaling for all, a zero `alpha` storing zeros and
-  `alpha` 1 copying, complex too (upstream's complex kernels multiply by 1, `issues.md`).
+  `alpha` 1 copying, complex too (upstream's complex kernels multiply by 1, [#235](https://github.com/randyos-org/rstd/issues/235)).
   `imatcopy` runs the in-place kernels where the shape and leading dimension stay, and else goes
   through a buffer from its allocator, as upstream does (`interface/imatcopy.c:128-164`, under
   `NEW_IMATCOPY`, which line 55 always defines); both give the same bits. No `q` or `x` slots, as upstream.
@@ -801,7 +801,7 @@ upstream converts no assembly for these slots, only C and intrinsics (NEON, RVV,
   `getrf_single.c`'s `#if 1` does; `getrf_parallel.c`, its only caller, has the call behind
   `if (0 && ...)` (`:138`, `:277`), and nothing upstream calls `neg_tcopy`.
 - **`gemmt`**: upstream takes a `gemv` per column, and for `r` and `c` conjugates the caller's
-  `B` in place and back (`interface/gemmt.c:495`, `:697`, the `gemv` at `:569`; `issues.md`). Here it is `gemm`'s operands over `syrk`'s triangle in
+  `B` in place and back (`interface/gemmt.c:495`, `:697`, the `gemv` at `:569`; [#235](https://github.com/randyos-org/rstd/issues/235)). Here it is `gemm`'s operands over `syrk`'s triangle in
   the level-3 driver (`driver.gemmt`), and `B` is only read.
 - **Batched `gemm`** (`blas3/batch.zig`; `interface/gemm_batch.c`, `gemm_batch_strided.c`):
   groups of problems sharing sizes and scalars (a `GemmGroup` holds slices of operand pointers;
@@ -851,7 +851,7 @@ allows.
 - **`potri`** (`cholesky.zig`, `interface/lapack/potri.c`): `trtri` (non-unit), then `lauum`,
   both single or both parallel by `potri`'s rule. A zero on the factor's diagonal is
   `error.Singular` before `A` is touched, as `xPOTRI` has it through `xTRTRI`; upstream skips
-  that check and divides (`issues.md`).
+  that check and divides ([#239](https://github.com/randyos-org/rstd/issues/239)).
 - **`trtri`, `trti2`** (`triangular.zig`): `trtri_U_single.c` and `trtri_L_single.c`, blocks of
   `GEMM_Q` (upper, `trti2` up to `GEMM_Q`; lower, below it), each multiplied by the inverse
   already made (`trmm`), solved by its diagonal block with -1 (`trsm`), then inverted by
@@ -871,7 +871,7 @@ allows.
 - **`trtrs`** (`triangular.zig`): `trtrs_single.c` and `ztrtrs_single.c`, `trsm` through the
   driver, `trsv` for one right-hand side; `trtrs_parallel.c` is that `trsm` on threads. It
   takes `trans` `r`, as upstream does, and checks its arguments in the reference's order
-  (upstream reports `diag` first, `issues.md`). A zero on the diagonal is `error.Singular`
+  (upstream reports `diag` first, [#240](https://github.com/randyos-org/rstd/issues/240)). A zero on the diagonal is `error.Singular`
   before `B` is touched, even with no right-hand side, as the reference.
 - **`potrs`** (`cholesky.zig`): `xPOTRS`, which OpenBLAS takes from the reference too
   (`exports/gensymbol.pl:498` lists it with the netlib objects): two
@@ -886,7 +886,7 @@ allows.
   as loops but for the core's `iamax`, so the pivot is the first NaN, else the first largest
   `|re| + |im|`. Two departures, both the reference's `xGETRF2`: a nonzero pivot below the
   safe minimum (denormal, or NaN) is swapped in and divided by, where upstream `getf2`
-  records the swap in `ipiv` but neither swaps nor scales (`issues.md`); and the complex test
+  records the swap in `ipiv` but neither swaps nor scales ([#238](https://github.com/randyos-org/rstd/issues/238)); and the complex test
   is on `|p|`, where upstream tests each part. A normal pivot's column is scaled by its
   reciprocal, as both do. `laswp_ncopy` and `neg_tcopy` stay unused ([Extensions](#extensions)).
 - **`getrf` threaded** (`lu.zig`, `getrf_parallel.c`): the lookahead. The first block is
@@ -906,7 +906,7 @@ allows.
   `getrs_parallel.c` gives each thread a column block.
 - **`gesv`** (`lu.zig`, `interface/lapack/gesv.c`): `getrf`, then `getrs` unless `U` is
   singular, as `xGESV`, both on `gesv`'s thread rule.
-- **faer's routines**: faer v0.24.4 (MIT,
+- **Faer's routines**: faer v0.24.4 (MIT,
   <https://codeberg.org/sarah-quinones/faer>, tag `faer-v0.24.4`), behind Reference-LAPACK's
   interfaces. Each file
   ports one faer source and names it: `ops.zig` (a column-major `Mat` view and element
@@ -941,7 +941,7 @@ allows.
   optional `unconverged: ?*usize`, its last argument, as `potrf`'s `minor`; faer does not keep
   it, so `svd.zig` counts them from the bidiagonal it gives up on (`min(m, n) - 1` for an
   infinity or NaN). `S`, `U` and `Vᴴ` are then undefined: the reference's unconverged
-  bidiagonal in `S` and `WORK` has nowhere to go. Four fixes to faer, each in [`issues.md`](../../issues.md): its
+  bidiagonal in `S` and `WORK` has nowhere to go. Four fixes to faer, each an issue ([#250](https://github.com/randyos-org/rstd/issues/250), [#252](https://github.com/randyos-org/rstd/issues/252), [#253](https://github.com/randyos-org/rstd/issues/253), [#255](https://github.com/randyos-org/rstd/issues/255)): its
   secular solver can stop far from a root next to a pole, here bisected; reciprocals of
   denormal norms overflow, here divided by; a zero subproblem's two rows of `U` lack the
   identity's last 1; and its tall path leaves `U`'s top right block as found, here zeroed.
@@ -956,7 +956,7 @@ allows.
   `xHEGS2`, `xPBTF2`, `xTRSYL` with `xLALN2` and `xLASY2`, `xTGSY2` with `xGETC2`, `xGESC2`
   and `xLATDF`, whose `xGECON` is `norm.zig`'s `lacn2` over `latrs`), since faer has none in
   LAPACK's storage. Where ReLAPACK is wrong
-  ([`issues.md`](../../issues.md#relapack-in-openblas)), the reference wins: `sytrf`, `hetrf`
+  ([#242](https://github.com/randyos-org/rstd/issues/242), [#243](https://github.com/randyos-org/rstd/issues/243), [#244](https://github.com/randyos-org/rstd/issues/244)), the reference wins: `sytrf`, `hetrf`
   and their `_rook` forms run the reference's blocked `xSYTRF` loop over ReLAPACK's `rec2`
   panels (`indefinite.zig`); `gbtrf` is `xGBTF2`; `tgsyl`'s transposed updates read `F` and
   `E` at their own leading dimensions, and its `dif` counts every base case's block pairs.
@@ -971,7 +971,7 @@ allows.
   `16 (m - j) eps` of the span of those before it takes no reflection (`Q R = A` holds to that
   tolerance). `orgqr` and `ormqr` rebuild the block factors from `V` and `1 / tau`, so the
   reference's complex `tau` works too; `ormqr` takes `trans` `t` and `c` alike for real
-  (complex: `c` only, as `zunmqr`). A fix to faer ([`issues.md`](../../issues.md)): its staircase
+  (complex: `c` only, as `zunmqr`). A fix to faer ([#256](https://github.com/randyos-org/rstd/issues/256)): its staircase
   skips a column whose norm is NaN, here reflected, so NaN propagates as in the reference.
 - **`gels`** (`qr_solve.zig`): `dgels.f`'s arguments, scaling of `A` and `B`, its four
   cases and where the answer and the residual land, over faer's `solve_lstsq_in_place`
@@ -1000,7 +1000,7 @@ allows.
   the QR iteration is the reference's `INFO = i > 0`, written to an optional
   `unconverged: ?*usize`, the last argument (`n` for an infinity in `A`): `w[i..n]` hold the
   eigenvalues that converged, scaled back, and no vectors are computed, as `dgeev.f`
-  documents. Fixes to faer ([`issues.md`](../../issues.md)): the complex `rotg` returns `r = 1` for
+  documents. Fixes to faer ([issues labeled `upstream: faer`](https://github.com/randyos-org/rstd/issues?q=is%3Aissue+label%3A%22upstream%3A+faer%22)): the complex `rotg` returns `r = 1` for
   a zero second entry, here `p`; the tridiagonal QR's and `self_adjoint_evd`'s reciprocals of
   denormals overflow, here divided by. Not ported yet: faer's multishift QR with
   aggressive early deflation (`multishift_qr`, from 75 up) and its blocked Hessenberg
@@ -1055,7 +1055,7 @@ allows.
 
 ### Planned: the public `rstd.linalg` layer
 
-Decided, being built (todo.md, M8 to M16; settled in M5's review with the user, 2026-10-30, of M3's
+Decided, being built (M8 to M16; settled in M5's review with the user, 2026-10-30, of M3's
 proposal): the MATLAB-like layer above the BLAS and LAPACK (Settled decisions: `rstd.linalg`
 is the public API). M4 confirms the inline limit; S1's results for SPIR-V are in
 `src/rgl/shaders/lib/readme.md`.
@@ -1297,7 +1297,7 @@ The promise there is the same API and meaning, compiled to the native instructio
 
 #### Migration plan
 
-Each step is its own commit, todo.md's M8 to M14; tests per step as the tiers ask (native `x86_64-windows`, compile
+Each step is its own commit, M8 to M14; tests per step as the tiers ask (native `x86_64-windows`, compile
 checks of the tier-2 rigs, `zig build shader-probes -Dvulkan` for SPIR-V).
 
 1. **`linalg.vector`, inline:** `Vec`, the vector names, `splat`/`zero`, `mix`, `mulAdd`, `norm`'s
@@ -1314,7 +1314,7 @@ checks of the tier-2 rigs, `zig build shader-probes -Dvulkan` for SPIR-V).
    zero pivot). The `...Into` forms take no `allocator` or `io` until step 4. Shaderlib's
    products already lower to SPIR-V's matrix instructions through `@Matrix` (step 5's, for them).
 3. **Views and `Mat`:** `View`, `ConstView`, `Mat`; the dynamic functions over views, with
-   the run-time switch into the inline kernels up to `L`. In three parts (todo.md, user,
+   the run-time switch into the inline kernels up to `L`. In three parts (user,
    2026-11-02): M10 the types (in `matrix.zig`) and the BLAS-backed basics (`dense.zig`, flat at
    `rstd.linalg`; done 2026-11-02, `L` a constant 8 until M11), M17 the solves and
    factorizations (done 2026-11-07), M18 the SVD and eigen family (done 2026-11-07). An operand
@@ -1352,7 +1352,7 @@ M5's review with the user (2026-10-30), of M3's proposal (9274e27c):
 8. **Complex fixed sizes:** in the first set, interleaved.
 9. **`inv` under SPIR-V:** `error.Singular` too, by a determinant test.
 10. **Order:** moot once M1 and S1 landed.
-11. **SPIR-V's matrix type:** in issues.md; column code meanwhile. Superseded by decision 17.
+11. **SPIR-V's matrix type:** in [#198](https://github.com/randyos-org/rstd/issues/198); column code meanwhile. Superseded by decision 17.
 12. **Names** (user, 2026-10-31): `Mat(T)` and `StaticMat(R, C, T)`, named like `Vec` (the
     alias of `@Vector`).
 
@@ -1385,7 +1385,7 @@ randy-matrix: padded `@Vector` columns, float elements, `+ - *`, `@transpose`):
 
 ### Planned: sparse matrices
 
-Not scheduled (todo.md, T150 and T151): the 2025 linear-algebra discussions, as corrected on
+Not scheduled ([#84](https://github.com/randyos-org/rstd/issues/84) and [#85](https://github.com/randyos-org/rstd/issues/85)): the 2025 linear-algebra discussions, as corrected on
 review (Randy ChatGPT discussions).
 
 - **Scope.** The kernels a sparse SQP solver needs, not the Sparse BLAS interface: `A x` and
@@ -1422,7 +1422,7 @@ matlab88.f90's LINPACK and EISPACK routines over its own level-1 kernels, split 
 experiments E1 to E9 against an `f128` LAPACK reference (native, Zen 3; the scratch experiments
 are not kept). The default is the modern routine (Settled decisions: the matlab port defers). The
 old one wins on E1, which M2 keeps (`src/linalg/matlab/lu.zig`'s test), and on E2 and E4, which
-the modern LAPACK fixes (todo.md's T125 and T126) rather than M2 keeping the old routines (user,
+the modern LAPACK fixes (T125 and T126) rather than M2 keeping the old routines (user,
 2026-10-30).
 
 | matlab88 | Called by | Modern counterpart | Verdict |
@@ -1572,7 +1572,7 @@ routine and matches the reference; `apple_accel.zig` binds it and routes to it.
   - x86_64 (under Rosetta 2; no Intel Mac was at hand): `cblas_dsdot` is off by `f32`'s epsilon,
     so `dsdot`, `sdot`, `snrm2` and `scnrm2` run rstd's; `gemm` with NaN or an infinity in `A`,
     which gives NaN at an edge of `m`.
-  - x86_64: complex `potrf`, always: `cpotrf_` and `zpotrf_` report a well conditioned `L Lᴴ` as not positive definite from order 2 (arm64's are right). `trsm` with a diagonal entry too small to invert (a subnormal; arm64 untested): it multiplies by the reciprocal, which overflows, where the reference divides.
+  - x86_64: complex `potrf`, always: `cpotrf_` and `zpotrf_` report a well conditioned `L Lᴴ` as not positive definite from order 2 (arm64's are right). `trsm` with a diagonal entry too small to invert (a subnormal; arm64 untested): it multiplies by the reciprocal, which overflows, where the reference divides. `trsm` with NaN or an infinity in `B` (complex, left, upper, order 19 seen in CI): it spreads to entries that do not depend on it, so `trsm` falls back as `trmm` does.
 
 ### Core detection and selection
 
@@ -1774,7 +1774,7 @@ The per-core tests found bugs in some of OpenBLAS's own assembly, still present 
 v0.3.34-317. The generator fixes each before converting it: a `Patch` in
 `tools/blas_asm/arch/<arch>.zig` is an exact find and replace on the upstream text that must
 match `count` times, or the generator stops, with a comment saying what was wrong. The generated
-files carry the fixed code. [`issues.md`](../../issues.md#openblas) holds the issue text for each. No
+files carry the fixed code. The [issues labeled `upstream: openblas`](https://github.com/randyos-org/rstd/issues?q=is%3Aissue+label%3A%22upstream%3A+openblas%22) hold the issue text for each. No
 core takes the extremes' and `nrm2`'s kernels anymore ([`readme.md`](blas/readme.md#one-contract-on-every-core)),
 fixed or not, nor x86_64's peeling `zdot_atom.S`, so they are no longer converted (below). Their
 patches stay in the same files as `retired`, the record of those fixes: every run checks that
@@ -1888,7 +1888,7 @@ stride means `n` operations on one element in turn:
   `mips/saxpy_msa.c`, `daxpy_msa.c`'s blocks load `y` before storing it
   (`axpy/riscv64/rvv.zig`, `axpy/mips/msa.zig`).
 
-The `@Vector` ports of C kernels fix two more ([`issues.md`](../../issues.md#openblas)):
+The `@Vector` ports of C kernels fix two more ([#232](https://github.com/randyos-org/rstd/issues/232), [#233](https://github.com/randyos-org/rstd/issues/233)):
 
 - `x86_64/sasum_microk_haswell-2.c`, `dasum_microk_haswell-2.c`: peeled to a 32-byte boundary,
   so the sums followed the address; the port loads unaligned from the first element, as
@@ -1897,7 +1897,7 @@ The `@Vector` ports of C kernels fix two more ([`issues.md`](../../issues.md#ope
   the last multiple of 4 and the first column; the port adds them (`blas2/symv/driver.zig`).
 
 Patches that work around Zig or QEMU rather than OpenBLAS, each removable once the cause is fixed
-([`issues.md`](../../issues.md)):
+([upstream issues](https://github.com/randyos-org/rstd/labels?q=upstream)):
 
 - `power/zdot.S`, `zdot_cell.S`: they return the complex result in f1/f2 as the ELFv2 ABI says ("64-Bit ELF V2 ABI Specification", revision 1.5, 2.2.6, homogeneous floating-point aggregates; copy read: <https://kib.kiev.ua/x86docs/POWER/ABI/leabi-20201201.pdf>),
   but Zig reads a two-float struct from r3/r4. The sources already copy it into r3/r4 for the
@@ -1957,7 +1957,7 @@ interface mirrors an upstream one with a CBLAS row-major branch (`ger`'s `gerv_k
 | `blas3/gemmt/` | `gemmt`'s tests; it runs the driver |
 | `_test/` | test-only code, wired by `_test/__root__.zig` (below) |
 | `unused/` | git-ignored, kept locally: kernels, slots and stubs no column-major Zig caller reaches (above) |
-| `readme.md`, `threading.md`, `comparisons.md` (with `../design.md` and rstd's `issues.md`) | documentation |
+| `readme.md`, `threading.md`, `comparisons.md` (with `../design.md`) | documentation |
 
 A routine directory holds its `__root__.zig` (its portable kernels and the tests of every core's
 kernels; callers reach kernels by slot, `portable.fetch` or `blas.kernel`, never by a named wrapper), and per architecture `<arch>/asm/` (generated), `<arch>/uk/`
@@ -2102,7 +2102,7 @@ Questions decided once, with the reason, so they are not reopened without new ev
   only on size and target, not on the type holding the data, so a call gives the same bits every
   time ("Planned: the public `rstd.linalg` layer", above). The BLAS keeps its slice and stride routines for `linalg` to
   call. `rstd.simd` is gone: its element-wise helpers (`mix`, `mulAdd`) moved to
-  `linalg.vector`, and slice reductions become BLAS routines (todo.md, M13). Under SPIR-V each operation is
+  `linalg.vector`, and slice reductions become BLAS routines ([#52](https://github.com/randyos-org/rstd/issues/52)). Under SPIR-V each operation is
   SPIR-V's own instruction where one exists (`OpDot`, GLSL.std.450 `Length`, `Fma`: GLSL.std.450
   1.00 revision 17, <https://registry.khronos.org/SPIR-V/specs/unified1/GLSL.std.450.html>), used as is,
   not rebuilt or tuned: the goal is one API, not GPU speed.
@@ -2112,7 +2112,7 @@ Questions decided once, with the reason, so they are not reopened without new ev
   stays only where a test shows it better (more accurate, or right on an edge case the modern
   one gets wrong), and that test is kept with it. M1's audit ("The matlab port against the
   modern BLAS and LAPACK", above) kept one (E1, the scaled determinant); E2 and E4 are fixed in
-  the modern LAPACK instead (todo.md, T125, T126; user, 2026-10-30).
+  the modern LAPACK instead (T125, T126; user, 2026-10-30).
 - **`rstd.linalg` is an anthology of the best open-source methods** (2026-10-30). Each routine
   or kernel takes the best open-source implementation of its method, chosen one at a time, as
   OpenBLAS's and BLIS's kernels are mixed today; nothing is all or nothing. For LAPACK the
@@ -2141,7 +2141,7 @@ Questions decided once, with the reason, so they are not reopened without new ev
   a second implementation: everything a shader calls ends in a SPIR-V instruction where one
   exists, through `linalg` or directly. What the backend emits today, per operation (S1):
   [`shaders/lib/readme.md`](../rgl/shaders/lib/readme.md); only the builtins lower natively,
-  and the matrix instructions wait on Zig's SPIR-V assembler (issues.md).
+  and the matrix instructions wait on Zig's SPIR-V assembler ([#198](https://github.com/randyos-org/rstd/issues/198)).
 - **Workers adopt the caller's floating-point control state** (2026-10-29). Threads do not
   inherit it (x86 Windows starts them at 53-bit x87 precision where a MinGW main thread has 64-bit, sources in [`threading.md`](blas/threading.md);
   MXCSR and FPCR differ too if the caller changed rounding or flush to zero), so each task
@@ -2170,12 +2170,12 @@ Questions decided once, with the reason, so they are not reopened without new ev
   pivot is not zero, as the reference's `xGETRF2` has it.
 - **Loongson 3A fuses, as the reference does** (2026-10-29). `loongson3r3` and `loongson3r4`
   are modeled fused: OpenBLAS builds them with `-march=loongson3a` (`Makefile.system:1002`), where
-  GCC contracts to `madd.fmt`, which GS464 and GS464E round once (their manuals, `issues.md`).
+  GCC contracts to `madd.fmt`, which GS464 and GS464E round once (their manuals, [#196](https://github.com/randyos-org/rstd/issues/196)).
   QEMU rounds `madd.fmt`, so no rig can check the fused bits (the axpy fused-bit test skips on
   rigs); correctness rests on the manuals and on reading the objects' assembly.
 - **Q9: futures on `Dispatch` as a fallback until std's `Group` is fixed, then revert**
   (2026-10-30). On `Io.Evented` with worker threads std's `Group` crashes on `Uring` and
-  `Dispatch` ([`issues.md`](../../issues.md)). On `Dispatch` (macOS) rstd's worker tasks are plain
+  `Dispatch` ([#208](https://github.com/randyos-org/rstd/issues/208)). On `Dispatch` (macOS) rstd's worker tasks are plain
   futures, chosen by the comptime `threading.dispatch_futures`; every other `Io` keeps `Group`.
   `Uring`'s futures have their own bug, so it stays unsupported with worker threads. Once
   `ssh-repro-group-aarch64-macos` passes on a new toolchain, the switch goes back to `Group` and
@@ -2223,7 +2223,7 @@ Questions decided once, with the reason, so they are not reopened without new ev
 | Initialization | `__root__.zig` | the handshake, `shutdown`, environment copies, racing threads |
 | Small files | `_test/types.zig`, `fma.zig`, `portable.zig`, `ext/`, `Config.zig`, `abi.zig`, `_test/apple_accel.zig` | types, contraction, dispatch, bfloat16, parsing, variants, the Accelerate binding and routing |
 
-Not propagation, on purpose, as the reference has it (`_test/blas1/edge.zig`, `_test/blas2/edge.zig`): `axpby` with a zero `beta` never reads `y`, with a zero `alpha` never reads `x`, both zero store zeros; `rotm` with flag -2 changes nothing; the extremes' first NaN wins, ties keep the first; `nrm2` is Inf for an infinity and NaN for a NaN, the plain sum of squares past `f64`; a zero `alpha` in `scal` follows its flag. In level 2 a zero `beta` overwrites `y`, a zero `alpha` returns once `y` is scaled, a Hermitian update stores a real diagonal, entries outside a band or triangle and a unit diagonal are never multiplied, and the rank updates pass over a column whose factors are zero; complex infinities may meet in another order, giving NaN (`pattern.expectWideAnyOrder`). A solve's special values go off the diagonal and in the right-hand side, the diagonal dominating. Where a core's converted kernels did otherwise, they are not used (`vector.routed`, `issues.md`).
+Not propagation, on purpose, as the reference has it (`_test/blas1/edge.zig`, `_test/blas2/edge.zig`): `axpby` with a zero `beta` never reads `y`, with a zero `alpha` never reads `x`, both zero store zeros; `rotm` with flag -2 changes nothing; the extremes' first NaN wins, ties keep the first; `nrm2` is Inf for an infinity and NaN for a NaN, the plain sum of squares past `f64`; a zero `alpha` in `scal` follows its flag. In level 2 a zero `beta` overwrites `y`, a zero `alpha` returns once `y` is scaled, a Hermitian update stores a real diagonal, entries outside a band or triangle and a unit diagonal are never multiplied, and the rank updates pass over a column whose factors are zero; complex infinities may meet in another order, giving NaN (`pattern.expectWideAnyOrder`). A solve's special values go off the diagonal and in the right-hand side, the diagonal dominating. Where a core's converted kernels did otherwise, they are not used (`vector.routed`, [#226](https://github.com/randyos-org/rstd/issues/226)).
 
 The ported suites (`_test/from_openblas/`) leave out what does not translate: `xerbla` and the bad-letter exits (rstd takes enums; only the letters a routine rejects stand in), checks that scalars come back unchanged, the snapshot and summary options, CBLAS's row-major layout and shifted argument numbers, `utest/test_fork.c` and `test_post_fork*.c`, and the `ARMV8` dot cases that preload a register. The heavy sweeps run their `.dat` tables natively and the smaller tables on the rigs (`reduced`); one more test runs every suite on each linked core.
 
@@ -2278,7 +2278,7 @@ they run natively too.
 
 Every core keeps the portable kernels' contract, so the edge and denormal tests hold every core
 to the same expectations. Where a core's converted kernels did otherwise, they are not used
-(`vector.routed`) or are patched (above); [`issues.md`](../../issues.md) records what upstream's do.
+(`vector.routed`) or are patched (above); the [issues labeled `upstream: openblas`](https://github.com/randyos-org/rstd/issues?q=is%3Aissue+label%3A%22upstream%3A+openblas%22) record what upstream's do.
 
 ### OpenBLAS's suites
 
@@ -2318,7 +2318,7 @@ here can.
 | `wasm-test` | WASI under Node, a module with SIMD128 and one without (`wasm-test-simd128`, `wasm-test-portable`) | the freestanding rigs' tests, `abi.zig` and `threading.zig`, on the SIMD core and the portable path |
 | `rstd-check-macho` | build only, x86_64 and aarch64 macOS, every core | Mach-O assembly errors |
 | `rstd-check-uefi` | build only, x86_64 and aarch64 UEFI, the UEFI rigs' runner, no filter | every OS-free test compiles for UEFI, also those the rigs leave out |
-| `rstd-check-zig017` | build and link only, with Zig 0.17.0, zfls's six targets, every core | zfls's toolchain builds rstd (Requirements) |
+| `rstd-check-zig017` | build and link only, with Zig 0.17.1, zfls's six targets, every core | zfls's toolchain builds rstd (Requirements) |
 | `rstd-test-x87` | the native suite as `pentium3` code (`x86-windows-gnu` or `x86-linux-musl`), Debug and ReleaseSafe; x86 hosts | x87 widths with threads and an OS; run in each full sweep, with the `-safe` rigs |
 
 The freestanding and UEFI machines (`build/qemu/machines.zig`):
@@ -2342,13 +2342,13 @@ The freestanding and UEFI machines (`build/qemu/machines.zig`):
 | `i386-safe`, `i386-max-safe` | as `i386`, `i386-max` | ReleaseSafe: Debug stores every value to memory, which hides x87 width bugs (T56's reductions failed only optimized) |
 | `aarch64-quad` | as `aarch64` | `quad_precision`: `XDouble` is `f128`, so the vtable's `q` and `x` slots get tested off x86 |
 | `x86_64` | `max` under TCG | |
-| `powerpc64le`, `powerpc64le-power10` | `power9`, `power10` | ReleaseSafe: LLVM's FastISel bug ([`issues.md`](../../issues.md)) |
+| `powerpc64le`, `powerpc64le-power10` | `power9`, `power10` | ReleaseSafe: LLVM's FastISel bug ([#186](https://github.com/randyos-org/rstd/issues/186)) |
 | `powerpc64` | `power10` on `pseries` under VOF, big-endian | every 64-bit POWER core; Zig emits ELFv2 here too, so it boots as the little-endian rigs do; ReleaseSafe |
 | `powerpc` | G4 on `mac99`, OpenBIOS | the `ppcg4` core; builds in debug |
-| `powerpc-750` | `750` on `mac99`, OpenBIOS | RandyOS's iBook G3 target, `powerpc-freestanding-eabi` with CPU `750`: soft float, so no kernel objects (`-Dblas-cores=none`); the portable kernels. Not `750fx`, which OpenBIOS hangs on ([`issues.md`](../../issues.md)) |
+| `powerpc-750` | `750` on `mac99`, OpenBIOS | RandyOS's iBook G3 target, `powerpc-freestanding-eabi` with CPU `750`: soft float, so no kernel objects (`-Dblas-cores=none`); the portable kernels. Not `750fx`, which OpenBIOS hangs on ([#225](https://github.com/randyos-org/rstd/issues/225)) |
 | `powerpc-750-hf` | `750` on `mac99`, OpenBIOS | the 750 with hard float: every 32-bit core linked, none runnable (the PVR names none), so the portable kernels |
 | `powerpc-pseries` | the G4 build on a POWER10 in 32-bit mode | power3 to power6, ppc970 and cell as 32-bit code |
-| `powerpc-power9` | a 32-bit POWER8 build, less `64bit` and `fpcvt`, on a POWER9 in 32-bit mode | power8 and power9 as 32-bit code (Settled decisions: filling upstream gaps); power10 cannot link, as LLVM fails on 32-bit ISA 3.0 builds ([`issues.md`](../../issues.md)) |
+| `powerpc-power9` | a 32-bit POWER8 build, less `64bit` and `fpcvt`, on a POWER9 in 32-bit mode | power8 and power9 as 32-bit code (Settled decisions: filling upstream gaps); power10 cannot link, as LLVM fails on 32-bit ISA 3.0 builds ([#187](https://github.com/randyos-org/rstd/issues/187)) |
 | `s390x` | `max` | |
 | `x86_64-uefi` | `max` on `q35`, OVMF | baseline `x86_64-uefi` build; the app turns on the AVX and AVX-512 state |
 | `aarch64-uefi` | `cortex-a72` on `virt`, AAVMF | baseline `aarch64-uefi` build; HVF on an arm64 Mac, SME there |
@@ -2359,7 +2359,7 @@ The Linux machines (`build/qemu/machines.zig`; `qemu-check-<machine>` builds one
 | Machine | CPU | Notes |
 | --- | --- | --- |
 | `linux-aarch64` | `max` under TCG, the host's under HVF | baseline build: no SVE cores; `vortexm4` under HVF. Debian 14's kernel (7.0): 13's 6.12 is built without SME, which Linux allows from 6.16 |
-| `linux-aarch64-sve` | `max` under TCG, also on a Mac | built for `neoverse_v1`: the SVE cores and `armv9sme`. No fiber `Io` tests: std's switch does not build for SVE ([`issues.md`](../../issues.md)) |
+| `linux-aarch64-sve` | `max` under TCG, also on a Mac | built for `neoverse_v1`: the SVE cores and `armv9sme`. No fiber `Io` tests: std's switch does not build for SVE ([#212](https://github.com/randyos-org/rstd/issues/212)) |
 | `linux-x86_64` | `max` under TCG | 3 GB: the test is over 700 MB (every core's kernels with debug info), and `/`, the unpacked initramfs, gets half the memory |
 | `linux-arm` | `cortex-a15` | |
 | `linux-riscv64` | `rv64,v=true,vlen=512` | |
@@ -2368,7 +2368,7 @@ The Linux machines (`build/qemu/machines.zig`; `qemu-check-<machine>` builds one
 
 Stubs with no step: `sparc` (32-bit; LLD cannot link 32-bit SPARC: LLVM 21.1.0 `lld/ELF/Arch`
 has `SPARCV9.cpp` only), `sparc64` and `sparc64-debug` (`sun4u`, ReleaseFast and Debug in images
-OpenBIOS maps 4 MB of; tier 4, todo.md T39), `powerpc-macho` and
+OpenBIOS maps 4 MB of; tier 4, [#131](https://github.com/randyos-org/rstd/issues/131)), `powerpc-macho` and
 `linux-i386` (TCG's x87 page-boundary bug). The big-endian rigs are `s390x`, `powerpc64`, and
 `mips64r2`, `mips64r6`, `mips32r2` and `mips32r5`. Every family has a rig that builds in debug.
 `-Dblas-cores` does not change what the rigs link.
@@ -2448,7 +2448,7 @@ Rig mechanics:
 ## Open issues
 
 - Upstream, toolchain and emulator problems, with their workarounds, are in
-  [`issues.md`](../../issues.md); open numerical and performance questions in
+  [the upstream issues](https://github.com/randyos-org/rstd/labels?q=upstream); open numerical and performance questions in
   [`comparisons.md`](blas/comparisons.md).
 - The mips `cpucfg` corrections and the sparc `sllx` rewrite are unverified on hardware; ARMv7
   NEON and AltiVec flushing was seen on the rigs, not on hardware.

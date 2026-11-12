@@ -205,7 +205,7 @@ fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedT
     // a filtered run still prints the core
     const core_test = "linalg.blas.__root__.test.the core in use";
     const run_filters = if (core != null and filters.len != 0) try std.mem.concat(b.allocator, []const u8, &.{ filters, &.{core_test} }) else filters;
-    const mod = try buildroot.addRstdModule(b, null, t, optimize, .all, false, false);
+    const mod = try buildroot.addRstdModule(b, null, t, optimize, .all, .{});
     const test_exe = try buildroot.addRstdTest(b, mod, t, optimize, run_filters);
     const init_exe = b.addExecutable(.{ .name = b.fmt("init-{s}", .{m.name}), .root_module = b.createModule(.{
         .root_source_file = b.path("test/linux/init.zig"),

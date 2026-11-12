@@ -368,7 +368,7 @@ test "threaded gemm keeps the serial bits on a fiber Io with every peer on the c
     const Evented = threading.Evented;
     if (comptime !test_io.hosted or Evented == void) return error.SkipZigTest;
     // one thread, so a waiter that never yielded would hang; with worker
-    // threads std's `Uring` and `Dispatch` crash in `Group` (issues.md)
+    // threads std's `Uring` and `Dispatch` crash in `Group` (issue #208)
     var ev: Evented = undefined;
     if (!test_io.initEvented(&ev, 0)) return error.SkipZigTest;
     defer ev.deinit();

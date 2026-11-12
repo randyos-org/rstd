@@ -196,7 +196,7 @@ pub const Arch = struct {
     /// Fixes for upstream bugs, for every variant.
     patches: []const Patch = &.{},
     /// Fixes to sources no longer converted (`roles.skip`), never applied:
-    /// the record of the fixes `issues.md` words for upstream. Each run of
+    /// the record of the fixes the upstream issues word for upstream. Each run of
     /// the architecture checks they still match.
     retired: []const Patch = &.{},
     /// The ways to build each source; empty name for just one.

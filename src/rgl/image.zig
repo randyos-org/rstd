@@ -101,10 +101,27 @@ pub fn Image(comptime Pixel: type) type {
             return out;
         }
 
-        /// Writes `data` as-is to `path` in `dir`: tightly packed, no header.
+        /// Writes `data` to `path` in `dir`: tightly packed, no header, and a
+        /// color's bytes in field order (`toNative`) on every target.
         pub fn writeRawFile(self: Self, io: StdIo, dir: StdIo.Dir, path: []const u8) !void {
-            try dir.writeFile(io, .{ .sub_path = path, .data = bytes.fromSlice(self.data) });
+            if (!native) return dir.writeFile(io, .{ .sub_path = path, .data = bytes.fromSlice(self.data) });
+            const file = try dir.createFile(io, path, .{});
+            defer file.close(io);
+            var chunk: [256]Pixel = undefined;
+            var rest = self.data;
+            while (rest.len > 0) {
+                const n = @min(rest.len, chunk.len);
+                for (chunk[0..n], rest[0..n]) |*d, p| d.* = p.toNative();
+                try file.writeStreamingAll(io, bytes.fromSlice(chunk[0..n]));
+                rest = rest[n..];
+            }
         }
+
+        /// Whether `Pixel` is a color whose bytes need `toNative` here.
+        const native = color.swapped and switch (@typeInfo(Pixel)) {
+            .@"struct" => @hasDecl(Pixel, "toNative"),
+            else => false,
+        };
     };
 }
 

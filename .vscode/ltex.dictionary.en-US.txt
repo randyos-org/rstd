@@ -2,6 +2,7 @@ _sysctl
 AAPCS
 AAVMF
 ABGR
+abicalls
 abig
 abiversion
 abse
@@ -71,6 +72,7 @@ ARMEB
 armhf
 asimd
 ASLR
+asmcheck
 asmfmt
 asml
 asr
@@ -91,6 +93,7 @@ axpyc
 AXPYKERNEL
 AXPYU
 axpyv
+bacc
 balc
 bbnd
 bbox
@@ -161,6 +164,7 @@ brk
 bscal
 BSDRDATA
 Bsvd
+btver
 bufs
 buildah
 buildutils
@@ -231,6 +235,7 @@ clone
 clone3
 close
 close_range
+clzero
 clzg
 CMOV
 cmovb
@@ -266,7 +271,9 @@ condvar
 configd
 congruential
 CONJG
+conjs
 connect
+conpty
 copy_file_range
 corespotlightd
 cortexx
@@ -359,6 +366,7 @@ dgesdd
 dgesvd
 dget
 dgetrf
+dgetri
 dgetrs
 dgettext
 dhgeqz
@@ -745,6 +753,7 @@ ftsystem
 fttype
 ftver
 ftwinfnt
+fullfp
 Funit
 funs
 Fupp
@@ -792,6 +801,7 @@ gemms
 gemmt
 gemmtrsm
 gemv
+gemvs
 genfft
 geqp
 geqpf
@@ -1098,6 +1108,7 @@ kincy
 klogo
 kloop
 kmain
+kmax
 kmod
 kpanic
 kres
@@ -1148,6 +1159,7 @@ LAVHE
 LAVSY
 Laxpy
 LBTRACKPOINT
+lcheck
 lchown
 lctlg
 lcur
@@ -1255,9 +1267,11 @@ lyap
 Lzaxpy
 lzma
 machineinstrs
+MACI
 MADBR
 madd
 maddf
+madds
 madt
 MADV
 madvise
@@ -1293,6 +1307,7 @@ mflr
 mfma
 mfmaf
 mfmsr
+mfpu
 mfpvr
 mhalf
 migrate_pages
@@ -1401,6 +1416,7 @@ MVAR
 mvec
 mvghi
 MWAIT
+mwaitx
 mydot
 mzvector
 name_to_handle_at
@@ -1455,6 +1471,7 @@ nouveau
 nranges
 nref
 nret
+Nrhs
 nrmxl
 nrmxli
 nrmxlr
@@ -2284,6 +2301,7 @@ uncompr
 unconj
 unconverged
 unenc
+unfilter
 UNFL
 unflushed
 unfused
@@ -2383,6 +2401,7 @@ vlenb
 vline
 vlineto
 vmetrics
+vmla
 vmls
 vmov
 vmovddup
@@ -2429,6 +2448,7 @@ vvcurveto
 vvfat
 VXAI
 VXAR
+vxeh
 vzeroall
 vzeroupper
 wait4
@@ -2641,6 +2661,8 @@ zhetrd
 zhetrf
 zhpr
 zhseqr
+zicsr
+zifencei
 zig
 zigcfg
 zigfmt
@@ -2650,6 +2672,8 @@ zigimg
 zigvec
 zimatcopy
 zink
+ZLADIV
+zlahqr
 zlartg
 zlaswp
 ZLATRS

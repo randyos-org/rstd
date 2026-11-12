@@ -1,4 +1,4 @@
-//! std's `Io.Group` on `Io.Evented` (`issues.md`): on 0.18.0-dev.751 `group` crashes on `Dispatch` and `Uring`, `futures` passes. Rerun
+//! std's `Io.Group` on `Io.Evented` (issue #208): on 0.18.0-dev.751 `group` crashes on `Dispatch` and `Uring`, `futures` passes. Rerun
 //! per toolchain (`ssh-repro-group-aarch64-macos`); once `group` passes, set `threading.dispatch_futures` false and drop its futures path.
 
 const std = @import("std");

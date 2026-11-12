@@ -9,6 +9,7 @@ const std = @import("std");
 const sysinfo = @import("builtin");
 const types = @import("types.zig");
 const util = @import("util.zig");
+const slots = @import("slots.zig");
 const Vtable = @import("Vtable.zig");
 const fma = @import("fma.zig");
 const extremum = @import("blas1/extremum.zig");
@@ -1373,177 +1374,43 @@ pub fn peels(comptime slot: Slot) bool {
 /// The slots `peels` names.
 pub const peeling = [_]Slot{ .sasum_k, .dasum_k, .casum_k, .zasum_k, .csum_k, .zsum_k, .ddot_k, .cdotu_k, .cdotc_k, .zdotu_k, .zdotc_k, .dgemv_n };
 
-/// The slot each function of `Real` fills, by its name there; `dsdot` over
-/// `f32` only.
-const RealSlots = struct {
-    axpy: Slot,
-    dot: Slot,
-    dsdot: ?Slot = null,
-    scal: Slot,
-    nrm2: Slot,
-    asum: Slot,
-    sum: Slot,
-    copy: Slot,
-    swap: Slot,
-    rot: Slot,
-    gemv_n: Slot,
-    gemv_t: Slot,
-    amax: Slot,
-    iamax: Slot,
-    amin: Slot,
-    iamin: Slot,
-    max: Slot,
-    imax: Slot,
-    min: Slot,
-    imin: Slot,
-};
+/// The functions of `Real`, each filling the slot of its op (`slotOf`).
+const real_fns = [_][:0]const u8{ "axpy", "dot", "dsdot", "scal", "nrm2", "asum", "sum", "copy", "swap", "rot", "gemv_n", "gemv_t", "amax", "iamax", "amin", "iamin", "max", "imax", "min", "imin" };
 
-/// The slot each function of `Complex` fills, by its name there.
-const ComplexSlots = struct {
-    axpy: Slot,
-    axpyc: Slot,
-    dotu: Slot,
-    dotc: Slot,
-    scal: Slot,
-    nrm2: Slot,
-    asum: Slot,
-    sum: Slot,
-    copy: Slot,
-    swap: Slot,
-    amax: Slot,
-    iamax: Slot,
-    amin: Slot,
-    iamin: Slot,
-    rot: Slot,
-    gemv_n: Slot,
-    gemv_t: Slot,
-    gemv_r: Slot,
-    gemv_c: Slot,
-    gemv_o: Slot,
-    gemv_u: Slot,
-    gemv_s: Slot,
-    gemv_d: Slot,
-};
+/// The functions of `Complex`, likewise.
+const complex_fns = [_][:0]const u8{ "axpy", "axpyc", "dotu", "dotc", "scal", "nrm2", "asum", "sum", "copy", "swap", "amax", "iamax", "amin", "iamin", "rot", "gemv_n", "gemv_t", "gemv_r", "gemv_c", "gemv_o", "gemv_u", "gemv_s", "gemv_d" };
 
-pub const real_slots = .{
-    .{ f32, RealSlots{
-        .axpy = .saxpy_k,
-        .dot = .sdot_k,
-        .dsdot = .dsdot_k,
-        .scal = .sscal_k,
-        .nrm2 = .snrm2_k,
-        .asum = .sasum_k,
-        .sum = .ssum_k,
-        .copy = .scopy_k,
-        .swap = .sswap_k,
-        .rot = .srot_k,
-        .gemv_n = .sgemv_n,
-        .gemv_t = .sgemv_t,
-        .amax = .samax_k,
-        .iamax = .isamax_k,
-        .amin = .samin_k,
-        .iamin = .isamin_k,
-        .max = .smax_k,
-        .imax = .ismax_k,
-        .min = .smin_k,
-        .imin = .ismin_k,
-    } },
-    .{ f64, RealSlots{
-        .axpy = .daxpy_k,
-        .dot = .ddot_k,
-        .scal = .dscal_k,
-        .nrm2 = .dnrm2_k,
-        .asum = .dasum_k,
-        .sum = .dsum_k,
-        .copy = .dcopy_k,
-        .swap = .dswap_k,
-        .rot = .drot_k,
-        .gemv_n = .dgemv_n,
-        .gemv_t = .dgemv_t,
-        .amax = .damax_k,
-        .iamax = .idamax_k,
-        .amin = .damin_k,
-        .iamin = .idamin_k,
-        .max = .dmax_k,
-        .imax = .idmax_k,
-        .min = .dmin_k,
-        .imin = .idmin_k,
-    } },
-};
-
-pub const complex_slots = .{
-    .{ f32, ComplexSlots{
-        .axpy = .caxpy_k,
-        .axpyc = .caxpyc_k,
-        .dotu = .cdotu_k,
-        .dotc = .cdotc_k,
-        .scal = .cscal_k,
-        .nrm2 = .cnrm2_k,
-        .asum = .casum_k,
-        .sum = .csum_k,
-        .copy = .ccopy_k,
-        .swap = .cswap_k,
-        .amax = .camax_k,
-        .iamax = .icamax_k,
-        .amin = .camin_k,
-        .iamin = .icamin_k,
-        .rot = .csrot_k,
-        .gemv_n = .cgemv_n,
-        .gemv_t = .cgemv_t,
-        .gemv_r = .cgemv_r,
-        .gemv_c = .cgemv_c,
-        .gemv_o = .cgemv_o,
-        .gemv_u = .cgemv_u,
-        .gemv_s = .cgemv_s,
-        .gemv_d = .cgemv_d,
-    } },
-    .{ f64, ComplexSlots{
-        .axpy = .zaxpy_k,
-        .axpyc = .zaxpyc_k,
-        .dotu = .zdotu_k,
-        .dotc = .zdotc_k,
-        .scal = .zscal_k,
-        .nrm2 = .znrm2_k,
-        .asum = .zasum_k,
-        .sum = .zsum_k,
-        .copy = .zcopy_k,
-        .swap = .zswap_k,
-        .amax = .zamax_k,
-        .iamax = .izamax_k,
-        .amin = .zamin_k,
-        .iamin = .izamin_k,
-        .rot = .zdrot_k,
-        .gemv_n = .zgemv_n,
-        .gemv_t = .zgemv_t,
-        .gemv_r = .zgemv_r,
-        .gemv_c = .zgemv_c,
-        .gemv_o = .zgemv_o,
-        .gemv_u = .zgemv_u,
-        .gemv_s = .zgemv_s,
-        .gemv_d = .zgemv_d,
-    } },
-};
+/// The slot function `name` over `T` fills: its `slots.Op` at `T`'s letter, or
+/// null for `dsdot` past `f32`.
+fn slotOf(comptime T: type, comptime name: []const u8) ?Slot {
+    if (std.mem.eql(u8, name, "dsdot")) return if (T == f32) .dsdot_k else null;
+    const op: slots.Op = if (@hasField(slots.Op, name ++ "_k")) @field(slots.Op, name ++ "_k") else @field(slots.Op, name);
+    return slots.slotTag(.from(slots.letter(T).?), op);
+}
 
 /// A kernel: the slot it fills, and the function of `Real` or `Complex` over
 /// `F` that is it.
 const Kernel = struct { slot: Slot, F: type, complex: bool, f: [:0]const u8 };
 
+/// Every function here as a kernel, whatever its type's lanes do with
+/// denormals.
+pub const every: []const Kernel = blk: {
+    var r: []const Kernel = &.{};
+    for ([_]type{ f32, f64 }) |F| for (real_fns) |name| {
+        if (slotOf(F, name)) |s| r = r ++ &[_]Kernel{.{ .slot = s, .F = F, .complex = false, .f = name }};
+    };
+    for ([_]type{ f32, f64 }) |F| for (complex_fns) |name| {
+        r = r ++ &[_]Kernel{.{ .slot = slotOf(std.math.Complex(F), name).?, .F = F, .complex = true, .f = name }};
+    };
+    break :blk r;
+};
+
 /// Every kernel here: none in a type whose lanes flush denormals
 /// (`util.vectorIeee`), whose slots keep the portable kernels.
 pub const kernels: []const Kernel = blk: {
     var r: []const Kernel = &.{};
-    for (real_slots) |p| {
-        if (!util.vectorIeee(p[0])) continue;
-        for (@typeInfo(RealSlots).@"struct".field_names) |name| {
-            const slot: ?Slot = @field(p[1], name);
-            if (slot) |s| r = r ++ &[_]Kernel{.{ .slot = s, .F = p[0], .complex = false, .f = name }};
-        }
-    }
-    for (complex_slots) |p| {
-        if (!util.vectorIeee(p[0])) continue;
-        for (@typeInfo(ComplexSlots).@"struct".field_names) |name| {
-            r = r ++ &[_]Kernel{.{ .slot = @field(p[1], name), .F = p[0], .complex = true, .f = name }};
-        }
+    for (every) |k| {
+        if (util.vectorIeee(k.F)) r = r ++ &[_]Kernel{k};
     }
     break :blk r;
 };

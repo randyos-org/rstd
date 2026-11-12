@@ -1,7 +1,8 @@
 const std = @import("std");
 const flate = std.compress.flate;
 
-const RGBA = @import("../color.zig").RGBA;
+const color = @import("../color.zig");
+const RGBA = color.RGBA;
 const RgbaImage = @import("../image.zig").RgbaImage;
 const bytes = @import("../../bytes.zig");
 const zigstd = @import("../../zigstd.zig");
@@ -136,21 +137,6 @@ pub const IHdr = struct {
 /// a minimal, non-interlaced, filter-type-0 (None) RGBA8 PNG
 /// encoder. See https://www.w3.org/TR/png/ for the chunk layout.
 pub fn encode(alloc: Allocator, img: *const RgbaImage) ![]u8 {
-    var out: ByteArrayList = .empty;
-    defer out.deinit(alloc);
-    try out.appendSlice(alloc, &png_signature);
-
-    var ihdr: IHdr = .{
-        .width = img.width,
-        .height = img.height,
-        .bit_depth = 8, // bit depth
-        .color_type = ColorType.RGBA,
-        .compression_method = 0, // compression method: deflate
-        .filter_method = 0, // filter method
-        .interlace_method = 0, // interlace method: none
-    };
-    try ihdr.appendToByteArrayList(alloc, &out);
-
     // Raw (pre-compression) scanlines: filter-type byte (0/None) + RGBA row bytes.
     const w: usize = @intCast(img.width);
     const h: usize = @intCast(img.height);
@@ -159,16 +145,37 @@ pub fn encode(alloc: Allocator, img: *const RgbaImage) ![]u8 {
     var y: usize = 0;
     while (y < h) : (y += 1) {
         try uncompressed.append(alloc, 0); // filter type: None
-        // RGBA is a packed struct of four u8 fields, so each row's pixels are
-        // already byte-for-byte identical to PNG's expected R,G,B,A order.
-        try appendArrayBytes(alloc, &uncompressed, img.data[y * w .. (y + 1) * w]);
+        // a packed RGBA row is PNG's R,G,B,A bytes as-is, unless `swapped`
+        const row = img.data[y * w .. (y + 1) * w];
+        if (color.swapped) {
+            for (row) |p| try uncompressed.appendSlice(alloc, &p.toArray());
+        } else try appendArrayBytes(alloc, &uncompressed, row);
     }
+    return encodeScanlines(alloc, img.width, img.height, uncompressed.items);
+}
+
+/// An RGBA8 PNG of `scanlines`, each a filter-type byte and the row's bytes.
+fn encodeScanlines(alloc: Allocator, width: u32, height: u32, scanlines: []const u8) ![]u8 {
+    var out: ByteArrayList = .empty;
+    defer out.deinit(alloc);
+    try out.appendSlice(alloc, &png_signature);
+
+    var ihdr: IHdr = .{
+        .width = width,
+        .height = height,
+        .bit_depth = 8, // bit depth
+        .color_type = ColorType.RGBA,
+        .compression_method = 0, // compression method: deflate
+        .filter_method = 0, // filter method
+        .interlace_method = 0, // interlace method: none
+    };
+    try ihdr.appendToByteArrayList(alloc, &out);
 
     var idat: StdIo.Writer.Allocating = try .initCapacity(alloc, 4096);
     defer idat.deinit();
     var window: [flate.max_window_len]u8 = undefined;
     var compressor = try flate.Compress.init(&idat.writer, &window, .zlib, .default);
-    try compressor.writer.writeAll(uncompressed.items);
+    try compressor.writer.writeAll(scanlines);
     try compressor.finish();
     try (PngChunk{
         .chunk_type = PngChunkType.IDAT,
@@ -230,7 +237,8 @@ pub fn decode(alloc: Allocator, raw_bytes: []const u8, options: DecodeOptions) !
     const filtered = uncompressed.written();
     if (filtered.len != h * (stride + 1)) return error.TruncatedPngData;
 
-    const img = try RgbaImage.init(alloc, width, height, .blank);
+    var img = try RgbaImage.init(alloc, width, height, .blank);
+    errdefer img.deinit(alloc);
     try unfilterRows(alloc, img, filtered, w, h, bpp);
     return img;
 }
@@ -350,6 +358,13 @@ test "encode/decode round-trips a small RGBA image" {
     try zigstd.testExpectEqual(img.width, decoded.width);
     try zigstd.testExpectEqual(img.height, decoded.height);
     for (img.data, decoded.data) |a, b| try zigstd.testExpectTrue(a.equals(b));
+}
+
+test "decode frees the image when a scanline's filter type is invalid" {
+    const alloc = zigstd.testAllocator;
+    const raw_bytes = try encodeScanlines(alloc, 1, 1, &.{ 5, 1, 2, 3, 4 });
+    defer alloc.free(raw_bytes);
+    try zigstd.testExpectError(error.UnsupportedPngFilter, decode(alloc, raw_bytes, .{}));
 }
 
 test "decode rejects a non-PNG signature" {

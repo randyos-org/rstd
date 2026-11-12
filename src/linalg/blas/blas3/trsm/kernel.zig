@@ -25,7 +25,7 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
             return util.scalar(E, .{ x[0] * y[0] - x[1] * y[1], x[0] * y[1] + x[1] * y[0] });
         }
         // `c` comptime: a run-time one selects between `-x` and `x`, which
-        // LLVM cannot compile in a loop on MIPS64r6 (issues.md)
+        // LLVM cannot compile in a loop on MIPS64r6 (issue #192)
         fn conjIf(x: E, comptime c: bool) E {
             if (comptime !complex) return x;
             return if (c) .{ x[0], -x[1] } else x;

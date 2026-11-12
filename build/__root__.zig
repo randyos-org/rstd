@@ -19,27 +19,32 @@ const Optimize = rstdbuild.Optimize;
 /// rstd's module for `target`: its options, BLAS kernels and platform imports.
 /// `name` registers it for consumers; null keeps it private to this build (a
 /// second target, as `qemu/__root__.zig`'s macOS VM uses).
+/// What `addRstdModule` builds in beyond the library itself.
+pub const ModuleOptions = struct {
+    vulkan: bool = false,
+    /// RenderDoc's in-app API for `rgl.renderdoc`; desktop targets only.
+    renderdoc: bool = false,
+};
+
 pub fn addRstdModule(
     b: *Build,
     name: ?[]const u8,
     target: ResolvedTarget,
     optimize: Optimize,
     blas_cores: rstdbuild.BlasCores,
-    vulkan: bool,
-    /// RenderDoc's in-app API for `rgl.renderdoc`; desktop targets only.
-    renderdoc: bool,
+    opts: ModuleOptions,
 ) !*Module {
     const root = b.path("src/__root__.zig");
     const mod = if (name) |n|
         b.addModule(n, .{ .root_source_file = root })
     else
         b.createModule(.{ .root_source_file = root, .target = target, .optimize = optimize });
-    const has_renderdoc = renderdoc and switch (target.result.os.tag) {
+    const has_renderdoc = opts.renderdoc and switch (target.result.os.tag) {
         .windows, .linux, .macos => true,
         else => false,
     };
     const options = try rstdbuild.addBuildOptionsModule(b, @tagName(zon.name), zon.version, null);
-    options.addOption(bool, "has_vulkan", vulkan);
+    options.addOption(bool, "has_vulkan", opts.vulkan);
     options.addOption(bool, "has_renderdoc", has_renderdoc);
     mod.addImport("rstd_options", try rstdbuild.optionsModule(options));
     // Stock Zig rejects `@Matrix` even in a file it never analyzes, so the
@@ -64,7 +69,13 @@ pub fn addRstdTest(b: *Build, mod: *Module, target: ResolvedTarget, optimize: Op
     const test_mod = try rstdbuild.cloneModuleWithTarget(b, mod, target);
     test_mod.optimize = optimize;
     if (tsan and target.result.os.tag == .linux and target.result.abi.isGnu()) test_mod.sanitize_thread = true;
-    return b.addTest(.{ .root_module = test_mod, .filters = filters });
+    const t = b.addTest(.{ .root_module = test_mod, .filters = filters });
+    // POWER: the Debug test object passes a branch's 32 MiB reach; with function
+    // sections the linker adds long-branch stubs (issue #265)
+    if (target.result.cpu.arch == .powerpc64 or target.result.cpu.arch == .powerpc64le) {
+        if (@hasField(Compile, "function_sections")) t.function_sections = true else t.link_function_sections = true;
+    }
+    return t;
 }
 
 /// zfls's release targets: the `Cross-compile and package` step of zfls's
@@ -97,7 +108,7 @@ pub fn build(b: *Build) !void {
     // compiling them only happens when asked for.
     const vulkan_opt = b.option(bool, "vulkan", "Compile rgl's Vulkan/SPIR-V shaders") orelse false;
     const renderdoc_opt = b.option(bool, "renderdoc", "Link RenderDoc's in-app capture API (fetches renderdoc and translate-c)") orelse false;
-    const rstd_mod = try addRstdModule(b, "rstd", target, optimize, blas_cores, vulkan_opt, renderdoc_opt);
+    const rstd_mod = try addRstdModule(b, "rstd", target, optimize, blas_cores, .{ .vulkan = vulkan_opt, .renderdoc = renderdoc_opt });
     if (vulkan_opt) {
         try rstdbuild.wireRglShaders(b, optimize, rstd_mod);
         rstdbuild.addVulkan(b).addImportToModule(rstd_mod);
@@ -113,7 +124,7 @@ pub fn build(b: *Build) !void {
                 probes.dependOn(&b.addInstallFile(s.spv_frag_path, "spv/" ++ op ++ ".frag.spv").step);
             }
         }
-        for ([_][]const u8{ "rgl", "glyph", "image" }) |n| {
+        for ([_][]const u8{ "shapes", "glyph", "image" }) |n| {
             const s = try rstdbuild.addShader(b, optimize, b.path(b.fmt("src/rgl/shaders/{s}.zig", .{n})), n, .{ ._rstd_mod = rstd_mod });
             probes.dependOn(&b.addInstallFile(s.spv_frag_path, b.fmt("spv/{s}.frag.spv", .{n})).step);
             probes.dependOn(&b.addInstallFile(s.spv_vert_path, b.fmt("spv/{s}.vert.spv", .{n})).step);
@@ -129,7 +140,7 @@ pub fn build(b: *Build) !void {
     // tests
     // -----
     // glibc only: static on musl it faults at start; macOS needs SDK headers
-    // the toolchain lacks (issues.md)
+    // the toolchain lacks (issue #178)
     tsan = b.option(bool, "rstd-tsan", "Build rstd's linux-gnu tests with ThreadSanitizer; the x86_64 and aarch64 Linux rigs then take glibc from Nix on -Dtest-host") orelse false;
     const test_filter = b.option([]const []const u8, "rstd-test-filter", "Only run rstd tests whose name contains this (repeatable)") orelse &.{};
     const rstd_test_exe = try addRstdTest(b, rstd_mod, target, optimize, test_filter);
@@ -151,7 +162,7 @@ pub fn build(b: *Build) !void {
     if (host.cpu.arch.isX86() and (host.os.tag == .windows or host.os.tag == .linux)) {
         const x87 = b.resolveTargetQuery(.{ .cpu_arch = .x86, .os_tag = host.os.tag, .abi = if (host.os.tag == .windows) .gnu else .musl, .cpu_model = .{ .explicit = &std.Target.x86.cpu.pentium3 } });
         for ([_]Optimize{ .debug, .safe }) |mode| {
-            const x87_mod = try addRstdModule(b, null, x87, mode, blas_cores, false, false);
+            const x87_mod = try addRstdModule(b, null, x87, mode, blas_cores, .{});
             const x87_exe = try addRstdTest(b, x87_mod, x87, mode, test_filter);
             x87_step.dependOn(&b.addRunArtifact(x87_exe).step);
             x87_build.dependOn(&x87_exe.step);
@@ -166,7 +177,7 @@ pub fn build(b: *Build) !void {
     const macho_step = b.step("rstd-check-macho", "Build rstd's unit tests for macOS (x86_64, aarch64) without running them");
     for ([_]std.Target.Cpu.Arch{ .x86_64, .aarch64 }) |arch| {
         const macho = b.resolveTargetQuery(.{ .cpu_arch = arch, .os_tag = .macos });
-        const macho_mod = try addRstdModule(b, null, macho, optimize, .all, false, false);
+        const macho_mod = try addRstdModule(b, null, macho, optimize, .all, .{});
         macho_step.dependOn(&(try addRstdTest(b, macho_mod, macho, optimize, &.{})).step);
     }
 
@@ -186,19 +197,43 @@ pub fn build(b: *Build) !void {
         }).step);
     }
 
-    // zfls vendors rstd and builds it with Zig 0.17.0 for these targets
+    // zfls vendors rstd and builds it with Zig 0.17.1 for these targets
     // (design.md, Requirements); every core's kernels, built, not run
-    const zig017_step = b.step("rstd-check-zig017", "Build rstd's unit tests for zfls's targets without running them; run with Zig 0.17.0");
-    if (sysinfo.zig_version.major != 0 or sysinfo.zig_version.minor != 17)
-        zig017_step.dependOn(&b.addFail("rstd-check-zig017 checks Zig 0.17.0; run it with that zig").step);
+    const zig017_step = b.step("rstd-check-zig017", "Build rstd's unit tests for zfls's targets without running them; run with Zig 0.17.1 or a later 0.17");
+    if (sysinfo.zig_version.major != 0 or sysinfo.zig_version.minor != 17 or sysinfo.zig_version.patch < 1)
+        zig017_step.dependOn(&b.addFail("rstd-check-zig017 checks Zig 0.17.1 or a later 0.17; run it with that zig").step);
     for (zfls_targets) |query| {
         const t = b.resolveTargetQuery(query);
-        const t_mod = try addRstdModule(b, null, t, optimize, .all, false, false);
+        const t_mod = try addRstdModule(b, null, t, optimize, .all, .{});
         const t_test = try addRstdTest(b, t_mod, t, optimize, test_filter);
         // emitted, so codegen and the link run too, as in zfls's builds
         _ = t_test.getEmittedBin();
         zig017_step.dependOn(&t_test.step);
     }
+
+    // a console command (`zig build --watch`) in a pseudoconsole, its output
+    // also logged for another reader
+    const pty_tee_install = if (host.os.tag == .windows) install: {
+        // rstd's root for the host; `addRstd` keeps only its options imports, so win32 is added back
+        const pty_tee_rstd = try rstdbuild.addRstd(b, b.graph.host, null, false, .{ ._rstd_mod = rstd_mod });
+        rstdbuild.addWin32ToModIfWinTgt(b, b.graph.host, pty_tee_rstd.mod);
+
+        const pty_tee_mod = b.createModule(.{
+            .root_source_file = b.path("tools/pty-tee.zig"),
+            .target = b.graph.host,
+            .optimize = optimize,
+        });
+        pty_tee_rstd.addImportToModule(pty_tee_mod);
+
+        const pty_tee_exe = b.addExecutable(.{
+            .name = "pty-tee",
+            .root_module = pty_tee_mod,
+        });
+        break :install &b.addInstallArtifact(pty_tee_exe, .{}).step;
+    } else &b.addFail("pty-tee is Windows only; use script elsewhere").step;
+
+    const pty_tee_step = b.step("pty-tee", "Install tools/pty-tee.zig, which runs a console command with its output logged, to <prefix>/bin");
+    pty_tee_step.dependOn(pty_tee_install);
 
     // the same tests that need no OS, on emulated machines
     const rigs = try qemutest.addQemuTests(b, optimize);

@@ -11,7 +11,11 @@ const coretypes = @import("../../cpu/coretypes.zig");
 const corespec = @import("../../cpu/corespec.zig");
 const select = @import("../../cpu/select.zig");
 const driver = @import("../driver.zig");
+const slots = @import("../../slots.zig");
 const small = @import("small.zig");
+
+const Gemm = slots.Gemm;
+const Param = slots.Param;
 
 /// How `p`, `q` or `r` comes about.
 pub const Size = union(enum) {
@@ -273,16 +277,15 @@ fn derivedR(p: i32, q: i32, elem: i64, table: Table) i32 {
     return @intCast(r & ~@as(i64, 15));
 }
 
-/// Stores one precision's values under the vtable's `<name>gemm_*` fields.
-fn setPrec(vt: *Vtable, comptime name: []const u8, sh: Shape, r: Resolved) void {
-    const prefix = comptime if (std.mem.eql(u8, name, "c3m")) "cgemm3m" else if (std.mem.eql(u8, name, "z3m")) "zgemm3m" else if (std.mem.eql(u8, name, "x3m")) "xgemm3m" else name ++ "gemm";
-    @field(vt, prefix ++ "_p") = r.p;
-    @field(vt, prefix ++ "_q") = r.q;
-    @field(vt, prefix ++ "_r") = r.r;
-    @field(vt, prefix ++ "_unroll_m") = sh.unroll_m;
-    @field(vt, prefix ++ "_unroll_n") = sh.unroll_n;
-    @field(vt, prefix ++ "_unroll_mn") = if (sh.unroll_mn > 0) sh.unroll_mn else @max(sh.unroll_m, sh.unroll_n);
-    if (comptime std.mem.eql(u8, name, "b") or std.mem.eql(u8, name, "sb")) @field(vt, prefix ++ "_align_k") = sh.align_k;
+/// Stores the values of `g`, a `Table` field's gemm, in its vtable fields.
+fn setPrec(vt: *Vtable, comptime g: Gemm, sh: Shape, r: Resolved) void {
+    slots.paramPtr(vt, g, .p).* = r.p;
+    slots.paramPtr(vt, g, .q).* = r.q;
+    slots.paramPtr(vt, g, .r).* = r.r;
+    slots.paramPtr(vt, g, .unroll_m).* = sh.unroll_m;
+    slots.paramPtr(vt, g, .unroll_n).* = sh.unroll_n;
+    slots.paramPtr(vt, g, .unroll_mn).* = if (sh.unroll_mn > 0) sh.unroll_mn else @max(sh.unroll_m, sh.unroll_n);
+    if (comptime g == .b or g == .sb) slots.paramPtr(vt, g, .align_k).* = sh.align_k;
 }
 
 /// Fills the vtable's blocking parameters for a core of `family`.
@@ -374,8 +377,8 @@ fn installRule(vt: *Vtable, comptime family: Family, comptime core_name: []const
         const set: Resolved = if (env.prid == 0x0014b020) .{ .p = 128, .q = 176, .r = 360 } else .{ .p = 64, .q = 120, .r = 4096 };
         res[3] = set;
     }
-    inline for (names, 0..) |name, i| setPrec(vt, name, @field(table, name), res[i]);
-    inline for (names3m, 0..) |name, i| setPrec(vt, name, @field(table, name), res3m[i]);
+    inline for (names, 0..) |name, i| setPrec(vt, @field(Gemm, name), @field(table, name), res[i]);
+    inline for (names3m, 0..) |name, i| setPrec(vt, @field(Gemm, name), @field(table, name), res3m[i]);
 
     // half and bfloat16: the headers' `p` and `q`; x86 derives `r`
     // (`setparam-ref.c:1556-1563, 2190-2205`), the others take the header's.
@@ -394,7 +397,7 @@ fn installRule(vt: *Vtable, comptime family: Family, comptime core_name: []const
         const p = fixedOf(sh.p) orelse 0;
         const q = fixedOf(sh.q) orelse 0;
         const fixed = if (x86) null else fixedOf(sh.r);
-        setPrec(vt, name, sh, if (set) .{ .p = p, .q = q, .r = fixed orelse derivedR(p, q, 4, table) } else .{ .p = 0, .q = 0, .r = 0 });
+        setPrec(vt, @field(Gemm, name), sh, if (set) .{ .p = p, .q = q, .r = fixed orelse derivedR(p, q, 4, table) } else .{ .p = 0, .q = 0, .r = 0 });
     }
 }
 
@@ -565,16 +568,16 @@ noinline fn checkCore(comptime family: Family, comptime core: CoreOf(family)) !v
         std.debug.print("{s}/{s}: symv_p={d}\n", .{ @tagName(family), @tagName(core), vt.symv_p });
         return error.TestUnexpectedResult;
     }
-    inline for (.{ "s", "d", "c", "z" }) |pre| {
-        const p = @field(vt, pre ++ "gemm_p");
-        const q = @field(vt, pre ++ "gemm_q");
-        const r = @field(vt, pre ++ "gemm_r");
-        const um = @field(vt, pre ++ "gemm_unroll_m");
+    inline for ([_]Gemm{ .s, .d, .c, .z }) |g| {
+        const p = slots.paramPtr(&vt, g, .p).*;
+        const q = slots.paramPtr(&vt, g, .q).*;
+        const r = slots.paramPtr(&vt, g, .r).*;
+        const um = slots.paramPtr(&vt, g, .unroll_m).*;
         // a precision the core has no header set for stays zero; only x86
         // rounds `p` to the unroll
         const x86 = family == .x86 or family == .x86_64;
         if (um != 0 and (p <= 0 or q <= 0 or r <= 0 or (x86 and @rem(p, um) != 0))) {
-            std.debug.print("{s}/{s}/{s}: p={d} q={d} r={d} unroll_m={d}\n", .{ @tagName(family), @tagName(core), pre, p, q, r, um });
+            std.debug.print("{s}/{s}/{s}: p={d} q={d} r={d} unroll_m={d}\n", .{ @tagName(family), @tagName(core), @tagName(g), p, q, r, um });
             return error.TestUnexpectedResult;
         }
     }
@@ -593,12 +596,12 @@ noinline fn checkCore(comptime family: Family, comptime core: CoreOf(family)) !v
     }
 }
 
-const q_fields = .{ "sgemm_q", "dgemm_q", "cgemm_q", "zgemm_q", "qgemm_q", "xgemm_q", "cgemm3m_q", "zgemm3m_q", "xgemm3m_q", "shgemm_q", "bgemm_q", "sbgemm_q" };
+const q_gemms = [_]Gemm{ .s, .d, .c, .z, .q, .x, .c3m, .z3m, .x3m, .sh, .b, .sb };
 
 /// Every precision's `q`.
-fn qOf(vt: *const Vtable) [q_fields.len]i32 {
-    var out: [q_fields.len]i32 = undefined;
-    inline for (q_fields, 0..) |f, i| out[i] = @field(vt, f);
+fn qOf(vt: *const Vtable) [q_gemms.len]i32 {
+    var out: [q_gemms.len]i32 = undefined;
+    inline for (q_gemms, 0..) |g, i| out[i] = slots.paramPtr(vt, g, .q).*;
     return out;
 }
 
@@ -742,15 +745,15 @@ test "the generic table follows parameter.c's L2 rule on x86 only" {
     try std.testing.expectEqual(@as(i32, 448), vt.sgemm_p);
     // elsewhere `parameter.c:46-48`'s 128s, whatever the L2, factor and buffer
     installGeneric(&vt, .other, 32 << 20, env);
-    inline for (.{ "s", "d", "q", "c", "z", "x" }) |pre| {
-        inline for (.{ "_p", "_q", "_r" }) |f| try std.testing.expectEqual(@as(i32, 128), @field(vt, pre ++ "gemm" ++ f));
+    inline for ([_]Gemm{ .s, .d, .q, .c, .z, .x }) |g| {
+        inline for ([_]Param{ .p, .q, .r }) |f| try std.testing.expectEqual(@as(i32, 128), slots.paramPtr(&vt, g, f).*);
     }
     // MIPS and LoongArch: `param.h:4388-4415`'s sets, which have no `q` or `x`
     const want = [4][3]i32{ .{ 128, 240, 12288 }, .{ 128, 120, 8192 }, .{ 96, 120, 4096 }, .{ 64, 120, 4096 } };
     inline for (.{ .mips, .loongarch64 }) |br| {
         installGeneric(&vt, br, 32 << 20, env);
-        inline for (.{ "s", "d", "c", "z" }, want) |pre, w| {
-            try std.testing.expectEqual(w, [3]i32{ @field(vt, pre ++ "gemm_p"), @field(vt, pre ++ "gemm_q"), @field(vt, pre ++ "gemm_r") });
+        inline for ([_]Gemm{ .s, .d, .c, .z }, want) |g, w| {
+            try std.testing.expectEqual(w, [3]i32{ slots.paramPtr(&vt, g, .p).*, slots.paramPtr(&vt, g, .q).*, slots.paramPtr(&vt, g, .r).* });
         }
         try std.testing.expectEqual(@as(i32, 0), vt.qgemm_q);
     }
@@ -856,7 +859,7 @@ test "half and bfloat16 take the header's r outside x86, and only what each fami
         try std.testing.expectEqual(t.sb.r.fixed, vt.sbgemm_r);
         try std.testing.expectEqual(t.b.r.fixed, vt.bgemm_r);
         try std.testing.expectEqual(t.sb.p.fixed, vt.sbgemm_p);
-        inline for (.{ "_p", "_q", "_r" }) |f| try std.testing.expectEqual(@as(i32, 0), @field(vt, "shgemm" ++ f));
+        inline for ([_]Param{ .p, .q, .r }) |f| try std.testing.expectEqual(@as(i32, 0), slots.paramPtr(&vt, .sh, f).*);
     }
     installCore(&vt, .arm64, .neoversen1, .{});
     try std.testing.expectEqual(@as(i32, 256), vt.sbgemm_r);
@@ -867,8 +870,8 @@ test "half and bfloat16 take the header's r outside x86, and only what each fami
     try std.testing.expectEqual(@as(i32, 256), vt.bgemm_r);
     // mips64 none
     installCore(&vt, .mips64, .loongson3r4, .{});
-    inline for (.{ "sh", "b", "sb" }) |pre| {
-        inline for (.{ "gemm_p", "gemm_q", "gemm_r" }) |f| try std.testing.expectEqual(@as(i32, 0), @field(vt, pre ++ f));
+    inline for ([_]Gemm{ .sh, .b, .sb }) |g| {
+        inline for ([_]Param{ .p, .q, .r }) |f| try std.testing.expectEqual(@as(i32, 0), slots.paramPtr(&vt, g, f).*);
     }
     // x86 derives it (`:2190-2205`)
     installCore(&vt, .x86_64, .haswell, .{});

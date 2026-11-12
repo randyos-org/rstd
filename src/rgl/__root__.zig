@@ -17,7 +17,8 @@ pub const vulkan = @import("vulkan/__root__.zig");
 const zigstd = @import("../zigstd.zig");
 
 test {
-    // Not here: shaders (its @embedFiles exist only with -Dvulkan=true),
+    // Not here: shaders (its @embedFiles exist only with -Dvulkan=true; its
+    // layout has none),
     // vulkan.gpu (needs the vulkan-zig bindings, below) and renderdoc
     // (conditionally included).
     zigstd.testRefAllDecls(image);
@@ -31,6 +32,7 @@ test {
     zigstd.testRefAllDecls(font);
     zigstd.testRefAllDecls(sw);
     zigstd.testRefAllDecls(vulkan);
+    zigstd.testRefAllDecls(shaders.layout);
 
     // with -Dvulkan=true, type-check gpu.zig too (no GPU needed)
     const rstd_options = @import("rstd_options");

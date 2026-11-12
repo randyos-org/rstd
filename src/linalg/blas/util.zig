@@ -129,7 +129,7 @@ pub fn requireReal(comptime T: type, comptime name: []const u8) void {
 }
 
 /// `@abs(v)` of a float or float vector; on MIPS MSA by a mask LLVM cannot
-/// see, as its `@abs` there keeps the sign (`issues.md`). For any `|x|` MSA may vectorize.
+/// see, as its `@abs` there keeps the sign (issue #197). For any `|x|` MSA may vectorize.
 pub fn abs(v: anytype) @TypeOf(v) {
     const T = @TypeOf(v);
     const F = if (@typeInfo(T) == .vector) @typeInfo(T).vector.child else T;
@@ -155,7 +155,7 @@ pub fn x86Has(comptime feature: std.Target.x86.Feature) bool {
     return sysinfo.target.cpu.arch.isX86() and std.Target.x86.featureSetHas(sysinfo.target.cpu.features, feature);
 }
 
-const msa = sysinfo.target.cpu.arch.isMIPS() and std.Target.mips.featureSetHas(sysinfo.target.cpu.features, .msa);
+const msa = sysinfo.target.cpu.arch.isMips() and std.Target.mips.featureSetHas(sysinfo.target.cpu.features, .msa);
 
 /// `core`'s kernel symbol for `slot` (`blaskern_daxpy_k_haswell`), exported hidden by
 /// `build/blaskern.zig`'s objects and looked up by `kernels/<arch>.zig`'s `install`.

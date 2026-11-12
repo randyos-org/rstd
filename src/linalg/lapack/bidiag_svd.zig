@@ -397,7 +397,7 @@ fn lasv2(comptime F: type, f: F, g: F, h: F) struct { ssmin: F, ssmax: F, snr: F
             ssmin = ha / a;
             ssmax = fa * a;
             if (mm == 0) {
-                // a statement: as an `if` expression, f80 crashes the self-hosted x86_64 backend (issues.md)
+                // a statement: as an `if` expression, f80 crashes the self-hosted x86_64 backend (issue #180)
                 if (l == 0) {
                     t = sign(F, 2, ft) * sign(F, 1, gt);
                 } else {
@@ -709,7 +709,7 @@ fn svdOfM(al: Allocator, io: Io, comptime F: type, um: Mat(F), vm: ?Mat(F), diag
 
 /// `s` ascending, `perm` moved with it. Faer makes one bubble pass,
 /// assuming deflation leaves at most the last value out of place; heavy
-/// deflation can leave more (T130, issues.md), so a stable insertion sort,
+/// deflation can leave more (T130, issue #254), so a stable insertion sort,
 /// the same order wherever one pass was enough.
 fn sortAscending(comptime F: type, s: []F, perm: []usize) void {
     for (1..s.len) |i| {
@@ -1027,7 +1027,7 @@ fn secant(comptime F: type, sec: anytype, shift: F, left: F, right: F, mu_cur_in
     // Faer stops here with whatever the secant reached when `f` stops changing
     // by more than `eps`, which happens far from a root that lies within
     // rounding of a pole (a tiny `col0` entry): then `mu` is wrong by orders
-    // of magnitude, and `perturbCol0` with it. Bisect instead (issues.md).
+    // of magnitude, and `perturbCol0` with it. Bisect instead (issue #250).
     if (!use_bisection and f_cur != 0 and !(@abs(f_cur - f_prev) > epsilon) and
         @abs(mu_cur - mu_prev) > 8 * epsilon * @max(@abs(mu_cur), @abs(mu_prev))) use_bisection = true;
     return .{ .use_bisection = use_bisection, .mu_cur = mu_cur, .left = left_candidate, .right = right_candidate };

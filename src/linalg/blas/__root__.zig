@@ -179,6 +179,14 @@ pub inline fn table() *const Vtable {
     return &_vtable;
 }
 
+/// The vtable for `T`: a type without slots runs the portable kernels and
+/// never reads it.
+pub fn tableOf(comptime T: type) *const Vtable {
+    return if (comptime portable.letter(T) != null) vtable() else &no_table;
+}
+
+const no_table: Vtable = .{};
+
 /// The kernel in vtable slot `slot` (`.daxpy_k`), as the reference's `DAXPY_K`
 /// is `gotoblas->daxpy_k`. A slot with no kernel for the running core, and no
 /// portable one, is a bug in the caller.
@@ -448,9 +456,12 @@ test "no core puts a kernel of its own in a q or x slot" {
     }
 }
 
-// the Linux rigs match this line against the core they expect (T40)
+// the Linux rigs match this line against the core they expect (T40); only
+// there, as `zig build` reports a passing test's stderr as a failed command
+// (issue #276)
 test "the core in use" {
     if (sysinfo.os.tag != .linux) return error.SkipZigTest;
+    if (std.testing.environ.getPosix("RSTD_TEST_PROGRESS") == null) return error.SkipZigTest;
     std.debug.print("blas core: {s}\n", .{coreName()});
 }
 

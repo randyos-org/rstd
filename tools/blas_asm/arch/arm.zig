@@ -58,7 +58,7 @@ fn minOnMi(comptime source: []const u8) arch.Patch {
 
 /// Not an upstream bug: under the soft-float convention Zig returns a complex
 /// value's struct in r0 to r3 where C passes a hidden pointer in r0
-/// (issues.md), so the `sf` complex dots take no pointer and return there,
+/// (issue #177), so the `sf` complex dots take no pointer and return there,
 /// as the power `zdot.S` patch does.
 const zig_complex_return = [_]arch.Patch{
     .{ .source = "cdot_vfp.S", .find = "#if !defined(__ARM_PCS_VFP)\n#define\tOLD_RETURN_ADDR", .replace = "#if 0\n#define\tOLD_RETURN_ADDR" },

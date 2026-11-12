@@ -657,10 +657,10 @@ fn scalarsOf(comptime T: type) []const [2][2]f64 {
 /// Shrinks `vt`'s `T` blocking (the 3M one for `three`) around the unrolls
 /// `um` and `un`, so every block and panel edge comes at small sizes.
 pub fn shrinkBlocking(comptime T: type, vt: *Vtable, comptime three: bool, um: usize, un: usize) void {
-    const pre = comptime portable.letter(T).? ++ if (three) "gemm3m_" else "gemm_";
-    @field(vt.*, pre ++ "p") = @intCast(2 * um);
-    @field(vt.*, pre ++ "q") = 5;
-    @field(vt.*, pre ++ "r") = @intCast(6 * un + 1);
+    const g = comptime portable.Gemm.of(T, three);
+    portable.paramPtr(vt, g, .p).* = @intCast(2 * um);
+    portable.paramPtr(vt, g, .q).* = 5;
+    portable.paramPtr(vt, g, .r).* = @intCast(6 * un + 1);
 }
 
 /// Every case of `r` over `T` on `vt`'s kernels.

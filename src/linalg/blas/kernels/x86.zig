@@ -11,10 +11,9 @@ const registry = @import("../registry.zig");
 pub const Core = coretypes.X86CoreType;
 
 /// Every routine with kernels here: each routine's converted assembly (its
-/// `asm/__root__.zig`), and `axpy`'s own module, which adds the kernels
-/// upstream writes in C.
+/// `asm/__root__.zig`).
 const converted = .{
-    @import("../blas1/axpy/x86/kernel.zig"),
+    registry.Kernels(Core, @import("../blas1/axpy/x86/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/asum/x86/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/copy/x86/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/dot/x86/asm/__root__.zig")),

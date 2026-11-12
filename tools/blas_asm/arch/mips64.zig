@@ -38,7 +38,13 @@ const patches = [_]arch.Patch{
         .find = ".L20:\n\tdsra\tI, N, 3\n",
         .replace = ".L20:\n\tbeqz\tINCX, .L26\n\tmove\tI, N\n\tbeqz\tINCY, .L26\n\tmove\tI, N\n\tdsra\tI, N, 3\n",
     },
+    // Loongson's prefetch, `ld $0`, is still a load: it takes a bus error on
+    // `f32` data not 8-aligned and faults past the array's end; `pref` cannot
+    .{ .source = "axpy_loongson3a.S", .find = "#define PREFETCH_DISTANCE 48\n", .replace = "#define PREFETCH_DISTANCE 48\n" ++ pref },
+    .{ .source = "daxpy_loongson3a_simd.S", .find = "#define PREFETCH_DISTANCE 2016\n", .replace = "#define PREFETCH_DISTANCE 2016\n" ++ pref },
 };
+
+const pref = "#undef PREFETCHD\n#define PREFETCHD(x) pref 0, x\n";
 
 /// Fixes to sources no longer converted: the extremes.
 const retired = firstOnTies("iamax.S", false) ++ firstOnTies("imax.S", false) ++ firstOnTies("izamax.S", false) ++

@@ -43,18 +43,18 @@ pub const Blocking = struct {
             const un: usize = K.unroll_n;
             return .{ .p = @max(um, default_p / um * um), .q = default_q, .r = @max(un, default_r), .um = um, .un = un };
         }
-        return fromSlots(vt, comptime portable.letter(T).? ++ "gemm_");
+        return fromSlots(vt, comptime .of(T, false));
     }
 
-    /// From `vt`'s slots `<pre>p`, `q`, `r`, `unroll_m` and `unroll_n`; a
+    /// From `vt`'s `p`, `q`, `r`, `unroll_m` and `unroll_n` of `g`; a
     /// size no rule set, or a rule left negative (`params.derivedR` for a
     /// wide element), takes its default.
-    pub fn fromSlots(vt: *const Vtable, comptime pre: []const u8) Blocking {
-        const um: usize = @intCast(@max(1, @field(vt, pre ++ "unroll_m")));
-        const un: usize = @intCast(@max(1, @field(vt, pre ++ "unroll_n")));
-        const p: usize = @intCast(positive(@field(vt, pre ++ "p"), default_p));
-        const q: usize = @intCast(positive(@field(vt, pre ++ "q"), default_q));
-        const r: usize = @intCast(positive(@field(vt, pre ++ "r"), default_r));
+    pub fn fromSlots(vt: *const Vtable, comptime g: portable.Gemm) Blocking {
+        const um: usize = @intCast(@max(1, portable.paramPtr(vt, g, .unroll_m).*));
+        const un: usize = @intCast(@max(1, portable.paramPtr(vt, g, .unroll_n).*));
+        const p: usize = @intCast(positive(portable.paramPtr(vt, g, .p).*, default_p));
+        const q: usize = @intCast(positive(portable.paramPtr(vt, g, .q).*, default_q));
+        const r: usize = @intCast(positive(portable.paramPtr(vt, g, .r).*, default_r));
         return .{
             // `p` a whole number of row panels
             .p = @max(um, p / um * um),
@@ -215,15 +215,27 @@ pub fn Matrix(comptime T: type) type {
     return struct { p: [*]T, ld: usize };
 }
 
+/// Which operand a copy packs, as the reference names its copies: `i` the
+/// inner (`A`'s panel), `o` the outer (`B`'s).
+pub const Side = enum { i, o };
+
+/// `<symm|hemm>_<io><u|l>tcopy`.
+fn symCopyOp(comptime herm: bool, comptime io: Side, comptime upper: bool) Op {
+    return switch (io) {
+        .i => if (herm) (if (upper) .hemm_iutcopy else .hemm_iltcopy) else (if (upper) .symm_iutcopy else .symm_iltcopy),
+        .o => if (herm) (if (upper) .hemm_outcopy else .hemm_oltcopy) else (if (upper) .symm_outcopy else .symm_oltcopy),
+    };
+}
+
 /// A symmetric (or `herm`, Hermitian) copy: `io` the side, `upper` the triangle.
-fn symCopy(comptime T: type, vt: *const Vtable, comptime io: []const u8, herm: bool, upper: bool, m: usize, n: usize, a: [*]T, lda: usize, x: usize, y: usize, dst: [*]T) void {
+fn symCopy(comptime T: type, vt: *const Vtable, comptime io: Side, herm: bool, upper: bool, m: usize, n: usize, a: [*]T, lda: usize, x: usize, y: usize, dst: [*]T) void {
     if (comptime isComplex(T)) {
         if (herm) return if (upper)
-            placed(T, vt, @field(Op, "hemm_" ++ io ++ "utcopy"), m, n, a, lda, x, y, dst)
+            placed(T, vt, comptime symCopyOp(true, io, true), m, n, a, lda, x, y, dst)
         else
-            placed(T, vt, @field(Op, "hemm_" ++ io ++ "ltcopy"), m, n, a, lda, x, y, dst);
+            placed(T, vt, comptime symCopyOp(true, io, false), m, n, a, lda, x, y, dst);
     }
-    if (upper) placed(T, vt, @field(Op, "symm_" ++ io ++ "utcopy"), m, n, a, lda, x, y, dst) else placed(T, vt, @field(Op, "symm_" ++ io ++ "ltcopy"), m, n, a, lda, x, y, dst);
+    if (upper) placed(T, vt, comptime symCopyOp(false, io, true), m, n, a, lda, x, y, dst) else placed(T, vt, comptime symCopyOp(false, io, false), m, n, a, lda, x, y, dst);
 }
 
 /// Rows of `op(A)` (`gemm_incopy` for `A^T`, else `gemm_itcopy`).
@@ -241,7 +253,7 @@ pub fn packRows(comptime T: type, vt: *const Vtable, d: Desc, x: Matrix(T), min_
     switch (d.rows) {
         .n => rowsCopy(T, vt, false, min_l, min_i, x.p + is + ls * x.ld, x.ld, dst),
         .t => rowsCopy(T, vt, true, min_l, min_i, x.p + ls + is * x.ld, x.ld, dst),
-        .upper, .lower => symCopy(T, vt, "i", d.herm, d.rows == .upper, min_l, min_i, x.p, x.ld, is, ls, dst),
+        .upper, .lower => symCopy(T, vt, .i, d.herm, d.rows == .upper, min_l, min_i, x.p, x.ld, is, ls, dst),
     }
 }
 
@@ -250,7 +262,7 @@ pub fn packCols(comptime T: type, vt: *const Vtable, d: Desc, y: Matrix(T), min_
     switch (d.cols) {
         .n => colsCopy(T, vt, false, min_l, min_jj, y.p + ls + jjs * y.ld, y.ld, dst),
         .t => colsCopy(T, vt, true, min_l, min_jj, y.p + jjs + ls * y.ld, y.ld, dst),
-        .upper, .lower => symCopy(T, vt, "o", d.herm, d.cols == .upper, min_l, min_jj, y.p, y.ld, jjs, ls, dst),
+        .upper, .lower => symCopy(T, vt, .o, d.herm, d.cols == .upper, min_l, min_jj, y.p, y.ld, jjs, ls, dst),
     }
 }
 
@@ -393,6 +405,15 @@ pub fn gemm(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, t
     const y: Matrix(T) = .{ .p = @constCast(b), .ld = ldb };
     const d: Desc = .{ .rows = if (ta) .t else .n, .cols = if (tb) .t else .n, .conj = if (comptime isComplex(T)) conj else .n };
     try run(allocator, io, T, vt, d, m, n, k, alpha, x, y, null, unlessOne(T, beta), c, ldc, want);
+}
+
+/// `C += alpha*A*B` on the blocked loops alone, one worker, never the
+/// small-matrix path: upstream's LAPACK drivers call the kernels
+/// (`getrf_single.c`), so the bits match `drive` on any part of `C`.
+pub fn gemmBlocked(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, m: usize, n: usize, k: usize, alpha: T, a: [*]const T, lda: usize, b: [*]const T, ldb: usize, c: [*]T, ldc: usize) Error!void {
+    const x: Matrix(T) = .{ .p = @constCast(a), .ld = lda };
+    const y: Matrix(T) = .{ .p = @constCast(b), .ld = ldb };
+    try run(allocator, io, T, vt, .{ .rows = .n, .cols = .n }, m, n, k, alpha, x, y, null, null, c, ldc, 1);
 }
 
 /// `C := alpha*op(A)*op(B) + beta*C` on the `upper` or lower triangle of the

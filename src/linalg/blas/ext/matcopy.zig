@@ -11,7 +11,7 @@
 //! else the products of the C. Upstream's real kernels do both; the complex
 //! ones multiply always, so `alpha` 1 there turns `0 * Inf` into NaN in the
 //! other part, and `zimatcopy`'s second copy, by 1, does so even for another
-//! `alpha` (`issues.md`). One rule for all keeps the in-place and buffered
+//! `alpha` (issue #235). One rule for all keeps the in-place and buffered
 //! `imatcopy` and `omatcopy` bit for bit the same.
 
 const std = @import("std");

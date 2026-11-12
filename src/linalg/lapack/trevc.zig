@@ -322,7 +322,7 @@ fn realLeft(comptime F: type, t: Mat(F), x: Mat(F), cn: []const F, lim: Limits(F
 ///
 /// The left solve passes `ZLATRS` the norms of `T`'s columns `ki+1..n`,
 /// bounds on its submatrix's; `ztrevc3.f` passes columns `1..n-ki`, which
-/// belong to other columns (issues.md).
+/// belong to other columns (issue #261).
 pub fn complex(al: Allocator, io: Io, comptime T: type, right: bool, t: Mat(T), x: Mat(T), rwork: []Float(T), diag: []T) ops.Error!void {
     const F = Float(T);
     const n = t.rows;

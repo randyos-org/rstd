@@ -1,0 +1,40 @@
+# Mirrors rstd's branches and tags from GitHub, the canonical repo, to
+# Codeberg, which dependents (zfls) still fetch from; retire it with the
+# Codeberg copy (todo.md, T163). Needs the CODEBERG_MIRROR_KEY secret: the
+# private half of a deploy key with write access on codeberg.org/randyos/rstd.
+name: Mirror to Codeberg
+
+on:
+  push:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+# one at a time; a waiting run is replaced by a newer one, which mirrors all
+concurrency:
+  group: mirror-codeberg
+
+permissions:
+  contents: read
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Push branches and tags
+        env:
+          KEY: ${{ secrets.CODEBERG_MIRROR_KEY }}
+          SOURCE: ${{ github.server_url }}/${{ github.repository }}.git
+        run: |
+          set -eu
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/codeberg
+          chmod 600 ~/.ssh/codeberg
+          # Codeberg's ED25519 host key, SHA256:mIlxA9k46MmM6qdJOdMnAQpzGxF4WIVVL+fj+wZbw0g
+          # (docs.codeberg.org/security/ssh-fingerprint)
+          echo 'codeberg.org ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIVIC02vnjFyL+I4RHfvIGNtOgJMe769VTF1VR4EB3ZB' > ~/.ssh/known_hosts
+          export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/codeberg -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
+          git clone --bare "$SOURCE" rstd.git
+          # heads and tags only: Codeberg's own refs (refs/pull) stay
+          git -C rstd.git push --force --prune git@codeberg.org:randyos/rstd.git \
+            'refs/heads/*:refs/heads/*' 'refs/tags/*:refs/tags/*'

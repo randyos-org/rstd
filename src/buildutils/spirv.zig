@@ -109,7 +109,7 @@ pub fn addShaderWith(
 /// build.zig (gated behind `-Dvulkan`), not from a consumer's; only the
 /// build.zig that created `rstd_mod` can add imports to it.
 pub fn wireRglShaders(b: *Build, optimize: Optimize, rstd_mod: *Module) !void {
-    const rgl = try addShader(b, optimize, b.path("src/rgl/shaders/rgl.zig"), "rgl", .{ ._rstd_mod = rstd_mod });
+    const rgl = try addShader(b, optimize, b.path("src/rgl/shaders/shapes.zig"), "rgl.shapes", .{ ._rstd_mod = rstd_mod });
     const glyph = try addShader(b, optimize, b.path("src/rgl/shaders/glyph.zig"), "rgl.glyph", .{ ._rstd_mod = rstd_mod });
     const image = try addShader(b, optimize, b.path("src/rgl/shaders/image.zig"), "rgl.image", .{ ._rstd_mod = rstd_mod });
     rgl.addToModule(rstd_mod);

@@ -89,7 +89,7 @@ fn drawThinLine(img: *RgbaImage, p0: PointF32, p1: PointF32, c: RGBA) void {
 }
 
 /// Fills the thin rotated rect a thick line sweeps out (a filled square
-/// end-cap, for a zero-length one); the same shape shaders/rgl.zig's
+/// end-cap, for a zero-length one); the same shape shaders/shapes.zig's
 /// rotation support draws on the Vulkan side, just rasterized directly
 /// here instead of via a GPU pipeline.
 fn fillOrientedRect(img: *RgbaImage, p0: PointF32, p1: PointF32, width: f32, c: RGBA) void {

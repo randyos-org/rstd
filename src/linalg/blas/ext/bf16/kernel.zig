@@ -7,6 +7,7 @@ const std = @import("std");
 const types = @import("../../types.zig");
 const fma = @import("../../fma.zig");
 const util = @import("../../util.zig");
+const slots = @import("../../slots.zig");
 const Vtable = @import("../../Vtable.zig");
 const gemm_kernels = @import("../../blas3/gemm/kernel.zig");
 const vector = @import("../../vector.zig");
@@ -194,17 +195,14 @@ const row_block = 256;
 
 /// The vtable roles of the family: slot prefix, type of `A` and `x`, of `y`.
 pub const families = .{
-    .{ "shgemv", HF16, f32 },
-    .{ "bgemv", BF16, BF16 },
-    .{ "sbgemv", BF16, f32 },
+    .{ Gemm.sh, HF16, f32 },
+    .{ Gemm.b, BF16, BF16 },
+    .{ Gemm.sb, BF16, f32 },
 };
 
-// ---- half-precision gemm ---------------------------------------------------
+const Gemm = slots.Gemm;
 
-/// The gemm slot prefix of a `families` entry: `sbgemv` is `sbgemm`.
-pub fn gemmPrefix(comptime gemv: []const u8) []const u8 {
-    return gemv[0 .. gemv.len - 1] ++ "m";
-}
+// ---- half-precision gemm ---------------------------------------------------
 
 /// `kernel/generic/gemmkernel_2x2.c`, `gemm_beta.c`, `gemm_ncopy_2.c` and
 /// `gemm_tcopy_2.c` as `Makefile.L3:190-243` builds them for `SHGEMM`,
@@ -227,7 +225,7 @@ pub fn GemmKernels(comptime I: type, comptime O: type) type {
         /// `C := beta*C`; a zero `beta` writes zeros without reading `C`.
         /// Upstream's bfloat16 test is on `beta`'s bits (only +0), and its
         /// bfloat16 product truncates; here the value counts, and the
-        /// product rounds as `toBf16` does (`issues.md`).
+        /// product rounds as `toBf16` does (issue #236).
         pub fn beta(m: BlasLong, n: BlasLong, _: BlasLong, b: O, _: [*]I, _: BlasLong, _: [*]I, _: BlasLong, c: [*]O, ldc: BlasLong) callconv(.c) i32 {
             const bf = wide(O, b);
             const h: usize = @intCast(m);
@@ -445,21 +443,20 @@ pub fn installGeneric(vt: *Vtable) void {
 /// Points the half-precision gemv slots at the portable kernels.
 pub fn installGenericGemv(vt: *Vtable) void {
     inline for (families) |f| {
-        @field(vt, f[0] ++ "_n") = &Gemv(f[1], f[2], false, false).k;
-        @field(vt, f[0] ++ "_t") = &Gemv(f[1], f[2], true, false).k;
+        slots.halfGemvPtr(vt, f[0], false).* = &Gemv(f[1], f[2], false, false).k;
+        slots.halfGemvPtr(vt, f[0], true).* = &Gemv(f[1], f[2], true, false).k;
     }
 }
 
-/// The half-precision gemm slots a kernel set fills, less their prefix.
-pub const gemm_slots = [_][]const u8{ "_kernel", "_beta", "_incopy", "_itcopy", "_oncopy", "_otcopy" };
+/// The half-precision gemm slots a kernel set fills, by their names there.
+pub const gemm_slots = [_]slots.GemmSlot{ .kernel, .beta, .incopy, .itcopy, .oncopy, .otcopy };
 
 /// Points the half-precision gemm slots at the portable kernels, and their
 /// unrolls at the tile.
 pub fn installGenericGemm(vt: *Vtable) void {
     inline for (families) |f| {
-        const pre = comptime gemmPrefix(f[0]);
         const K = GemmKernels(f[1], f[2]);
-        inline for (gemm_slots) |s| @field(vt, pre ++ s) = &@field(K, s[1..]);
+        inline for (gemm_slots) |s| slots.gemmSlotPtr(vt, f[0], s).* = &@field(K, @tagName(s));
     }
     settleGemm(vt);
 }
@@ -469,12 +466,11 @@ pub fn installGenericGemm(vt: *Vtable) void {
 /// that core's own kernels, not ported (`blas3/kernels.zig`'s `settle`).
 pub fn settleGemm(vt: *Vtable) void {
     inline for (families) |f| {
-        const pre = comptime gemmPrefix(f[0]);
         const K = GemmKernels(f[1], f[2]);
-        if (@field(vt, pre ++ "_kernel") == &K.kernel) {
-            @field(vt, pre ++ "_unroll_m") = K.unroll_m;
-            @field(vt, pre ++ "_unroll_n") = K.unroll_n;
-            @field(vt, pre ++ "_unroll_mn") = @max(K.unroll_m, K.unroll_n);
+        if (slots.gemmSlotPtr(vt, f[0], .kernel).* == &K.kernel) {
+            slots.paramPtr(vt, f[0], .unroll_m).* = K.unroll_m;
+            slots.paramPtr(vt, f[0], .unroll_n).* = K.unroll_n;
+            slots.paramPtr(vt, f[0], .unroll_mn).* = @max(K.unroll_m, K.unroll_n);
         }
     }
 }

@@ -303,18 +303,20 @@ fn expectGeev(comptime T: type, al: Allocator, a0: Mat(T), wr: []const Float(T),
             vectorOf(T, C, wi, v, j, x);
             // unit norm, largest entry real
             var nrm: F = 0;
-            var big: F = -1;
-            var kbig: usize = 0;
-            for (x, 0..) |e, k| {
+            var big: F = 0;
+            for (x) |e| {
                 const e2 = e.re * e.re + e.im * e.im;
                 nrm += e2;
-                if (e2 > big) {
-                    big = e2;
-                    kbig = k;
-                }
+                big = @max(big, e2);
             }
             try testing.expect(@abs(@sqrt(nrm) - 1) <= tolerance(F, n, 1));
-            try testing.expect(@abs(x[kbig].im) <= tolerance(F, n, 1));
+            // entries tied for largest (a rotation's) may round either way first
+            var real_big = false;
+            for (x) |e| {
+                const e2 = e.re * e.re + e.im * e.im;
+                if (e2 >= big * (1 - tolerance(F, n, 1)) and @abs(e.im) <= tolerance(F, n, 1)) real_big = true;
+            }
+            try testing.expect(real_big);
             // right: (A x)(i) - λ x(i); left: (xᴴ A)(i) - λ conj(x(i))
             var worst: F = 0;
             for (0..n) |i| {

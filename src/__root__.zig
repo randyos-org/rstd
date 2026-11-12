@@ -32,6 +32,7 @@ pub const io = @import("io.zig");
 pub const linalg = @import("linalg/__root__.zig");
 pub const log = @import("log.zig");
 pub const bootinfo = @import("bootinfo.zig");
+pub const math = @import("math.zig");
 pub const mem = @import("mem.zig");
 pub const msoffice = @import("msoffice/__root__.zig");
 pub const sort = @import("sort.zig");

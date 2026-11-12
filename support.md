@@ -8,9 +8,9 @@ after it. Rig names are `zig build` steps: `qemu-test-<rig>` unless named in ful
 
 ## Tiers
 
-- **Tier 1: required first.** Everything implemented works and is tested. Bugs block the MVP and every release, and go in [`todo.md`](todo.md)'s Queue. Every kernel object the platform links runs the per-core tests, or is listed below as untested with its item.
-- **Tier 2: required, after tier 1.** RandyOS's and zfls's other platforms. Bugs are required fixes, also for the MVP, and go in the Queue. Tested on a rig or machine where one exists; untested cores and paths are listed with their items.
-- **Tier 3: best effort.** Every other platform with a rig. The rigs run in each sweep for the record; failures go to [`todo.md`](todo.md)'s Known issues and enhancements, as do tier 4's, tuning, optional and Blocked work. Choices no rig can check follow OpenBLAS and BLIS where they agree
+- **Tier 1: required first.** Everything implemented works and is tested. Bugs block the MVP and every release, and go in the current milestone (the open `dev` to `main` pull request's list of issues). Every kernel object the platform links runs the per-core tests, or is listed below as untested with its item.
+- **Tier 2: required, after tier 1.** RandyOS's and zfls's other platforms. Bugs are required fixes, also for the MVP, and go in the current milestone too. Tested on a rig or machine where one exists; untested cores and paths are listed with their items.
+- **Tier 3: best effort.** Every other platform with a rig. The rigs run in each sweep for the record; failures go to issues labeled `backlog`, as do tier 4's, tuning, optional and Blocked work. Choices no rig can check follow OpenBLAS and BLIS where they agree
   ([`design.md`](src/linalg/design.md#settled-decisions), "Target platforms come first").
 - **Tier 4: unsupported or blocked.** No rig, blocked upstream, or not worth its upkeep. Every
   target compiles with the portable kernels at least; nothing more is promised. Each entry cites
@@ -57,7 +57,7 @@ after it. Rig names are `zig build` steps: `qemu-test-<rig>` unless named in ful
 Notes:
 
 - **SPIR-V** (`rstd.linalg` under SPIR-V, rgl's shaders, shaderlib) waited for the CPU BLAS
-  MVP; its work is todo.md's S2 (S1 done), queued after M12. The bit guarantees (same bits
+  MVP; its work is [#51](https://github.com/randyos-org/rstd/issues/51) (S1 done), queued after M12. The bit guarantees (same bits
   for any thread count, one contract on every core, the first-NaN rule) are the CPU's only;
   under SPIR-V, Vulkan's precision rules apply (design.md, Settled decisions).
 - **macOS 11 and 12** never run: the VM builds for 13.0 and runs Sonoma, the M6 runs 27.2.
@@ -166,4 +166,4 @@ and every POWER core is tier 3.
 | Toolchain | Used by | Checked by |
 | --- | --- | --- |
 | Zig 0.18.0-dev.751+069480a1a (self-built) | rstd itself, RandyOS | every step above |
-| Zig 0.17.0 | zfls (ReleaseSafe, its six targets) | `rstd-check-zig017`: builds and links zfls's targets, every core, without running them; `zig build -h` after build-script edits |
+| Zig 0.17.1 | zfls (ReleaseSafe, its six targets) | `rstd-check-zig017`: builds and links zfls's targets, every core, without running them; `zig build -h` after build-script edits |

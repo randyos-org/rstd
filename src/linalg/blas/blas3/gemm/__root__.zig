@@ -12,6 +12,7 @@ const sysinfo = @import("builtin");
 const driver = @import("../driver.zig");
 const portable = @import("../../portable.zig");
 const check = @import("../../_test/check.zig");
+const util = @import("../../util.zig");
 
 const BlasLong = types.BlasLong;
 
@@ -39,10 +40,14 @@ test "every routine over tiles other targets choose: NEON's, 8 x 3 complex" {
     if (check.rig()) return error.SkipZigTest;
     var vt: Vtable = .{};
     portable.install(&vt);
-    kernels.installTile(&vt, "s", f32, .{ .vl = 4, .mv = 4, .nr = 6 });
-    kernels.installTile(&vt, "d", f64, .{ .vl = 2, .mv = 4, .nr = 6 });
-    kernels.installTile(&vt, "c", std.math.Complex(f32), .{ .vl = 2, .mv = 4, .nr = 3 });
-    kernels.installTile(&vt, "z", std.math.Complex(f64), .{ .vl = 1, .mv = 4, .nr = 3 });
+    // `f32` lanes that flush denormals (ARMv7 NEON) would fail the denormal
+    // cases; no target chooses vector `f32` tiles there
+    if (comptime util.vectorIeee(f32)) {
+        kernels.installTile(&vt, f32, .{ .vl = 4, .mv = 4, .nr = 6 });
+        kernels.installTile(&vt, std.math.Complex(f32), .{ .vl = 2, .mv = 4, .nr = 3 });
+    }
+    kernels.installTile(&vt, f64, .{ .vl = 2, .mv = 4, .nr = 6 });
+    kernels.installTile(&vt, std.math.Complex(f64), .{ .vl = 1, .mv = 4, .nr = 3 });
     try check3.coreCases(&vt);
 }
 

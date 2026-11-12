@@ -105,8 +105,8 @@ pub const Boot = union(enum) {
 };
 
 /// Tier 4 (user, 2026-11-01): the images outgrow OpenBIOS's window faster
-/// than parts split them (todo.md T39).
-const sparc64_stub = "tier 4: its images outgrow OpenBIOS's 4 MiB window (rstd todo.md T39)";
+/// than parts split them (rstd issue #131).
+const sparc64_stub = "tier 4: its images outgrow OpenBIOS's 4 MiB window (rstd issue #131)";
 
 /// Every rig.
 pub const all = base_machines ++ x87Safe(&.{ "i386", "i386-max" }) ++ quad(&.{"aarch64"});
@@ -380,7 +380,7 @@ const base_machines = [_]Machine{
     },
     .{
         // The host CPU under Windows' hypervisor: TCG has no AVX-512, FMA4 or
-        // XOP (issues.md), so their cores run only here, on a host that has
+        // XOP (issue #220), so their cores run only here, on a host that has
         // them. WHPX keeps only the model's features the host has; `host`
         // and `max` stop in SeaBIOS.
         .name = "x86_64-whpx",
@@ -402,7 +402,7 @@ const base_machines = [_]Machine{
         // code alone is about 5 MB; blas2 by itself is 3.3 MB
         .parts = &.{
             .{ .name = "blas1", .filters = &.{ "linalg.blas.blas1.", "linalg.blas._test.blas1.", "linalg.blas._test.check.", "linalg.blas._test.bitwise." } },
-            .{ .name = "blas2-dense", .filters = &.{ "linalg.blas.blas2.__root__.", "linalg.blas.blas2.gemv.", "linalg.blas.blas2.ger.", "linalg.blas.blas2.hemv.", "linalg.blas.blas2.symv." } },
+            .{ .name = "blas2-dense", .filters = &.{ "linalg.blas.blas2.__root__.", "linalg.blas.blas2.gemv.", "linalg.blas._test.bf16.", "linalg.blas.blas2.ger.", "linalg.blas.blas2.hemv.", "linalg.blas.blas2.symv." } },
             .{ .name = "blas2-banded", .filters = &.{ "linalg.blas.blas2.banded.", "linalg.blas.blas2.symmetric." } },
             .{ .name = "blas2-triangular", .filters = &.{"linalg.blas.blas2.triangular."} },
             .{ .name = "blas2-interface", .filters = &.{"linalg.blas.blas2.interface."} },
@@ -441,7 +441,7 @@ const base_machines = [_]Machine{
             // the dense routines, the triangular ones, the interface and the
             // complex edge cases each in two, as one is past the window
             .{ .name = "blas2-dense", .filters = &.{ "linalg.blas.blas2.__root__.", "linalg.blas.blas2.gemv.__root__.test.portable", "linalg.blas.blas2.gemv.__root__.test_" } },
-            .{ .name = "blas2-gemv-x87", .filters = &.{ "linalg.blas.blas2.gemv.__root__.test.half-precision gemv:", "linalg.blas.blas2.gemv.extended.test.extended gemv:" } },
+            .{ .name = "blas2-gemv-x87", .filters = &.{ "linalg.blas._test.bf16.gemv.", "linalg.blas.blas2.gemv.extended.test.extended gemv:" } },
             .{ .name = "blas2-gemv-cores", .filters = &.{"linalg.blas.blas2.gemv.__root__.test.every linked core's"} },
             .{ .name = "blas2-dense-2", .filters = &.{ "linalg.blas.blas2.ger.", "linalg.blas.blas2.hemv.", "linalg.blas.blas2.symv." } },
             .{ .name = "blas2-banded", .filters = &.{
@@ -555,14 +555,14 @@ const base_machines = [_]Machine{
         .qemu = "qemu-system-sparc",
         .args = &.{ "-M", "SS-5" },
         .memory = "256M",
-        .stub = "lld cannot link 32-bit SPARC, and Zig's own ELF linker crashes on it (issues.md)",
+        .stub = "lld cannot link 32-bit SPARC, and Zig's own ELF linker crashes on it (issue #189)",
         .boot = .{ .kernel = .{
             .linker_script = "",
         } },
     },
     .{
         .name = "powerpc64le",
-        // LLVM PowerPC FastISel (debug) uses FPR instructions on VSX registers (issues.md)
+        // LLVM PowerPC FastISel (debug) uses FPR instructions on VSX registers (issue #186)
         .optimize = .safe,
         .query = .{ .cpu_arch = .powerpc64le, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.powerpc.cpu.pwr9 } },
         .qemu = "qemu-system-ppc64",
@@ -578,7 +578,7 @@ const base_machines = [_]Machine{
     },
     .{
         .name = "powerpc64le-power10",
-        // LLVM PowerPC FastISel (debug) uses FPR instructions on VSX registers (issues.md)
+        // LLVM PowerPC FastISel (debug) uses FPR instructions on VSX registers (issue #186)
         .optimize = .safe,
         .query = .{ .cpu_arch = .powerpc64le, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.powerpc.cpu.pwr10 } },
         .qemu = "qemu-system-ppc64",
@@ -592,7 +592,7 @@ const base_machines = [_]Machine{
     .{
         // big-endian, ELFv2 as Zig emits it; POWER10 runs every 64-bit core
         .name = "powerpc64",
-        // LLVM PowerPC FastISel (debug) uses FPR instructions on VSX registers (issues.md)
+        // LLVM PowerPC FastISel (debug) uses FPR instructions on VSX registers (issue #186)
         .optimize = .safe,
         .query = .{ .cpu_arch = .powerpc64, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.powerpc.cpu.pwr10 } },
         .qemu = "qemu-system-ppc64",
@@ -617,7 +617,7 @@ const base_machines = [_]Machine{
     .{
         // RandyOS's iBook G3 target (a 750FX, no AltiVec) on `mac99`: soft
         // float, so no kernel objects; the portable kernels run. A 750, as
-        // OpenBIOS hangs on QEMU's `750fx` (issues.md); the same ISA
+        // OpenBIOS hangs on QEMU's `750fx` (issue #225); the same ISA
         .name = "powerpc-750",
         .query = .{ .cpu_arch = .powerpc, .os_tag = .freestanding, .abi = .eabi, .cpu_model = .{ .explicit = &std.Target.powerpc.cpu.@"750" } },
         .qemu = "qemu-system-ppc",
@@ -656,7 +656,7 @@ const base_machines = [_]Machine{
         // a 32-bit VSX build on a POWER9 under VOF: the power8 and power9
         // cores' `@Vector` kernels as 32-bit code. The build drops `64bit`
         // and `fpcvt`, with which LLVM fails on compiler-rt in 32-bit mode;
-        // ISA 3.0 fails it too, so power10's kernels cannot link (issues.md).
+        // ISA 3.0 fails it too, so power10's kernels cannot link (issue #187).
         .name = "powerpc-power9",
         .query = .{
             .cpu_arch = .powerpc,
@@ -775,7 +775,7 @@ const base_machines = [_]Machine{
     .{
         .name = "linux-powerpc64le",
         // pwr8, `f128` by library calls: clear of the FastISel bug the other
-        // POWER rigs build `.safe` for (issues.md)
+        // POWER rigs build `.safe` for (issue #186)
         .query = .{ .cpu_arch = .powerpc64le, .os_tag = .linux },
         .qemu = "qemu-system-ppc64",
         // detection sees a POWER10 (the baseline build links up to POWER9's
@@ -787,7 +787,7 @@ const base_machines = [_]Machine{
     .{
         // a POWER10 build, so power10's kernels link and run
         .name = "linux-powerpc64le-power10",
-        // native `f128` from pwr9: FastISel's bug, as the freestanding rigs (issues.md)
+        // native `f128` from pwr9: FastISel's bug, as the freestanding rigs (issue #186)
         .optimize = .safe,
         .query = .{ .cpu_arch = .powerpc64le, .os_tag = .linux, .cpu_model = .{ .explicit = &std.Target.powerpc.cpu.pwr10 } },
         .qemu = "qemu-system-ppc64",
@@ -803,7 +803,7 @@ const base_machines = [_]Machine{
         .args = &.{ "-M", "pc", "-cpu", "max", "-smp", "4" },
         .memory = "1G",
         // boots and runs; filtered runs pass
-        .stub = "TCG's fldt/fstpt misplace the significand bytes past a page boundary, which i386's 4-aligned f80 arrays cross (issues.md)",
+        .stub = "TCG's fldt/fstpt misplace the significand bytes past a page boundary, which i386's 4-aligned f80 arrays cross (issue #221)",
         .boot = .{ .linux = .{ .dep = "debian_netboot_i386", .kernel = "debian-installer/i386/linux", .console = "ttyS0" } },
     },
     .{

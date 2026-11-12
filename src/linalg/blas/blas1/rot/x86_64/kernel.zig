@@ -5,8 +5,6 @@
 //! (`<p>rot_microk_haswell-2.c`, `_skylakex-2.c`), here the same loops on
 //! `@Vector`s. Tests live in `rot/__root__.zig`.
 
-const std = @import("std");
-const sysinfo = @import("builtin");
 const types = @import("../../../types.zig");
 const coretypes = @import("../../../cpu/coretypes.zig");
 const util = @import("../../../util.zig");
@@ -19,7 +17,7 @@ const Slot = util.Slot;
 pub const Core = coretypes.X86CoreType;
 
 /// The Skylake-X block is 512 bits wide, Haswell's 256.
-const has_avx512f = std.Target.x86.featureSetHas(sysinfo.target.cpu.features, .avx512f);
+const has_avx512f = util.x86Has(.avx512f);
 
 /// `<p>rot_kernel` of the microkernels: four vectors at a time, then one,
 /// then a masked vector, which here is the same fused pair per element.

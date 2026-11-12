@@ -122,7 +122,7 @@ pub fn addRun(b: *Build, m: Machine, target: rstdbuild.ResolvedTarget, optimize:
     b.step(b.fmt("qemu-snapshot-{s}", .{m.name}), b.fmt("macOS VM {s}: save a restore point (-Dmac-snapshot) of the stopped VM", .{m.name})).dependOn(&keep.step);
     b.step(b.fmt("qemu-restore-{s}", .{m.name}), b.fmt("macOS VM {s}: go back to a restore point (-Dmac-snapshot) of the stopped VM", .{m.name})).dependOn(&put.step);
 
-    const mod = try buildroot.addRstdModule(b, null, target, optimize, .all, false, false);
+    const mod = try buildroot.addRstdModule(b, null, target, optimize, .all, .{});
     // In one program, so the VM it started is stopped when tests fail too.
     const run = b.addRunArtifact(tool);
     run.setCwd(b.path("."));

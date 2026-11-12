@@ -9,9 +9,7 @@ const driver3m = @import("driver3m.zig");
 const threaded = @import("threaded.zig");
 const threading = @import("../threading.zig");
 const types = @import("../types.zig");
-const portable = @import("../portable.zig");
 const util = @import("../util.zig");
-const Vtable = @import("../Vtable.zig");
 const accel = @import("../apple_accel.zig");
 
 const Allocator = std.mem.Allocator;
@@ -41,11 +39,7 @@ pub const ArgError = error{
 /// What a level-3 routine returns.
 pub const Error = ArgError || Allocator.Error || Io.Cancelable;
 
-/// The vtable for `T`: a type without slots runs the portable kernels and
-/// never needs it.
-fn table(comptime T: type) *const Vtable {
-    return if (comptime portable.letter(T) != null) blas.vtable() else &no_table;
-}
+const table = blas.tableOf;
 
 /// `?GEMM`: `C := alpha*op(A)*op(B) + beta*C`, `op(A)` being `m x k`,
 /// `op(B)` `k x n`. `C` is scaled by `beta` first (a zero `beta` never reads
@@ -293,8 +287,6 @@ fn triImpl(allocator: Allocator, io: Io, comptime T: type, comptime solve: bool,
     const w = threaded.workers(.trsm, T, threading.product(&.{ @intCast(m), @intCast(n) }));
     try f(allocator, io, T, table(T), side == .l, uplo == .u, transa.transposed(), conjugated(T, transa), diag == .u, @intCast(m), @intCast(n), alpha, a, @intCast(lda), b, @intCast(ldb), w);
 }
-
-const no_table: Vtable = .{};
 
 // ---- tests -----------------------------------------------------------------
 

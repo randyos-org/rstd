@@ -11,6 +11,7 @@ test {
     _ = @import("blas1/threaded.zig");
     _ = @import("blas2/edge.zig");
     _ = @import("blas2/threaded.zig");
+    _ = @import("bf16/gemv.zig");
     _ = @import("blas3/gemmt.zig");
     _ = @import("blas3/threaded.zig");
     _ = @import("from_openblas/__root__.zig");

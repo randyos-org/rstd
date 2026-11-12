@@ -21,7 +21,7 @@ pub const shader_opts = @import("shader_opts");
 
 comptime {
     // not when the build script imports this for `Op`
-    if (sysinfo.cpu.arch.isSpirV()) _ = Probe(@field(Op, @import("probe_op").op)).main;
+    if (sysinfo.cpu.arch.isSpirv()) _ = Probe(@field(Op, @import("probe_op").op)).main;
 }
 
 pub const Op = enum {

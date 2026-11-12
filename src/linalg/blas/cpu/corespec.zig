@@ -94,10 +94,11 @@ pub fn arm(core: coretypes.ArmCoreType) Spec {
     return switch (core) {
         .armv5 => .{},
         .armv6 => .{ .features = &.{ "v6", "vfp2" } },
-        .armv7 => .{ .features = &.{ "v7a", "vfp3" } },
+        // without NEON, which 0.17.0's LLVM has `v7a` imply (as `vfpv4`)
+        .armv7 => .{ .features = &.{ "v7a", "vfp3" }, .without = &.{"neon"} },
         // Cortex-A9 and A15: `-mfpu=neon` for their `HAVE_NEON`
         .neon, .cortexa9, .cortexa15 => .{ .features = &.{ "v7a", "neon" } },
-        .vfpv4 => .{ .features = &.{ "v7a", "vfp4" } },
+        .vfpv4 => .{ .features = &.{ "v7a", "vfp4" }, .without = &.{"neon"} },
     };
 }
 
@@ -308,6 +309,17 @@ pub fn runsOn(cpu: std.Target.Cpu, core: anytype) bool {
         },
         // a module's features are fixed when it is built: no SIMD128, no SIMD core
         coretypes.WasmCoreType => core == .wasm_generic or cpu.has(.wasm, .simd128),
+        else => true,
+    };
+}
+
+/// Whether a target's features can tell that its CPU runs `core`'s kernels:
+/// not the Loongson 3A ones, whose MMI and EXT instructions no Zig feature
+/// names. A build for the target never picks those (`-Dblas-cores=target`);
+/// detection reaches them where they are linked.
+pub fn targetPickable(core: anytype) bool {
+    return switch (@TypeOf(core)) {
+        coretypes.MipsCoreType => core != .loongson3r3 and core != .loongson3r4,
         else => true,
     };
 }

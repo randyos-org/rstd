@@ -37,7 +37,7 @@ const SshVariant = struct { suffix: []const u8 = "", env: ?[]const u8 = null, wh
 /// `ssh-test-<arch>-macos`: the full suite for `target`, run on `mac`, once
 /// per variant.
 fn addSshTest(b: *Build, optimize: Optimize, filters: []const []const u8, mac: []const u8, tool: *rstdbuild.CompileStep, target: rstdbuild.ResolvedTarget, variants: []const SshVariant) !void {
-    const mod = try buildroot.addRstdModule(b, null, target, optimize, .all, false, false);
+    const mod = try buildroot.addRstdModule(b, null, target, optimize, .all, .{});
     const test_exe = try buildroot.addRstdTest(b, mod, target, optimize, filters);
     for (variants) |v| {
         // under the qemu rigs' watchdog: an hour with no output ends it
@@ -61,7 +61,7 @@ fn addSshTest(b: *Build, optimize: Optimize, filters: []const []const u8, mac: [
 
 /// `ssh-repro-group-aarch64-macos`: `tools/probe/evented_group_repro.zig` on the
 /// Mac, `futures` then `group`; fails while std's `Group` still crashes on
-/// `Dispatch` (`issues.md`). Rerun on each toolchain bump.
+/// `Dispatch` (issue #208). Rerun on each toolchain bump.
 fn addGroupRepro(b: *Build, optimize: Optimize, mac: []const u8, tool: *rstdbuild.CompileStep, target: rstdbuild.ResolvedTarget) void {
     const exe = b.addExecutable(.{ .name = "evented_group_repro", .root_module = b.createModule(.{
         .root_source_file = b.path("tools/probe/evented_group_repro.zig"),

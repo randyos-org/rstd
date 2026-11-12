@@ -3,6 +3,7 @@ const math = std.math;
 const clamp = math.clamp;
 const pow = math.pow;
 const zigstd = @import("../zigstd.zig");
+const sysinfo = @import("builtin");
 
 /// The linear-segment plus power-law transfer curve every gamma standard uses.
 /// Encode: `linear_slope * L` for `L <= threshold`, else
@@ -143,6 +144,11 @@ pub inline fn scaledOffsetToByte(value: f32, scale: f32, offset: f32) u8 {
     return roundToByte(offset + value * scale);
 }
 
+/// A big-endian target stores a packed color's fields last to first, so its
+/// bytes in memory are not in field order; `toNative` fixes that.
+/// `u32` values keep one meaning everywhere: `r` is `RGBA`'s low byte.
+pub const swapped = sysinfo.target.cpu.arch.endian() == .big;
+
 pub const RGBA = packed struct {
     const Self = @This();
     r: u8,
@@ -170,6 +176,13 @@ pub const RGBA = packed struct {
 
     pub inline fn toU32(self: Self) u32 {
         return @bitCast(self);
+    }
+
+    /// `self` with its bytes in field order in memory, for files, codecs and
+    /// GPU uploads: byte-swapped where `swapped`, its fields then reading
+    /// wrong. Its own inverse, so it also reads such bytes back.
+    pub inline fn toNative(self: Self) Self {
+        return if (swapped) @bitCast(@byteSwap(self.toU32())) else self;
     }
 
     pub inline fn toArray(self: Self) [4]u8 {
@@ -201,7 +214,7 @@ pub const RGBAf32 = packed struct {
     pub const blank: Self = .{ .r = 0, .g = 0, .b = 0, .a = 0 };
 
     pub inline fn equals(self: Self, other: Self) bool {
-        return @as(u32, @bitCast(self)) == @as(u32, @bitCast(other));
+        return self.r == other.r and self.g == other.g and self.b == other.b and self.a == other.a;
     }
 
     pub fn print(self: Self) void {
@@ -299,6 +312,13 @@ pub const BGRA = packed struct {
         return @bitCast(self);
     }
 
+    /// `self` with its bytes in field order in memory, for files, codecs and
+    /// GPU uploads: byte-swapped where `swapped`, its fields then reading
+    /// wrong. Its own inverse, so it also reads such bytes back.
+    pub inline fn toNative(self: Self) Self {
+        return if (swapped) @bitCast(@byteSwap(self.toU32())) else self;
+    }
+
     pub inline fn toRGBA(self: Self) RGBA {
         return .{ .r = self.r, .g = self.g, .b = self.b, .a = self.a };
     }
@@ -312,7 +332,7 @@ pub const HSLAf32 = packed struct {
     a: f32,
 
     pub inline fn equals(self: Self, other: Self) bool {
-        return @as(u32, @bitCast(self)) == @as(u32, @bitCast(other));
+        return self.h == other.h and self.s == other.s and self.l == other.l and self.a == other.a;
     }
 
     pub fn print(self: Self) void {
@@ -385,6 +405,13 @@ pub const HSLA = packed struct {
         return @bitCast(self);
     }
 
+    /// `self` with its bytes in field order in memory, for files, codecs and
+    /// GPU uploads: byte-swapped where `swapped`, its fields then reading
+    /// wrong. Its own inverse, so it also reads such bytes back.
+    pub inline fn toNative(self: Self) Self {
+        return if (swapped) @bitCast(@byteSwap(self.toU32())) else self;
+    }
+
     pub inline fn toHSLAf32(self: Self) HSLAf32 {
         return .{
             .h = byteToFloat(self.h),
@@ -413,7 +440,7 @@ pub const YCbCrAf32 = packed struct {
     a: f32,
 
     pub inline fn equals(self: Self, other: Self) bool {
-        return @as(u32, @bitCast(self)) == @as(u32, @bitCast(other));
+        return self.y == other.y and self.cb == other.cb and self.cr == other.cr and self.a == other.a;
     }
 
     pub fn print(self: Self) void {
@@ -475,6 +502,13 @@ pub const YCbCrA = packed struct {
 
     pub inline fn toU32(self: Self) u32 {
         return @bitCast(self);
+    }
+
+    /// `self` with its bytes in field order in memory, for files, codecs and
+    /// GPU uploads: byte-swapped where `swapped`, its fields then reading
+    /// wrong. Its own inverse, so it also reads such bytes back.
+    pub inline fn toNative(self: Self) Self {
+        return if (swapped) @bitCast(@byteSwap(self.toU32())) else self;
     }
 
     pub inline fn toArray(self: Self) [4]u8 {
@@ -558,6 +592,15 @@ test "HSLAf32.toRGBAf32 matches the Wikipedia HSL reference table" {
         try zigstd.testExpectApproxEqAbs(sample.g, rgba.g, 0.003);
         try zigstd.testExpectApproxEqAbs(sample.b, rgba.b, 0.003);
     }
+}
+
+test "a u32 holds r low on every target, and toNative puts the bytes in field order" {
+    const c: RGBA = .{ .r = 1, .g = 2, .b = 3, .a = 4 };
+    try zigstd.testExpectEqual(@as(u32, 0x04030201), c.toU32());
+    const from_u32: RGBA = @bitCast(@as(u32, 0x04030201));
+    try zigstd.testExpectTrue(from_u32.equals(c));
+    try zigstd.testExpectEqualSlices(u8, &.{ 1, 2, 3, 4 }, std.mem.asBytes(&c.toNative()));
+    try zigstd.testExpectTrue(c.toNative().toNative().equals(c));
 }
 
 test "RGBA <-> RGBAf32 round-trips every byte value exactly" {
@@ -702,4 +745,18 @@ test "RGBAf32 <-> YCbCrAf32 round-trips for every standard and range" {
             }
         }
     }
+}
+
+test "f32 colors' equals compares every component, alpha too" {
+    const rgba: RGBAf32 = .{ .r = 0.25, .g = 0.5, .b = 0.75, .a = 1 };
+    var rgba2 = rgba;
+    try zigstd.testExpectTrue(rgba.equals(rgba2));
+    rgba2.a = 0.5;
+    try zigstd.testExpectTrue(!rgba.equals(rgba2));
+    const hsla: HSLAf32 = .{ .h = 0.25, .s = 0.5, .l = 0.75, .a = 1 };
+    try zigstd.testExpectTrue(hsla.equals(hsla));
+    try zigstd.testExpectTrue(!hsla.equals(.{ .h = 0.25, .s = 0.5, .l = 0.75, .a = 0.5 }));
+    const ycbcr: YCbCrAf32 = .{ .y = 0.25, .cb = 0.5, .cr = 0.75, .a = 1 };
+    try zigstd.testExpectTrue(ycbcr.equals(ycbcr));
+    try zigstd.testExpectTrue(!ycbcr.equals(.{ .y = 0.25, .cb = 0.5, .cr = 0.75, .a = 0.5 }));
 }

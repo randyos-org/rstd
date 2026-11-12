@@ -515,20 +515,40 @@ fn coreNames(arena: std.mem.Allocator, enum_name: []const u8) ![]const []const u
     return out.items;
 }
 
-/// The slots `vector.zig` has kernels for: its `real_slots` and `complex_slots`.
+/// The slots `vector.zig` has kernels for: its `real_fns` over `s` and `d`, its
+/// `complex_fns` over `c` and `z`, named as `slots.zig`'s `slotName` names them.
 fn vectorSlots(arena: std.mem.Allocator) ![]const []const u8 {
     const text = map.read(blas ++ "/vector.zig") orelse map.die("cannot read vector.zig", .{});
-    const start = std.mem.find(u8, text, "const real_slots") orelse map.die("no real_slots in vector.zig", .{});
-    const end = std.mem.findPos(u8, text, start, "/// A kernel:") orelse text.len;
     var out: std.ArrayList([]const u8) = .empty;
-    var lines = std.mem.splitScalar(u8, text[start..end], '\n');
-    while (lines.next()) |raw| {
-        const line = std.mem.trim(u8, raw, " \t\r");
-        const eq = std.mem.find(u8, line, " = .") orelse continue;
-        if (!std.mem.endsWith(u8, line, ",")) continue;
-        try out.append(arena, line[eq + " = .".len .. line.len - 1]);
+    const lists = [_]struct { []const u8, []const []const u8 }{ .{ "const real_fns", &.{ "s", "d" } }, .{ "const complex_fns", &.{ "c", "z" } } };
+    for (lists) |list| {
+        const at = std.mem.find(u8, text, list[0]) orelse map.die("no {s} in vector.zig", .{list[0]});
+        const open = std.mem.findScalarPos(u8, text, at, '{').? + 1;
+        const body = text[open..std.mem.findScalarPos(u8, text, open, '}').?];
+        for (list[1]) |l| {
+            var names = std.mem.tokenizeAny(u8, body, "\", \t\r\n");
+            while (names.next()) |name| {
+                if (std.mem.eql(u8, name, "dsdot")) {
+                    if (std.mem.eql(u8, l, "s")) try out.append(arena, "dsdot_k");
+                    continue;
+                }
+                try out.append(arena, try slotName(arena, l, name));
+            }
+        }
     }
     return out.items;
+}
+
+/// `slots.zig`'s `slotName` for `vector.zig`'s function `name` at letter `l`: `_k`
+/// on all but the gemvs, the letter after an extreme index's `i`, and a complex
+/// `rot` with its real letter (`csrot_k`).
+fn slotName(arena: std.mem.Allocator, l: []const u8, name: []const u8) ![]const u8 {
+    const op = if (std.mem.startsWith(u8, name, "gemv_")) name else try arena.print("{s}_k", .{name});
+    for ([_][]const u8{ "iamax", "iamin", "imax", "imin" }) |i| {
+        if (std.mem.eql(u8, name, i)) return arena.print("i{s}{s}", .{ l, op[1..] });
+    }
+    if (std.mem.eql(u8, name, "rot") and (l[0] == 'c' or l[0] == 'z')) return arena.print("{s}{s}{s}", .{ l, if (l[0] == 'c') "s" else "d", op });
+    return arena.print("{s}{s}", .{ l, op });
 }
 
 /// What rstd serves for one slot on one core.

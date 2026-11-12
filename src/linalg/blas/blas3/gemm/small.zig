@@ -176,9 +176,10 @@ fn code(trans: bool, conj: bool) i32 {
 /// `driver.gemm`'s quick returns, so a zero `alpha` or depth reads nothing
 /// here either.
 pub fn gemm(comptime T: type, vt: *const Vtable, ta: bool, tb: bool, ca: bool, cb: bool, m: usize, n: usize, k: usize, alpha: T, a: [*]const T, lda: usize, b: [*]const T, ldb: usize, beta: T, c: [*]T, ldc: usize) bool {
-    const l = comptime portable.letter(T) orelse "";
-    if (comptime !@hasField(Vtable, l ++ "gemm_small_matrix_permit")) return false;
-    const permit = @field(vt, l ++ "gemm_small_matrix_permit") orelse return false;
+    if (comptime portable.letter(T) == null) return false;
+    const g = comptime portable.Gemm.of(T, false);
+    if (comptime !@hasField(Vtable, portable.gemmSlotName(g, .small_matrix_permit))) return false;
+    const permit = portable.gemmSlotPtr(vt, g, .small_matrix_permit).* orelse return false;
     const M: BlasLong = @intCast(m);
     const N: BlasLong = @intCast(n);
     const K: BlasLong = @intCast(k);
@@ -193,11 +194,10 @@ pub fn gemm(comptime T: type, vt: *const Vtable, ta: bool, tb: bool, ca: bool, c
         switch (xa) {
             inline 0...3 => |ia| switch (xb) {
                 inline 0...3 => |ib| {
-                    const ops = comptime &[_]u8{ "ntrc"[ia], "ntrc"[ib] };
                     if (b0) {
-                        _ = @field(vt, l ++ "gemm_small_kernel_b0_" ++ ops).?(M, N, K, ap, @intCast(lda), alpha.re, alpha.im, bp, @intCast(ldb), cp, @intCast(ldc));
+                        _ = portable.gemmSlotPtr(vt, g, comptime .small(true, ia, ib)).*.?(M, N, K, ap, @intCast(lda), alpha.re, alpha.im, bp, @intCast(ldb), cp, @intCast(ldc));
                     } else {
-                        _ = @field(vt, l ++ "gemm_small_kernel_" ++ ops).?(M, N, K, ap, @intCast(lda), alpha.re, alpha.im, bp, @intCast(ldb), beta.re, beta.im, cp, @intCast(ldc));
+                        _ = portable.gemmSlotPtr(vt, g, comptime .small(false, ia, ib)).*.?(M, N, K, ap, @intCast(lda), alpha.re, alpha.im, bp, @intCast(ldb), beta.re, beta.im, cp, @intCast(ldc));
                     }
                 },
                 else => unreachable,
@@ -209,11 +209,10 @@ pub fn gemm(comptime T: type, vt: *const Vtable, ta: bool, tb: bool, ca: bool, c
         switch (xa) {
             inline 0, 1 => |ia| switch (xb) {
                 inline 0, 1 => |ib| {
-                    const ops = comptime &[_]u8{ "nt"[ia], "nt"[ib] };
                     if (beta == 0) {
-                        _ = @field(vt, l ++ "gemm_small_kernel_b0_" ++ ops).?(M, N, K, ap, @intCast(lda), alpha, bp, @intCast(ldb), cp, @intCast(ldc));
+                        _ = portable.gemmSlotPtr(vt, g, comptime .small(true, ia, ib)).*.?(M, N, K, ap, @intCast(lda), alpha, bp, @intCast(ldb), cp, @intCast(ldc));
                     } else {
-                        _ = @field(vt, l ++ "gemm_small_kernel_" ++ ops).?(M, N, K, ap, @intCast(lda), alpha, bp, @intCast(ldb), beta, cp, @intCast(ldc));
+                        _ = portable.gemmSlotPtr(vt, g, comptime .small(false, ia, ib)).*.?(M, N, K, ap, @intCast(lda), alpha, bp, @intCast(ldb), beta, cp, @intCast(ldc));
                     }
                 },
                 else => unreachable,
@@ -236,13 +235,12 @@ pub fn gemmHalf(vt: *const Vtable, ta: bool, tb: bool, m: usize, n: usize, k: us
     switch (ta) {
         inline else => |xa| switch (tb) {
             inline else => |xb| {
-                const ops = comptime &[_]u8{ if (xa) 't' else 'n', if (xb) 't' else 'n' };
                 if (beta == 0) {
-                    const f = @field(vt, "sbgemm_small_kernel_b0_" ++ ops) orelse return false;
+                    const f = portable.gemmSlotPtr(vt, .sb, comptime .small(true, @intFromBool(xa), @intFromBool(xb))).* orelse return false;
                     if (permit(code(ta, false), code(tb, false), M, N, K, alpha, beta) == 0) return false;
                     _ = f(M, N, K, ap, @intCast(lda), alpha, bp, @intCast(ldb), c, @intCast(ldc));
                 } else {
-                    const f = @field(vt, "sbgemm_small_kernel_" ++ ops) orelse return false;
+                    const f = portable.gemmSlotPtr(vt, .sb, comptime .small(false, @intFromBool(xa), @intFromBool(xb))).* orelse return false;
                     if (permit(code(ta, false), code(tb, false), M, N, K, alpha, beta) == 0) return false;
                     _ = f(M, N, K, ap, @intCast(lda), alpha, bp, @intCast(ldb), beta, c, @intCast(ldc));
                 }
@@ -526,11 +524,12 @@ test "Skylake-X small kernels match the wide reference through gemm" {
     if (comptime sysinfo.target.cpu.arch != .x86_64) return error.SkipZigTest;
     var vt: Vtable = .{};
     portable.install(&vt);
-    inline for (.{ .{ "s", f32 }, .{ "d", f64 } }) |p| {
+    inline for (.{ .{ portable.Gemm.s, f32 }, .{ portable.Gemm.d, f64 } }) |p| {
         const K = skylakex.Kernels(p[1], gk.geometry(p[1]));
-        inline for (.{ "nn", "nt", "tn", "tt", "b0_nn", "b0_nt", "b0_tn", "b0_tt" }) |op| {
-            @field(vt, p[0] ++ "gemm_small_kernel_" ++ op) = &@field(K, "gemm_small_kernel_" ++ op);
-        }
+        inline for (.{ false, true }) |b0| inline for (0..2) |xa| inline for (0..2) |xb| {
+            const s = comptime portable.GemmSlot.small(b0, xa, xb);
+            portable.gemmSlotPtr(&vt, p[0], s).* = &@field(K, "gemm_" ++ @tagName(s));
+        };
     }
     try cases(&vt);
 }

@@ -72,7 +72,7 @@ fn addBenchCheck(b: *Build) void {
 /// given (arm64 only).
 fn benchExe(b: *Build, target: rstdbuild.ResolvedTarget, openblas: ?[]const u8) !*rstdbuild.CompileStep {
     const optimize: Optimize = .fast;
-    const rstd = try buildroot.addRstdModule(b, null, target, optimize, .all, false, false);
+    const rstd = try buildroot.addRstdModule(b, null, target, optimize, .all, .{});
     const mod = b.createModule(.{
         .root_source_file = b.path("tools/blasbench/blas_bench.zig"),
         .target = target,

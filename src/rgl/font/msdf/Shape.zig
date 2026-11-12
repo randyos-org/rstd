@@ -96,8 +96,8 @@ pub fn calcBounds(self: Shape) Bounds {
     var bounds: Bounds = .{
         .left = std.math.floatMax(f64),
         .bottom = std.math.floatMax(f64),
-        .right = std.math.floatMin(f64),
-        .top = std.math.floatMin(f64),
+        .right = -std.math.floatMax(f64),
+        .top = -std.math.floatMax(f64),
     };
     for (self.contours.items) |contour|
         for (contour.edges.items) |edge|
@@ -339,4 +339,15 @@ test "orientContours scans below a contour's closing horizontal edge" {
     defer shape.deinit(allocator);
     try shape.orientContours(allocator);
     try zigstd.testExpectTrue(testArea(shape.contours.items[0]) < 0);
+}
+
+test "calcBounds of a shape wholly below and left of the origin" {
+    const allocator = std.testing.allocator;
+    var shape = try testPolygons(allocator, &.{&.{ .{ -3, -2 }, .{ -1, -2 }, .{ -1, -1 }, .{ -3, -1 } }});
+    defer shape.deinit(allocator);
+    const b = shape.calcBounds();
+    try zigstd.testExpectEqual(@as(f64, -3), b.left);
+    try zigstd.testExpectEqual(@as(f64, -1), b.right);
+    try zigstd.testExpectEqual(@as(f64, -2), b.bottom);
+    try zigstd.testExpectEqual(@as(f64, -1), b.top);
 }

@@ -125,7 +125,7 @@ pub fn buildTextAtlas(
     const head = self.head orelse return error.MissingHead;
     const scale = pixel_size / @as(f32, @floatFromInt(head.unitsPerEm()));
 
-    var generator: msdf = .create(self);
+    var generator: msdf = .init(self);
     const msdf_opts: msdf.Options = .{
         .sdf_type = options.msdf.sdf_type,
         .px_size = @round(pixel_size),
@@ -156,7 +156,9 @@ pub fn buildTextAtlas(
     var raster_pixels: std.ArrayList(u8) = .empty;
     defer raster_pixels.deinit(gpa);
 
-    for (text) |ch| {
+    const view = std.unicode.Utf8View.init(text) catch return error.InvalidUtf8;
+    var code_points = view.iterator();
+    while (code_points.nextCodepoint()) |ch| {
         const glyph = self.getGlyphIndex(ch) orelse continue;
 
         switch (options.type) {
@@ -227,9 +229,9 @@ pub fn buildTextAtlas(
 
     // Start from a modest canvas and double it until every glyph fits,
     // rather than assuming a fixed size up front.
-    var canvas: i32 = 256;
+    var canvas: u32 = 256;
     var pack_ctx: pack.Context = while (true) {
-        var ctx = try pack.Context.create(gpa, canvas, canvas, .{});
+        var ctx = try pack.Context.init(gpa, canvas, canvas, .{});
         const result = pack.pack(pack.IdRect, &ctx, id_rects.items, .{ .sortLessThanFn = packSortLessThan });
         if (result) {
             break ctx;
@@ -251,8 +253,8 @@ pub fn buildTextAtlas(
     for (id_rects.items) |ir| {
         const idx: usize = @intCast(ir.id);
         placements[idx] = .{ .x = @intCast(ir.rect.x), .y = @intCast(ir.rect.y) };
-        atlas_w = @max(atlas_w, @as(u32, @intCast(ir.rect.x + ir.rect.w)));
-        atlas_h = @max(atlas_h, @as(u32, @intCast(ir.rect.y + ir.rect.h)));
+        atlas_w = @max(atlas_w, @as(u32, @intCast(ir.rect.bottomRight().x)));
+        atlas_h = @max(atlas_h, @as(u32, @intCast(ir.rect.bottomRight().y)));
     }
 
     const atlas_pixels: []u8 = switch (channels) {
@@ -387,6 +389,19 @@ test "buildTextAtlas with .msdf produces a correctly-shaped multi-channel atlas"
     );
     try zigstd.testExpectTrue(atlas.glyphs[0].size[0] > 0);
     try zigstd.testExpectTrue(atlas.glyphs[0].size[1] > 0);
+}
+
+test "buildTextAtlas decodes UTF-8 and rejects invalid UTF-8" {
+    const alloc = zigstd.testAllocator;
+    const font_bytes = try test_font.build(alloc);
+    defer alloc.free(font_bytes);
+    const sfnt = try Sfnt.init(alloc, font_bytes, .{ .check = true });
+
+    // "AÉ": byte by byte, 0xC3 and 0x89 map to no glyph
+    var atlas = try buildTextAtlas(sfnt, alloc, "A\u{C9}", 32, 0, 0, .{});
+    defer atlas.deinit(alloc);
+    try zigstd.testExpectEqual(@as(usize, 2), atlas.glyphs.len);
+    try zigstd.testExpectError(error.InvalidUtf8, buildTextAtlas(sfnt, alloc, "A\xC3", 32, 0, 0, .{}));
 }
 
 test "buildTextAtlas .msdf10 packs the same distances as .msdf" {

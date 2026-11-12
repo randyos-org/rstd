@@ -275,7 +275,7 @@ pub fn ComplexRotation(comptime T: type) type {
 
         /// `rotg` (`xLARTG`): the rotation with `c p - conj(s) q = r`,
         /// `s p + c q = 0`, and `r`. Faer returns `r = 1` for `q = 0`; the
-        /// reference's (and the rotation's) `r` is `p` (issues.md).
+        /// reference's (and the rotation's) `r` is `p` (issue #257).
         pub fn rotg(a: T, b: T) struct { Self, T } {
             if (ops.isZero(T, b)) return .{ .{ .c = 1, .s = ops.zero(T) }, a };
             const eps = std.math.floatEps(F);

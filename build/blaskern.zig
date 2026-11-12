@@ -144,6 +144,9 @@ fn addForArch(
             // write Mach-O, so macOS objects keep the self-hosted linker
             .use_lld = llvm and target.result.ofmt != .macho,
         });
+        // the whole-file cache, whatever `-fincremental` says: incremental state does not
+        // survive a restart, so each new `zig build` would recompile every object
+        obj.incremental = false;
         // `zig cc` ignores `-ofmt`, so an explicit object format goes unchecked
         if (llvm and g.query.ofmt == null) mod.addObjectFile(try checkedObject(b, obj, g.query)) else mod.addObject(obj);
     }
@@ -158,7 +161,7 @@ fn checkedObject(b: *Build, obj: *Compile, query: std.Target.Query) !LazyPath {
 
 /// A step that fails where `comp`'s inline asm has a line LLVM rejects: it
 /// compiles `comp`'s LLVM bitcode with clang. Zig 0.18 drops such lines, yet
-/// exits 0 and caches the output (issues.md, "Inline assembly errors exit 0").
+/// exits 0 and caches the output (issue #190).
 /// `comp` must use LLVM, and `query` name no `ofmt`, which `zig cc` ignores.
 pub fn asmCheck(b: *Build, comp: *Compile, query: std.Target.Query) !*Build.Step {
     const triple = try query.zigTriple(b.allocator);
@@ -169,11 +172,15 @@ pub fn asmCheck(b: *Build, comp: *Compile, query: std.Target.Query) !*Build.Step
     if (!target.cpu.arch.isX86())
         check.addArg(b.fmt("-mcpu={s}", .{try query.serializeCpuAlloc(b.allocator)}));
     // as Zig builds it; `zig cc` makes freestanding mips PIC, which its asm
-    // fails, and non-abicalls MIPS code (`objectPic`) cannot be PIC
-    if (comp.root_module.pic == false or (comp.root_module.pic == null and target.os.tag == .freestanding))
+    // fails, and non-abicalls MIPS code (`objectPic`) cannot be PIC; N64 implies
+    // abicalls, so clang ignores a bare `-fno-PIC` there and its warning fails
+    // the step
+    if (comp.root_module.pic == false or (comp.root_module.pic == null and target.os.tag == .freestanding)) {
         check.addArg("-fno-PIC");
+        if (target.cpu.arch.isMips()) check.addArg("-mno-abicalls");
+    }
     // wasm bitcode already has its `wasm-feature-*` flags, which clang adds again
-    // (issues.md, "wasm bitcode gets its feature flags twice")
+    // (issue #191)
     if (target.cpu.arch.isWasm()) check.addArgs(&.{ "-Xclang", "-disable-llvm-verifier" });
     // a function per section, so calls are relocations the linker resolves; in
     // one section a large image's branches outrun their range (+-32 MiB on
@@ -255,6 +262,7 @@ fn pickTarget(
     var best: ?usize = null;
     var best_count: usize = 0;
     for (groups, 0..) |g, i| {
+        if (!pickable(arch_tag, g)) continue;
         const features = b.resolveTargetQuery(g.query).result.cpu.features;
         if (!target.result.cpu.features.isSuperSetOf(features)) continue;
         if (best == null or features.count() > best_count) {
@@ -264,4 +272,13 @@ fn pickTarget(
     }
     const i = best orelse return null;
     return .{ .group = i, .core = groups[i].cores.items[0] };
+}
+
+/// Whether every core of `g` may be the target's pick (`corespec.targetPickable`).
+fn pickable(comptime arch_tag: std.Target.Cpu.Arch, g: Group) bool {
+    for (g.cores.items) |name| {
+        const core = std.meta.stringToEnum(corespec.CoreType(arch_tag), name).?;
+        if (!corespec.targetPickable(core)) return false;
+    }
+    return true;
 }

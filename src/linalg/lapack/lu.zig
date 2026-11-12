@@ -96,11 +96,12 @@ fn factor(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, un:
         for (ipiv[j..][0..jb]) |*p| p.* += @intCast(j);
         const rest = n - j - jb;
         if (rest == 0) continue;
-        // A12 := L11^-1 P A12; A22 -= A21 A12
+        // A12 := L11^-1 P A12; A22 -= A21 A12, never on the small-matrix
+        // path, which `factorAhead`'s parts do not take
         const c = a + (j + jb) * lda;
         laswp.swapRows(T, rest, c, lda, j + 1, j + jb, ipiv + j, 1);
         try driver.trsm(allocator, io, T, vt, true, false, false, false, true, jb, rest, one, d, lda, c + j, lda, 1);
-        if (m > j + jb) try driver.gemm(allocator, io, T, vt, false, false, .n, m - j - jb, rest, jb, minus, d + jb, lda, c + j, lda, one, c + j + jb, lda, 1);
+        if (m > j + jb) try driver.gemmBlocked(allocator, io, T, vt, m - j - jb, rest, jb, minus, d + jb, lda, c + j, lda, c + j + jb, lda);
     }
     swapBack(T, mn, blocking, a, lda, ipiv);
     return info;
@@ -473,9 +474,9 @@ var shrunk: Vtable = undefined;
 
 fn shrink(vt: *const Vtable) *const Vtable {
     shrunk = vt.*;
-    inline for (.{ "s", "d", "q", "c", "z", "x" }) |p| {
-        const un = @max(1, @field(shrunk, p ++ "gemm_unroll_n"));
-        @field(shrunk, p ++ "gemm_q") = 2 * un + 1;
+    inline for ([_]portable.Gemm{ .s, .d, .q, .c, .z, .x }) |g| {
+        const un = @max(1, portable.paramPtr(&shrunk, g, .unroll_n).*);
+        portable.paramPtr(&shrunk, g, .q).* = 2 * un + 1;
     }
     return &shrunk;
 }

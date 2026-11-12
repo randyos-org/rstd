@@ -190,6 +190,15 @@ pub const HalfGemv = enum {
         return if (k == .shgemv) types.HF16 else types.BF16;
     }
 
+    /// Its family's gemm, which names its slots.
+    fn gemm(comptime k: HalfGemv) portable.Gemm {
+        return switch (k) {
+            .sbgemv => .sb,
+            .bgemv => .b,
+            .shgemv => .sh,
+        };
+    }
+
     /// The type of `y`, `alpha` and `beta`.
     fn Out(comptime k: HalfGemv) type {
         return if (k == .bgemv) types.BF16 else f32;
@@ -235,11 +244,10 @@ pub fn gemvHalf(io: Io, comptime kind: HalfGemv, trans: Trans, m: isize, n: isiz
     }
     const px = first(In, x, lenx, incx);
     const py = first(Out, y, leny, incy);
-    const name = @tagName(kind);
     _ = if (tr)
-        blas.kernel(@field(blas.Slot, name ++ "_t"))(m, n, alpha, a, lda, px, incx, beta, py, incy)
+        blas.kernel(comptime portable.halfGemvSlot(kind.gemm(), true))(m, n, alpha, a, lda, px, incx, beta, py, incy)
     else
-        blas.kernel(@field(blas.Slot, name ++ "_n"))(m, n, alpha, a, lda, px, incx, beta, py, incy);
+        blas.kernel(comptime portable.halfGemvSlot(kind.gemm(), false))(m, n, alpha, a, lda, px, incx, beta, py, incy);
 }
 
 /// A `gemvHalf` scalar as `f32`.
@@ -532,7 +540,10 @@ fn zeroT(comptime T: type) T {
 }
 
 fn val(comptime T: type, re: Float(T), im: Float(T)) T {
-    return if (comptime isComplex(T)) .init(re, im) else re;
+    if (comptime isComplex(T)) return .init(re, im);
+    // an unused f80 argument leaks an x87 register on the x86_64 backend (issue #272)
+    std.mem.doNotOptimizeAway(im);
+    return re;
 }
 
 /// Element `i` of a vector of `n` at stride `inc`, as an index into its
@@ -582,8 +593,8 @@ fn testGemv(comptime T: type, trans: Trans, m: usize, n: usize, incx: isize, inc
     defer testing.allocator.free(y);
     const want = try testing.allocator.dupe(T, y);
     defer testing.allocator.free(want);
-    const conj_a = trans == .r or trans == .c or trans == .s or trans == .d;
-    const conj_x = trans == .o or trans == .u or trans == .s or trans == .d;
+    const conj_a = trans.conjA();
+    const conj_x = trans.conjX();
     for (0..leny) |r| {
         var acc = zeroT(T);
         for (0..lenx) |q| {

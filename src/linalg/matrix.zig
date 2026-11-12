@@ -190,20 +190,19 @@ pub fn identity(comptime M: type) M {
     return r;
 }
 
-/// The matrix with columns `c`.
-pub fn fromCols(comptime M: type, c: [M.cols]Column(M.rows, M.Element)) M {
+/// The matrix with columns `c`; vector literals coerce.
+pub fn fromCols(comptime M: type, c: [M.cols][M.rows]M.Element) M {
     var r: M = undefined;
     inline for (0..M.cols) |j| r.data[j] = c[j];
     return r;
 }
 
-/// The matrix with rows `r`.
-pub fn fromRows(comptime M: type, r: [M.rows]Column(M.cols, M.Element)) M {
+/// The matrix with rows `r`, arrays as `fromCols` takes.
+pub fn fromRows(comptime M: type, r: [M.rows][M.cols]M.Element) M {
     var m: M = undefined;
-    for (0..M.rows) |i| {
-        const ri: [M.cols]M.Element = r[i];
-        for (0..M.cols) |j| m.data[j][i] = ri[j];
-    }
+    for (0..M.rows) |i| for (0..M.cols) |j| {
+        m.data[j][i] = r[i][j];
+    };
     return m;
 }
 
@@ -514,7 +513,7 @@ fn invAnySize(m: anytype) error{Singular}!@TypeOf(m) {
     const T = M.Element;
     if (vector.on_spirv and comptime spirvMat(n, n, T)) {
         if (spvDeterminant(m) == 0) return error.Singular;
-        // a local: a literal in the payload is a SPIR-V backend TODO (issues.md)
+        // a local: a literal in the payload is a SPIR-V backend TODO (issue #200)
         const r: M = .{ .data = spvInverse(m) };
         return r;
     }
@@ -726,14 +725,9 @@ const V2f32 = vector.V2f32;
 const V3f32 = vector.V3f32;
 const V4f64 = vector.V4f64;
 
-fn expectSameBits(want: anytype, got: @TypeOf(want)) !void {
-    const T = @TypeOf(want);
-    const U = switch (@typeInfo(T)) {
-        .vector => |info| @Vector(info.len, @Int(.unsigned, @bitSizeOf(info.child))),
-        else => @Int(.unsigned, @bitSizeOf(T)),
-    };
-    try zigstd.testExpectEqual(@as(U, @bitCast(want)), @as(U, @bitCast(got)));
-}
+const bitwise = @import("blas/_test/bitwise.zig");
+const expectSameBits = bitwise.expectSameBits;
+const math = @import("../math.zig");
 
 test "StaticMat construction, access and transposes" {
     const M = StaticMat(2, 3, f32);
@@ -816,7 +810,18 @@ fn randomMat(comptime M: type, random: std.Random, s: M.Element) M {
 }
 
 fn expectSameMatBits(want: anytype, got: @TypeOf(want)) !void {
-    for (want.data, got.data) |wc, gc| try expectSameBits(@as(Vec(@TypeOf(want).rows, @TypeOf(want).Element), wc), gc);
+    for (want.data, got.data) |wc, gc| try expectSameOrX87(@as(Vec(@TypeOf(want).rows, @TypeOf(want).Element), wc), gc);
+}
+
+/// `expectSameBits` of two `@Vector`s, but for `f64` on x87 within
+/// `bitwise.sameBitsOrX87`'s few ulps: there each code path rounds its 80-bit
+/// intermediates where it stores them (issue #264).
+fn expectSameOrX87(want: anytype, got: @TypeOf(want)) !void {
+    const V = @typeInfo(@TypeOf(want)).vector;
+    if (comptime !(math.x87_f64 and V.child == f64)) return expectSameBits(want, got);
+    const wa: [V.len]f64 = want;
+    const ga: [V.len]f64 = got;
+    try zigstd.testExpectTrue(bitwise.sameBitsOrX87(f64, &wa, &ga));
 }
 
 /// `mul`'s `@Matrix` forms against its column code, for `R` by `K` times `K`
@@ -830,8 +835,8 @@ fn expectNativeBits(comptime T: type, comptime r: comptime_int, comptime k: comp
         const v: Vec(k, T) = b.data[0];
         const w: Vec(r, T) = a.data[0];
         try expectSameMatBits(mulCols(a, b), mul(a, b));
-        try expectSameBits(@as(Vec(r, T), matVec(a, v)), mul(a, v));
-        try expectSameBits(@as(Vec(k, T), vecMat(w, a)), mul(w, a));
+        try expectSameOrX87(@as(Vec(r, T), matVec(a, v)), mul(a, v));
+        try expectSameOrX87(@as(Vec(k, T), vecMat(w, a)), mul(w, a));
         try expectSameMatBits(transpose(transpose(a)), a);
     }
 }
@@ -907,7 +912,7 @@ fn expectInverts(comptime T: type, comptime n: comptime_int, random: std.Random)
         const x = try solve(m, b);
         for (mul(m, x), b) |got, want| try zigstd.testExpectTrue(isClose(got, want, tol));
         const xs = try solve(m, fromCols(StaticMat(n, 1, T), .{b}));
-        try zigstd.testExpectEqual(x, xs.data[0]);
+        try zigstd.testExpectTrue(bitwise.sameBitsOrX87(T, &x, &xs.data[0]));
         // the determinant is the product of the eigenvalues: of `mᵀ` the same
         const d = det(m);
         const dt = det(transpose(m));

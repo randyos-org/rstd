@@ -149,7 +149,7 @@ fn dotRun(comptime T: type, ctx: anytype, al: Allocator, n: usize, inc: [2]isize
     try pattern.component(T, want, got, ulps, scale);
 }
 
-const Reduce = enum { asum, sum, nrm2 };
+const Reduce = check.Reduce;
 
 fn reduceRun(comptime T: type, ctx: anytype, al: Allocator, n: usize, inc: [2]isize) !void {
     var v = try operands(T, al, n, inc, true);
@@ -209,15 +209,16 @@ fn slots(comptime l: []const u8, comptime T: type, vt: *const Vtable) void {
     const beta: T = if (complex) .init(-0.5, 0.25) else -0.5;
     const zero: T = if (complex) .init(0, 0) else 0;
     const unit: T = if (complex) .init(1, 0) else 1;
-    inline for (.{ .{ "copy", false }, .{ "swap", true } }) |m| {
-        note(sweep(T, l ++ m[0], .{ .kern = @field(vt, l ++ m[0] ++ "_k").?, .swap = m[1] }, moveRun));
+    const prec: portable.Prec = comptime .from(l);
+    inline for (.{ .{ portable.Op.copy_k, false }, .{ portable.Op.swap_k, true } }) |m| {
+        note(sweep(T, portable.slotName(prec, m[0]), .{ .kern = portable.slotPtr(vt, prec, m[0]).*.?, .swap = m[1] }, moveRun));
     }
     note(sweep(T, l ++ "scal", .{ .kern = portable.slotPtr(vt, .from(l), .scal_k).*.?, .alpha = one }, scalRun));
-    inline for (if (complex) .{ "axpy", "axpyc" } else .{"axpy"}) |r| {
+    inline for (if (complex) .{ portable.Op.axpy_k, portable.Op.axpyc_k } else .{portable.Op.axpy_k}) |r| {
         // a zero alpha too: `y + 0*x` is `y`
         for ([_]T{ one, zero }) |a| {
-            const ctx = .{ .kern = @field(vt, l ++ r ++ "_k").?, .alpha = a, .beta = unit, .conj = r.len == 5, .axpby = false };
-            note(sweep(T, l ++ r, ctx, axpyRun));
+            const ctx = .{ .kern = portable.slotPtr(vt, prec, r).*.?, .alpha = a, .beta = unit, .conj = r == .axpyc_k, .axpby = false };
+            note(sweep(T, portable.slotName(prec, r), ctx, axpyRun));
         }
     }
     if (@hasField(Vtable, portable.slotName(.from(l), .axpby_k))) if (portable.slotPtr(vt, .from(l), .axpby_k).*) |k| {
@@ -229,17 +230,16 @@ fn slots(comptime l: []const u8, comptime T: type, vt: *const Vtable) void {
     if (!complex) for ([_]f64{ -1, 0, 1 }) |flag| {
         note(sweep(T, l ++ "rotm", .{ .kern = portable.slotPtr(vt, .from(l), .rotm_k).*.?, .flag = flag }, rotRun));
     };
-    inline for (if (complex) .{ .{ "dotu", false }, .{ "dotc", true } } else .{.{ "dot", false }}) |d| {
-        note(sweep(T, l ++ d[0], .{ .kern = @field(vt, l ++ d[0] ++ "_k").?, .conj = d[1] }, dotRun));
+    inline for (if (complex) .{ .{ portable.Op.dotu_k, false }, .{ portable.Op.dotc_k, true } } else .{.{ portable.Op.dot_k, false }}) |d| {
+        note(sweep(T, portable.slotName(prec, d[0]), .{ .kern = portable.slotPtr(vt, prec, d[0]).*.?, .conj = d[1] }, dotRun));
     }
     inline for (comptime std.enums.values(Reduce)) |op| {
-        note(sweep(T, l ++ @tagName(op), .{ .kern = @field(vt, l ++ @tagName(op) ++ "_k").?, .op = op }, reduceRun));
+        note(sweep(T, portable.slotName(prec, op.op()), .{ .kern = portable.slotPtr(vt, prec, op.op()).*.?, .op = op }, reduceRun));
     }
-    inline for (.{ "amax", "amin", "max", "min" }) |name| {
-        if (comptime complex and name[0] != 'a') continue;
-        const find: extremum.Find = .{ .abs = name[0] == 'a', .max = comptime std.mem.endsWith(u8, name, "max") };
-        inline for (.{ "", "i" }) |i| {
-            note(sweep(T, i ++ l ++ name, .{ .kern = @field(vt, i ++ l ++ name ++ "_k").?, .find = find }, extremeRun));
+    inline for (check.extremes) |e| {
+        if (comptime complex and !e[2].abs) continue;
+        inline for (.{ e[0], e[1] }) |op| {
+            note(sweep(T, portable.slotName(prec, op), .{ .kern = portable.slotPtr(vt, prec, op).*.?, .find = e[2] }, extremeRun));
         }
     }
 }

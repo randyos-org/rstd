@@ -192,7 +192,7 @@ sfnt: Sfnt,
 /// lifecycle: it's a borrowed view over the font's bytes, re-read on every
 /// call, since Sfnt itself owns no allocated state (see Sfnt.init's doc
 /// comment); there's nothing for a deinit() to release, and none exists.
-pub fn create(sfnt: Sfnt) Generator {
+pub fn init(sfnt: Sfnt) Generator {
     return .{ .sfnt = sfnt };
 }
 
@@ -438,7 +438,7 @@ pub fn generateAtlas(
     }
     try process_group.await(io);
 
-    var pack_ctx: pack.Context = try .create(allocator, atlas_w, atlas_h, .{});
+    var pack_ctx: pack.Context = try .init(allocator, atlas_w, atlas_h, .{});
     defer pack_ctx.deinit();
     try pack.pack(
         pack.IdRect,
@@ -551,12 +551,8 @@ fn processAtlasCodepointInner(
             .height = @intCast(id_rect.rect.h),
         },
         .codepoint = codepoint,
-        .tex_bounds = .{
-            .x = std.math.minInt(i32),
-            .y = std.math.minInt(i32),
-            .w = std.math.minInt(i32),
-            .h = std.math.minInt(i32),
-        },
+        // placed by the packer (`generate`)
+        .tex_bounds = id_rect.rect,
     };
 }
 
