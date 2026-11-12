@@ -12,14 +12,27 @@ pub const Tool = enum { ssh_test, test_host, qemu_watch, load_window, initramfs,
 
 var built: std.EnumArray(Tool, ?*Compile) = .initFill(null);
 
-/// `tools/<tool>.zig` for the host, cached per build.
+/// Where `tool`'s source is: the rigs' tools in `tools/rig/`, the macOS VM's
+/// in `tools/macos/`.
+fn dir(tool: Tool) []const u8 {
+    return switch (tool) {
+        .ssh_test => "tools",
+        .test_host, .qemu_watch, .load_window, .initramfs => "tools/rig",
+        .macos_vm => "tools/macos",
+    };
+}
+
+/// `<dir>/<tool>.zig` for the host, cached per build, with `tools/remote.zig`
+/// as the `remote` module (a file in a subfolder cannot import it by path).
 pub fn hostTool(b: *Build, comptime tool: Tool) *Compile {
     const slot = built.getPtr(tool);
     if (slot.*) |t| if (t.step.owner == b) return t;
-    slot.* = b.addExecutable(.{ .name = @tagName(tool), .root_module = b.createModule(.{
-        .root_source_file = b.path("tools/" ++ @tagName(tool) ++ ".zig"),
+    const mod = b.createModule(.{
+        .root_source_file = b.path(comptime dir(tool) ++ "/" ++ @tagName(tool) ++ ".zig"),
         .target = b.graph.host,
-    }) });
+    });
+    mod.addImport("remote", b.createModule(.{ .root_source_file = b.path("tools/remote.zig"), .target = b.graph.host }));
+    slot.* = b.addExecutable(.{ .name = @tagName(tool), .root_module = mod });
     return slot.*.?;
 }
 

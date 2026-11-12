@@ -1996,8 +1996,8 @@ Outside `src/linalg/blas/`:
 | `test/linux/init.zig` | PID 1 of the Linux rigs |
 | `tools/blas_asm/` | the converters |
 | `tools/blasbench/` | the benchmarks: kernels, rstd against the libraries and reference binaries, the flyoff ([`readme.md`](../../tools/blasbench/readme.md)) |
-| `tools/test_host.zig`, `tools/nix/` | running the rigs' QEMU on another machine |
-| `tools/ssh_test.zig`, `tools/qemu_watch.zig` | the SSH test runner; the rigs' watchdog |
+| `tools/rig/test_host.zig`, `tools/nix/` | running the rigs' QEMU on another machine |
+| `tools/ssh_test.zig`, `tools/rig/qemu_watch.zig` | the SSH test runner; the rigs' watchdog |
 
 **Cores handed to weaker CPUs** (T18). Where detection, as the reference's, can give a CPU a
 core whose object it cannot run, each case is decided by the [settled
@@ -2378,11 +2378,11 @@ Rig mechanics:
 - **Results.** Where the machine has semihosting (aarch64, arm, riscv64, MIPS) the runner exits
   with the number of failed tests; elsewhere the step checks the printed summary for
   "0 failed". Consoles log live to `.zig-cache/qemu-test-<name>.log`. `-Dfail-fast` ends a rig
-  at its first failing test (`tools/qemu_watch.zig`, the SSH steps too; not the macOS VM).
+  at its first failing test (`tools/rig/qemu_watch.zig`, the SSH steps too; not the macOS VM).
 - **Images.** OpenBIOS on `sun4u` maps 0x400000 to 0x800000 only (seen on the rig, `build/qemu/machines.zig`; OpenBIOS's source not checked), so the sparc64 rigs (stubs now) split
   their tests into images by filter (`parts` in `build/qemu/machines.zig`), and the build, under
   `qemu-check` too, fails an image whose loaded span is past that window (`load_window`,
-  `tools/load_window.zig`). `-Dqemu-test-part=<part>` builds and runs only that image.
+  `tools/rig/load_window.zig`). `-Dqemu-test-part=<part>` builds and runs only that image.
 - **UEFI.** The app boots from a read-only FAT drive (QEMU's vvfat) with the edk2 firmware
   Nix's QEMU ships, as read-only pflash (`tools/nix/run.sh` finds it, so only on the test
   host). It takes its heap and a 1 MiB stack from boot services, turns off the watchdog,
@@ -2395,7 +2395,7 @@ Rig mechanics:
   cases are left to native runs.
 - **Test host.** The rigs' QEMU runs on another machine, `-Dtest-host=<ssh alias>`
   (`macmini-m6` by default when rstd is the root project; `-Dtest-host-off` runs it here); the
-  images still build here (`tools/test_host.zig`). Each run copies its files to the host's
+  images still build here (`tools/rig/test_host.zig`). Each run copies its files to the host's
   `/tmp`, runs QEMU from the Nix flake in `tools/nix` (nixpkgs pinned by `flake.lock`) and
   streams the console back to the watchdog and live log. At most `-Dtest-host-jobs` (8, our default) rigs run
   there at once, across builds. On an arm64 Mac, `aarch64`, `aarch64-uefi` and `linux-aarch64` run under HVF on

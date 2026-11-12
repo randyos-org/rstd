@@ -4,7 +4,7 @@
 const std = @import("std");
 const sysinfo = @import("builtin");
 const Io = std.Io;
-const remote = @import("remote.zig");
+const remote = @import("remote");
 
 /// How often a shutdown is checked for a frozen VM, and how long nothing
 /// may change before it counts as one.

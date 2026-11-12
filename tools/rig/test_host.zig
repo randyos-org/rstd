@@ -4,7 +4,7 @@
 
 const std = @import("std");
 const Io = std.Io;
-const remote = @import("remote.zig");
+const remote = @import("remote");
 
 pub fn main(init: std.process.Init) void {
     std.process.exit(run(init) catch |err| {

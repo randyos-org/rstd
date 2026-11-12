@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# run.sh <jobs> <qemu argv>...: one rig on the test host (tools/test_host.zig) in its files' directory: waits for a slot (flock in
+# run.sh <jobs> <qemu argv>...: one rig on the test host (tools/rig/test_host.zig) in its files' directory: waits for a slot (flock in
 # /tmp/rstd-qemu-slots), runs QEMU until stdin closes, then removes this and any dead run's directory. `@qemu-data@` is QEMU's data dir.
 set -u
 d=$PWD

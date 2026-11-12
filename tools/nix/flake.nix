@@ -1,6 +1,6 @@
 {
   # QEMU for the qemu rigs on another machine (`-Dtest-host`), pinned by
-  # flake.lock; `nix flake update` moves it on. tools/test_host.zig copies
+  # flake.lock; `nix flake update` moves it on. tools/rig/test_host.zig copies
   # this directory to the host and runs run.sh in its shell.
   description = "rstd's qemu rigs' QEMU";
 

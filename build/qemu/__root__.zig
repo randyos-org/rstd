@@ -111,7 +111,7 @@ fn vmOption(b: *Build, comptime name: []const u8, comptime rigs: []const u8, com
     return !off and (on orelse b.isRoot());
 }
 
-/// `-Dtest-host`: the machine the rigs' QEMU runs on (`tools/test_host.zig`).
+/// `-Dtest-host`: the machine the rigs' QEMU runs on (`tools/rig/test_host.zig`).
 pub const TestHost = struct { alias: []const u8, jobs: u32, tcg: bool };
 
 /// Where `m` runs: the test host, or here (null).
@@ -119,10 +119,10 @@ fn testHostFor(m: Machine, host: ?TestHost) ?TestHost {
     return if (m.whpx) null else host;
 }
 
-/// `m`'s qemu and `args`, under `tools/qemu_watch.zig`: a firmware halt or
+/// `m`'s qemu and `args`, under `tools/rig/qemu_watch.zig`: a firmware halt or
 /// an hour with no output ends it and fails the step, where it would
 /// otherwise never end. The slowest test prints nothing for about 20 minutes
-/// on the x86 rigs. On a test host, through `tools/test_host.zig`, which
+/// on the x86 rigs. On a test host, through `tools/rig/test_host.zig`, which
 /// copies over the files `fileArg` adds.
 pub fn qemuCommand(b: *Build, m: Machine, host: ?TestHost) *Build.Step.Run {
     const run = watchCommand(b);
@@ -151,7 +151,7 @@ pub fn fileArg(run: *Build.Step.Run, m: Machine, host: ?TestHost, file: Build.La
     if (testHostFor(m, host) != null) run.addPrefixedFileArg("local:", file) else run.addFileArg(file);
 }
 
-/// `tools/qemu_watch.zig` with its idle limit (an hour) and `-Dfail-fast`;
+/// `tools/rig/qemu_watch.zig` with its idle limit (an hour) and `-Dfail-fast`;
 /// the caller adds halt texts, `--` and the command.
 pub fn watchCommand(b: *Build) *Build.Step.Run {
     const run = b.addRunArtifact(tools.hostTool(b, .qemu_watch));
@@ -178,7 +178,7 @@ pub fn liveLog(b: *Build, m: Machine) []const u8 {
 /// qemu's console on stdout and, as it is written, in `liveLog`: a run step
 /// checking stdout shows it only once qemu exits. Naming the serial port and
 /// monitor keeps `-nographic`'s firmware console. On a test host
-/// `tools/test_host.zig` writes the log.
+/// `tools/rig/test_host.zig` writes the log.
 pub fn addConsole(b: *Build, run: *Build.Step.Run, m: Machine, host: ?TestHost) void {
     run.addArgs(&.{ "-m", m.memory, "-nographic", "-no-reboot" });
     const log = if (testHostFor(m, host) != null) "" else b.fmt(",logfile={s}", .{liveLog(b, m)});
@@ -231,7 +231,7 @@ fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedT
     return run;
 }
 
-/// An initramfs (`tools/initramfs.zig`) of `init` as `/init` and `test` as
+/// An initramfs (`tools/rig/initramfs.zig`) of `init` as `/init` and `test` as
 /// `/test`; `run` takes more files.
 pub const Initramfs = struct {
     run: *Build.Step.Run,
