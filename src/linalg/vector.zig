@@ -327,6 +327,85 @@ pub inline fn min(v: anytype) Elem(@TypeOf(v)) {
     return extreme(false, v);
 }
 
+// ---- lane shuffles -----------------------------------------------------------
+// pffft's (`src/simd/pf_sse1_float.h`, marton78/pffft efc1dd2d) for any even
+// `@Vector` length; its `VTRANSPOSE4` is `matrix.transposeVecs`.
+
+/// `INTERLEAVE2`: `a` and `b`'s lanes alternating, their low halves'
+/// in the first vector and their high halves' in the second.
+pub inline fn interleave(a: anytype, b: @TypeOf(a)) [2]@TypeOf(a) {
+    const V = @TypeOf(a);
+    const h = count(V) / 2;
+    const lo = comptime alternate(h, 0);
+    const hi = comptime alternate(h, h);
+    return .{ @shuffle(Elem(V), a, b, lo), @shuffle(Elem(V), a, b, hi) };
+}
+
+/// `UNINTERLEAVE2`, `interleave` undone: the even lanes of `a` then of
+/// `b`, and the odd ones.
+pub inline fn uninterleave(a: anytype, b: @TypeOf(a)) [2]@TypeOf(a) {
+    const V = @TypeOf(a);
+    const even = comptime strided(count(V), 0);
+    const odd = comptime strided(count(V), 1);
+    return .{ @shuffle(Elem(V), a, b, even), @shuffle(Elem(V), a, b, odd) };
+}
+
+/// `VSWAPHL(a, b)`: `b`'s low half, then `a`'s high half.
+pub inline fn swapHalves(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+    const V = @TypeOf(a);
+    const n = count(V);
+    const mask = comptime blk: {
+        var m: [n]i32 = undefined;
+        for (0..n) |i| m[i] = if (i < n / 2) ~@as(i32, i) else i;
+        break :blk m;
+    };
+    return @shuffle(Elem(V), a, b, mask);
+}
+
+/// `VREV_S`: the lanes reversed.
+pub inline fn reverse(a: anytype) @TypeOf(a) {
+    const V = @TypeOf(a);
+    const n = count(V);
+    const mask = comptime blk: {
+        var m: [n]i32 = undefined;
+        for (0..n) |i| m[i] = n - 1 - i;
+        break :blk m;
+    };
+    return @shuffle(Elem(V), a, undefined, mask);
+}
+
+/// `VREV_C`: the (re, im) lane pairs reversed, each pair kept in order.
+pub inline fn reversePairs(a: anytype) @TypeOf(a) {
+    const V = @TypeOf(a);
+    const n = count(V);
+    const mask = comptime blk: {
+        var m: [n]i32 = undefined;
+        for (0..n) |i| m[i] = n - 2 - (i - i % 2) + i % 2;
+        break :blk m;
+    };
+    return @shuffle(Elem(V), a, undefined, mask);
+}
+
+/// The shuffle mask taking lanes `from..from + h` of `a` and `b` in turn.
+fn alternate(comptime h: comptime_int, comptime from: comptime_int) [2 * h]i32 {
+    var m: [2 * h]i32 = undefined;
+    for (0..h) |i| {
+        m[2 * i] = from + i;
+        m[2 * i + 1] = ~@as(i32, from + i);
+    }
+    return m;
+}
+
+/// The mask taking lanes `first`, `first + 2`, ... of `a`, then of `b`.
+fn strided(comptime n: comptime_int, comptime first: comptime_int) [n]i32 {
+    var m: [n]i32 = undefined;
+    for (0..n / 2) |i| {
+        m[i] = first + 2 * i;
+        m[n / 2 + i] = ~@as(i32, first + 2 * i);
+    }
+    return m;
+}
+
 inline fn extreme(comptime largest: bool, v: anytype) Elem(@TypeOf(v)) {
     if (comptime isComplex(Elem(@TypeOf(v)))) @compileError("max and min order real elements only");
     var best = v[0];
@@ -508,6 +587,32 @@ test "sum, prod, max and min in element order" {
     try zigstd.testExpectEqual(@as(f32, 24), prod([4]f32{ 1, 2, 3, 4 }));
     try zigstd.testExpectEqual(@as(f64, 7), max(V3f64{ -1, 7, 3 }));
     try zigstd.testExpectEqual(@as(f64, -1), min(V3f64{ -1, 7, 3 }));
+}
+
+test "pffft's lane shuffles: SSE's lane orders at 4, and inverse pairs at 2 and 8" {
+    const a: V4f32 = .{ 0, 1, 2, 3 };
+    const b: V4f32 = .{ 4, 5, 6, 7 };
+    // _mm_unpacklo_ps / _mm_unpackhi_ps
+    const il = interleave(a, b);
+    try zigstd.testExpectEqual(V4f32{ 0, 4, 1, 5 }, il[0]);
+    try zigstd.testExpectEqual(V4f32{ 2, 6, 3, 7 }, il[1]);
+    // _MM_SHUFFLE(2,0,2,0) and (3,1,3,1)
+    const un = uninterleave(a, b);
+    try zigstd.testExpectEqual(V4f32{ 0, 2, 4, 6 }, un[0]);
+    try zigstd.testExpectEqual(V4f32{ 1, 3, 5, 7 }, un[1]);
+    // _mm_shuffle_ps(b, a, _MM_SHUFFLE(3,2,1,0))
+    try zigstd.testExpectEqual(V4f32{ 4, 5, 2, 3 }, swapHalves(a, b));
+    try zigstd.testExpectEqual(V4f32{ 3, 2, 1, 0 }, reverse(a));
+    try zigstd.testExpectEqual(V4f32{ 2, 3, 0, 1 }, reversePairs(a));
+    inline for (.{ Vec(2, f64), Vec(8, f32) }) |V| {
+        const x: V = std.simd.iota(Elem(V), count(V));
+        const y = x + @as(V, @splat(100));
+        const back = uninterleave(interleave(x, y)[0], interleave(x, y)[1]);
+        try zigstd.testExpectEqual(x, back[0]);
+        try zigstd.testExpectEqual(y, back[1]);
+        try zigstd.testExpectEqual(x, reverse(reverse(x)));
+        try zigstd.testExpectEqual(x, reversePairs(reversePairs(x)));
+    }
 }
 
 test "max and min: the first NaN wins, ties keep the first" {

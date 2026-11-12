@@ -1383,6 +1383,8 @@ randy-matrix: padded `@Vector` columns, float elements, `+ - *`, `@transpose`):
 19. **Conversions** to and from `[C][R]T` and `[C]@Vector(R, T)` are `StaticMat` functions;
     the fork's compiler stays as it is.
 
+M16 (2026-11-12): pffft's lane shuffles, for its FFT kernels ([#65](https://github.com/randyos-org/rstd/issues/65)), are `linalg.vector`'s `interleave`, `uninterleave`, `swapHalves`, `reverse` and `reversePairs` on any even `@Vector` length, and its `VTRANSPOSE4` is `linalg.matrix.transposeVecs` over `transpose` (`@Matrix`'s where the compiler has it).
+
 ### Planned: sparse matrices
 
 Not scheduled ([#84](https://github.com/randyos-org/rstd/issues/84) and [#85](https://github.com/randyos-org/rstd/issues/85)): the 2025 linear-algebra discussions, as corrected on
