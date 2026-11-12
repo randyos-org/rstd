@@ -1,3 +1,4 @@
+const std = @import("std");
 const types = @import("../../types.zig");
 const bytes = @import("../../../../../bytes.zig");
 const zigstd = @import("../../../../../zigstd.zig");
@@ -107,21 +108,14 @@ pub const Format14 = struct {
 
     // Records are sorted numerically by var_selector per spec.
     pub fn findRecord(self: Self, selector: u24) ?VariationSelectorRecord {
-        var lo: usize = 0;
-        var hi: usize = self.num_records;
-        while (lo < hi) {
-            const mid = lo + (hi - lo) / 2;
-            const record = self.getRecord(mid);
-            const mid_selector = record.varSelector();
-            if (selector < mid_selector) {
-                hi = mid;
-            } else if (selector > mid_selector) {
-                lo = mid + 1;
-            } else {
-                return record;
+        const Find = struct {
+            t: Self,
+            selector: u24,
+            pub fn order(f: @This(), i: usize) types.Order {
+                return std.math.order(f.selector, f.t.getRecord(i).varSelector());
             }
-        }
-        return null;
+        };
+        return self.getRecord(types.search(self.num_records, Find{ .t = self, .selector = selector }) orelse return null);
     }
 
     /// table_offset comes from a record's default_uvs_offset (0 means "no
