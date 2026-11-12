@@ -76,6 +76,9 @@ pub const Trans = enum {
     pub fn conjugated(t: Trans) bool {
         return t == .r or t == .c;
     }
+    pub fn of(trans: bool, conj: bool) Trans {
+        return if (trans) (if (conj) .c else .t) else (if (conj) .r else .n);
+    }
 };
 
 pub const Where = enum { a, b, c };
@@ -520,27 +523,38 @@ pub fn Driver(comptime r: Routine) type {
 
         pub fn run(self: @This(), comptime T: type, case: Case, a: [*]T, lda: usize, b: [*]T, ldb: usize, alpha: T, beta: T, c: [*]T, ldc: usize) !void {
             var poison: guard.Poison = .{ .child = testing.allocator };
-            const al = poison.allocator();
-            const vt = self.vt;
-            const herm = comptime isComplex(T);
-            switch (r) {
-                .gemm => try driver.gemm(al, io, T, vt, case.ta.transposed(), case.tb.transposed(), .of(case.ta.conjugated(), case.tb.conjugated()), case.m, case.n, case.k, alpha, a, lda, b, ldb, beta, c, ldc, 1),
-                .gemmt => try driver.gemmt(al, io, T, vt, case.upper, case.ta.transposed(), case.tb.transposed(), .of(case.ta.conjugated(), case.tb.conjugated()), case.n, case.k, alpha, a, lda, b, ldb, beta, c, ldc),
-                .symm => try driver.symm(al, io, T, vt, false, case.left, case.upper, case.m, case.n, alpha, a, lda, b, ldb, beta, c, ldc, 1),
-                .hemm => if (herm) try driver.symm(al, io, T, vt, true, case.left, case.upper, case.m, case.n, alpha, a, lda, b, ldb, beta, c, ldc, 1) else unreachable,
-                .syrk => try driver.syrk(al, io, T, vt, false, case.upper, case.ta.transposed(), case.n, case.k, alpha, a, lda, null, 0, beta, c, ldc, 1),
-                .syr2k => try driver.syrk(al, io, T, vt, false, case.upper, case.ta.transposed(), case.n, case.k, alpha, a, lda, b, ldb, beta, c, ldc, 1),
-                .herk => if (herm) try driver.syrk(al, io, T, vt, true, case.upper, case.ta.transposed(), case.n, case.k, alpha, a, lda, null, 0, beta, c, ldc, 1) else unreachable,
-                .her2k => if (herm) try driver.syrk(al, io, T, vt, true, case.upper, case.ta.transposed(), case.n, case.k, alpha, a, lda, b, ldb, beta, c, ldc, 1) else unreachable,
-                .trmm, .trsm => if (@hasDecl(driver, "trmm")) {
-                    const args = .{ al, io, T, vt, case.left, case.upper, case.ta.transposed(), case.ta.conjugated(), case.unit, case.m, case.n, alpha, a, lda, c, ldc, @as(u32, 1) };
-                    if (r == .trmm) try @call(.auto, driver.trmm, args) else try @call(.auto, driver.trsm, args);
-                } else return error.SkipZigTest,
-                .gemm3m => if (herm) try driver3m.gemm3m(al, io, T, vt, case.ta.transposed(), case.tb.transposed(), .of(case.ta.conjugated(), case.tb.conjugated()), case.m, case.n, case.k, alpha, a, lda, b, ldb, beta, c, ldc, 1) else unreachable,
-                .symm3m, .hemm3m => if (herm) try driver3m.symm3m(al, io, T, vt, r == .hemm3m, case.left, case.upper, case.m, case.n, alpha, a, lda, b, ldb, beta, c, ldc, 1) else unreachable,
-            }
+            return call(T, poison.allocator(), io, self.vt, r, case, a, lda, b, ldb, alpha, beta, c, ldc, 1);
         }
     };
+}
+
+/// The one dispatcher of the level-3 tests: driver `r` on `vt` for `case`'s
+/// options at up to `want` workers.
+pub fn call(comptime T: type, al: std.mem.Allocator, run_io: std.Io, vt: *const Vtable, comptime r: Routine, case: Case, a: [*]const T, lda: usize, b: [*]const T, ldb: usize, alpha: T, beta: T, c: [*]T, ldc: usize, want: u32) !void {
+    const herm = comptime isComplex(T);
+    switch (r) {
+        .gemm => try driver.gemm(al, run_io, T, vt, case.ta.transposed(), case.tb.transposed(), .of(case.ta.conjugated(), case.tb.conjugated()), case.m, case.n, case.k, alpha, a, lda, b, ldb, beta, c, ldc, want),
+        .gemmt => try driver.gemmt(al, run_io, T, vt, case.upper, case.ta.transposed(), case.tb.transposed(), .of(case.ta.conjugated(), case.tb.conjugated()), case.n, case.k, alpha, a, lda, b, ldb, beta, c, ldc),
+        .symm => try driver.symm(al, run_io, T, vt, false, case.left, case.upper, case.m, case.n, alpha, a, lda, b, ldb, beta, c, ldc, want),
+        .hemm => if (herm) try driver.symm(al, run_io, T, vt, true, case.left, case.upper, case.m, case.n, alpha, a, lda, b, ldb, beta, c, ldc, want) else unreachable,
+        .syrk => try driver.syrk(al, run_io, T, vt, false, case.upper, case.ta.transposed(), case.n, case.k, alpha, a, lda, null, 0, beta, c, ldc, want),
+        .syr2k => try driver.syrk(al, run_io, T, vt, false, case.upper, case.ta.transposed(), case.n, case.k, alpha, a, lda, b, ldb, beta, c, ldc, want),
+        .herk => if (herm) try driver.syrk(al, run_io, T, vt, true, case.upper, case.ta.transposed(), case.n, case.k, alpha, a, lda, null, 0, beta, c, ldc, want) else unreachable,
+        .her2k => if (herm) try driver.syrk(al, run_io, T, vt, true, case.upper, case.ta.transposed(), case.n, case.k, alpha, a, lda, b, ldb, beta, c, ldc, want) else unreachable,
+        .trmm, .trsm => if (@hasDecl(driver, "trmm")) {
+            const args = .{ al, run_io, T, vt, case.left, case.upper, case.ta.transposed(), case.ta.conjugated(), case.unit, case.m, case.n, alpha, a, lda, c, ldc, want };
+            if (r == .trmm) try @call(.auto, driver.trmm, args) else try @call(.auto, driver.trsm, args);
+        } else return error.SkipZigTest,
+        .gemm3m => if (herm) try driver3m.gemm3m(al, run_io, T, vt, case.ta.transposed(), case.tb.transposed(), .of(case.ta.conjugated(), case.tb.conjugated()), case.m, case.n, case.k, alpha, a, lda, b, ldb, beta, c, ldc, want) else unreachable,
+        .symm3m, .hemm3m => if (herm) try driver3m.symm3m(al, run_io, T, vt, r == .hemm3m, case.left, case.upper, case.m, case.n, alpha, a, lda, b, ldb, beta, c, ldc, want) else unreachable,
+    }
+}
+
+/// `call` for a routine known only at run time.
+pub fn callAny(comptime T: type, al: std.mem.Allocator, run_io: std.Io, vt: *const Vtable, r: Routine, case: Case, a: [*]const T, lda: usize, b: [*]const T, ldb: usize, alpha: T, beta: T, c: [*]T, ldc: usize, want: u32) !void {
+    switch (r) {
+        inline else => |cr| try call(T, al, run_io, vt, cr, case, a, lda, b, ldb, alpha, beta, c, ldc, want),
+    }
 }
 
 /// Calls the public routines (`blas.gemm` and the rest) through a poisoned

@@ -221,27 +221,22 @@ test "threaded gemm matches the serial driver's bits and kernel depths at 1 to 9
     inline for (precisions) |T| try test_io.eachTestIo(T, shapes);
 }
 
+const Routine = check3.Routine;
+
 /// The threaded routines besides `gemm`.
-const Routine = enum { symm, hemm, syrk, herk, syr2k, her2k, trmm, trsm };
+const routines = [_]Routine{ .symm, .hemm, .syrk, .herk, .syr2k, .her2k, .trmm, .trsm };
 
 /// `r` on `vt` at up to `want` workers: `C` (`trmm`'s and `trsm`'s `B`) is
 /// `m x n` (`n x n` for the rank updates), the depth `k`; `opt` is the side
 /// or `trans`, then `upper`, then for `trmm` and `trsm` `trans` (and for
 /// complex, conjugating).
 fn routine(comptime T: type, vt: *const Vtable, al: Allocator, io: Io, r: Routine, opt: [3]bool, m: usize, n: usize, k: usize, alpha: T, beta: T, a: [*]const T, b: [*]const T, ld: usize, c: [*]T, want: u32) !void {
-    const re = if (comptime types.isComplex(T)) scalar(T, alpha.re, 0) else alpha;
-    switch (r) {
-        .trmm => try driver.trmm(al, io, T, vt, opt[0], opt[1], opt[2], opt[2], false, m, n, alpha, a, ld, c, ld, want),
-        .trsm => try driver.trsm(al, io, T, vt, opt[0], opt[1], opt[2], opt[2], false, m, n, alpha, a, ld, c, ld, want),
-        .symm => try driver.symm(al, io, T, vt, false, opt[0], opt[1], m, n, alpha, a, ld, b, ld, beta, c, ld, want),
-        .syrk => try driver.syrk(al, io, T, vt, false, opt[1], opt[0], n, k, alpha, a, ld, null, 0, beta, c, ld, want),
-        .syr2k => try driver.syrk(al, io, T, vt, false, opt[1], opt[0], n, k, alpha, a, ld, b, ld, beta, c, ld, want),
-        .hemm, .herk, .her2k => if (comptime types.isComplex(T)) switch (r) {
-            .hemm => try driver.symm(al, io, T, vt, true, opt[0], opt[1], m, n, alpha, a, ld, b, ld, beta, c, ld, want),
-            .herk => try driver.syrk(al, io, T, vt, true, opt[1], opt[0], n, k, re, a, ld, null, 0, beta, c, ld, want),
-            else => try driver.syrk(al, io, T, vt, true, opt[1], opt[0], n, k, alpha, a, ld, b, ld, beta, c, ld, want),
-        } else unreachable,
-    }
+    const tri = r == .trmm or r == .trsm;
+    const rank = r == .syrk or r == .herk or r == .syr2k or r == .her2k;
+    const case: check3.Case = .{ .r = r, .left = opt[0], .upper = opt[1], .ta = if (tri) .of(opt[2], opt[2]) else .of(rank and opt[0], false), .m = m, .n = n, .k = k };
+    // `herk`'s `alpha` is real
+    const al_s = if (comptime types.isComplex(T)) (if (r == .herk) scalar(T, alpha.re, 0) else alpha) else alpha;
+    try check3.callAny(T, al, io, vt, r, case, a, ld, b, ld, al_s, beta, c, ld, want);
 }
 
 /// A tame triangle for `trsm` in `a` at `ld`: small off the diagonal, at
@@ -321,7 +316,7 @@ fn shrunkCore(comptime T: type) Vtable {
 test "threaded symm, hemm, rank-k updates, trmm and trsm match the serial loops' bits and kernel depths at 1 to 9 workers" {
     inline for (precisions) |T| {
         const vt = Depths.spied(T, shrunkCore(T));
-        for (std.enums.values(Routine)) |r| {
+        for (routines) |r| {
             if (!types.isComplex(T) and (r == .hemm or r == .herk or r == .her2k)) continue;
             const Run = struct {
                 vt: *const Vtable,
