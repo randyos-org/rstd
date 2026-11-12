@@ -10,7 +10,7 @@ A level-2 cell covers every role built from its source: the complex `gemv` forms
 
 Upstream: a `.S` file is assembly, `(unsupported)` where LLVM cannot assemble it (the generator's `arch/<arch>.zig` leaves it out); `+asm` and `+intrinsics` mark C whose block for that core (or the file, or a `.c` it includes) has inline assembly or intrinsics, a text search; unmarked C is plain C. `(no <feature>)` marks intrinsics the core cannot run (`cpu/corespec.zig`'s `machine`), which upstream picks by the compiler. Neither counts as tuned.
 
-rstd:
+Rstd:
 
 - `asm`: the converted `.S` (`asm/`);
 - `C+asm`, `C+vec`, `C`: the Zig port of the C upstream: around its converted inline-assembly block (`uk/`) or in `asm` written for its intrinsics, on `@Vector`s for its intrinsics, or in plain Zig (a hand port is in its `kernel.zig`'s `ports`);
@@ -25,4 +25,4 @@ The `Q` and `X` columns stay portable by design. On Apple's systems arm64 takes 
 
 Each cell is the source that core's `KERNEL.<core>` selects for the column's make variable, falling back to the architecture's `KERNEL`, then to the `Makefile.L3` default; `generic` where that default is `kernel/generic`'s file for the core's unroll, `-` where upstream does not build it. `|` separates alternatives chosen by a conditional. `+asm` and `+intrinsics` mark C with inline assembly or intrinsics in the file or a `.c` it includes (a text search); `(unsupported)` marks assembly LLVM cannot assemble, `(no <feature>)` intrinsics the core cannot run, neither counted as tuned.
 
-The `rstd` row says what rstd serves for every core of the architecture: `tile` is the Zig port of `kernel/generic` over the `@Vector` gemm tile (`gemm/kernel.zig`), built into each core's kernel object (a core with none runs the portable build of the same source); `none` is nothing yet; `n/a`, no rstd target. A cell is **bold** where upstream is tuned and rstd has nothing (a gap); cores rstd does not know are left out of the gaps.
+The `rstd` row says what rstd serves for every core of the architecture: `tile` is the Zig port of `kernel/generic` over the `@Vector` gemm tile (`gemm/kernel.zig`, `gemm/loops.zig`), built into each core's kernel object (a core with none runs the portable build of the same source); `none` is nothing yet; `n/a`, no rstd target. A cell is **bold** where upstream is tuned and rstd has nothing (a gap); cores rstd does not know are left out of the gaps.
