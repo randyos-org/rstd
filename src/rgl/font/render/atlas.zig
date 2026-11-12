@@ -14,10 +14,10 @@ const Image = @import("../../image.zig").Image;
 const GlyphIndex = types.GlyphIndex;
 const test_font = @import("_test/font.zig");
 
-/// One glyph's placement within a TextAtlas: where to draw it (in the same
-/// coordinate space as buildTextAtlas's start_x/baseline_y, already
-/// including this glyph's own bearing and pen advance) and where its
-/// bitmap sits within TextAtlas.pixels.
+/// One glyph's placement: where to draw it (in the same coordinate space as
+/// the build's start_x/baseline_y, already including this glyph's own
+/// bearing and pen advance) and where its bitmap sits in the atlas
+/// (TextAtlas.pixels, or the GlyphCache's for buildTextAtlasCached).
 pub const GlyphPlacement = struct {
     pos: [2]f32,
     size: [2]f32,
@@ -49,6 +49,7 @@ pub const TextAtlas = struct {
 };
 
 const RasterGlyph = struct {
+    glyph: GlyphIndex,
     /// Offset into the scratch raster buffer, or null for a glyph with no
     /// visible bitmap (width/height 0).
     bitmap_off: ?usize,
@@ -57,6 +58,17 @@ const RasterGlyph = struct {
     bearing_x: f32,
     bearing_y: f32,
     advance: f32,
+};
+
+/// A text run's glyphs and their bitmaps, one after another in `pixels`.
+const Raster = struct {
+    glyphs: std.ArrayList(RasterGlyph) = .empty,
+    pixels: std.ArrayList(u8) = .empty,
+
+    fn deinit(self: *Raster, gpa: Allocator) void {
+        self.glyphs.deinit(gpa);
+        self.pixels.deinit(gpa);
+    }
 };
 
 const Placement = struct { x: u32, y: u32 };
@@ -72,36 +84,32 @@ pub const AtlasType = enum {
     msdf,
 };
 
-/// Only consulted when `Options.type == .msdf`. Mirrors the handful of
-/// msdf.Options fields relevant to a plain atlas build; the rest
-/// (var_font_args, disable_concurrency, winding, ...) keep Generator's own
-/// defaults since they don't apply here.
-pub const MsdfOptions = struct {
-    sdf_type: msdf.SdfType = .msdf,
-    /// Width, in pixels, of the distance-field falloff around each edge.
-    px_range: u16 = 8,
-    coloring_method: msdf.ColoringMethod = .distance,
-    corner_angle_threshold: f64 = 3.0,
-    coloring_rng_seed: u64 = 0,
-    error_correction_opts: ?msdf.error_correction.Options = .{},
-    /// Fails the whole atlas build with error.InvalidShape instead of
-    /// silently rendering a bad outline if a glyph's decoded contours don't
-    /// form a closed loop.
-    validate_shape: bool = true,
-    /// Deconverges near-degenerate/converging curve corners before
-    /// generating the SDF; fixes some corner-adjacent stray-texel
-    /// artifacts that show up at small sizes.
-    normalize_shape: bool = true,
-    /// Geometrically determines each contour's correct winding direction,
-    /// rather than relying on the single-sample-point `winding: .guess`
-    /// heuristic; matters for multi-contour glyphs (most letters with a
-    /// counter/hole).
-    orient_contours: bool = true,
+/// `Options.msdf`'s default. `px_size` is ignored: the build takes it from
+/// `pixel_size`.
+pub const default_msdf: msdf.Options = .{
+    .sdf_type = .msdf,
+    // Width, in pixels, of the distance-field falloff around each edge.
+    .px_range = 8,
+    .px_size = 0,
+    // Fails the whole atlas build with error.InvalidShape instead of
+    // silently rendering a bad outline if a glyph's decoded contours don't
+    // form a closed loop.
+    .validate_shape = true,
+    // Deconverges near-degenerate/converging curve corners before
+    // generating the SDF; fixes some corner-adjacent stray-texel
+    // artifacts that show up at small sizes.
+    .normalize_shape = true,
+    // Geometrically determines each contour's correct winding direction,
+    // rather than relying on the single-sample-point `winding: .guess`
+    // heuristic; matters for multi-contour glyphs (most letters with a
+    // counter/hole).
+    .orient_contours = true,
 };
 
 pub const Options = struct {
     type: AtlasType = .coverage,
-    msdf: MsdfOptions = .{},
+    /// Only consulted when `type == .msdf`.
+    msdf: msdf.Options = default_msdf,
 };
 
 /// Rasterizes every glyph in `text`; via glyphBitmapSubpixel (the analytic
@@ -124,106 +132,137 @@ pub fn buildTextAtlas(
     };
 
     const head = self.head orelse return error.MissingHead;
-    const scale = pixel_size / @as(f32, @floatFromInt(head.unitsPerEm()));
+    const units_per_em: f32 = @floatFromInt(head.unitsPerEm());
+    const scale = pixel_size / units_per_em;
 
-    var generator: msdf = .init(self);
-    const msdf_opts: msdf.Options = .{
-        .sdf_type = options.msdf.sdf_type,
-        .px_size = @round(pixel_size),
-        .px_range = options.msdf.px_range,
-        .coloring_rng_seed = options.msdf.coloring_rng_seed,
-        .coloring_method = options.msdf.coloring_method,
-        .corner_angle_threshold = options.msdf.corner_angle_threshold,
-        .error_correction_opts = options.msdf.error_correction_opts,
-        .validate_shape = options.msdf.validate_shape,
-        .normalize_shape = options.msdf.normalize_shape,
-        .orient_contours = options.msdf.orient_contours,
+    var raster: Raster = .{};
+    defer raster.deinit(gpa);
+    try rasterText(self, gpa, &raster, text, pixel_size, units_per_em, options);
+
+    const placements = try gpa.alloc(Placement, raster.glyphs.items.len);
+    defer gpa.free(placements);
+    const size = try packGlyphs(gpa, raster.glyphs.items, placements);
+
+    const pixels = try blitGlyphs(gpa, channels, size, raster, placements);
+    errdefer gpa.free(pixels);
+
+    return .{
+        .pixels = pixels,
+        .width = size[0],
+        .height = size[1],
+        .channels = channels,
+        .glyphs = try placeGlyphs(self, gpa, raster.glyphs.items, placements, scale, start_x, baseline_y),
     };
+}
+
+/// Each of `text`'s glyphs into `raster`, as coverage or a distance field.
+fn rasterText(
+    self: Sfnt,
+    gpa: Allocator,
+    raster: *Raster,
+    text: []const u8,
+    pixel_size: f32,
+    units_per_em: f32,
+    options: Options,
+) !void {
+    const scale = pixel_size / units_per_em;
+    var generator: msdf = .init(self);
+    var msdf_opts = options.msdf;
+    msdf_opts.px_size = @round(pixel_size);
+
+    const view = std.unicode.Utf8View.init(text) catch return error.InvalidUtf8;
+    var code_points = view.iterator();
+    while (code_points.nextCodepoint()) |ch| {
+        const glyph = self.getGlyphIndex(ch) orelse continue;
+        const g = switch (options.type) {
+            .coverage => try rasterCoverage(self, gpa, &raster.pixels, glyph, scale),
+            .msdf => try rasterMsdf(self, gpa, &raster.pixels, &generator, &msdf_opts, ch, glyph, pixel_size, units_per_em),
+        };
+        try raster.glyphs.append(gpa, g);
+    }
+}
+
+fn rasterCoverage(self: Sfnt, gpa: Allocator, pixels: *std.ArrayList(u8), glyph: GlyphIndex, scale: f32) !RasterGlyph {
+    const advance = @as(f32, @floatFromInt(self.getGlyphMetrics(glyph).advance_width)) * scale;
+
+    const off = pixels.items.len;
+    const bmp = try rasterize.glyphBitmapSubpixel(self, gpa, pixels, glyph, scale, scale, 0, 0);
+    return .{
+        .glyph = glyph,
+        .bitmap_off = if (bmp.width == 0 or bmp.height == 0) null else off,
+        .width = bmp.width,
+        .height = bmp.height,
+        .bearing_x = @floatFromInt(bmp.off_x),
+        .bearing_y = @floatFromInt(bmp.off_y),
+        .advance = advance,
+    };
+}
+
+fn rasterMsdf(
+    self: Sfnt,
+    gpa: Allocator,
+    pixels: *std.ArrayList(u8),
+    generator: *msdf,
+    opts: *const msdf.Options,
+    ch: u21,
+    glyph: GlyphIndex,
+    pixel_size: f32,
+    units_per_em: f32,
+) !RasterGlyph {
     // Half the falloff range, in pixels - the padding the msdf module's
     // Generator adds around a glyph's raw outline bounds on every side (see
     // its generateSingle:
     // tfm = {bounds.left - px_range/2, bounds.bottom - px_range/2}, w/h
     // include a full px_range). Needed below to recover where a glyph's
     // pixel buffer's top-left corner sits relative to its own outline
-    // bounding box, which the MsdfOptions/GlyphMetricsEm bearing fields
+    // bounding box, which the msdf.Options/GlyphMetricsEm bearing fields
     // alone don't capture.
-    const half_px_range: f32 = @as(f32, @floatFromInt(options.msdf.px_range)) / 2.0;
+    const half_px_range: f32 = @as(f32, @floatFromInt(opts.px_range)) / 2.0;
 
-    var glyphs: std.ArrayList(GlyphIndex) = .empty;
-    defer glyphs.deinit(gpa);
-    var rastered: std.ArrayList(RasterGlyph) = .empty;
-    defer rastered.deinit(gpa);
+    // generateSingle resolves the glyph index itself from the
+    // codepoint, and returns everything (including .width/
+    // .height, already in pixels) em-scaled rather than
+    // pixel-scaled - multiply by pixel_size to get pixels.
+    var generated = try generator.generateSingle(gpa, ch, opts);
+    defer generated.deinit(gpa);
 
-    var raster_pixels: std.ArrayList(u8) = .empty;
-    defer raster_pixels.deinit(gpa);
+    const w = generated.metrics.width;
+    const h = generated.metrics.height;
+    const off = pixels.items.len;
+    if (w != 0 and h != 0) try pixels.appendSlice(gpa, generated.pixels);
 
-    const view = std.unicode.Utf8View.init(text) catch return error.InvalidUtf8;
-    var code_points = view.iterator();
-    while (code_points.nextCodepoint()) |ch| {
-        const glyph = self.getGlyphIndex(ch) orelse continue;
+    const bearing_x_px: f32 = @as(f32, @floatCast(generated.metrics.bearing_x)) * pixel_size;
 
-        switch (options.type) {
-            .coverage => {
-                const advance = @as(f32, @floatFromInt(self.getGlyphMetrics(glyph).advance_width)) * scale;
+    // Anchor from y_min (the bottom, unaffected by the truncation),
+    // then subtract the actual (truncated) height to get the top.
+    // Returns null for a glyph with no outline at all (e.g. space);
+    // generateSingle already reflects that above via w==0/h==0,
+    // so bottom_offset is simply unused in that case.
+    const bottom_offset: f32 = if (self.getGlyphBoundingBox(glyph)) |bbox| blk: {
+        const y_min_px: f32 = @as(f32, @floatFromInt(bbox.y_min)) / units_per_em * pixel_size;
+        break :blk half_px_range - y_min_px;
+    } else 0;
 
-                const off = raster_pixels.items.len;
-                const bmp = try rasterize.glyphBitmapSubpixel(self, gpa, &raster_pixels, glyph, scale, scale, 0, 0);
+    return .{
+        .glyph = glyph,
+        .bitmap_off = if (w == 0 or h == 0) null else off,
+        .width = w,
+        .height = h,
+        // Top-left corner of the padded SDF box, relative to the
+        // glyph origin (screen convention: x right, y down).
+        .bearing_x = bearing_x_px - half_px_range,
+        .bearing_y = bottom_offset - @as(f32, @floatFromInt(h)),
+        .advance = @as(f32, @floatCast(generated.metrics.advance)) * pixel_size,
+    };
+}
 
-                try glyphs.append(gpa, glyph);
-                try rastered.append(gpa, .{
-                    .bitmap_off = if (bmp.width == 0 or bmp.height == 0) null else off,
-                    .width = bmp.width,
-                    .height = bmp.height,
-                    .bearing_x = @floatFromInt(bmp.off_x),
-                    .bearing_y = @floatFromInt(bmp.off_y),
-                    .advance = advance,
-                });
-            },
-            .msdf => {
-                // generateSingle resolves the glyph index itself from the
-                // codepoint, and returns everything (including .width/
-                // .height, already in pixels) em-scaled rather than
-                // pixel-scaled - multiply by pixel_size to get pixels.
-                var generated = try generator.generateSingle(gpa, ch, &msdf_opts);
-                defer generated.deinit(gpa);
-
-                const w = generated.metrics.width;
-                const h = generated.metrics.height;
-                const off = raster_pixels.items.len;
-                if (w != 0 and h != 0) try raster_pixels.appendSlice(gpa, generated.pixels);
-
-                const bearing_x_px: f32 = @as(f32, @floatCast(generated.metrics.bearing_x)) * pixel_size;
-
-                // Anchor from y_min (the bottom, unaffected by the truncation),
-                // then subtract the actual (truncated) height to get the top.
-                // Returns null for a glyph with no outline at all (e.g. space);
-                // generateSingle already reflects that above via w==0/h==0,
-                // so bottom_offset is simply unused in that case.
-                const bottom_offset: f32 = if (self.getGlyphBoundingBox(glyph)) |bbox| blk: {
-                    const y_min_px: f32 = @as(f32, @floatFromInt(bbox.y_min)) / @as(f32, @floatFromInt(head.unitsPerEm())) * pixel_size;
-                    break :blk half_px_range - y_min_px;
-                } else 0;
-
-                try glyphs.append(gpa, glyph);
-                try rastered.append(gpa, .{
-                    .bitmap_off = if (w == 0 or h == 0) null else off,
-                    .width = w,
-                    .height = h,
-                    // Top-left corner of the padded SDF box, relative to the
-                    // glyph origin (screen convention: x right, y down).
-                    .bearing_x = bearing_x_px - half_px_range,
-                    .bearing_y = bottom_offset - @as(f32, @floatFromInt(h)),
-                    .advance = @as(f32, @floatCast(generated.metrics.advance)) * pixel_size,
-                });
-            },
-        }
-    }
-
-    // Pack every rastered glyph's bitmap into one shared atlas via a
-    // guillotine rect packer (pack.zig - general-purpose, not font-specific).
+/// Packs every visible glyph's bitmap into one shared atlas via a
+/// guillotine rect packer (pack.zig - general-purpose, not font-specific);
+/// fills `placements` and returns the atlas's used width and height.
+fn packGlyphs(gpa: Allocator, glyphs: []const RasterGlyph, placements: []Placement) ![2]u32 {
     var id_rects: std.ArrayList(pack.IdRect) = .empty;
     defer id_rects.deinit(gpa);
-    for (rastered.items, 0..) |g, i| {
+    for (glyphs, 0..) |g, i| {
         if (g.bitmap_off == null) continue;
         try id_rects.append(gpa, .{ .id = @intCast(i), .rect = .{ .w = @intCast(g.width), .h = @intCast(g.height) } });
     }
@@ -246,43 +285,53 @@ pub fn buildTextAtlas(
     };
     defer pack_ctx.deinit();
 
-    var atlas_w: u32 = 1;
-    var atlas_h: u32 = 1;
-    const placements = try gpa.alloc(Placement, rastered.items.len);
-    defer gpa.free(placements);
+    var size: [2]u32 = .{ 1, 1 };
     @memset(placements, .{ .x = 0, .y = 0 });
     for (id_rects.items) |ir| {
         const idx: usize = @intCast(ir.id);
         placements[idx] = .{ .x = @intCast(ir.rect.x), .y = @intCast(ir.rect.y) };
-        atlas_w = @max(atlas_w, @as(u32, @intCast(ir.rect.bottomRight().x)));
-        atlas_h = @max(atlas_h, @as(u32, @intCast(ir.rect.bottomRight().y)));
+        size[0] = @max(size[0], @as(u32, @intCast(ir.rect.bottomRight().x)));
+        size[1] = @max(size[1], @as(u32, @intCast(ir.rect.bottomRight().y)));
     }
+    return size;
+}
 
-    const atlas_pixels: []u8 = switch (channels) {
+/// A `size` atlas with each visible glyph's bitmap copied to its placement.
+fn blitGlyphs(gpa: Allocator, channels: u8, size: [2]u32, raster: Raster, placements: []const Placement) ![]u8 {
+    return switch (channels) {
         inline 1, 3, 4 => |n| blk: {
             const Px = [n]u8;
-            const atlas: Image(Px) = try .init(gpa, atlas_w, atlas_h, @splat(0));
-            for (rastered.items, placements) |g, p| {
+            const atlas: Image(Px) = try .init(gpa, size[0], size[1], @splat(0));
+            for (raster.glyphs.items, placements) |g, p| {
                 const off = g.bitmap_off orelse continue;
-                const src = raster_pixels.items[off..][0 .. @as(usize, g.width) * g.height * n];
+                const src = raster.pixels.items[off..][0 .. @as(usize, g.width) * g.height * n];
                 atlas.blit(p.x, p.y, g.width, std.mem.bytesAsSlice(Px, src));
             }
             break :blk std.mem.sliceAsBytes(atlas.data);
         },
         else => unreachable,
     };
-    errdefer gpa.free(atlas_pixels);
+}
 
-    // Second pass: walk the glyphs again in pen order, applying kerning
-    // between consecutive pairs, to build the final placement list.
+/// Walks the glyphs in pen order, applying kerning between consecutive
+/// pairs, to build the final placement list.
+fn placeGlyphs(
+    self: Sfnt,
+    gpa: Allocator,
+    glyphs: []const RasterGlyph,
+    placements: []const Placement,
+    scale: f32,
+    start_x: f32,
+    baseline_y: f32,
+) ![]GlyphPlacement {
     var out_glyphs: std.ArrayList(GlyphPlacement) = .empty;
     errdefer out_glyphs.deinit(gpa);
 
     var pen_x: f32 = start_x;
     var prev_glyph: ?GlyphIndex = null;
-    for (rastered.items, glyphs.items, placements) |g, gi, p| {
-        if (prev_glyph) |pg| pen_x += @as(f32, @floatFromInt(self.glyphKernAdvance(pg, gi))) * scale;
-        prev_glyph = gi;
+    for (glyphs, placements) |g, p| {
+        if (prev_glyph) |pg| pen_x += @as(f32, @floatFromInt(self.glyphKernAdvance(pg, g.glyph))) * scale;
+        prev_glyph = g.glyph;
 
         if (g.bitmap_off != null) {
             try out_glyphs.append(gpa, .{
@@ -294,28 +343,14 @@ pub fn buildTextAtlas(
 
         pen_x += g.advance;
     }
-
-    return .{
-        .pixels = atlas_pixels,
-        .width = atlas_w,
-        .height = atlas_h,
-        .channels = channels,
-        .glyphs = try out_glyphs.toOwnedSlice(gpa),
-    };
+    return out_glyphs.toOwnedSlice(gpa);
 }
 
-/// One glyph's placement when drawn against a persistent `GlyphCache`:
-/// unlike GlyphPlacement, `atlas_pos` here refers into the *cache's* texture
-/// (`cache.atlas`), which the caller already holds and which outlives any
-/// single buildTextAtlasCached call.
-pub const CachedGlyphPlacement = struct {
-    pos: [2]f32,
-    size: [2]f32,
-    atlas_pos: [2]u32,
-};
-
+/// A text run's placements against a persistent `GlyphCache`: `atlas_pos`
+/// refers into the cache's texture (`cache.atlas`), which the caller already
+/// holds and which outlives any single buildTextAtlasCached call.
 pub const CachedTextLayout = struct {
-    glyphs: []CachedGlyphPlacement,
+    glyphs: []GlyphPlacement,
     width: u32,
     height: u32,
 
@@ -347,7 +382,7 @@ pub fn buildTextAtlasCached(
     var text_layout = try layout.layoutText(gpa, self, text, pixel_size, layout_options);
     defer text_layout.deinit(gpa);
 
-    var out_glyphs: std.ArrayList(CachedGlyphPlacement) = .empty;
+    var out_glyphs: std.ArrayList(GlyphPlacement) = .empty;
     errdefer out_glyphs.deinit(gpa);
 
     for (text_layout.glyphs) |g| {
@@ -413,7 +448,9 @@ test "buildTextAtlas .msdf10 packs the same distances as .msdf" {
 
     var m8 = try buildTextAtlas(sfnt, alloc, "A", 32, 0, 0, .{ .type = .msdf });
     defer m8.deinit(alloc);
-    var m10 = try buildTextAtlas(sfnt, alloc, "A", 32, 0, 0, .{ .type = .msdf, .msdf = .{ .sdf_type = .msdf10 } });
+    var m10_opts: Options = .{ .type = .msdf };
+    m10_opts.msdf.sdf_type = .msdf10;
+    var m10 = try buildTextAtlas(sfnt, alloc, "A", 32, 0, 0, m10_opts);
     defer m10.deinit(alloc);
 
     try zigstd.testExpectEqual(@as(u8, 4), m10.channels);
