@@ -9,19 +9,27 @@ const kernel = @import("blas1/dot/driver.zig");
 const x86 = @import("blas1/dot/x86_64/kernel.zig");
 const ukidx = @import("blas1/dot/x86_64/uk/__root__.zig");
 const util = @import("util.zig");
+const coretypes = @import("cpu/coretypes.zig");
 
 const Slot = util.Slot;
 const Feature = std.Target.x86.Feature;
+const Core = coretypes.X86CoreType;
 
-/// The cores `run.sh` builds the C for, with what running them needs here.
-const cores = [_]struct { name: []const u8, needs: []const Feature }{
-    .{ .name = "nehalem", .needs = &.{.sse4_1} },
-    .{ .name = "sandybridge", .needs = &.{.avx} },
-    .{ .name = "haswell", .needs = &.{ .avx2, .fma } },
-    .{ .name = "zen", .needs = &.{ .avx2, .fma } },
-    .{ .name = "skylakex", .needs = &.{.avx2} },
-    .{ .name = "generic", .needs = &.{} },
+/// The cores `run.sh` builds the C for, with what running them needs here;
+/// null is its generic build.
+const cores = [_]struct { core: ?Core, needs: []const Feature }{
+    .{ .core = .nehalem, .needs = &.{.sse4_1} },
+    .{ .core = .sandybridge, .needs = &.{.avx} },
+    .{ .core = .haswell, .needs = &.{ .avx2, .fma } },
+    .{ .core = .zen, .needs = &.{ .avx2, .fma } },
+    .{ .core = .skylakex, .needs = &.{.avx2} },
+    .{ .core = null, .needs = &.{} },
 };
+
+/// `core`'s name in `run.sh`'s symbols.
+fn nameOf(comptime core: ?Core) []const u8 {
+    return if (core) |c| @tagName(c) else "generic";
+}
 
 const slots = [_]Slot{ .dsdot_k, .ddot_k, .cdotu_k, .cdotc_k, .zdotu_k, .zdotc_k };
 
@@ -38,8 +46,8 @@ fn fallbackMask(comptime slot: Slot) comptime_int {
 }
 
 /// `slot`'s driver on `core`, as `uk_block.driven` builds it, with `fuse`.
-fn Driver(comptime slot: Slot, comptime core: []const u8, comptime fuse: bool) type {
-    const e = ukidx.find(slot, core) orelse return kernel.Driver(slot, fallbackMask(slot), kernel.Fallback(slot, fuse), fuse);
+fn Driver(comptime slot: Slot, comptime core: ?Core, comptime fuse: bool) type {
+    const e = (if (core) |c| ukidx.find(slot, c) else null) orelse return kernel.Driver(slot, fallbackMask(slot), kernel.Fallback(slot, fuse), fuse);
     const B = switch (e.block) {
         .none => kernel.Fallback(slot, fuse),
         .vector => x86.VectorBlockWith(slot, std.Target.x86.featureSetHas(sysinfo.target.cpu.features, .avx512cd), fuse),
@@ -57,9 +65,9 @@ fn fill(comptime T: type, buf: []T, seed: u64) void {
 var runs: usize = 0;
 var fails: usize = 0;
 
-fn check(comptime slot: Slot, comptime core: []const u8, comptime fuse: bool) void {
+fn check(comptime slot: Slot, comptime core: ?Core, comptime fuse: bool) void {
     const E = kernel.form(slot).E;
-    const sym = std.fmt.comptimePrint("ref_{s}_{s}_{s}", .{ @tagName(slot)[0 .. @tagName(slot).len - 2], core, if (fuse) "f" else "n" });
+    const sym = std.fmt.comptimePrint("ref_{s}_{s}_{s}", .{ @tagName(slot)[0 .. @tagName(slot).len - 2], nameOf(core), if (fuse) "f" else "n" });
     const ref = @extern(kernel.Kernel(slot), .{ .name = sym });
     const D = Driver(slot, core, fuse);
     const S = struct {
@@ -75,7 +83,7 @@ fn check(comptime slot: Slot, comptime core: []const u8, comptime fuse: bool) vo
             runs += 1;
             if (!std.mem.eql(u8, std.mem.asBytes(&want), std.mem.asBytes(&got))) {
                 fails += 1;
-                if (fails <= 40) std.debug.print("MISMATCH {t} {s} fuse={} n={d} inc={d},{d}: ref {any} got {any}\n", .{ slot, core, fuse, n, inc[0], inc[1], want, got });
+                if (fails <= 40) std.debug.print("MISMATCH {t} {s} fuse={} n={d} inc={d},{d}: ref {any} got {any}\n", .{ slot, nameOf(core), fuse, n, inc[0], inc[1], want, got });
             }
         }
     }
@@ -87,7 +95,7 @@ pub fn main() u8 {
             if (!std.Target.x86.featureSetHas(sysinfo.target.cpu.features, f)) break false;
         } else true;
         if (runnable) {
-            inline for (.{ false, true }) |fuse| inline for (slots) |slot| check(slot, c.name, fuse);
+            inline for (.{ false, true }) |fuse| inline for (slots) |slot| check(slot, c.core, fuse);
         } else std.debug.print("{s}: not run, this CPU lacks its features\n", .{c.name});
     }
     std.debug.print("{d} runs, {d} mismatches\n", .{ runs, fails });

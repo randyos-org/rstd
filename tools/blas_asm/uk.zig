@@ -1146,7 +1146,7 @@ fn writeIndexes(a: std.mem.Allocator) !void {
             \\};
             \\
             \\/// The entry for `slot` on `core`, if its driver is C.
-            \\pub fn find(comptime slot: uk.Slot, comptime core: []const u8) ?Entry {
+            \\pub fn find(comptime slot: uk.Slot, comptime core: anytype) ?Entry {
             \\    return uk.find(&entries, slot, core);
             \\}
             \\

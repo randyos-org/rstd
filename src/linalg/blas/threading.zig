@@ -109,10 +109,11 @@ pub const Rule = struct {
     }
 };
 
-/// `family`'s rule for `T` on `core` (`blas.coreName()`): OpenBLAS's
+/// `family`'s rule for `T` on `core` (`blas.coreType()`; any architecture's
+/// core enum, or null for none): OpenBLAS's
 /// interface or kernel thresholds, with its per-core overrides as a
 /// `DYNAMIC_ARCH` build applies them.
-pub fn rule(comptime family: Family, comptime T: type, core: []const u8) Rule {
+pub fn rule(comptime family: Family, comptime T: type, core: anytype) Rule {
     const complex = comptime types.isComplex(T);
     const F = types.Float(T);
     const s: u64 = @sizeOf(F);
@@ -152,13 +153,16 @@ pub fn rule(comptime family: Family, comptime T: type, core: []const u8) Rule {
     };
 }
 
-/// Whether `core` (`blas.coreName()`) names arm64's `c`.
-fn is(core: []const u8, comptime c: coretypes.Arm64CoreType) bool {
-    return std.mem.eql(u8, core, @tagName(c));
+/// Whether `core` (`rule`'s) is arm64's `c`.
+fn is(core: anytype, comptime c: coretypes.Arm64CoreType) bool {
+    const C = @TypeOf(core);
+    if (C == coretypes.Arm64CoreType) return core == c;
+    if (C == ?coretypes.Arm64CoreType) return if (core) |k| k == c else false;
+    return false;
 }
 
 /// `kernel/arm64/dot.c`'s tables.
-fn dotCore(comptime F: type, core: []const u8) ?Rule {
+fn dotCore(comptime F: type, core: anytype) ?Rule {
     if (is(core, .neoversev1)) return switch (F) {
         f64 => .{ .serial_max = 64500, .tiers = comptime &.{ upTo(100000, 2), upTo(150000, 4), upTo(260000, 8), upTo(360000, 16), upTo(520000, 24), upTo(1010000, 56) } },
         f32 => .{ .serial_max = 110000, .tiers = comptime &.{ upTo(200000, 2), upTo(280000, 4), upTo(520000, 8), upTo(830000, 16), upTo(1010000, 24) } },
@@ -173,7 +177,7 @@ fn dotCore(comptime F: type, core: []const u8) ?Rule {
 }
 
 /// `interface/gemv.c`'s tables.
-fn gemvCore(comptime F: type, core: []const u8) ?Rule {
+fn gemvCore(comptime F: type, core: anytype) ?Rule {
     if (F != f32 and F != f64) return null;
     if (is(core, .neoversev1)) return switch (F) {
         f64 => .{ .serial_max = 8099, .tiers = comptime &.{ .{ .below = 12100, .max = 2 }, .{ .below = 36100, .max = 4 }, .{ .below = 84100, .max = 8 }, .{ .below = 348100, .max = 16 }, .{ .below = 435600, .max = 24 }, .{ .below = 810000, .max = 32 }, .{ .below = 1050625, .max = 40 } } },
@@ -184,7 +188,7 @@ fn gemvCore(comptime F: type, core: []const u8) ?Rule {
 }
 
 /// `interface/gemm.c`'s tables, single precision only.
-fn gemmCore(comptime F: type, core: []const u8) ?Rule {
+fn gemmCore(comptime F: type, core: anytype) ?Rule {
     if (F != f32) return null;
     if (is(core, .neoversev1)) return .{ .serial_max = 262143, .tiers = comptime &.{ .{ .below = 1124864, .max = 6 }, .{ .below = 7880599, .max = 12 }, .{ .below = 17173512, .max = 16 }, .{ .below = 33386248, .max = 20 }, .{ .below = 57066625, .max = 24 }, .{ .below = 91733851, .max = 32 }, .{ .below = 265847707, .max = 40 }, .{ .below = 458314011, .max = 48 }, .{ .below = 729000000, .max = 56 } } };
     if (is(core, .neoversev2)) return .{ .serial_max = 124999, .tiers = comptime &.{ .{ .below = 1092727, .max = 6 }, .{ .below = 2628072, .max = 8 }, .{ .below = 8000000, .max = 12 }, .{ .below = 20346417, .max = 16 }, .{ .below = 57066625, .max = 24 }, .{ .below = 91125000, .max = 28 }, .{ .below = 238328000, .max = 40 }, .{ .below = 454756609, .max = 48 }, .{ .below = 857375000, .max = 56 }, .{ .below = 1073741824, .max = 64 } } };
@@ -299,9 +303,9 @@ pub const Plan = struct {
 fn serialFloor(comptime family: Family, comptime T: type) u64 {
     comptime {
         @setEvalBranchQuota(1_000_000);
-        var m = rule(family, T, "").serial_max;
+        var m = rule(family, T, null).serial_max;
         for (coretypes.all) |C| {
-            for (std.meta.fieldNames(C)) |name| m = @min(m, rule(family, T, name).serial_max);
+            for (std.meta.tags(C)) |c| m = @min(m, rule(family, T, c).serial_max);
         }
         return m;
     }
@@ -319,8 +323,7 @@ pub fn serial(comptime family: Family, comptime T: type, work: u64) bool {
 pub fn plan(comptime family: Family, comptime T: type, work: u64, len: usize, shape: Shape, quantum: usize) Plan {
     if (serial(family, T, work)) return .{ .chunks = .init(len, 1, shape, quantum), .workers = 1 };
     // selects the core first, which fills `blas.config`
-    const core = blas.coreName();
-    var r = rule(family, T, core);
+    var r = rule(family, T, blas.coreType());
     if (sysinfo.is_test) if (test_serial_max) |m| {
         r = .{ .serial_max = m };
     };
@@ -798,6 +801,9 @@ pub const Barrier = struct {
 
 // ---- tests -------------------------------------------------------------------------
 
+const X86 = coretypes.X86CoreType;
+const Arm64 = coretypes.Arm64CoreType;
+
 test "chunks cover the range once, in order, on quantum bounds" {
     const lens = [_]usize{ 0, 1, 2, 3, 10, 63, 64, 65, 100, 1000, 12345, std.math.maxInt(usize) };
     const wants = [_]usize{ 0, 1, 2, 3, 7, 64, 65, 1000 };
@@ -838,75 +844,75 @@ test "even chunks differ by at most a quantum; rising and falling ones balance a
 }
 
 test "rules: thresholds at their edges, tiers and the chunk cap" {
-    const axpy = rule(.axpy, f64, "haswell");
+    const axpy = rule(.axpy, f64, X86.haswell);
     try zigstd.testExpectEqual(@as(usize, 1), axpy.chunkCount(10000));
     try zigstd.testExpectEqual(@as(u32, 1), axpy.sizeMax(10000));
     try zigstd.testExpectEqual(@as(usize, 2), axpy.chunkCount(10001));
     try zigstd.testExpectEqual(@as(u32, std.math.maxInt(u32)), axpy.sizeMax(10001));
     try zigstd.testExpectEqual(@as(usize, chunks_max), axpy.chunkCount(1 << 40));
 
-    const gemm = rule(.gemm, f64, "haswell");
+    const gemm = rule(.gemm, f64, X86.haswell);
     try zigstd.testExpectEqual(@as(u32, 1), gemm.sizeMax(262144));
     try zigstd.testExpectEqual(@as(u32, 5), gemm.sizeMax(262144 * 5 + 1));
-    try zigstd.testExpectEqual(@as(u32, 1), rule(.gemm, std.math.Complex(f32), "haswell").sizeMax(32768));
-    try zigstd.testExpectEqual(@as(u32, 2), rule(.gemm, std.math.Complex(f32), "haswell").sizeMax(65536));
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.gemm, std.math.Complex(f32), X86.haswell).sizeMax(32768));
+    try zigstd.testExpectEqual(@as(u32, 2), rule(.gemm, std.math.Complex(f32), X86.haswell).sizeMax(65536));
 
-    const ger = rule(.ger, f32, "haswell");
+    const ger = rule(.ger, f32, X86.haswell);
     try zigstd.testExpectEqual(@as(u32, 1), ger.sizeMax(8192));
     try zigstd.testExpectEqual(@as(u32, 3), ger.sizeMax(8193));
     try zigstd.testExpectEqual(@as(u32, 3), ger.sizeMax(81920));
     try zigstd.testExpectEqual(@as(u32, std.math.maxInt(u32)), ger.sizeMax(81921));
-    try zigstd.testExpectEqual(@as(u32, 1), rule(.ger, std.math.Complex(f64), "haswell").sizeMax(9216));
-    try zigstd.testExpectEqual(@as(u32, std.math.maxInt(u32)), rule(.ger, std.math.Complex(f64), "haswell").sizeMax(9217));
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.ger, std.math.Complex(f64), X86.haswell).sizeMax(9216));
+    try zigstd.testExpectEqual(@as(u32, std.math.maxInt(u32)), rule(.ger, std.math.Complex(f64), X86.haswell).sizeMax(9217));
 
     // `n < 8 MiB / sizeof` serial; complex counts its elements
-    try zigstd.testExpectEqual(@as(u32, 1), rule(.swap, f64, "haswell").sizeMax(1048575));
-    try zigstd.testExpectEqual(@as(usize, 2), rule(.swap, f64, "haswell").chunkCount(1048576));
-    try zigstd.testExpectEqual(@as(u32, 1), rule(.swap, std.math.Complex(f64), "haswell").sizeMax(524287));
-    try zigstd.testExpectEqual(@as(usize, 2), rule(.swap, std.math.Complex(f64), "haswell").chunkCount(524288));
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.swap, f64, X86.haswell).sizeMax(1048575));
+    try zigstd.testExpectEqual(@as(usize, 2), rule(.swap, f64, X86.haswell).chunkCount(1048576));
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.swap, std.math.Complex(f64), X86.haswell).sizeMax(524287));
+    try zigstd.testExpectEqual(@as(usize, 2), rule(.swap, std.math.Complex(f64), X86.haswell).chunkCount(524288));
 
-    const ztrmv = rule(.trmv, std.math.Complex(f64), "haswell");
+    const ztrmv = rule(.trmv, std.math.Complex(f64), X86.haswell);
     try zigstd.testExpectEqual(@as(u32, 1), ztrmv.sizeMax(96));
     try zigstd.testExpectEqual(@as(u32, 2), ztrmv.sizeMax(97));
     try zigstd.testExpectEqual(@as(u32, 2), ztrmv.sizeMax(127));
     try zigstd.testExpectEqual(@as(u32, std.math.maxInt(u32)), ztrmv.sizeMax(128));
-    try zigstd.testExpectEqual(@as(u32, 2), rule(.trmv, f64, "haswell").sizeMax(499));
-    try zigstd.testExpectEqual(@as(u32, 1), rule(.symv, f64, "haswell").sizeMax(199));
-    try zigstd.testExpectEqual(@as(usize, 2), rule(.symv, f64, "haswell").chunkCount(200));
-    try zigstd.testExpectEqual(@as(u32, 1), rule(.hemv, std.math.Complex(f64), "haswell").sizeMax(361));
-    try zigstd.testExpectEqual(@as(usize, 2), rule(.hemv, std.math.Complex(f64), "haswell").chunkCount(362));
-    try zigstd.testExpectEqual(@as(u32, 2), rule(.tpmv, std.math.Complex(f32), "haswell").sizeMax(499));
+    try zigstd.testExpectEqual(@as(u32, 2), rule(.trmv, f64, X86.haswell).sizeMax(499));
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.symv, f64, X86.haswell).sizeMax(199));
+    try zigstd.testExpectEqual(@as(usize, 2), rule(.symv, f64, X86.haswell).chunkCount(200));
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.hemv, std.math.Complex(f64), X86.haswell).sizeMax(361));
+    try zigstd.testExpectEqual(@as(usize, 2), rule(.hemv, std.math.Complex(f64), X86.haswell).chunkCount(362));
+    try zigstd.testExpectEqual(@as(u32, 2), rule(.tpmv, std.math.Complex(f32), X86.haswell).sizeMax(499));
 
-    try zigstd.testExpectEqual(@as(u32, 1), rule(.asum, f32, "haswell").sizeMax(100000));
-    try zigstd.testExpectEqual(@as(u32, 3), rule(.asum, f32, "haswell").sizeMax(300000));
-    try zigstd.testExpectEqual(@as(u32, 3), rule(.asum, std.math.Complex(f32), "haswell").sizeMax(30000));
-    try zigstd.testExpectEqual(@as(u32, 1), rule(.trsm, f64, "haswell").sizeMax(1023));
-    try zigstd.testExpectEqual(@as(u32, 1), rule(.syrk, f64, "haswell").sizeMax(product(&.{ 101, 100, 43 })));
-    try zigstd.testExpectEqual(@as(u32, std.math.maxInt(u32)), rule(.syrk, f64, "haswell").sizeMax(product(&.{ 101, 100, 44 })));
-    try zigstd.testExpectEqual(@as(u32, 1), rule(.syr2k, f64, "haswell").sizeMax(999));
-    try zigstd.testExpectEqual(@as(u32, std.math.maxInt(u32)), rule(.syr2k, std.math.Complex(f32), "haswell").sizeMax(1000));
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.asum, f32, X86.haswell).sizeMax(100000));
+    try zigstd.testExpectEqual(@as(u32, 3), rule(.asum, f32, X86.haswell).sizeMax(300000));
+    try zigstd.testExpectEqual(@as(u32, 3), rule(.asum, std.math.Complex(f32), X86.haswell).sizeMax(30000));
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.trsm, f64, X86.haswell).sizeMax(1023));
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.syrk, f64, X86.haswell).sizeMax(product(&.{ 101, 100, 43 })));
+    try zigstd.testExpectEqual(@as(u32, std.math.maxInt(u32)), rule(.syrk, f64, X86.haswell).sizeMax(product(&.{ 101, 100, 44 })));
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.syr2k, f64, X86.haswell).sizeMax(999));
+    try zigstd.testExpectEqual(@as(u32, std.math.maxInt(u32)), rule(.syr2k, std.math.Complex(f32), X86.haswell).sizeMax(1000));
 }
 
 test "rules: OpenBLAS's per-core overrides apply to their core and precision only" {
-    try zigstd.testExpectEqual(@as(u32, 1), rule(.dot, f64, "neoversev1").sizeMax(64500));
-    try zigstd.testExpectEqual(@as(u32, 2), rule(.dot, f64, "neoversev1").sizeMax(64501));
-    try zigstd.testExpectEqual(@as(u32, 56), rule(.dot, f64, "neoversev1").sizeMax(1010000));
-    try zigstd.testExpectEqual(@as(u32, 1), rule(.dot, f32, "neoversev1").sizeMax(110000));
-    try zigstd.testExpectEqual(@as(u32, 8), rule(.dot, f32, "a64fx").sizeMax(1020000));
-    try zigstd.testExpectEqual(@as(u32, 1), rule(.dot, std.math.Complex(f64), "neoversev1").sizeMax(10000));
-    try zigstd.testExpectEqual(@as(u32, std.math.maxInt(u32)), rule(.dot, std.math.Complex(f64), "neoversev1").sizeMax(10001));
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.dot, f64, Arm64.neoversev1).sizeMax(64500));
+    try zigstd.testExpectEqual(@as(u32, 2), rule(.dot, f64, Arm64.neoversev1).sizeMax(64501));
+    try zigstd.testExpectEqual(@as(u32, 56), rule(.dot, f64, Arm64.neoversev1).sizeMax(1010000));
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.dot, f32, Arm64.neoversev1).sizeMax(110000));
+    try zigstd.testExpectEqual(@as(u32, 8), rule(.dot, f32, Arm64.a64fx).sizeMax(1020000));
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.dot, std.math.Complex(f64), Arm64.neoversev1).sizeMax(10000));
+    try zigstd.testExpectEqual(@as(u32, std.math.maxInt(u32)), rule(.dot, std.math.Complex(f64), Arm64.neoversev1).sizeMax(10001));
 
-    try zigstd.testExpectEqual(@as(u32, 1), rule(.gemm, f32, "neoversev1").sizeMax(262143));
-    try zigstd.testExpectEqual(@as(u32, 6), rule(.gemm, f32, "neoversev1").sizeMax(262144));
-    try zigstd.testExpectEqual(@as(u32, 64), rule(.gemm, f32, "neoversev2").sizeMax(1073741823));
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.gemm, f32, Arm64.neoversev1).sizeMax(262143));
+    try zigstd.testExpectEqual(@as(u32, 6), rule(.gemm, f32, Arm64.neoversev1).sizeMax(262144));
+    try zigstd.testExpectEqual(@as(u32, 64), rule(.gemm, f32, Arm64.neoversev2).sizeMax(1073741823));
     // double gemm keeps the generic rule
-    try zigstd.testExpectEqual(@as(u32, 1), rule(.gemm, f64, "neoversev1").sizeMax(262144));
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.gemm, f64, Arm64.neoversev1).sizeMax(262144));
 
-    try zigstd.testExpectEqual(@as(u32, 1), rule(.gemv, f64, "neoversev1").sizeMax(8099));
-    try zigstd.testExpectEqual(@as(u32, 2), rule(.gemv, f64, "neoversev1").sizeMax(8100));
-    try zigstd.testExpectEqual(@as(u32, 4), rule(.gemv, f32, "neoversev1").sizeMax(25600));
-    try zigstd.testExpectEqual(@as(u32, 8), rule(.gemv, f64, "neoversev2").sizeMax(24964));
-    try zigstd.testExpectEqual(@as(u32, 1), rule(.gemv, f64, "haswell").sizeMax(460799));
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.gemv, f64, Arm64.neoversev1).sizeMax(8099));
+    try zigstd.testExpectEqual(@as(u32, 2), rule(.gemv, f64, Arm64.neoversev1).sizeMax(8100));
+    try zigstd.testExpectEqual(@as(u32, 4), rule(.gemv, f32, Arm64.neoversev1).sizeMax(25600));
+    try zigstd.testExpectEqual(@as(u32, 8), rule(.gemv, f64, Arm64.neoversev2).sizeMax(24964));
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.gemv, f64, X86.haswell).sizeMax(460799));
 }
 
 test "serial is exact: its floor is one chunk and one worker on every core" {
@@ -916,8 +922,8 @@ test "serial is exact: its floor is one chunk and one worker on every core" {
             try zigstd.testExpectTrue(serial(f, T, floor));
             try zigstd.testExpectTrue(!serial(f, T, floor + 1));
             inline for (coretypes.all) |C| {
-                for (std.meta.fieldNames(C)) |name| {
-                    const r = rule(f, T, name);
+                for (std.meta.tags(C)) |c| {
+                    const r = rule(f, T, c);
                     try zigstd.testExpectEqual(@as(usize, 1), r.chunkCount(floor));
                     try zigstd.testExpectEqual(@as(u32, 1), r.sizeMax(floor));
                 }
@@ -953,7 +959,7 @@ test "the worker count is the least of the CPUs, the ceiling and the size" {
 
 test "chunks follow the size and the core, never the CPU count or the ceiling" {
     const cfgs = [_]Config{ .{}, .{ .cpu_count = 4 }, .{ .cpu_count = 64 }, .{ .cpu_count = 64, .num_threads = 2 }, .{ .cpu_count = 3, .goto_num_threads = 5 } };
-    const r = rule(.dot, f64, "haswell");
+    const r = rule(.dot, f64, X86.haswell);
     for ([_]usize{ 1, 10000, 10001, 123457, 1 << 30 }) |n| {
         const base = planWith(&cfgs[0], r, n, n, .even, 8);
         for (cfgs[1..]) |*cfg| {

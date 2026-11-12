@@ -236,7 +236,7 @@ const SkylakeTBlock = struct {
 /// The entry of `slot` for Skylake-X in `idx` that is Haswell's block.
 fn haswellBlock(comptime idx: type, comptime slot: Slot) uk.Entry {
     return comptime for (idx.entries) |x| {
-        if (x.slot == slot and x.block == .assembly and uk.find(&[_]uk.Entry{x}, slot, "skylakex") != null) break x;
+        if (x.slot == slot and x.block == .assembly and uk.find(&[_]uk.Entry{x}, slot, coretypes.X86CoreType.skylakex) != null) break x;
     } else unreachable;
 }
 

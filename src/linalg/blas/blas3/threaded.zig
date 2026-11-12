@@ -23,7 +23,7 @@ const Error = driver.Error;
 /// selected core, for the drivers' `want`.
 pub fn workers(comptime family: threading.Family, comptime T: type, work: u64) u32 {
     // selects the core first, which fills `blas.config`
-    const r = threading.rule(family, T, blas.coreName());
+    const r = threading.rule(family, T, blas.coreType());
     return @min(threading.workers(&blas.config, r.sizeMax(work)), threading.chunks_max);
 }
 

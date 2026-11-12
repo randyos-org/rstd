@@ -14,7 +14,7 @@ pub const Core = coretypes.S390xCoreType;
 
 /// The entry for `slot` on `core`, if it has one.
 fn entry(comptime slot: Slot, comptime core: Core) ?ukidx.Entry {
-    return ukidx.find(slot, @tagName(core));
+    return ukidx.find(slot, core);
 }
 
 /// Whether `slot` has a kernel of its own on `core`.

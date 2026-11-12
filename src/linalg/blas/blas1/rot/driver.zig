@@ -10,6 +10,7 @@ const util = @import("../../util.zig");
 const types = @import("../../types.zig");
 const fma = @import("../../fma.zig");
 const uk = @import("../../uk_block.zig");
+const coretypes = @import("../../cpu/coretypes.zig");
 
 const BlasLong = types.BlasLong;
 const Slot = util.Slot;
@@ -115,7 +116,7 @@ fn Driver(comptime slot: Slot, comptime B: type, comptime fuse: bool) type {
 }
 
 /// The kernel `slot` of the core whose index entry is `e` (`uk_block.driven`).
-pub fn entryOf(comptime slot: Slot, comptime core: []const u8, comptime e: uk.Entry, comptime Vector: fn (comptime Slot) type) Kernel(slot) {
+pub fn entryOf(comptime slot: Slot, comptime core: coretypes.X86CoreType, comptime e: uk.Entry, comptime Vector: fn (comptime Slot) type) Kernel(slot) {
     _ = core;
     const B = switch (e.block) {
         .vector => Vector(slot),

@@ -10,9 +10,11 @@ const util = @import("../../util.zig");
 const types = @import("../../types.zig");
 const fma = @import("../../fma.zig");
 const uk = @import("../../uk_block.zig");
+const coretypes = @import("../../cpu/coretypes.zig");
 
 const BlasLong = types.BlasLong;
 const Slot = util.Slot;
+const Core = coretypes.X86CoreType;
 
 /// The kernels an architecture's `<arch>/kernel.zig` iterates over.
 pub const slots = [_]Slot{
@@ -39,10 +41,12 @@ pub fn Kernel(comptime slot: Slot) type {
 
 /// `NBMAX`, the rows a block takes: `sgemv` halves it on Steamroller and
 /// Excavator.
-fn nbmax(comptime slot: Slot, comptime core: []const u8) BlasLong {
+fn nbmax(comptime slot: Slot, comptime core: Core) BlasLong {
     if (Elem(slot) == f64) return 2048;
-    const short = std.mem.eql(u8, core, "steamroller") or std.mem.eql(u8, core, "excavator");
-    return if (short) 2048 else 4096;
+    return switch (core) {
+        .steamroller, .excavator => 2048,
+        else => 4096,
+    };
 }
 
 /// `p` moved by `k` elements, either way.
@@ -173,7 +177,7 @@ const has_sse3 = util.x86Has(.sse3);
 /// `gemv_n_4.c`'s `CNAME` of `slot` on `core`, around blocks `M` (the
 /// microkernel's) and `O` (the driver's own), and for `sgemv` on Skylake-X
 /// `S`'s (`sgemv_n_microk_skylakex-8.c`: `n128`, `n64`), else void.
-fn GemvN(comptime slot: Slot, comptime core: []const u8, comptime M: type, comptime O: type, comptime fuse: bool, comptime S: type) type {
+fn GemvN(comptime slot: Slot, comptime core: Core, comptime M: type, comptime O: type, comptime fuse: bool, comptime S: type) type {
     const F = Elem(slot);
     const p = if (F == f32) "s" else "d";
     const C = Fallback(F, fuse);
@@ -350,7 +354,7 @@ fn GemvN(comptime slot: Slot, comptime core: []const u8, comptime M: type, compt
 /// `gemv_t_4.c`'s `CNAME` of `slot` on `core`, around blocks `M` (the
 /// microkernel's) and `O` (the driver's own), and for `sgemv` on Skylake-X
 /// `S`'s (`sgemv_t_microk_skylakex.c`: `t`), else void.
-fn GemvT(comptime slot: Slot, comptime core: []const u8, comptime M: type, comptime O: type, comptime fuse: bool, comptime S: type) type {
+fn GemvT(comptime slot: Slot, comptime core: Core, comptime M: type, comptime O: type, comptime fuse: bool, comptime S: type) type {
     const F = Elem(slot);
     const p = if (F == f32) "s" else "d";
     const C = Fallback(F, fuse);
@@ -526,8 +530,17 @@ fn GemvT(comptime slot: Slot, comptime core: []const u8, comptime M: type, compt
 const Cform = struct { trans: bool, conj: bool, xconj: bool };
 
 fn cform(comptime slot: Slot) Cform {
-    const name = @tagName(slot);
-    const t = comptime std.meta.stringToEnum(types.Trans, name[name.len - 1 ..]).?;
+    const t: types.Trans = switch (slot) {
+        .cgemv_n, .zgemv_n => .n,
+        .cgemv_t, .zgemv_t => .t,
+        .cgemv_r, .zgemv_r => .r,
+        .cgemv_c, .zgemv_c => .c,
+        .cgemv_o, .zgemv_o => .o,
+        .cgemv_u, .zgemv_u => .u,
+        .cgemv_s, .zgemv_s => .s,
+        .cgemv_d, .zgemv_d => .d,
+        else => @compileError(@tagName(slot) ++ " is not a complex gemv kernel"),
+    };
     return .{ .trans = t.transposed(), .conj = t.conjA(), .xconj = t.conjX() };
 }
 
@@ -891,7 +904,7 @@ fn ZgemvT(comptime slot: Slot, comptime M: type, comptime fuse: bool) type {
 }
 
 /// The kernel `slot` of `core`, whose index entry is `e` (`uk_block.Kernels`).
-pub fn entryOf(comptime slot: Slot, comptime core: []const u8, comptime e: uk.Entry, comptime Vector: fn (comptime Slot) type) Kernel(slot) {
+pub fn entryOf(comptime slot: Slot, comptime core: Core, comptime e: uk.Entry, comptime Vector: fn (comptime Slot) type) Kernel(slot) {
     const M = switch (e.block) {
         .assembly => e.module,
         .vector => Vector(slot),
@@ -909,11 +922,11 @@ pub fn entryOf(comptime slot: Slot, comptime core: []const u8, comptime e: uk.En
 /// Skylake-X's `sgemv_n`: `sgemv_n_4.c` around Haswell's block `e` (its
 /// index entry) and `S`, the intrinsics block (`sgemv_n_microk_skylakex-8.c`).
 pub fn skylakeN(comptime e: uk.Entry, comptime S: type) Kernel(.sgemv_n) {
-    return &GemvN(.sgemv_n, "skylakex", e.module, e.own, fma.fuse, S).call;
+    return &GemvN(.sgemv_n, .skylakex, e.module, e.own, fma.fuse, S).call;
 }
 
 /// Skylake-X's `sgemv_t`: `sgemv_t_4.c` around Haswell's block `e` and `S`
 /// (`sgemv_t_microk_skylakex.c`).
 pub fn skylakeT(comptime e: uk.Entry, comptime S: type) Kernel(.sgemv_t) {
-    return &GemvT(.sgemv_t, "skylakex", e.module, e.own, fma.fuse, S).call;
+    return &GemvT(.sgemv_t, .skylakex, e.module, e.own, fma.fuse, S).call;
 }
