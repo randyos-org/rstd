@@ -579,6 +579,7 @@ const Hold = struct {
     var held: std.atomic.Value(bool) = .init(true);
     var first: std.atomic.Value(std.Thread.Id) = .init(0);
     var others: Atomic = .init(0);
+    var settled: std.atomic.Value(bool) = .init(false);
 
     fn kernel(m: BlasLong, n: BlasLong, k: BlasLong, alpha: f64, a: [*]f64, b: [*]f64, c: [*]f64, ldc: BlasLong) callconv(cc) i32 {
         _ = calls.fetchAdd(1, .acq_rel);
@@ -592,8 +593,16 @@ const Hold = struct {
         return real(m, n, k, alpha, a, b, c, ldc);
     }
 
+    /// Settles once a second thread is in the kernel (or after ten seconds
+    /// without one), then releases the calls 50 ms later.
     fn release(io: Io) void {
         while (calls.load(.acquire) == 0) std.Thread.yield() catch {};
+        // workers start well after the caller on a slow runner (issue #300)
+        for (0..10_000) |_| {
+            if (others.load(.acquire) > 0) break;
+            io.sleep(.fromMilliseconds(1), .awake) catch {};
+        }
+        settled.store(true, .release);
         io.sleep(.fromMilliseconds(50), .awake) catch {};
         held.store(false, .release);
     }
@@ -632,16 +641,17 @@ test "a canceled threaded gemm returns error.Canceled with no worker left runnin
     }
 }
 
-/// Cancels a held `gemm` on `io` once a kernel call has started.
+/// Cancels a held `gemm` on `io` once workers are in the kernel.
 fn cancelGemm(io: Io, vt: *const Vtable, a: []f64, b: []f64, c: []f64, n: usize, k: usize) !void {
     Hold.calls.store(0, .release);
     Hold.held.store(true, .release);
     Hold.first.store(0, .release);
     Hold.others.store(0, .release);
+    Hold.settled.store(false, .release);
     // a thread of its own sleeps on a blocking `Io`; a fiber `Io` needs a fiber
     const releaser = try std.Thread.spawn(.{}, Hold.release, .{Io.Threaded.global_single_threaded.io()});
     var future = io.concurrent(canceledGemm, .{ io, vt, a, b, c, n, k }) catch return error.SkipZigTest;
-    while (Hold.calls.load(.acquire) == 0) std.Thread.yield() catch {};
+    while (!Hold.settled.load(.acquire)) std.Thread.yield() catch {};
     const result = future.cancel(io);
     releaser.join();
     try zigstd.testExpectError(error.Canceled, result);
