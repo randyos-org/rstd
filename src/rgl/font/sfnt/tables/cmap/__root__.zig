@@ -166,11 +166,11 @@ pub const CmapTable = struct {
     }
 
     pub inline fn version(self: Self) u16 {
-        return bytes.getU16BE(self.cmap_bytes[@offsetOf(StreamLayout, "version")..]);
+        return types.field(StreamLayout, "version", self.cmap_bytes);
     }
 
     pub inline fn numTables(self: Self) u16 {
-        return bytes.getU16BE(self.cmap_bytes[@offsetOf(StreamLayout, "num_tables")..]);
+        return types.field(StreamLayout, "num_tables", self.cmap_bytes);
     }
 
     /// Decodes one encoding record. index isn't bounds-checked against

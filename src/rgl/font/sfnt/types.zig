@@ -130,6 +130,17 @@ pub const LongDateTime = i64;
 pub const Offset16 = u16;
 pub const Offset32 = u32;
 
+/// Field `name` of table layout `L` (an `extern struct` as the font stores
+/// it) in `data`, big-endian: an integer, or a type with `fromBytes`.
+pub inline fn field(comptime L: type, comptime name: []const u8, data: []const u8) @FieldType(L, name) {
+    const T = @FieldType(L, name);
+    const at = data[@offsetOf(L, name)..];
+    return switch (@typeInfo(T)) {
+        .int => bytes.readIntBE(T, at),
+        else => T.fromBytes(at),
+    };
+}
+
 pub const TagStr = extern struct {
     data: [4]u8,
 

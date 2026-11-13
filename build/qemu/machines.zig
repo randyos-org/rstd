@@ -25,8 +25,9 @@ pub const Machine = struct {
     /// Runs under WHPX (`args` has the `-accel`), so only on an x86_64
     /// Windows host, and never on `-Dtest-host`.
     whpx: bool = false,
-    /// `args` under HVF, on a `-Dtest-host` that is an arm64 Mac, unless
-    /// `-Dtest-host-tcg`; null where the rig needs a CPU the host lacks.
+    /// `args` under HVF, on a `-Dtest-host` Mac of the rig's architecture
+    /// (`-Dtest-host-arch`), unless `-Dtest-host-tcg`; null where the rig
+    /// needs a CPU the host lacks.
     hvf: ?[]const []const u8 = null,
     /// The BLAS core a Linux rig must select under `args`, and under `hvf`
     /// (on the M6); its run fails otherwise.
@@ -359,6 +360,7 @@ const base_machines = [_]Machine{
         .query = .{ .cpu_arch = .x86_64, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.x86.cpu.haswell } },
         .qemu = "qemu-system-x86_64",
         .args = &.{ "-M", "pc", "-cpu", "max" },
+        .hvf = &.{ "-accel", "hvf", "-M", "pc", "-cpu", "host" },
         .memory = "128M",
         .boot = .{ .kernel = .{
             .linker_script = "test/qemu/x86_64.ld",
@@ -371,6 +373,7 @@ const base_machines = [_]Machine{
         .query = .{ .cpu_arch = .x86_64, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.x86.cpu.haswell } },
         .qemu = "qemu-system-x86_64",
         .args = &.{ "-M", "pc", "-cpu", "max" },
+        .hvf = &.{ "-accel", "hvf", "-M", "pc", "-cpu", "host" },
         .memory = "128M",
         .boot = .{ .kernel = .{
             .linker_script = "test/qemu/x86_64.ld",
@@ -704,6 +707,7 @@ const base_machines = [_]Machine{
         .query = .{ .cpu_arch = .x86_64, .os_tag = .uefi },
         .qemu = "qemu-system-x86_64",
         .args = &.{ "-M", "q35", "-cpu", "max" },
+        .hvf = &.{ "-accel", "hvf", "-M", "q35", "-cpu", "host" },
         .memory = "1G",
         .boot = .{ .kernel = .{
             .linker_script = "",
@@ -749,6 +753,7 @@ const base_machines = [_]Machine{
         .query = .{ .cpu_arch = .x86_64, .os_tag = .linux },
         .qemu = "qemu-system-x86_64",
         .args = &.{ "-M", "pc", "-cpu", "max", "-smp", "4" },
+        .hvf = &.{ "-accel", "hvf", "-M", "pc", "-cpu", "host", "-smp", "4" },
         // the initramfs and its unpacked copy: the test, with every core's
         // kernels and their debug info, is about 700 MB, and `/` (where tests
         // write files) gets half the memory
