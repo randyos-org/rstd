@@ -30,27 +30,27 @@ pub const Format10 = struct {
     }
 
     pub inline fn format(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "format")..]);
+        return types.field(StreamLayout, "format", self.table_data);
     }
 
     pub inline fn reserved(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "reserved")..]);
+        return types.field(StreamLayout, "reserved", self.table_data);
     }
 
     pub inline fn length(self: Self) u32 {
-        return bytes.getU32BE(self.table_data[@offsetOf(StreamLayout, "length")..]);
+        return types.field(StreamLayout, "length", self.table_data);
     }
 
     pub inline fn language(self: Self) u32 {
-        return bytes.getU32BE(self.table_data[@offsetOf(StreamLayout, "language")..]);
+        return types.field(StreamLayout, "language", self.table_data);
     }
 
     pub inline fn startCharCode(self: Self) u32 {
-        return bytes.getU32BE(self.table_data[@offsetOf(StreamLayout, "start_char_code")..]);
+        return types.field(StreamLayout, "start_char_code", self.table_data);
     }
 
     pub inline fn numChars(self: Self) u32 {
-        return bytes.getU32BE(self.table_data[@offsetOf(StreamLayout, "num_chars")..]);
+        return types.field(StreamLayout, "num_chars", self.table_data);
     }
 
     /// glyphIdArray[index], with index counted from the start of the array

@@ -44,11 +44,11 @@ pub const MaxpTable = struct {
     }
 
     pub inline fn version(self: Self) types.Version16Dot16 {
-        return types.Version16Dot16.fromBytes(self.table_data[@offsetOf(HeaderLayout, "version")..]);
+        return types.field(HeaderLayout, "version", self.table_data);
     }
 
     pub inline fn numGlyphs(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(HeaderLayout, "num_glyphs")..]);
+        return types.field(HeaderLayout, "num_glyphs", self.table_data);
     }
 
     /// Valid only when version() is 1.0 (0x00010000); version 0.5 fonts have
