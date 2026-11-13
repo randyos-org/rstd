@@ -10,6 +10,7 @@ const util = @import("../util.zig");
 const accel = @import("../apple_accel.zig");
 const threading = @import("../threading.zig");
 const banded = @import("banded.zig");
+const ops = @import("ops.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -22,10 +23,8 @@ const at = util.at;
 const first = util.first;
 const isZero = util.isZero;
 const Scratch = banded.Scratch;
-const axpyK = banded.axpyK;
-const mulRounded = banded.mulRounded;
-const scaleF = banded.scaleF;
-const conj = banded.conj;
+const Num = ops.Num;
+const Ops = ops.Ops;
 const columnAt = banded.columnAt;
 const spans = banded.spans;
 
@@ -51,13 +50,15 @@ fn byColumns(io: Io, comptime T: type, comptime family: threading.Family, compti
 /// column whose `x` is zero is passed over, as the reference does;
 /// OpenBLAS's `zher_k.c` and `zhpr_k.c` do not.
 fn rankColumns(comptime T: type, comptime herm: bool, comptime lower: bool, comptime packed_: bool, n: BlasLong, alpha: if (herm) Float(T) else T, X: [*]T, a: [*]T, lda: BlasLong, c0: BlasLong, c1: BlasLong) void {
+    const N = Num(T);
+    const o: Ops(T) = .init();
     var col = off(T, a, columnAt(lower, packed_, n, lda, c0));
     var i: BlasLong = c0;
     while (i < c1) : (i += 1) {
         const len = if (lower) n - i else i + 1;
         const xs = if (lower) off(T, X, i) else X;
         const xi = at(T, X, i).*;
-        if (!isZero(T, xi)) axpyK(T, false, len, if (herm) scaleF(T, conj(T, xi), alpha) else mulRounded(T, alpha, xi), xs, col);
+        if (!isZero(T, xi)) o.axpy(false, len, if (herm) N.scale(N.conj(xi, true), alpha) else N.mulRounded(alpha, xi), xs, col);
         if (herm) at(T, col, if (lower) 0 else i).im = 0;
         col = off(T, col, if (!packed_) (if (lower) lda + 1 else lda) else len);
     }
@@ -69,6 +70,8 @@ fn rankColumns(comptime T: type, comptime herm: bool, comptime lower: bool, comp
 /// whose `x` and `y` are both zero is passed over, as the reference does;
 /// OpenBLAS's drivers do not.
 fn rank2Columns(comptime T: type, comptime herm: bool, comptime lower: bool, comptime packed_: bool, n: BlasLong, alpha: T, X: [*]T, Y: [*]T, a: [*]T, lda: BlasLong, c0: BlasLong, c1: BlasLong) void {
+    const N = Num(T);
+    const o: Ops(T) = .init();
     var col = off(T, a, columnAt(lower, packed_, n, lda, c0));
     var i: BlasLong = c0;
     while (i < c1) : (i += 1) {
@@ -78,8 +81,8 @@ fn rank2Columns(comptime T: type, comptime herm: bool, comptime lower: bool, com
         const xi = at(T, X, i).*;
         const yi = at(T, Y, i).*;
         if (!isZero(T, xi) or !isZero(T, yi)) {
-            axpyK(T, false, len, if (herm) conj(T, mulRounded(T, alpha, xi)) else mulRounded(T, alpha, xi), ys, col);
-            axpyK(T, false, len, if (herm) mulRounded(T, alpha, conj(T, yi)) else mulRounded(T, alpha, yi), xs, col);
+            o.axpy(false, len, if (herm) N.conj(N.mulRounded(alpha, xi), true) else N.mulRounded(alpha, xi), ys, col);
+            o.axpy(false, len, if (herm) N.mulRounded(alpha, N.conj(yi, true)) else N.mulRounded(alpha, yi), xs, col);
         }
         if (herm) at(T, col, if (lower) 0 else i).im = 0;
         col = off(T, col, if (!packed_) (if (lower) lda + 1 else lda) else len);

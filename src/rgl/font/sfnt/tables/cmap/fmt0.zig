@@ -25,15 +25,15 @@ pub const Format0 = struct {
     }
 
     pub inline fn format(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "format")..]);
+        return types.field(StreamLayout, "format", self.table_data);
     }
 
     pub inline fn length(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "length")..]);
+        return types.field(StreamLayout, "length", self.table_data);
     }
 
     pub inline fn language(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "language")..]);
+        return types.field(StreamLayout, "language", self.table_data);
     }
 
     /// The raw glyphIdArray[codepoint] byte itself, before being widened into
