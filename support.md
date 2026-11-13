@@ -10,7 +10,7 @@ after it. Rig names are `zig build` steps: `qemu-test-<rig>` unless named in ful
 
 - **Tier 1: required first.** Everything implemented works and is tested. Bugs block the MVP and every release, and go in the current milestone (the open `dev` to `main` pull request's list of issues). Every kernel object the platform links runs the per-core tests, or is listed below as untested with its item.
 - **Tier 2: required, after tier 1.** RandyOS's and zfls's other platforms. Bugs are required fixes, also for the MVP, and go in the current milestone too. Tested on a rig or machine where one exists; untested cores and paths are listed with their items.
-- **Tier 3: best effort.** Every other platform with a rig. The rigs run in each sweep for the record; failures go to issues labeled `backlog`, as do tier 4's, tuning, optional and Blocked work. Choices no rig can check follow OpenBLAS and BLIS where they agree
+- **Tier 3: best effort.** Every other platform with a rig. The rigs run in each sweep for the record, and CI runs the tier 3 and 4 legs on the release pull request, or on one into `dev` labeled for them (`.github/workflows/ci.yml`); failures go to issues labeled `backlog`, as do tier 4's, tuning, optional and Blocked work. Choices no rig can check follow OpenBLAS and BLIS where they agree
   ([`design.md`](src/linalg/design.md#settled-decisions), "Target platforms come first").
 - **Tier 4: unsupported or blocked.** No rig, blocked upstream, or not worth its upkeep. Every
   target compiles with the portable kernels at least; nothing more is promised. Each entry cites

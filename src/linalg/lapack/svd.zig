@@ -496,16 +496,7 @@ test "faer svd: special matrices, faer's test_special: zero, ones, identity; ran
                     0 => a0.fill(ops.zero(T)),
                     1 => a0.fill(ops.one(T)),
                     2 => a0.identity(),
-                    3 => {
-                        // rank 3
-                        const x = try ops.alloc(T, al, m, 3);
-                        defer ops.free(T, al, x);
-                        const y = try ops.alloc(T, al, 3, n);
-                        defer ops.free(T, al, y);
-                        check.fill(T, x.ptr[0 .. m * 3], 1);
-                        check.fill(T, y.ptr[0 .. 3 * n], 2);
-                        try blas_calls.gemm(al, check.io, T, .n, .n, ops.one(T), x, y, ops.zero(T), a0);
-                    },
+                    3 => try lcheck.rankProduct(T, al, a0, 3, 1),
                     4, 5, 6 => {
                         check.fill(T, a0.ptr[0 .. m * n], m + n);
                         // past the scaling bounds both ways, and a denormal

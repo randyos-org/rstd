@@ -29,23 +29,23 @@ pub const Format6 = struct {
     }
 
     pub inline fn format(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "format")..]);
+        return types.field(StreamLayout, "format", self.table_data);
     }
 
     pub inline fn length(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "length")..]);
+        return types.field(StreamLayout, "length", self.table_data);
     }
 
     pub inline fn language(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "language")..]);
+        return types.field(StreamLayout, "language", self.table_data);
     }
 
     pub inline fn firstCode(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "first_code")..]);
+        return types.field(StreamLayout, "first_code", self.table_data);
     }
 
     pub inline fn entryCount(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "entry_count")..]);
+        return types.field(StreamLayout, "entry_count", self.table_data);
     }
 
     /// glyphIdArray[index], with index counted from the start of the array
