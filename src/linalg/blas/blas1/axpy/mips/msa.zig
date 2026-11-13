@@ -26,12 +26,6 @@ pub fn Real(comptime T: type) type {
     const W = 16 / @sizeOf(T);
     const V = @Vector(W, T);
     return struct {
-        inline fn load(p: [*]const T) V {
-            return p[0..W].*;
-        }
-        inline fn store(p: [*]T, v: V) void {
-            p[0..W].* = v;
-        }
         /// `y + da * x`, contracted as the build's policy says.
         inline fn fmadd(x: V, da: V, y: V) V {
             return fma.madd(fma.fuse, V, x, da, y);
@@ -62,7 +56,7 @@ pub fn Real(comptime T: type) type {
                     @prefetch(y + i + 32 * 4 / @sizeOf(T), .{ .rw = .write });
                     inline for (0..8) |k| {
                         const at = i + k * W;
-                        store(y + at, fmadd(load(x + at), dv, load(y + at)));
+                        util.store(V, y + at, fmadd(util.load(V, x + at), dv, util.load(V, y + at)));
                     }
                 }
                 // then four, two and one vector, as the tail bits of `n` say
@@ -70,7 +64,7 @@ pub fn Real(comptime T: type) type {
                     if (len & (vecs * W) != 0 and len - i >= vecs * W) {
                         inline for (0..vecs) |k| {
                             const at = i + k * W;
-                            store(y + at, fmadd(load(x + at), dv, load(y + at)));
+                            util.store(V, y + at, fmadd(util.load(V, x + at), dv, util.load(V, y + at)));
                         }
                         i += vecs * W;
                     }
@@ -93,7 +87,7 @@ pub fn Real(comptime T: type) type {
                         }
                         ix += @as(BlasLong, W) * inc_x;
                         const at = i + k * W;
-                        store(y + at, fmadd(xv, dv, load(y + at)));
+                        util.store(V, y + at, fmadd(xv, dv, util.load(V, y + at)));
                     }
                 }
                 while (i + W <= len) : (i += W) {
@@ -102,7 +96,7 @@ pub fn Real(comptime T: type) type {
                         xv[lane] = util.at(T, x, ix + @as(BlasLong, @intCast(lane)) * inc_x).*;
                     }
                     ix += @as(BlasLong, W) * inc_x;
-                    store(y + i, fmadd(xv, dv, load(y + i)));
+                    util.store(V, y + i, fmadd(xv, dv, util.load(V, y + i)));
                 }
                 while (i < len) : (i += 1) {
                     y[i] = fma.madd(fma.fuse, T, da, util.at(T, x, ix).*, y[i]);
@@ -149,13 +143,6 @@ pub fn Cplx(comptime F: type, comptime conj: bool) type {
     const W = 16 / @sizeOf(F);
     const V = @Vector(W, F);
     return struct {
-        inline fn load(p: [*]const F) V {
-            return p[0..W].*;
-        }
-        inline fn store(p: [*]F, v: V) void {
-            p[0..W].* = v;
-        }
-
         /// The even and the odd lanes of two vectors, the second vector's first: the
         /// packs (`pckev`/`pckod`, in their argument order) that split
         /// interleaved complex into parts.
@@ -245,28 +232,28 @@ pub fn Cplx(comptime F: type, comptime conj: bool) type {
                     @prefetch(y + 2 * i + 64, .{ .rw = .write });
                     inline for (0..4) |k| {
                         const at = 2 * (i + k * chunk);
-                        const x0 = load(x + at);
-                        const x1 = load(x + at + W);
-                        var y0 = load(y + at);
-                        var y1 = load(y + at + W);
+                        const x0 = util.load(V, x + at);
+                        const x1 = util.load(V, x + at + W);
+                        var y0 = util.load(V, y + at);
+                        var y1 = util.load(V, y + at + W);
                         var yr = evens(y1, y0);
                         var yi = odds(y1, y0);
                         madd(fma.fuse, dar, dai, evens(x1, x0), odds(x1, x0), &yr, &yi);
                         y0 = zipLow(yr, yi);
                         y1 = zipHigh(yr, yi);
-                        store(y + at, y0);
-                        store(y + at + W, y1);
+                        util.store(V, y + at, y0);
+                        util.store(V, y + at + W, y1);
                     }
                 }
                 while (i + chunk <= len) : (i += chunk) {
                     const at = 2 * i;
-                    const x0 = load(x + at);
-                    const x1 = load(x + at + W);
-                    var yr = evens(load(y + at + W), load(y + at));
-                    var yi = odds(load(y + at + W), load(y + at));
+                    const x0 = util.load(V, x + at);
+                    const x1 = util.load(V, x + at + W);
+                    var yr = evens(util.load(V, y + at + W), util.load(V, y + at));
+                    var yi = odds(util.load(V, y + at + W), util.load(V, y + at));
                     madd(fma.fuse, dar, dai, evens(x1, x0), odds(x1, x0), &yr, &yi);
-                    store(y + at, zipLow(yr, yi));
-                    store(y + at + W, zipHigh(yr, yi));
+                    util.store(V, y + at, zipLow(yr, yi));
+                    util.store(V, y + at + W, zipHigh(yr, yi));
                 }
                 while (i < len) : (i += 1) {
                     var yr = y[2 * i];
@@ -292,11 +279,11 @@ pub fn Cplx(comptime F: type, comptime conj: bool) type {
                         }
                     }
                     const at = 2 * i;
-                    var yr = evens(load(y + at + W), load(y + at));
-                    var yi = odds(load(y + at + W), load(y + at));
+                    var yr = evens(util.load(V, y + at + W), util.load(V, y + at));
+                    var yi = odds(util.load(V, y + at + W), util.load(V, y + at));
                     madd(fma.fuse, dar, dai, evens(xs[1], xs[0]), odds(xs[1], xs[0]), &yr, &yi);
-                    store(y + at, zipLow(yr, yi));
-                    store(y + at + W, zipHigh(yr, yi));
+                    util.store(V, y + at, zipLow(yr, yi));
+                    util.store(V, y + at + W, zipHigh(yr, yi));
                 }
                 while (i < len) : (i += 1) {
                     var yr = y[2 * i];
