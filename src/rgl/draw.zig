@@ -35,9 +35,8 @@ fn insideRound(p: PointF32, p0: PointF32, p1: PointF32, r: f32) bool {
     // Clamp point to the inner rectangle (the rounded-corner centers box).
     const cx = @max(p0.x + r, @min(p.x, p1.x - r));
     const cy = @max(p0.y + r, @min(p.y, p1.y - r));
-    const dx = p.x - cx;
-    const dy = p.y - cy;
-    return dx * dx + dy * dy <= r * r;
+    const d = p.sub(.{ .x = cx, .y = cy });
+    return d.dot(d) <= r * r;
 }
 
 pub fn blendPixel(img: *RgbaImage, p: Point, c: RGBA) void {
