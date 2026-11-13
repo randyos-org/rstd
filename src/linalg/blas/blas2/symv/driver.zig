@@ -114,6 +114,46 @@ inline fn col(comptime F: type, a: [*]F, lda: usize, j: usize) [*]F {
     return a + j * lda;
 }
 
+/// Rows `from..to` of four columns `ap`, one at a time: into `y` times `t`,
+/// their dots with `x` into `t2`.
+fn rows(comptime F: type, from: usize, to: usize, ap: *const [4][*]F, x: [*]F, y: [*]F, t: [4]F, t2: *[4]F) void {
+    for (from..to) |i| {
+        inline for (0..4) |c| {
+            y[i] = md(F, t[c], ap[c][i], y[i]);
+            t2[c] = md(F, ap[c][i], x[i], t2[c]);
+        }
+    }
+}
+
+/// The L drivers' one column `j` of `m`, at unit stride.
+fn columnL(comptime F: type, a: [*]F, ld: usize, j: usize, m: usize, alpha: F, x: [*]F, y: [*]F) void {
+    const c = col(F, a, ld, j);
+    const temp1 = alpha * x[j];
+    var temp2: F = 0;
+    y[j] = md(F, temp1, c[j], y[j]);
+    for (j + 1..m) |i| {
+        y[i] = md(F, temp1, c[i], y[i]);
+        temp2 = md(F, c[i], x[i], temp2);
+    }
+    y[j] = md(F, alpha, temp2, y[j]);
+}
+
+/// The U drivers' column `c`'s rows `from..j` and diagonal, after `temp2`
+/// holds the dots of the rows above `from`.
+fn columnU(comptime F: type, c: [*]F, from: usize, j: usize, alpha: F, temp1: F, temp2_in: F, x: [*]F, y: [*]F) void {
+    var temp2 = temp2_in;
+    for (from..j) |i| {
+        y[i] = md(F, temp1, c[i], y[i]);
+        temp2 = md(F, c[i], x[i], temp2);
+    }
+    y[j] += md(F, temp1, c[j], alpha * temp2);
+}
+
+/// The U drivers' diagonal 4x4 block at `j`, after the rows above it.
+fn diagonalU(comptime F: type, j: usize, ap: *const [4][*]F, alpha: F, t: [4]F, t2: [4]F, x: [*]F, y: [*]F) void {
+    inline for (0..4) |c| columnU(F, ap[c], j, j + c, alpha, t[c], t2[c], x, y);
+}
+
 /// x86_64 `{s,d}symv_L.c` around block `B`.
 pub fn X86L(comptime F: type, comptime B: type) type {
     return struct {
@@ -173,26 +213,11 @@ pub fn X86L(comptime F: type, comptime B: type) type {
                     if (m2 > j + 4) B.run(j + 4, m2, &ap, x, y, tmp1, &tmp2);
                     i = m2;
                 }
-                while (i < mu) : (i += 1) {
-                    inline for (0..4) |c| {
-                        y[i] = md(F, tmp1[c], ap[c][i], y[i]);
-                        tmp2[c] = md(F, ap[c][i], x[i], tmp2[c]);
-                    }
-                }
+                rows(F, i, mu, &ap, x, y, tmp1, &tmp2);
                 inline for (0..4) |c| y[j + c] = md(F, alpha, tmp2[c], y[j + c]);
             }
             // the C's three ranges have one body
-            while (j < off) : (j += 1) {
-                const c = col(F, a, ld, j);
-                const temp1 = alpha * x[j];
-                var temp2: F = 0;
-                y[j] = md(F, temp1, c[j], y[j]);
-                for (j + 1..mu) |i| {
-                    y[i] = md(F, temp1, c[i], y[i]);
-                    temp2 = md(F, c[i], x[i], temp2);
-                }
-                y[j] = md(F, alpha, temp2, y[j]);
-            }
+            while (j < off) : (j += 1) columnL(F, a, ld, j, mu, alpha, x, y);
             return 0;
         }
     };
@@ -266,15 +291,7 @@ pub fn X86U(comptime F: type, comptime B: type) type {
                 const j1 = j / 8 * 8;
                 if (j1 != 0) B.run(0, j1, &ap, x, y, tmp1, &tmp2);
                 if (j1 < j) k1x4(j1, j, &ap, x, y, tmp1, &tmp2);
-                inline for (0..4) |c| {
-                    const temp1 = tmp1[c];
-                    var temp2 = tmp2[c];
-                    for (j..j + c) |i| {
-                        y[i] = md(F, temp1, ap[c][i], y[i]);
-                        temp2 = md(F, ap[c][i], x[i], temp2);
-                    }
-                    y[j + c] += md(F, temp1, ap[c][j + c], alpha * temp2);
-                }
+                diagonalU(F, j, &ap, alpha, tmp1, tmp2, x, y);
             }
             while (j < mu) : (j += 1) {
                 const c = col(F, a, ld, j);
@@ -282,25 +299,11 @@ pub fn X86U(comptime F: type, comptime B: type) type {
                 var temp2: F = 0;
                 const j1 = j / 8 * 8;
                 if (j1 != 0) k8x1(j1, c, x, y, temp1, &temp2);
-                for (j1..j) |i| {
-                    y[i] = md(F, temp1, c[i], y[i]);
-                    temp2 = md(F, c[i], x[i], temp2);
-                }
-                y[j] += md(F, temp1, c[j], alpha * temp2);
+                columnU(F, c, j1, j, alpha, temp1, temp2, x, y);
             }
             return 0;
         }
     };
-}
-
-/// `COPY_K(n, src, inc, dst, 1)`.
-fn gather(comptime F: type, n: usize, src: [*]F, inc: BlasLong, dst: [*]F) void {
-    for (0..n) |i| dst[i] = util.at(F, src, @as(BlasLong, @intCast(i)) * inc).*;
-}
-
-/// `COPY_K(n, src, 1, dst, inc)`.
-fn scatter(comptime F: type, n: usize, src: [*]F, dst: [*]F, inc: BlasLong) void {
-    for (0..n) |i| util.at(F, dst, @as(BlasLong, @intCast(i)) * inc).* = src[i];
 }
 
 /// arm64's drivers copy a strided `y`, then a strided `x`, to the buffer
@@ -311,11 +314,11 @@ const Unit = struct {
         var xx = x;
         if (inc_y != 1) {
             yy = buffer;
-            gather(F, m, y, inc_y, yy);
+            util.gather(F, m, y, inc_y, yy);
         }
         if (inc_x != 1) {
             xx = if (inc_y != 1) yy + m else buffer;
-            gather(F, m, x, inc_x, xx);
+            util.gather(F, m, x, inc_x, xx);
         }
         return .{ xx, yy };
     }
@@ -350,27 +353,11 @@ pub fn ArmL(comptime F: type, comptime B: type) type {
                 inline for (0..4) |c| tmp1[c] = alpha * xs[c];
                 const m2 = mu / 4 * 4;
                 if (m2 > j + 4) B.run(j + 4, m2, &ap, xx, yy, tmp1, &tmp2);
-                var i = @max(m2, j + 4);
-                while (i < mu) : (i += 1) {
-                    inline for (0..4) |c| {
-                        yy[i] = md(F, tmp1[c], ap[c][i], yy[i]);
-                        tmp2[c] = md(F, ap[c][i], xx[i], tmp2[c]);
-                    }
-                }
+                rows(F, @max(m2, j + 4), mu, &ap, xx, yy, tmp1, &tmp2);
                 inline for (0..4) |c| yy[j + c] = md(F, alpha, tmp2[c], yy[j + c]);
             }
-            while (j < off) : (j += 1) {
-                const c = col(F, a, ld, j);
-                const temp1 = alpha * xx[j];
-                var temp2: F = 0;
-                yy[j] = md(F, temp1, c[j], yy[j]);
-                for (j + 1..mu) |i| {
-                    yy[i] = md(F, temp1, c[i], yy[i]);
-                    temp2 = md(F, c[i], xx[i], temp2);
-                }
-                yy[j] = md(F, alpha, temp2, yy[j]);
-            }
-            if (inc_y != 1) scatter(F, mu, yy, y, inc_y);
+            while (j < off) : (j += 1) columnL(F, a, ld, j, mu, alpha, xx, yy);
+            if (inc_y != 1) util.scatter(F, mu, yy, y, inc_y);
             return 0;
         }
     };
@@ -401,33 +388,11 @@ pub fn ArmU(comptime F: type, comptime B: type) type {
                 }
                 const j1 = j / 4 * 4;
                 if (j1 != 0) B.run(0, j1, &ap, xx, yy, tmp1, &tmp2);
-                for (j1..j) |i| {
-                    inline for (0..4) |c| {
-                        yy[i] = md(F, tmp1[c], ap[c][i], yy[i]);
-                        tmp2[c] = md(F, ap[c][i], xx[i], tmp2[c]);
-                    }
-                }
-                inline for (0..4) |c| {
-                    const temp1 = tmp1[c];
-                    var temp2 = tmp2[c];
-                    for (j..j + c) |i| {
-                        yy[i] = md(F, temp1, ap[c][i], yy[i]);
-                        temp2 = md(F, ap[c][i], xx[i], temp2);
-                    }
-                    yy[j + c] += md(F, temp1, ap[c][j + c], alpha * temp2);
-                }
+                rows(F, j1, j, &ap, xx, yy, tmp1, &tmp2);
+                diagonalU(F, j, &ap, alpha, tmp1, tmp2, xx, yy);
             }
-            while (j < mu) : (j += 1) {
-                const c = col(F, a, ld, j);
-                const temp1 = alpha * xx[j];
-                var temp2: F = 0;
-                for (0..j) |i| {
-                    yy[i] = md(F, temp1, c[i], yy[i]);
-                    temp2 = md(F, c[i], xx[i], temp2);
-                }
-                yy[j] += md(F, temp1, c[j], alpha * temp2);
-            }
-            if (inc_y != 1) scatter(F, mu, yy, y, inc_y);
+            while (j < mu) : (j += 1) columnU(F, col(F, a, ld, j), 0, j, alpha, alpha * xx[j], 0, xx, yy);
+            if (inc_y != 1) util.scatter(F, mu, yy, y, inc_y);
             return 0;
         }
     };

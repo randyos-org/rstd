@@ -55,30 +55,30 @@ pub const FvarTable = struct {
     }
 
     pub inline fn majorVersion(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "major_version")..]);
+        return types.field(StreamLayout, "major_version", self.table_data);
     }
 
     pub inline fn minorVersion(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "minor_version")..]);
+        return types.field(StreamLayout, "minor_version", self.table_data);
     }
 
     pub inline fn axesArrayOffset(self: Self) types.Offset16 {
-        return bytes.readIntBE(types.Offset16, self.table_data[@offsetOf(StreamLayout, "axes_array_offset")..]);
+        return types.field(StreamLayout, "axes_array_offset", self.table_data);
     }
 
     pub inline fn axisCount(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "axis_count")..]);
+        return types.field(StreamLayout, "axis_count", self.table_data);
     }
 
     /// Size in bytes of each VariationAxisRecord in this font; use this
     /// (not @sizeOf(VariationAxisRecord)) as the stride when walking the
     /// axes array, per spec.
     pub inline fn axisSize(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "axis_size")..]);
+        return types.field(StreamLayout, "axis_size", self.table_data);
     }
 
     pub inline fn instanceCount(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "instance_count")..]);
+        return types.field(StreamLayout, "instance_count", self.table_data);
     }
 
     /// Size in bytes of each InstanceRecord in this font; either
@@ -86,7 +86,7 @@ pub const FvarTable = struct {
     /// use this (not a computed size) as the stride when walking the
     /// instances array, per spec.
     pub inline fn instanceSize(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "instance_size")..]);
+        return types.field(StreamLayout, "instance_size", self.table_data);
     }
 
     pub fn getAxis(self: Self, index: usize) VariationAxisRecord {

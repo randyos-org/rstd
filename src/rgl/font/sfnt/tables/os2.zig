@@ -108,67 +108,67 @@ pub const Os2Table = struct {
     }
 
     pub inline fn version(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "version")..]);
+        return types.field(StreamLayout, "version", self.table_data);
     }
 
     pub inline fn xAvgCharWidth(self: Self) types.FWord {
-        return bytes.readIntBE(types.FWord, self.table_data[@offsetOf(StreamLayout, "x_avg_char_width")..]);
+        return types.field(StreamLayout, "x_avg_char_width", self.table_data);
     }
 
     pub inline fn usWeightClass(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "us_weight_class")..]);
+        return types.field(StreamLayout, "us_weight_class", self.table_data);
     }
 
     pub inline fn usWidthClass(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "us_width_class")..]);
+        return types.field(StreamLayout, "us_width_class", self.table_data);
     }
 
     pub inline fn fsType(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "fs_type")..]);
+        return types.field(StreamLayout, "fs_type", self.table_data);
     }
 
     pub inline fn ySubscriptXSize(self: Self) types.FWord {
-        return bytes.readIntBE(types.FWord, self.table_data[@offsetOf(StreamLayout, "y_subscript_x_size")..]);
+        return types.field(StreamLayout, "y_subscript_x_size", self.table_data);
     }
 
     pub inline fn ySubscriptYSize(self: Self) types.FWord {
-        return bytes.readIntBE(types.FWord, self.table_data[@offsetOf(StreamLayout, "y_subscript_y_size")..]);
+        return types.field(StreamLayout, "y_subscript_y_size", self.table_data);
     }
 
     pub inline fn ySubscriptXOffset(self: Self) types.FWord {
-        return bytes.readIntBE(types.FWord, self.table_data[@offsetOf(StreamLayout, "y_subscript_x_offset")..]);
+        return types.field(StreamLayout, "y_subscript_x_offset", self.table_data);
     }
 
     pub inline fn ySubscriptYOffset(self: Self) types.FWord {
-        return bytes.readIntBE(types.FWord, self.table_data[@offsetOf(StreamLayout, "y_subscript_y_offset")..]);
+        return types.field(StreamLayout, "y_subscript_y_offset", self.table_data);
     }
 
     pub inline fn ySuperscriptXSize(self: Self) types.FWord {
-        return bytes.readIntBE(types.FWord, self.table_data[@offsetOf(StreamLayout, "y_superscript_x_size")..]);
+        return types.field(StreamLayout, "y_superscript_x_size", self.table_data);
     }
 
     pub inline fn ySuperscriptYSize(self: Self) types.FWord {
-        return bytes.readIntBE(types.FWord, self.table_data[@offsetOf(StreamLayout, "y_superscript_y_size")..]);
+        return types.field(StreamLayout, "y_superscript_y_size", self.table_data);
     }
 
     pub inline fn ySuperscriptXOffset(self: Self) types.FWord {
-        return bytes.readIntBE(types.FWord, self.table_data[@offsetOf(StreamLayout, "y_superscript_x_offset")..]);
+        return types.field(StreamLayout, "y_superscript_x_offset", self.table_data);
     }
 
     pub inline fn ySuperscriptYOffset(self: Self) types.FWord {
-        return bytes.readIntBE(types.FWord, self.table_data[@offsetOf(StreamLayout, "y_superscript_y_offset")..]);
+        return types.field(StreamLayout, "y_superscript_y_offset", self.table_data);
     }
 
     pub inline fn yStrikeoutSize(self: Self) types.FWord {
-        return bytes.readIntBE(types.FWord, self.table_data[@offsetOf(StreamLayout, "y_strikeout_size")..]);
+        return types.field(StreamLayout, "y_strikeout_size", self.table_data);
     }
 
     pub inline fn yStrikeoutPosition(self: Self) types.FWord {
-        return bytes.readIntBE(types.FWord, self.table_data[@offsetOf(StreamLayout, "y_strikeout_position")..]);
+        return types.field(StreamLayout, "y_strikeout_position", self.table_data);
     }
 
     pub inline fn sFamilyClass(self: Self) i16 {
-        return bytes.getI16BE(self.table_data[@offsetOf(StreamLayout, "s_family_class")..]);
+        return types.field(StreamLayout, "s_family_class", self.table_data);
     }
 
     pub inline fn panose(self: Self) [10]u8 {
@@ -177,19 +177,19 @@ pub const Os2Table = struct {
     }
 
     pub inline fn ulUnicodeRange1(self: Self) u32 {
-        return bytes.getU32BE(self.table_data[@offsetOf(StreamLayout, "ul_unicode_range_1")..]);
+        return types.field(StreamLayout, "ul_unicode_range_1", self.table_data);
     }
 
     pub inline fn ulUnicodeRange2(self: Self) u32 {
-        return bytes.getU32BE(self.table_data[@offsetOf(StreamLayout, "ul_unicode_range_2")..]);
+        return types.field(StreamLayout, "ul_unicode_range_2", self.table_data);
     }
 
     pub inline fn ulUnicodeRange3(self: Self) u32 {
-        return bytes.getU32BE(self.table_data[@offsetOf(StreamLayout, "ul_unicode_range_3")..]);
+        return types.field(StreamLayout, "ul_unicode_range_3", self.table_data);
     }
 
     pub inline fn ulUnicodeRange4(self: Self) u32 {
-        return bytes.getU32BE(self.table_data[@offsetOf(StreamLayout, "ul_unicode_range_4")..]);
+        return types.field(StreamLayout, "ul_unicode_range_4", self.table_data);
     }
 
     pub inline fn achVendId(self: Self) types.TagStr {
@@ -198,80 +198,80 @@ pub const Os2Table = struct {
     }
 
     pub inline fn fsSelection(self: Self) FsSelection {
-        return @bitCast(bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "fs_selection")..]));
+        return @bitCast(types.field(StreamLayout, "fs_selection", self.table_data));
     }
 
     pub inline fn usFirstCharIndex(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "us_first_char_index")..]);
+        return types.field(StreamLayout, "us_first_char_index", self.table_data);
     }
 
     pub inline fn usLastCharIndex(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "us_last_char_index")..]);
+        return types.field(StreamLayout, "us_last_char_index", self.table_data);
     }
 
     pub inline fn sTypoAscender(self: Self) types.FWord {
-        return bytes.readIntBE(types.FWord, self.table_data[@offsetOf(StreamLayout, "s_typo_ascender")..]);
+        return types.field(StreamLayout, "s_typo_ascender", self.table_data);
     }
 
     pub inline fn sTypoDescender(self: Self) types.FWord {
-        return bytes.readIntBE(types.FWord, self.table_data[@offsetOf(StreamLayout, "s_typo_descender")..]);
+        return types.field(StreamLayout, "s_typo_descender", self.table_data);
     }
 
     pub inline fn sTypoLineGap(self: Self) types.FWord {
-        return bytes.readIntBE(types.FWord, self.table_data[@offsetOf(StreamLayout, "s_typo_line_gap")..]);
+        return types.field(StreamLayout, "s_typo_line_gap", self.table_data);
     }
 
     pub inline fn usWinAscent(self: Self) types.UFWord {
-        return bytes.readIntBE(types.UFWord, self.table_data[@offsetOf(StreamLayout, "us_win_ascent")..]);
+        return types.field(StreamLayout, "us_win_ascent", self.table_data);
     }
 
     pub inline fn usWinDescent(self: Self) types.UFWord {
-        return bytes.readIntBE(types.UFWord, self.table_data[@offsetOf(StreamLayout, "us_win_descent")..]);
+        return types.field(StreamLayout, "us_win_descent", self.table_data);
     }
 
     /// version 1+.
     pub inline fn ulCodePageRange1(self: Self) u32 {
-        return bytes.getU32BE(self.table_data[@offsetOf(StreamLayout, "ul_code_page_range_1")..]);
+        return types.field(StreamLayout, "ul_code_page_range_1", self.table_data);
     }
 
     /// version 1+.
     pub inline fn ulCodePageRange2(self: Self) u32 {
-        return bytes.getU32BE(self.table_data[@offsetOf(StreamLayout, "ul_code_page_range_2")..]);
+        return types.field(StreamLayout, "ul_code_page_range_2", self.table_data);
     }
 
     /// version 2+.
     pub inline fn sxHeight(self: Self) types.FWord {
-        return bytes.readIntBE(types.FWord, self.table_data[@offsetOf(StreamLayout, "sx_height")..]);
+        return types.field(StreamLayout, "sx_height", self.table_data);
     }
 
     /// version 2+.
     pub inline fn sCapHeight(self: Self) types.FWord {
-        return bytes.readIntBE(types.FWord, self.table_data[@offsetOf(StreamLayout, "s_cap_height")..]);
+        return types.field(StreamLayout, "s_cap_height", self.table_data);
     }
 
     /// version 2+.
     pub inline fn usDefaultChar(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "us_default_char")..]);
+        return types.field(StreamLayout, "us_default_char", self.table_data);
     }
 
     /// version 2+.
     pub inline fn usBreakChar(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "us_break_char")..]);
+        return types.field(StreamLayout, "us_break_char", self.table_data);
     }
 
     /// version 2+.
     pub inline fn usMaxContext(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "us_max_context")..]);
+        return types.field(StreamLayout, "us_max_context", self.table_data);
     }
 
     /// version 5+.
     pub inline fn usLowerOpticalPointSize(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "us_lower_optical_point_size")..]);
+        return types.field(StreamLayout, "us_lower_optical_point_size", self.table_data);
     }
 
     /// version 5+.
     pub inline fn usUpperOpticalPointSize(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "us_upper_optical_point_size")..]);
+        return types.field(StreamLayout, "us_upper_optical_point_size", self.table_data);
     }
 };
 
