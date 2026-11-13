@@ -94,7 +94,7 @@ fn drawThinLine(img: *RgbaImage, p0: PointF32, p1: PointF32, c: RGBA) void {
 /// here instead of via a GPU pipeline.
 fn fillOrientedRect(img: *RgbaImage, p0: PointF32, p1: PointF32, width: f32, c: RGBA) void {
     const d = p1.sub(p0);
-    const length = @sqrt(d.x * d.x + d.y * d.y);
+    const length = d.length();
     const half_w = width / 2;
     if (length == 0) {
         draw.fillRoundRectPixels(img, .{ .x = p0.x - half_w, .y = p0.y - half_w }, .{ .x = p0.x + half_w, .y = p0.y + half_w }, 0, c);
@@ -132,8 +132,8 @@ fn fillOrientedRect(img: *RgbaImage, p0: PointF32, p1: PointF32, width: f32, c: 
         while (x < x1) : (x += 1) {
             const p: PointF32 = .{ .x = @as(f32, @floatFromInt(x)) + 0.5, .y = @as(f32, @floatFromInt(y)) + 0.5 };
             const rel = p.sub(p0);
-            const along = rel.x * unit.x + rel.y * unit.y;
-            const across = rel.x * normal.x + rel.y * normal.y;
+            const along = rel.dot(unit);
+            const across = rel.dot(normal);
             if (along < 0 or along > length or @abs(across) > half_w) continue;
             blendPixelClamped(img, x, y, c);
         }

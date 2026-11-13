@@ -35,23 +35,23 @@ pub fn init(table_data: []const u8, check: bool) !GposTable {
 }
 
 pub inline fn majorVersion(self: GposTable) u16 {
-    return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "major_version")..]);
+    return types.field(StreamLayout, "major_version", self.table_data);
 }
 
 pub inline fn minorVersion(self: GposTable) u16 {
-    return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "minor_version")..]);
+    return types.field(StreamLayout, "minor_version", self.table_data);
 }
 
 pub inline fn scriptListOffset(self: GposTable) Offset16 {
-    return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "script_list_offset")..]);
+    return types.field(StreamLayout, "script_list_offset", self.table_data);
 }
 
 pub inline fn featureListOffset(self: GposTable) Offset16 {
-    return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "feature_list_offset")..]);
+    return types.field(StreamLayout, "feature_list_offset", self.table_data);
 }
 
 pub inline fn lookupListOffset(self: GposTable) Offset16 {
-    return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "lookup_list_offset")..]);
+    return types.field(StreamLayout, "lookup_list_offset", self.table_data);
 }
 
 pub fn numLookups(self: GposTable) u16 {
@@ -86,15 +86,15 @@ pub const Lookup = struct {
     table_data: []const u8,
 
     pub inline fn lookupType(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(LookupHeader, "lookup_type")..]);
+        return types.field(LookupHeader, "lookup_type", self.table_data);
     }
 
     pub inline fn lookupFlag(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(LookupHeader, "lookup_flag")..]);
+        return types.field(LookupHeader, "lookup_flag", self.table_data);
     }
 
     pub inline fn subtableCount(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(LookupHeader, "subtable_count")..]);
+        return types.field(LookupHeader, "subtable_count", self.table_data);
     }
 
     pub fn getSubtableOffset(self: Self, index: usize) usize {

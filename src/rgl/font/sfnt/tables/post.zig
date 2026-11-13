@@ -53,39 +53,39 @@ pub const PostTable = struct {
     }
 
     pub inline fn version(self: Self) types.Version16Dot16 {
-        return types.Version16Dot16.fromBytes(self.table_data[@offsetOf(StreamLayout, "version")..]);
+        return types.field(StreamLayout, "version", self.table_data);
     }
 
     pub inline fn italicAngle(self: Self) types.Fixed {
-        return types.Fixed.fromBytes(self.table_data[@offsetOf(StreamLayout, "italic_angle")..]);
+        return types.field(StreamLayout, "italic_angle", self.table_data);
     }
 
     pub inline fn underlinePosition(self: Self) types.FWord {
-        return bytes.readIntBE(types.FWord, self.table_data[@offsetOf(StreamLayout, "underline_position")..]);
+        return types.field(StreamLayout, "underline_position", self.table_data);
     }
 
     pub inline fn underlineThickness(self: Self) types.FWord {
-        return bytes.readIntBE(types.FWord, self.table_data[@offsetOf(StreamLayout, "underline_thickness")..]);
+        return types.field(StreamLayout, "underline_thickness", self.table_data);
     }
 
     pub inline fn isFixedPitch(self: Self) u32 {
-        return bytes.getU32BE(self.table_data[@offsetOf(StreamLayout, "is_fixed_pitch")..]);
+        return types.field(StreamLayout, "is_fixed_pitch", self.table_data);
     }
 
     pub inline fn minMemType42(self: Self) u32 {
-        return bytes.getU32BE(self.table_data[@offsetOf(StreamLayout, "min_mem_type42")..]);
+        return types.field(StreamLayout, "min_mem_type42", self.table_data);
     }
 
     pub inline fn maxMemType42(self: Self) u32 {
-        return bytes.getU32BE(self.table_data[@offsetOf(StreamLayout, "max_mem_type42")..]);
+        return types.field(StreamLayout, "max_mem_type42", self.table_data);
     }
 
     pub inline fn minMemType1(self: Self) u32 {
-        return bytes.getU32BE(self.table_data[@offsetOf(StreamLayout, "min_mem_type1")..]);
+        return types.field(StreamLayout, "min_mem_type1", self.table_data);
     }
 
     pub inline fn maxMemType1(self: Self) u32 {
-        return bytes.getU32BE(self.table_data[@offsetOf(StreamLayout, "max_mem_type1")..]);
+        return types.field(StreamLayout, "max_mem_type1", self.table_data);
     }
 
     /// Valid only for version 2.0/2.5 (see version()); versions 1.0 and 3.0
