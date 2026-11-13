@@ -7,6 +7,8 @@ const Compile = rstdbuild.CompileStep;
 
 /// The SSH alias of the Mac the rigs and SSH steps use by default (`-Dtest-host`, `-Dssh-mac`).
 pub const mac_alias = "macmini-m6";
+/// The SSH alias of the Intel Mac the x86_64 SSH step uses by default (`-Dssh-mac-intel`).
+pub const intel_mac_alias = "macmini-intel";
 
 pub const Tool = enum { ssh_test, test_host, qemu_watch, load_window, initramfs, macos_vm };
 
