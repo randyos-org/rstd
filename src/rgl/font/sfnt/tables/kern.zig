@@ -48,11 +48,11 @@ pub const KernTable = struct {
     }
 
     pub inline fn version(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "version")..]);
+        return types.field(StreamLayout, "version", self.table_data);
     }
 
     pub inline fn numTables(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "n_tables")..]);
+        return types.field(StreamLayout, "n_tables", self.table_data);
     }
 
     /// Byte offset (from the start of table_data) of subtable `index`.
@@ -97,15 +97,15 @@ pub const KernSubtable = struct {
     table_data: []const u8,
 
     pub inline fn version(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(SubtableHeader, "version")..]);
+        return types.field(SubtableHeader, "version", self.table_data);
     }
 
     pub inline fn length(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(SubtableHeader, "length")..]);
+        return types.field(SubtableHeader, "length", self.table_data);
     }
 
     pub inline fn coverage(self: Self) Coverage {
-        return @bitCast(bytes.getU16BE(self.table_data[@offsetOf(SubtableHeader, "coverage")..]));
+        return @bitCast(types.field(SubtableHeader, "coverage", self.table_data));
     }
 
     const header_end = @sizeOf(SubtableHeader);

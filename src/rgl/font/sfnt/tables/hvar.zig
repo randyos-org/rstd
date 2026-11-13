@@ -28,15 +28,15 @@ pub const HvarTable = struct {
     }
 
     pub inline fn majorVersion(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "major_version")..]);
+        return types.field(StreamLayout, "major_version", self.table_data);
     }
 
     pub inline fn minorVersion(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "minor_version")..]);
+        return types.field(StreamLayout, "minor_version", self.table_data);
     }
 
     inline fn itemVariationStoreOffset(self: Self) types.Offset32 {
-        return bytes.readIntBE(types.Offset32, self.table_data[@offsetOf(StreamLayout, "item_variation_store_offset")..]);
+        return types.field(StreamLayout, "item_variation_store_offset", self.table_data);
     }
 
     pub fn getItemVariationStore(self: Self) ivs.ItemVariationStore {
@@ -47,7 +47,7 @@ pub const HvarTable = struct {
     /// Null (a NULL offset per spec) means glyph indices are used directly
     /// as delta-set inner indices, with outer index 0.
     pub fn getAdvanceWidthMapping(self: Self) ?ivs.DeltaSetIndexMap {
-        const off = bytes.readIntBE(types.Offset32, self.table_data[@offsetOf(StreamLayout, "advance_width_mapping_offset")..]);
+        const off = types.field(StreamLayout, "advance_width_mapping_offset", self.table_data);
         if (off == 0) return null;
         return .{ .table_data = self.table_data[off..] };
     }
@@ -55,7 +55,7 @@ pub const HvarTable = struct {
     /// Maps a glyph index to a delta-set index for left-side-bearing
     /// deltas. Null if this font doesn't provide LSB variation data.
     pub fn getLsbMapping(self: Self) ?ivs.DeltaSetIndexMap {
-        const off = bytes.readIntBE(types.Offset32, self.table_data[@offsetOf(StreamLayout, "lsb_mapping_offset")..]);
+        const off = types.field(StreamLayout, "lsb_mapping_offset", self.table_data);
         if (off == 0) return null;
         return .{ .table_data = self.table_data[off..] };
     }
@@ -63,7 +63,7 @@ pub const HvarTable = struct {
     /// Maps a glyph index to a delta-set index for right-side-bearing
     /// deltas. Null if this font doesn't provide RSB variation data.
     pub fn getRsbMapping(self: Self) ?ivs.DeltaSetIndexMap {
-        const off = bytes.readIntBE(types.Offset32, self.table_data[@offsetOf(StreamLayout, "rsb_mapping_offset")..]);
+        const off = types.field(StreamLayout, "rsb_mapping_offset", self.table_data);
         if (off == 0) return null;
         return .{ .table_data = self.table_data[off..] };
     }

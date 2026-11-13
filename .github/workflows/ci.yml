@@ -8,7 +8,11 @@ name: CI
 # releases it (to main); start the workflow by hand on dev to check it in
 # between. A pull request that only changes the files listed in no-ci.txt
 # (documentation, editor settings) skips the checks; the "CI" job, the check
-# the rulesets require, passes then too.
+# the rulesets require, passes then too. The tier 3 and 4 legs (test-tier34)
+# run on pull requests into main, pushes to main and runs started by hand; a
+# pull request into dev runs those its labels ask for: `ci: <leg name>` (e.g.
+# `ci: arm-linux`) or `ci: tier 3-4` for all. The labels are read when the run
+# starts, so after labeling an open pull request, re-run its CI (issue #301).
 #
 # Versions: build.zig.zon holds the version the next release will have. When
 # a push to main passes and changes the package (see changes.sh), the commit
@@ -51,6 +55,12 @@ jobs:
       release: ${{ steps.ver.outputs.release }}
       sha: ${{ steps.ver.outputs.sha }}
       ci: ${{ steps.ver.outputs.ci }}
+      tier34: ${{ steps.tier34.outputs.legs }}
+      tier34-any: ${{ steps.tier34.outputs.any }}
+    # the pull request's labels pick the tier 3 and 4 legs
+    permissions:
+      contents: read
+      issues: read
     steps:
       - uses: actions/checkout@v7
         with:
@@ -143,6 +153,49 @@ jobs:
             echo "sha=$sha"
           } >> "$GITHUB_OUTPUT"
           echo "version $version at $sha; release: $release" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # Every tier 3 and 4 leg; all run off a pull request into dev, else
+      # those its labels name (see the top)
+      - name: Pick the tier 3 and 4 legs
+        id: tier34
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          PR: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # qemu-user's own MIPS pick, 5KEf, drops every FCSR write (issue
+          # #275); the Loongson cores run on the 3A4000 rig
+          all=$(cat <<'JSON'
+          [
+            { "name": "x86-windows (x87)", "tier": 3, "runner": "windows-2025", "step": "rstd-test-x87" },
+            { "name": "x86-linux-musl", "tier": 4, "runner": "ubuntu-24.04", "args": "-Dtarget=x86-linux-musl" },
+            { "name": "arm-linux", "tier": 3, "runner": "ubuntu-24.04", "args": "-Dtarget=arm-linux-musleabihf -fqemu", "qemu": true },
+            { "name": "riscv64-linux", "tier": 3, "runner": "ubuntu-24.04", "args": "-Dtarget=riscv64-linux-musl -fqemu", "qemu": true },
+            { "name": "powerpc64le-linux", "tier": 3, "runner": "ubuntu-24.04", "args": "-Dtarget=powerpc64le-linux-musl -fqemu", "qemu": true },
+            { "name": "powerpc64-linux", "tier": 4, "runner": "ubuntu-24.04", "args": "-Dtarget=powerpc64-linux-musl -fqemu", "qemu": true },
+            { "name": "loongarch64-linux", "tier": 4, "runner": "ubuntu-24.04", "args": "-Dtarget=loongarch64-linux-musl -fqemu", "qemu": true },
+            { "name": "s390x-linux", "tier": 4, "runner": "ubuntu-24.04", "args": "-Dtarget=s390x-linux-musl -fqemu", "qemu": true },
+            { "name": "mips64el-linux", "tier": 4, "runner": "ubuntu-24.04", "args": "-Dtarget=mips64el-linux-muslabi64 -fqemu", "qemu": true, "qemu_cpu": "MIPS64R2-generic" },
+            { "name": "mipsel-linux", "tier": 4, "runner": "ubuntu-24.04", "args": "-Dtarget=mipsel-linux-musleabihf -fqemu", "qemu": true },
+            { "name": "wasm32-wasi", "tier": 3, "runner": "ubuntu-24.04", "step": "wasm-test", "swap": true, "node": "24" }
+          ]
+          JSON
+          )
+          full=true
+          labels='[]'
+          if [ "$EVENT" = pull_request ] && [ "$BASE_REF" != main ]; then
+            full=false
+            labels=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/labels" --jq '[.[].name]')
+          fi
+          legs=$(jq -c --argjson labels "$labels" --arg full "$full" '
+            if $full == "true" or ($labels | any(. == "ci: tier 3-4")) then .
+            else map(select(.name as $n | $labels | any(. == "ci: " + $n))) end' <<< "$all")
+          any=true
+          [ "$legs" = '[]' ] && any=false
+          echo "legs=$legs" >> "$GITHUB_OUTPUT"
+          echo "any=$any" >> "$GITHUB_OUTPUT"
+          echo "tier 3 and 4 legs: $(jq -r 'map(.name) | join(", ") | if . == "" then "none" else . end' <<< "$legs")" | tee -a "$GITHUB_STEP_SUMMARY"
 
   version-check:
     name: Version is unreleased
@@ -328,32 +381,19 @@ jobs:
         # ARGS splits into words on purpose
         run: zig build "$STEP" $ARGS -Dtest-host-off --summary line
 
-  # Tier 3 and 4, beside tier 1 and 2. Their failures are reported but do not
-  # fail CI (support.md).
+  # Tier 3 and 4, beside tier 1 and 2, the legs the version job picks (see the
+  # top). Their failures are reported but do not fail CI (support.md).
   test-tier34:
     name: Test (${{ matrix.platform.name }}, ${{ matrix.zig }})
     needs: version
-    if: ${{ needs.version.outputs.ci == 'true' }}
+    if: ${{ needs.version.outputs.ci == 'true' && needs.version.outputs.tier34-any == 'true' }}
     runs-on: ${{ matrix.platform.runner }}
     continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
         zig: ['0.17.1', latest]
-        platform:
-          - { name: x86-windows (x87), tier: 3, runner: windows-2025, step: rstd-test-x87 }
-          - { name: x86-linux-musl, tier: 4, runner: ubuntu-24.04, args: -Dtarget=x86-linux-musl }
-          - { name: arm-linux, tier: 3, runner: ubuntu-24.04, args: -Dtarget=arm-linux-musleabihf -fqemu, qemu: true }
-          - { name: riscv64-linux, tier: 3, runner: ubuntu-24.04, args: -Dtarget=riscv64-linux-musl -fqemu, qemu: true }
-          - { name: powerpc64le-linux, tier: 3, runner: ubuntu-24.04, args: -Dtarget=powerpc64le-linux-musl -fqemu, qemu: true }
-          - { name: powerpc64-linux, tier: 4, runner: ubuntu-24.04, args: -Dtarget=powerpc64-linux-musl -fqemu, qemu: true }
-          - { name: loongarch64-linux, tier: 4, runner: ubuntu-24.04, args: -Dtarget=loongarch64-linux-musl -fqemu, qemu: true }
-          - { name: s390x-linux, tier: 4, runner: ubuntu-24.04, args: -Dtarget=s390x-linux-musl -fqemu, qemu: true }
-          # qemu-user's own pick, 5KEf, drops every FCSR write (issue #275); the
-          # Loongson cores run on the 3A4000 rig
-          - { name: mips64el-linux, tier: 4, runner: ubuntu-24.04, args: -Dtarget=mips64el-linux-muslabi64 -fqemu, qemu: true, qemu_cpu: MIPS64R2-generic }
-          - { name: mipsel-linux, tier: 4, runner: ubuntu-24.04, args: -Dtarget=mipsel-linux-musleabihf -fqemu, qemu: true }
-          - { name: wasm32-wasi, tier: 3, runner: ubuntu-24.04, step: wasm-test, swap: true, node: '24' }
+        platform: ${{ fromJSON(needs.version.outputs.tier34) }}
     steps: *test-steps
 
   ci-result:

@@ -205,16 +205,14 @@ fn GemvN(comptime slot: Slot, comptime core: Core, comptime M: type, comptime O:
             var yb = y;
             if (inc_x != 1) {
                 xb = buffer;
-                for (0..nu) |i| xb[i] = util.at(F, x, @as(BlasLong, @intCast(i)) * inc_x).*;
+                util.gather(F, nu, x, inc_x, xb);
             }
             if (inc_y != 1) {
                 yb = buffer + nu;
-                for (0..mu) |i| yb[i] = util.at(F, y, @as(BlasLong, @intCast(i)) * inc_y).*;
+                util.gather(F, mu, y, inc_y, yb);
             }
             S.n128(m, n, alpha, a, lda, xb, yb);
-            if (inc_y != 1) for (0..mu) |i| {
-                util.at(F, y, @as(BlasLong, @intCast(i)) * inc_y).* = yb[i];
-            };
+            if (inc_y != 1) util.scatter(F, mu, yb, y, inc_y);
         }
 
         pub fn call(m: BlasLong, n: BlasLong, _: BlasLong, alpha_in: F, a_in: [*]F, lda: BlasLong, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong, buffer: [*]F) callconv(.c) i32 {
@@ -392,16 +390,14 @@ fn GemvT(comptime slot: Slot, comptime core: Core, comptime M: type, comptime O:
             var yb = y;
             if (inc_x != 1) {
                 xb = buffer;
-                for (0..mu) |i| xb[i] = util.at(F, x, @as(BlasLong, @intCast(i)) * inc_x).*;
+                util.gather(F, mu, x, inc_x, xb);
             }
             if (inc_y != 1) {
                 yb = buffer + mu;
-                for (0..nu) |i| yb[i] = util.at(F, y, @as(BlasLong, @intCast(i)) * inc_y).*;
+                util.gather(F, nu, y, inc_y, yb);
             }
             S.t(mu, nu, alpha, a, xb, yb);
-            if (inc_y != 1) for (0..nu) |i| {
-                util.at(F, y, @as(BlasLong, @intCast(i)) * inc_y).* = yb[i];
-            };
+            if (inc_y != 1) util.scatter(F, nu, yb, y, inc_y);
         }
 
         pub fn call(m: BlasLong, n: BlasLong, _: BlasLong, alpha: F, a_in: [*]F, lda: BlasLong, x_in: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong, buffer: [*]F) callconv(.c) i32 {
