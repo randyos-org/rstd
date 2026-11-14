@@ -11,6 +11,8 @@ const util = @import("../util.zig");
 const gemm_kernels = @import("gemm/kernel.zig");
 const small = @import("gemm/small.zig");
 const threaded = @import("threaded.zig");
+const loops = @import("loops.zig");
+const driver = @This();
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -270,42 +272,43 @@ pub fn packCols(comptime T: type, vt: *const Vtable, d: Desc, y: Matrix(T), min_
 /// it), depth `k`, in the js / ls / is loops of `level3.c`; a null `beta`
 /// is 1.
 pub fn drive(comptime T: type, vt: *const Vtable, d: Desc, blk: Blocking, m: usize, n: usize, k: usize, alpha: T, x: Matrix(T), y: Matrix(T), beta: ?T, c: [*]T, ldc: usize, work: Work(T)) void {
-    var js: usize = 0;
-    while (js < n) : (js += blk.r) {
-        const min_j = @min(blk.r, n - js);
-        // the rows the column block meets
-        const r_lo = if (d.region == .lower) js else 0;
-        const r_hi = if (d.region == .upper) @min(m, js + min_j) else m;
-        var ls: usize = 0;
-        var min_l: usize = 0;
-        while (ls < k) : (ls += min_l) {
-            min_l = Blocking.split(k - ls, blk.q, blk.um);
-            const s = if (ls == 0) beta else null;
-            // the first row block packs `B` as it goes
-            var min_i = Blocking.split(r_hi - r_lo, blk.p, blk.um);
-            const once = min_i == r_hi - r_lo;
-            packRows(T, vt, d, x, min_l, min_i, ls, r_lo, work.sa);
-            var jjs = js;
-            while (jjs < js + min_j) {
-                const min_jj = blk.chunk(js + min_j - jjs);
-                const pb = if (once) work.sb else work.sb + min_l * (jjs - js);
-                packCols(T, vt, d, y, min_l, min_jj, ls, jjs, pb);
-                block(T, vt, d, blk, r_lo, min_i, jjs, min_jj, min_l, alpha, s, work.sa, pb, c, ldc, work.tmp);
-                jjs += min_jj;
-            }
-            var is = r_lo + min_i;
-            while (is < r_hi) : (is += min_i) {
-                min_i = Blocking.split(r_hi - is, blk.p, blk.um);
-                packRows(T, vt, d, x, min_l, min_i, ls, is, work.sa);
-                jjs = js;
-                while (jjs < js + min_j) {
-                    const min_jj = blk.chunk(js + min_j - jjs);
-                    block(T, vt, d, blk, is, min_i, jjs, min_jj, min_l, alpha, s, work.sa, work.sb + min_l * (jjs - js), c, ldc, work.tmp);
-                    jjs += min_jj;
-                }
-            }
+    const Ctx = struct {
+        vt: *const Vtable,
+        d: Desc,
+        blk: Blocking,
+        m: usize,
+        alpha: T,
+        x: Matrix(T),
+        y: Matrix(T),
+        beta: ?T,
+        c: [*]T,
+        ldc: usize,
+        work: Work(T),
+
+        pub fn depth(s: *const @This(), rest: usize) usize {
+            return Blocking.split(rest, s.blk.q, s.blk.um);
         }
-    }
+        pub fn chunk(s: *const @This(), rest: usize) usize {
+            return s.blk.chunk(rest);
+        }
+        pub fn slice(s: *const @This(), js: usize, min_j: usize, ls: usize, min_l: usize) void {
+            // the rows the column block meets
+            const r_lo = if (s.d.region == .lower) js else 0;
+            const r_hi = if (s.d.region == .upper) @min(s.m, js + min_j) else s.m;
+            loops.slice(s, s.blk, r_lo, r_hi, js, min_j, ls, min_l, if (ls == 0) s.beta else null, s.work.sa, s.work.sb);
+        }
+        pub fn packRows(s: *const @This(), min_l: usize, min_i: usize, ls: usize, is: usize, dst: [*]T) void {
+            driver.packRows(T, s.vt, s.d, s.x, min_l, min_i, ls, is, dst);
+        }
+        pub fn packCols(s: *const @This(), min_l: usize, min_jj: usize, ls: usize, jjs: usize, dst: [*]T) void {
+            driver.packCols(T, s.vt, s.d, s.y, min_l, min_jj, ls, jjs, dst);
+        }
+        pub fn block(s: *const @This(), ib: usize, mi: usize, jb: usize, nj: usize, kl: usize, b: ?T, pa: [*]T, pb: [*]T) void {
+            driver.block(T, s.vt, s.d, s.blk, ib, mi, jb, nj, kl, s.alpha, b, pa, pb, s.c, s.ldc, s.work.tmp);
+        }
+    };
+    const ctx: Ctx = .{ .vt = vt, .d = d, .blk = blk, .m = m, .alpha = alpha, .x = x, .y = y, .beta = beta, .c = c, .ldc = ldc, .work = work };
+    loops.columns(blk, 0, n, k, &ctx);
 }
 
 /// Whether rows `[ib, ie)` and columns `[jb, je)` lie wholly in `region`,
