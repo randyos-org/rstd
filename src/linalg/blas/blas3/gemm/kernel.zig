@@ -7,6 +7,7 @@ const sysinfo = @import("builtin");
 const types = @import("../../types.zig");
 const fma = @import("../../fma.zig");
 const util = @import("../../util.zig");
+const loops = @import("loops.zig");
 
 const BlasLong = types.BlasLong;
 const isComplex = types.isComplex;
@@ -163,21 +164,21 @@ pub fn panelWidth(rest: usize, u: usize) usize {
     return if (rest >= u) u else std.math.floorPowerOfTwo(usize, rest);
 }
 
-fn Lanes(comptime T: type, comptime n: usize) type {
+pub fn Lanes(comptime T: type, comptime n: usize) type {
     return if (n == 1) T else @Vector(n, T);
 }
 
 // whole arrays, not `util.load` and `util.store`: the self-hosted x86_64
 // backend stores a row tail's two-lane `f32` vector as sixteen bytes
-inline fn load(comptime T: type, comptime n: usize, p: [*]const T) Lanes(T, n) {
+pub inline fn load(comptime T: type, comptime n: usize, p: [*]const T) Lanes(T, n) {
     return if (n == 1) p[0] else p[0..n].*;
 }
 
-inline fn store(comptime T: type, comptime n: usize, p: [*]T, v: Lanes(T, n)) void {
+pub inline fn store(comptime T: type, comptime n: usize, p: [*]T, v: Lanes(T, n)) void {
     if (n == 1) p[0] = v else p[0..n].* = v;
 }
 
-inline fn splat(comptime T: type, comptime n: usize, x: T) Lanes(T, n) {
+pub inline fn splat(comptime T: type, comptime n: usize, x: T) Lanes(T, n) {
     return if (n == 1) x else @splat(x);
 }
 
@@ -244,6 +245,28 @@ pub fn packWith(comptime E: type, u: usize, depth: usize, lines: usize, dst: [*]
             } else out[l * w + c] = v;
         };
         c0 += w;
+    }
+}
+
+/// A copy in the reference's ABI on `packWith`: `m` deep, `n` lines into
+/// `b`, from `src`; the trmm, trsm, symm and 3M copies.
+pub fn copyFrom(comptime E: type, u: usize, m: BlasLong, n: BlasLong, b: anytype, src: anytype) i32 {
+    packWith(E, u, @intCast(m), @intCast(n), @ptrCast(b), src);
+    return 0;
+}
+
+/// `C += alpha * A * B` on packed panels through `G`'s gemm kernel
+/// (`Kernels(T, geo)`), conjugating the triangle's side, `left` or right,
+/// for `conj`: trmm's and trsm's kernels. `alpha` is `[re, im]`, or `[re]`.
+pub fn sideKernel(comptime G: type, comptime F: type, comptime complex: bool, left: bool, conj: bool, m: usize, n: usize, k: usize, alpha: [*]const F, a: anytype, b: anytype, c: anytype, ldc: usize) void {
+    const bm: BlasLong = @intCast(m);
+    const bn: BlasLong = @intCast(n);
+    const bk: BlasLong = @intCast(k);
+    if (comptime complex) {
+        const f = if (!conj) &G.gemm_kernel_n else if (left) &G.gemm_kernel_l else &G.gemm_kernel_r;
+        _ = f(bm, bn, bk, alpha[0], alpha[1], @ptrCast(a), @ptrCast(b), @ptrCast(c), @intCast(ldc));
+    } else {
+        _ = G.gemm_kernel(bm, bn, bk, alpha[0], @ptrCast(a), @ptrCast(b), @ptrCast(c), @intCast(ldc));
     }
 }
 
@@ -323,118 +346,35 @@ fn RealKernels(comptime T: type, comptime geo: Geometry) type {
         }
 
         /// `C += alpha * A * B` for `A` packed `bm x bk` (rows in panels of
-        /// `mr`) and `B` packed `bk x bn` (columns in panels of `nr`). Columns
-        /// outermost, so a B panel stays in L1 while the A panels stream from L2.
+        /// `mr`) and `B` packed `bk x bn` (columns in panels of `nr`), through
+        /// `loops.zig`.
         pub fn gemm_kernel(bm: BlasLong, bn: BlasLong, bk: BlasLong, alpha: T, ba: [*]T, bb: [*]T, c: [*]T, ldc: BlasLong) callconv(cc) i32 {
-            const m: usize = @intCast(bm);
-            const n: usize = @intCast(bn);
-            const k: usize = @intCast(bk);
-            const ld: usize = @intCast(ldc);
-            if (vl == 1) {
-                scalarPanels(m, n, k, alpha, ba, bb, c, ld);
-                return 0;
-            }
-            var q0: usize = 0;
-            while (q0 + nr <= n) : (q0 += nr) rows(nr, m, k, alpha, ba, bb + q0 * k, c + q0 * ld, ld);
-            inline for (comptime tails(nr)) |w| {
-                if ((n - q0) & w != 0) {
-                    rows(w, m, k, alpha, ba, bb + q0 * k, c + q0 * ld, ld);
-                    q0 += w;
-                }
-            }
+            L.run(@intCast(bm), @intCast(bn), @intCast(bk), alpha, ba, bb, c, @intCast(ldc));
             return 0;
         }
 
-        /// Without vectors: the whole tiles unrolled, every partial one through
-        /// one tile shaped by values, so debug builds of wide scalar tiles
-        /// (SPARC's `2 x 14`) stay small.
-        fn scalarPanels(m: usize, n: usize, k: usize, alpha: T, ba: [*]const T, bb: [*]const T, c: [*]T, ld: usize) void {
-            var q0: usize = 0;
-            while (q0 < n) {
-                const wn = panelWidth(n - q0, nr);
-                var r0: usize = 0;
-                while (r0 < m) {
-                    const wm = panelWidth(m - r0, mr);
-                    if (wm == mr and wn == nr) {
-                        tile(mr, nr, k, alpha, ba + r0 * k, bb + q0 * k, c + r0 + q0 * ld, ld);
-                    } else {
-                        partTile(wm, wn, k, alpha, ba + r0 * k, bb + q0 * k, c + r0 + q0 * ld, ld);
-                    }
-                    r0 += wm;
-                }
-                q0 += wn;
-            }
-        }
+        const L = loops.Loops(T, geo, Out);
 
-        /// A partial scalar tile, `wm x wn` of the tile's most.
-        fn partTile(wm: usize, wn: usize, k: usize, alpha: T, pa: [*]const T, pb: [*]const T, c: [*]T, ld: usize) void {
-            var acc: [nr][mr]A = @splat(@splat(0));
-            var a = pa;
-            var b = pb;
-            for (0..k) |_| {
-                for (0..wn) |j| {
-                    const y: A = b[j];
-                    for (0..wm) |i| acc[j][i] = madd(A, 1, @as(A, a[i]), y, acc[j][i]);
-                }
-                a += wm;
-                b += wn;
-            }
-            for (0..wn) |j| for (0..wm) |i| {
-                const p = &c[i + j * ld];
-                const r = madd(A, 1, acc[j][i], alpha, p.*);
-                p.* = if (A == T) r else @floatCast(r);
-            };
-        }
+        /// `C += alpha * sum`, rounded back to `T`.
+        const Out = struct {
+            pub const C = T;
+            pub const scale = 1;
+            pub const Alpha = T;
 
-        /// Every row panel against one B panel of width `wn`: the full tile
-        /// inline, each row tail an unrolled tile of its own, as OpenBLAS's
-        /// edge tiles are.
-        fn rows(comptime wn: usize, m: usize, k: usize, alpha: T, ba: [*]const T, pb: [*]const T, c: [*]T, ld: usize) void {
-            var r0: usize = 0;
-            while (r0 + mr <= m) : (r0 += mr) @call(.always_inline, tile, .{ mr, wn, k, alpha, ba + r0 * k, pb, c + r0, ld });
-            inline for (comptime tails(mr)) |w| {
-                if ((m - r0) & w != 0) {
-                    @call(.never_inline, tile, .{ w, wn, k, alpha, ba + r0 * k, pb, c + r0, ld });
-                    r0 += w;
-                }
+            pub inline fn prep(comptime lanes: usize, alpha: T) Lanes(A, lanes) {
+                return splat(A, lanes, alpha);
             }
-        }
 
-        /// One `wm x wn` tile: `wm / lanes` vectors per column in registers
-        /// over all of `k`, then `C += alpha * acc`.
-        fn tile(comptime wm: usize, comptime wn: usize, k: usize, alpha: T, pa: [*]const T, pb: [*]const T, c: [*]T, ld: usize) void {
-            @setEvalBranchQuota(100_000);
-            const lanes = @min(vl, wm);
-            const nv = wm / lanes;
-            const V = Lanes(A, lanes);
-            var acc: [wn][nv]V = undefined;
-            inline for (0..wn) |j| inline for (0..nv) |v| {
-                acc[j][v] = splat(A, lanes, 0);
-            };
-            var a = pa;
-            var b = pb;
-            for (0..k) |_| {
-                var av: [nv]V = undefined;
-                inline for (0..nv) |v| av[v] = wide(lanes, a + v * lanes);
-                inline for (0..wn) |j| {
-                    const bv = splat(A, lanes, b[j]);
-                    inline for (0..nv) |v| acc[j][v] = madd(A, lanes, av[v], bv, acc[j][v]);
-                }
-                a += wm;
-                b += wn;
+            pub inline fn put(p: [*]T, sum: A, alpha: T) void {
+                const r = madd(A, 1, sum, alpha, p[0]);
+                p[0] = if (A == T) r else @floatCast(r);
             }
-            const al = splat(A, lanes, alpha);
-            inline for (0..wn) |j| inline for (0..nv) |v| {
-                const p = c + j * ld + v * lanes;
-                const r = madd(A, lanes, acc[j][v], al, wide(lanes, p));
+
+            pub inline fn putLanes(comptime lanes: usize, p: [*]T, sums: Lanes(A, lanes), al: Lanes(A, lanes)) void {
+                const r = madd(A, lanes, sums, al, L.wide(lanes, p));
                 if (A == T) store(T, lanes, p, r) else p[0] = @floatCast(r);
-            };
-        }
-
-        /// `lanes` elements at `p` as `A`.
-        inline fn wide(comptime lanes: usize, p: [*]const T) Lanes(A, lanes) {
-            return if (A == T) load(T, lanes, p) else p[0];
-        }
+            }
+        };
     };
 }
 

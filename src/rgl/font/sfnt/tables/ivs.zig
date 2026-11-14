@@ -24,15 +24,15 @@ pub const ItemVariationStore = struct {
     table_data: []const u8,
 
     pub inline fn format(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StoreHeader, "format")..]);
+        return types.field(StoreHeader, "format", self.table_data);
     }
 
     pub inline fn variationRegionListOffset(self: Self) types.Offset32 {
-        return bytes.readIntBE(types.Offset32, self.table_data[@offsetOf(StoreHeader, "variation_region_list_offset")..]);
+        return types.field(StoreHeader, "variation_region_list_offset", self.table_data);
     }
 
     pub inline fn itemVariationDataCount(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StoreHeader, "item_variation_data_count")..]);
+        return types.field(StoreHeader, "item_variation_data_count", self.table_data);
     }
 
     pub fn getVariationRegionList(self: Self) VariationRegionList {
@@ -72,11 +72,11 @@ pub const VariationRegionList = struct {
     table_data: []const u8,
 
     pub inline fn axisCount(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(RegionListHeader, "axis_count")..]);
+        return types.field(RegionListHeader, "axis_count", self.table_data);
     }
 
     pub inline fn regionCount(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(RegionListHeader, "region_count")..]);
+        return types.field(RegionListHeader, "region_count", self.table_data);
     }
 
     /// regionAxes[axis] for the region at `region`, in the order 'fvar'
@@ -114,15 +114,15 @@ pub const ItemVariationData = struct {
     table_data: []const u8,
 
     pub inline fn itemCount(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(DataHeader, "item_count")..]);
+        return types.field(DataHeader, "item_count", self.table_data);
     }
 
     pub inline fn wordDeltaCount(self: Self) WordDeltaCount {
-        return @bitCast(bytes.getU16BE(self.table_data[@offsetOf(DataHeader, "word_delta_count")..]));
+        return @bitCast(types.field(DataHeader, "word_delta_count", self.table_data));
     }
 
     pub inline fn regionIndexCount(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(DataHeader, "region_index_count")..]);
+        return types.field(DataHeader, "region_index_count", self.table_data);
     }
 
     /// Index into the store's VariationRegionList for column `index` of

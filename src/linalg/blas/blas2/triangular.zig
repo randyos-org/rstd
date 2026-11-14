@@ -43,77 +43,8 @@ const off = util.off;
 
 const first = util.first;
 
-/// Arithmetic on `T` that reads the same for real and complex.
-fn Num(comptime T: type) type {
-    const cplx = isComplex(T);
-    return struct {
-        fn add(a: T, b: T) T {
-            return if (cplx) a.add(b) else a + b;
-        }
-        fn sub(a: T, b: T) T {
-            return if (cplx) a.sub(b) else a - b;
-        }
-        fn neg(a: T) T {
-            return if (cplx) .init(-a.re, -a.im) else -a;
-        }
-        fn conj(a: T, comptime c: bool) T {
-            return if (cplx and c) a.conjugate() else a;
-        }
-        /// `a * b`, with `a` conjugated for `c`.
-        fn mul(a: T, b: T, comptime c: bool) T {
-            return if (cplx) conj(a, c).mul(b) else a * b;
-        }
-        /// `b / a`, with `a` conjugated for `c`; complex by `util.cdiv`, as
-        /// level-3 `trsm` divides.
-        fn div(b: T, a: T, comptime c: bool) T {
-            if (!cplx) return b / a;
-            const q = util.cdiv(Float(T), b.re, b.im, a.re, if (c) -a.im else a.im);
-            return T.init(q[0], q[1]);
-        }
-    };
-}
-
-// ---- kernels ---------------------------------------------------------------
-
-/// The kernels for `T` (`portable.kernel`), on unit-stride vectors.
-fn Ops(comptime T: type) type {
-    const F = Float(T);
-    return struct {
-        const Self = @This();
-
-        vt: *const Vtable,
-        dtb: BlasLong,
-
-        fn copy(s: Self, n: BlasLong, x: [*]T, incx: BlasLong, y: [*]T, incy: BlasLong) void {
-            _ = portable.kernel(T, s.vt, .copy_k)(n, raw(T, x), incx, raw(T, y), incy);
-        }
-
-        /// `y += alpha*x`, `x` conjugated for `cj`.
-        fn axpy(s: Self, comptime cj: bool, n: BlasLong, alpha: T, x: [*]T, y: [*]T) void {
-            const op: portable.Op = comptime if (cj and isComplex(T)) .axpyc_k else .axpy_k;
-            _ = @call(.auto, portable.kernel(T, s.vt, op), .{ n, 0, 0 } ++ util.scalarArgs(T, alpha) ++ .{ raw(T, x), 1, raw(T, y), 1, raw(T, y), 0 });
-        }
-
-        /// `x . y`, `x` conjugated for `cj`.
-        fn dot(s: Self, comptime cj: bool, n: BlasLong, x: [*]T, y: [*]T) T {
-            if (comptime isComplex(T)) {
-                const k = portable.kernel(T, s.vt, if (cj) .dotc_k else .dotu_k);
-                return types.complexOf(k(n, raw(T, x), 1, raw(T, y), 1));
-            }
-            return portable.kernel(T, s.vt, .dot_k)(n, x, 1, y, 1);
-        }
-
-        /// `y += alpha*op(A)*x`, `A` of `m` by `n`.
-        fn gemv(s: Self, comptime op: Trans, m: BlasLong, n: BlasLong, alpha: F, a: [*]T, lda: BlasLong, x: [*]T, y: [*]T, buf: [*]F) void {
-            const k = portable.kernel(T, s.vt, @field(portable.Op, "gemv_" ++ @tagName(op)));
-            if (comptime isComplex(T)) {
-                _ = k(m, n, 0, alpha, 0, raw(T, a), lda, raw(T, x), 1, raw(T, y), 1, buf);
-            } else {
-                _ = k(m, n, 0, alpha, a, lda, x, 1, y, 1, buf);
-            }
-        }
-    };
-}
+const Num = @import("ops.zig").Num;
+const Ops = @import("ops.zig").Ops;
 
 /// Real types have no `r` and `c`: they are `n` and `t`.
 fn canon(comptime T: type, op: Trans) Trans {

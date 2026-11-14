@@ -66,15 +66,15 @@ pub const AvarTable = struct {
     }
 
     pub inline fn majorVersion(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "major_version")..]);
+        return types.field(StreamLayout, "major_version", self.table_data);
     }
 
     pub inline fn minorVersion(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "minor_version")..]);
+        return types.field(StreamLayout, "minor_version", self.table_data);
     }
 
     pub inline fn axisCount(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "axis_count")..]);
+        return types.field(StreamLayout, "axis_count", self.table_data);
     }
 
     /// Segment maps are variable-length (each has its own positionMapCount),

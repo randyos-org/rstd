@@ -1331,7 +1331,7 @@ checks of the tier-2 rigs, `zig build shader-probes -Dvulkan` for SPIR-V).
    `dot`, `dot2`, `length`, `distance`, `norm`, `cross`, `mix` and `mulAdd`, and
    `linalg.matrix`'s `det`, `inv` and `outer`, are their instructions (table above), each
    checked by a probe (`src/rgl/shaders/lib/readme.md`); shaderlib's aliases stay S2's.
-6. **Float-slice reductions** to `linalg` (the NaN change); `rstd.simd` is gone already.
+6. **Float-slice reductions** to `linalg` (the NaN change); `rstd.simd` is gone already. Done 2026-11-12 (M13): M10 had already made `sum`, `max` and `min` take slices and views, inline up to `L` and the BLAS past it, with the first-NaN rule on both paths; M13 tests that rule on plain slices on both paths.
 7. **M2** moves the matlab port onto this layer.
 
 #### Decisions
@@ -1382,6 +1382,8 @@ randy-matrix: padded `@Vector` columns, float elements, `+ - *`, `@transpose`):
     `StaticMat` always takes the fallback code.
 19. **Conversions** to and from `[C][R]T` and `[C]@Vector(R, T)` are `StaticMat` functions;
     the fork's compiler stays as it is.
+
+M16 (2026-11-12): pffft's lane shuffles, for its FFT kernels ([#65](https://github.com/randyos-org/rstd/issues/65)), are `linalg.vector`'s `interleave`, `uninterleave`, `swapHalves`, `reverse` and `reversePairs` on any even `@Vector` length, and its `VTRANSPOSE4` is `linalg.matrix.transposeVecs` over `transpose` (`@Matrix`'s where the compiler has it).
 
 ### Planned: sparse matrices
 
@@ -2313,8 +2315,9 @@ here can.
 | `qemu-test-linux-<machine>` | a Debian netboot kernel with the hosted test executable as PID 1 (`test/linux/init.zig`), `-smp 4` | auxiliary-vector detection, threads, files; the machines below |
 | `qemu-test-x86_64-macos` | an installed x86_64 macOS VM under TCG, tests over SSH; not run until an Intel Mac replaces it (T141) | Mach-O at run time on an x86 CPU model |
 | `ssh-test-aarch64-macos` | the full suite on an Apple Silicon Mac over SSH (`-Dssh-mac`, default `macmini-m6`) | `vortex`, `vortexm4`, SME without SVE, which QEMU's `-cpu max` cannot show; Accelerate |
-| `ssh-test-x86_64-macos` | the x86_64 macOS suite on that Mac under Rosetta 2 | Mach-O x86_64, faster than the VM; the SSE cores only, since Rosetta hides AVX |
-| `ssh-test-x86_64-macos-avx2` | as above, with `ROSETTA_ADVERTISE_AVX=1` | rstd's `sandybridge`, `haswell` and `zen` cores too; not Accelerate's AVX2 path (SSH Mac below) |
+| `ssh-test-x86_64-macos` | the x86_64 macOS suite on an Intel Mac over SSH (`-Dssh-mac-intel`, default `macmini-intel`) | Mach-O x86_64 on real hardware: the cores its CPU runs; Accelerate's AVX2 path |
+| `ssh-test-x86_64-macos-rosetta` | the x86_64 macOS suite on the Apple Silicon Mac under Rosetta 2 | a comparison with the Intel Mac; the SSE cores only, since Rosetta hides AVX |
+| `ssh-test-x86_64-macos-rosetta-avx2` | as above, with `ROSETTA_ADVERTISE_AVX=1` | rstd's `sandybridge`, `haswell` and `zen` cores too; not Accelerate's AVX2 path (SSH Mac below) |
 | `wasm-test` | WASI under Node, a module with SIMD128 and one without (`wasm-test-simd128`, `wasm-test-portable`) | the freestanding rigs' tests, `abi.zig` and `threading.zig`, on the SIMD core and the portable path |
 | `rstd-check-macho` | build only, x86_64 and aarch64 macOS, every core | Mach-O assembly errors |
 | `rstd-check-uefi` | build only, x86_64 and aarch64 UEFI, the UEFI rigs' runner, no filter | every OS-free test compiles for UEFI, also those the rigs leave out |

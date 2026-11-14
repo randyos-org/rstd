@@ -127,9 +127,8 @@ fn checkAll(vt: *const Vtable) !void {
 }
 
 test "portable axpby kernels match a plain loop" {
-    var vt: Vtable = .{};
-    installGeneric(&vt);
-    try checkAll(&vt);
+    const vt = check.portableVtable();
+    try checkAll(vt);
 }
 
 test "portable axpby kernels at the extended type match a plain loop" {

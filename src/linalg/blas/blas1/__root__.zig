@@ -2,6 +2,7 @@
 //!
 //! One directory per routine, holding its portable kernels and tests.
 
+const std = @import("std");
 const Vtable = @import("../Vtable.zig");
 
 pub const asum = @import("asum/__root__.zig");
@@ -21,30 +22,20 @@ pub const swap = @import("swap/__root__.zig");
 /// The BLAS calls themselves (`copy`, `dot`, `nrm2`, ...), over the kernels.
 pub const interface = @import("interface.zig");
 
-/// Every routine above, for `installGeneric`.
-const routines = .{
-    axpy,
-    asum,
-    axpby,
-    copy,
-    dot,
-    extremum,
-    nrm2,
-    rot,
-    rotm,
-    scal,
-    sum,
-    swap,
-    // the bfloat16 conversions live with the extensions; `sbdot` uses them
-    @import("../ext/bf16/__root__.zig"),
-};
+/// The bfloat16 conversions live with the extensions; `sbdot` uses them.
+const bf16 = @import("../ext/bf16/__root__.zig");
 
 /// Points the vtable at every level-1 routine's portable kernels, where it has
 /// them; a core's own kernels go over these (`cpu.kernel.install`).
 pub fn installGeneric(vt: *Vtable) void {
-    inline for (routines) |r| {
-        if (@hasDecl(r, "installGeneric")) r.installGeneric(vt);
+    // the public routine modules, by reflection
+    inline for (comptime std.meta.declarations(@This())) |d| {
+        const r = @field(@This(), d);
+        if (@TypeOf(r) == type) {
+            if (@hasDecl(r, "installGeneric")) r.installGeneric(vt);
+        }
     }
+    bf16.installGeneric(vt);
 }
 
 const zigstd = @import("../../../zigstd.zig");

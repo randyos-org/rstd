@@ -1,3 +1,4 @@
+const std = @import("std");
 const types = @import("../../types.zig");
 const bytes = @import("../../../../../bytes.zig");
 const zigstd = @import("../../../../../zigstd.zig");
@@ -84,17 +85,17 @@ pub const Format14 = struct {
 
     pub fn init(table_data: []const u8, check: bool) !Self {
         if (check) try bytes.checkSize(table_data, 0, StreamLayout);
-        const num_records = bytes.getU32BE(table_data[@offsetOf(StreamLayout, "num_var_selector_records")..]);
+        const num_records = types.field(StreamLayout, "num_var_selector_records", table_data);
         if (check) try bytes.checkArray(table_data, records_start, num_records, VariationSelectorRecord);
         return .{ .table_data = table_data, .num_records = num_records };
     }
 
     pub inline fn format(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "format")..]);
+        return types.field(StreamLayout, "format", self.table_data);
     }
 
     pub inline fn length(self: Self) u32 {
-        return bytes.getU32BE(self.table_data[@offsetOf(StreamLayout, "length")..]);
+        return types.field(StreamLayout, "length", self.table_data);
     }
 
     pub inline fn numRecords(self: Self) u32 {
@@ -107,21 +108,14 @@ pub const Format14 = struct {
 
     // Records are sorted numerically by var_selector per spec.
     pub fn findRecord(self: Self, selector: u24) ?VariationSelectorRecord {
-        var lo: usize = 0;
-        var hi: usize = self.num_records;
-        while (lo < hi) {
-            const mid = lo + (hi - lo) / 2;
-            const record = self.getRecord(mid);
-            const mid_selector = record.varSelector();
-            if (selector < mid_selector) {
-                hi = mid;
-            } else if (selector > mid_selector) {
-                lo = mid + 1;
-            } else {
-                return record;
+        const Find = struct {
+            t: Self,
+            selector: u24,
+            pub fn order(f: @This(), i: usize) types.Order {
+                return std.math.order(f.selector, f.t.getRecord(i).varSelector());
             }
-        }
-        return null;
+        };
+        return self.getRecord(types.search(self.num_records, Find{ .t = self, .selector = selector }) orelse return null);
     }
 
     /// table_offset comes from a record's default_uvs_offset (0 means "no

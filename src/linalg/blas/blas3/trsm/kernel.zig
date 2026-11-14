@@ -65,8 +65,7 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
 
         fn copy(u: usize, upper: bool, across: bool, unit: bool, m: BlasLong, n: BlasLong, a: [*]F, lda: BlasLong, offset: BlasLong, b: [*]F) i32 {
             const src: Source = .{ .a = @ptrCast(a), .ld = @intCast(lda), .offset = offset, .across = across, .upper = upper, .unit = unit };
-            gk.packWith(E, u, @intCast(m), @intCast(n), @ptrCast(b), src);
-            return 0;
+            return gk.copyFrom(E, u, m, n, b, src);
         }
 
         fn Copy(comptime u: usize, comptime upper: bool, comptime across: bool, comptime unit: bool) type {
@@ -123,13 +122,8 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
         /// triangle's side.
         fn update(left: bool, conj: bool, m: usize, n: usize, depth: usize, a: [*]E, b: [*]E, c: [*]E, ldc: usize) void {
             if (depth == 0) return;
-            const args = .{ @as(BlasLong, @intCast(m)), @as(BlasLong, @intCast(n)), @as(BlasLong, @intCast(depth)) };
-            if (comptime complex) {
-                const f = if (!conj) &G.gemm_kernel_n else if (left) &G.gemm_kernel_l else &G.gemm_kernel_r;
-                _ = f(args[0], args[1], args[2], -1, 0, @ptrCast(a), @ptrCast(b), @ptrCast(c), @intCast(ldc));
-            } else {
-                _ = G.gemm_kernel(args[0], args[1], args[2], -1, a, b, c, @intCast(ldc));
-            }
+            const minus_one: [2]F = .{ -1, 0 };
+            gk.sideKernel(G, F, complex, left, conj, m, n, depth, &minus_one, a, b, c, ldc);
         }
 
         /// The start of panel `p` from the end of `n` lines in panels of `u`:

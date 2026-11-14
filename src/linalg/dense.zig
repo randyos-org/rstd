@@ -1151,6 +1151,40 @@ test "up to the inline limit, vector reductions keep linalg.vector's bits" {
     try testing.expectEqual(vector.dot(z, z), try dot(test_io, &z, &z));
 }
 
+test "the float-slice reductions on both paths: max and min return the first NaN, unlike @reduce" {
+    inline for (.{ f32, f64 }) |F| {
+        const U = @Int(.unsigned, @bitSizeOf(F));
+        // two quiet NaNs told apart by their payloads
+        const nan1: F = @bitCast(@as(U, @bitCast(std.math.nan(F))) | 1);
+        const nan2: F = @bitCast(@as(U, @bitCast(std.math.nan(F))) | 2);
+        for ([_]usize{ 5, 100 }) |n| {
+            var buf: [100]F = undefined;
+            for (buf[0..n], 0..) |*v, i| v.* = @floatFromInt(i % 7);
+            buf[1] = nan1;
+            buf[n - 1] = nan2;
+            const x: []const F = buf[0..n];
+            const want: U = @bitCast(nan1);
+            try testing.expectEqual(want, @as(U, @bitCast(try max(test_io, x))));
+            try testing.expectEqual(want, @as(U, @bitCast(try min(test_io, x))));
+            try testing.expect(std.math.isNan(try sum(test_io, x)));
+            // no NaN: the largest, the smallest and the sum of the slice
+            buf[1] = 0;
+            buf[n - 1] = 0;
+            var total: F = 0;
+            var hi: F = x[0];
+            var lo: F = x[0];
+            for (x) |v| {
+                total += v;
+                hi = @max(hi, v);
+                lo = @min(lo, v);
+            }
+            try testing.expectEqual(hi, try max(test_io, x));
+            try testing.expectEqual(lo, try min(test_io, x));
+            try testing.expectApproxEqRel(total, try sum(test_io, x), 1e-6);
+        }
+    }
+}
+
 test "transposes, axpy and scale" {
     const al = testing.allocator;
     var a = matrix.fromRows(matrix.StaticMat(2, 3, f64), .{ .{ 1, 2, 3 }, .{ 4, 5, 6 } });

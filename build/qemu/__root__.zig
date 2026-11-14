@@ -48,7 +48,13 @@ pub fn addQemuTests(b: *Build, optimize: Optimize) !Rigs {
     const host_alias: ?[]const u8 = if (host_off) null else host_named orelse if (b.isRoot()) tools.mac_alias else null;
     const host_jobs = b.option(u32, "test-host-jobs", "Rigs running at once on -Dtest-host, across builds (default 8)") orelse 8;
     const host_tcg = b.option(bool, "test-host-tcg", "Run every rig on -Dtest-host under TCG, also those HVF could run") orelse false;
-    const test_host: ?TestHost = if (host_alias) |alias| .{ .alias = alias, .jobs = host_jobs, .tcg = host_tcg } else null;
+    const host_arch = b.option(TestHost.Arch, "test-host-arch", "-Dtest-host's CPU: HVF runs only the rigs of its architecture (default x86_64 for " ++ tools.intel_mac_alias ++ ", else aarch64)");
+    const test_host: ?TestHost = if (host_alias) |alias| .{
+        .alias = alias,
+        .jobs = host_jobs,
+        .tcg = host_tcg,
+        .arch = host_arch orelse if (std.mem.eql(u8, alias, tools.intel_mac_alias)) .x86_64 else .aarch64,
+    } else null;
 
     const host = b.graph.host.result;
     const whpx_host = host.os.tag == .windows and host.cpu.arch == .x86_64;
@@ -112,11 +118,26 @@ fn vmOption(b: *Build, comptime name: []const u8, comptime rigs: []const u8, com
 }
 
 /// `-Dtest-host`: the machine the rigs' QEMU runs on (`tools/rig/test_host.zig`).
-pub const TestHost = struct { alias: []const u8, jobs: u32, tcg: bool };
+pub const TestHost = struct {
+    alias: []const u8,
+    jobs: u32,
+    tcg: bool,
+    arch: Arch,
+
+    /// The Macs' architectures, whose guests HVF runs.
+    pub const Arch = enum { aarch64, x86_64 };
+};
 
 /// Where `m` runs: the test host, or here (null).
 fn testHostFor(m: Machine, host: ?TestHost) ?TestHost {
     return if (m.whpx) null else host;
+}
+
+/// Whether `m` runs under HVF: on a test host of its architecture, unless
+/// `-Dtest-host-tcg`.
+fn underHvf(m: Machine, host: ?TestHost) bool {
+    const h = testHostFor(m, host) orelse return false;
+    return m.hvf != null and !h.tcg and std.mem.eql(u8, @tagName(h.arch), @tagName(m.query.cpu_arch.?));
 }
 
 /// `m`'s qemu and `args`, under `tools/rig/qemu_watch.zig`: a firmware halt or
@@ -138,10 +159,10 @@ pub fn qemuCommand(b: *Build, m: Machine, host: ?TestHost) *Build.Step.Run {
     run.addDirectoryArg2(b.path("tools/nix"), .{});
     run.addArgs(&.{ m.qemu, "--tcg" });
     run.addArgs(m.args);
-    if (m.hvf) |hvf| if (!h.tcg) {
+    if (underHvf(m, host)) {
         run.addArg("--hvf");
-        run.addArgs(hvf);
-    };
+        run.addArgs(m.hvf.?);
+    }
     run.addArg("--");
     return run;
 }
@@ -200,8 +221,7 @@ fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedT
     var query = target.query;
     if (nix != null) query.abi = .gnu;
     const t = if (nix != null) b.resolveTargetQuery(query) else target;
-    const hvf = if (testHostFor(m, host)) |h| m.hvf != null and !h.tcg else false;
-    const core = if (hvf) m.hvf_core else m.core;
+    const core = if (underHvf(m, host)) m.hvf_core else m.core;
     // a filtered run still prints the core
     const core_test = "linalg.blas.__root__.test.the core in use";
     const run_filters = if (core != null and filters.len != 0) try std.mem.concat(b.allocator, []const u8, &.{ filters, &.{core_test} }) else filters;
@@ -316,8 +336,7 @@ fn addKernelRun(b: *Build, m: Machine, k: Boot.Kernel, target: rstdbuild.Resolve
     }
     run.has_side_effects = true;
     // HVF has no semihosting, so no exit status
-    const hvf = if (testHostFor(m, host)) |h| m.hvf != null and !h.tcg else false;
-    if (!semihosting or hvf) run.expectStdOutMatch(", 0 failed");
+    if (!semihosting or underHvf(m, host)) run.expectStdOutMatch(", 0 failed");
     if (k.stderr_note) |note| run.expectStdErrMatch(note);
     return run;
 }

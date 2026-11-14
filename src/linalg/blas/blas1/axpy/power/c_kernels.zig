@@ -36,21 +36,7 @@ fn CplxByValue(comptime F: type, comptime f: anytype) type {
 
 /// `saxpy_kernel_64` of `saxpy.c`: `y += alpha * x` in vectors of four, sixteen
 /// at a time.
-const SaxpyVec = struct {
-    pub fn run(n1: BlasLong, alpha: f32, x: [*]f32, y: [*]f32) void {
-        const V = @Vector(4, f32);
-        const va: V = @splat(alpha);
-        var i: usize = 0;
-        const n: usize = @intCast(n1);
-        while (i < n) : (i += 64) {
-            inline for (0..16) |k| {
-                const vx = util.load(V, x + i + 4 * k);
-                const vy = util.load(V, y + i + 4 * k);
-                util.store(V, y + i + 4 * k, if (fma.fuse) @mulAdd(V, vx, va, vy) else vx * va + vy);
-            }
-        }
-    }
-};
+const SaxpyVec = kernel.VectorBlock(f32, 4, 16);
 
 /// `caxpy_kernel_16` of `caxpy.c`: two multiply-adds per vector of two
 /// complex values, the second on the real and imaginary parts swapped.

@@ -5,7 +5,6 @@
 const std = @import("std");
 const blas = @import("../__root__.zig");
 const Vtable = @import("../Vtable.zig");
-const portable = @import("../portable.zig");
 const check = @import("check.zig");
 
 const page = 4096;
@@ -29,18 +28,6 @@ pub fn restore() void {
     std.debug.assert(in_use);
     blas.testRestore(saved);
     in_use = false;
-}
-
-var portable_vt: Vtable = .{};
-var portable_ready = false;
-
-/// Every level's portable kernels, in static storage.
-pub fn portableVtable() *const Vtable {
-    if (!portable_ready) {
-        portable.install(&portable_vt);
-        portable_ready = true;
-    }
-    return &portable_vt;
 }
 
 /// What `open` puts in the buffer: finite junk, for kernels whose callers must

@@ -5,6 +5,8 @@
 const std = @import("std");
 const types = @import("../../types.zig");
 const gk = @import("../gemm/kernel.zig");
+const symm = @import("../symm/kernel.zig");
+const loops = @import("../gemm/loops.zig");
 
 const BlasLong = types.BlasLong;
 const isComplex = types.isComplex;
@@ -33,8 +35,6 @@ fn ThreeM(comptime T: type, comptime rg: gk.Geometry) type {
     const F = types.Float(T);
     const cc = types.kernelCc(F);
     const A = types.Acc(F);
-    const vl = rg.vl;
-    if (A != F and vl > 1) @compileError("a widened sum needs scalar lanes");
     const mr = rg.mr();
     const nr = rg.nr;
     const E = [2]F;
@@ -42,135 +42,58 @@ fn ThreeM(comptime T: type, comptime rg: gk.Geometry) type {
         pub const unroll_m: i32 = mr;
         pub const unroll_n: i32 = nr;
 
-        fn Vec(comptime n: usize) type {
-            return if (n == 1) F else @Vector(n, F);
-        }
-
         /// `C += alpha * A * B` for real `A` packed `bm x bk` and `B` packed
         /// `bk x bn`, complex `C`: each sum times `alpha_r` into the real
-        /// part, times `alpha_i` into the imaginary one. The real kernel's loops
-        /// (`gemm/kernel.zig`).
+        /// part, times `alpha_i` into the imaginary one, through the real
+        /// kernel's loops (`gemm/loops.zig`).
         pub fn gemm3m_kernel(bm: BlasLong, bn: BlasLong, bk: BlasLong, alpha_r: F, alpha_i: F, ba: [*]F, bb: [*]F, c: [*]F, ldc: BlasLong) callconv(cc) i32 {
-            const m: usize = @intCast(bm);
-            const n: usize = @intCast(bn);
-            const k: usize = @intCast(bk);
-            const ld: usize = @intCast(ldc);
-            if (vl == 1) {
-                scalarPanels(m, n, k, alpha_r, alpha_i, ba, bb, c, ld);
-                return 0;
-            }
-            var q0: usize = 0;
-            while (q0 + nr <= n) : (q0 += nr) rows(nr, m, k, alpha_r, alpha_i, ba, bb + q0 * k, c + 2 * q0 * ld, ld);
-            inline for (comptime gk.tails(nr)) |w| {
-                if ((n - q0) & w != 0) {
-                    rows(w, m, k, alpha_r, alpha_i, ba, bb + q0 * k, c + 2 * q0 * ld, ld);
-                    q0 += w;
-                }
-            }
+            L.run(@intCast(bm), @intCast(bn), @intCast(bk), .{ alpha_r, alpha_i }, ba, bb, c, @intCast(ldc));
             return 0;
         }
 
-        /// Without vectors, the whole tiles unrolled and the partial ones
-        /// shaped by values, as the real kernel does.
-        fn scalarPanels(m: usize, n: usize, k: usize, ar: F, ai: F, ba: [*]const F, bb: [*]const F, c: [*]F, ld: usize) void {
-            var q0: usize = 0;
-            while (q0 < n) {
-                const wn = gk.panelWidth(n - q0, nr);
-                var r0: usize = 0;
-                while (r0 < m) {
-                    const wm = gk.panelWidth(m - r0, mr);
-                    const p = c + 2 * (r0 + q0 * ld);
-                    // a widened sum (`f16`) takes the partial tile throughout
-                    if (A == F and wm == mr and wn == nr) tile(mr, nr, k, ar, ai, ba + r0 * k, bb + q0 * k, p, ld) else partTile(wm, wn, k, ar, ai, ba + r0 * k, bb + q0 * k, p, ld);
-                    r0 += wm;
-                }
-                q0 += wn;
-            }
-        }
+        const L = loops.Loops(F, rg, Out);
 
-        /// `C(i, j) += alpha * s`, one part from each part of `alpha`.
-        inline fn put(p: [*]F, s: A, ar: F, ai: F) void {
-            const re = gk.madd(A, 1, s, ar, p[0]);
-            const im = gk.madd(A, 1, s, ai, p[1]);
-            p[0] = if (A == F) re else @floatCast(re);
-            p[1] = if (A == F) im else @floatCast(im);
-        }
+        /// `C(i, j) += alpha * sum`, one part from each part of `alpha`.
+        const Out = struct {
+            pub const C = F;
+            pub const scale = 2;
+            pub const Alpha = E;
 
-        fn partTile(wm: usize, wn: usize, k: usize, ar: F, ai: F, pa: [*]const F, pb: [*]const F, c: [*]F, ld: usize) void {
-            var acc: [nr][mr]A = @splat(@splat(0));
-            var a = pa;
-            var b = pb;
-            for (0..k) |_| {
-                for (0..wn) |j| {
-                    const y: A = b[j];
-                    for (0..wm) |i| acc[j][i] = gk.madd(A, 1, @as(A, a[i]), y, acc[j][i]);
+            /// `alpha`'s parts alternating, one pair per lane.
+            pub fn prep(comptime lanes: usize, alpha: E) if (lanes == 1) E else @Vector(2 * lanes, F) {
+                if (lanes == 1) return alpha;
+                var al: @Vector(2 * lanes, F) = undefined;
+                inline for (0..lanes) |i| {
+                    al[2 * i] = alpha[0];
+                    al[2 * i + 1] = alpha[1];
                 }
-                a += wm;
-                b += wn;
+                return al;
             }
-            for (0..wn) |j| for (0..wm) |i| put(c + 2 * (i + j * ld), acc[j][i], ar, ai);
-        }
 
-        fn rows(comptime wn: usize, m: usize, k: usize, ar: F, ai: F, ba: [*]const F, pb: [*]const F, c: [*]F, ld: usize) void {
-            var r0: usize = 0;
-            while (r0 + mr <= m) : (r0 += mr) @call(.always_inline, tile, .{ mr, wn, k, ar, ai, ba + r0 * k, pb, c + 2 * r0, ld });
-            inline for (comptime gk.tails(mr)) |w| {
-                if ((m - r0) & w != 0) {
-                    @call(.never_inline, tile, .{ w, wn, k, ar, ai, ba + r0 * k, pb, c + 2 * r0, ld });
-                    r0 += w;
-                }
+            pub inline fn put(p: [*]F, sum: A, alpha: E) void {
+                const re = gk.madd(A, 1, sum, alpha[0], p[0]);
+                const im = gk.madd(A, 1, sum, alpha[1], p[1]);
+                p[0] = if (A == F) re else @floatCast(re);
+                p[1] = if (A == F) im else @floatCast(im);
             }
-        }
+
+            /// Each lane doubled against `C`'s parts, as the Haswell kernel's
+            /// `vunpcklpd`.
+            pub inline fn putLanes(comptime lanes: usize, p: [*]F, sums: gk.Lanes(A, lanes), al: if (lanes == 1) E else @Vector(2 * lanes, F)) void {
+                if (lanes == 1) return put(p, sums, al);
+                const d = @shuffle(F, sums, undefined, twice(lanes));
+                // whole arrays, not `util.store`: the self-hosted x86_64
+                // backend stores a two-lane `f32` vector as sixteen bytes
+                const cv: @Vector(2 * lanes, F) = p[0 .. 2 * lanes].*;
+                p[0 .. 2 * lanes].* = gk.madd(F, 2 * lanes, d, al, cv);
+            }
+        };
 
         /// `[0, 0, 1, 1, ...]`: each lane twice, for both parts of `C`.
         fn twice(comptime len: usize) @Vector(2 * len, i32) {
             var s: [2 * len]i32 = undefined;
             for (0..2 * len) |i| s[i] = @intCast(i / 2);
             return s;
-        }
-
-        /// One `wm x wn` tile: the real kernel's sums, then each lane
-        /// doubled against `C`'s parts, as the Haswell kernel's `vunpcklpd`.
-        fn tile(comptime wm: usize, comptime wn: usize, k: usize, ar: F, ai: F, pa: [*]const F, pb: [*]const F, c: [*]F, ld: usize) void {
-            @setEvalBranchQuota(100_000);
-            if (A != F) unreachable;
-            const lanes: usize = @min(vl, wm);
-            const nv = wm / lanes;
-            const V = Vec(lanes);
-            var acc: [wn][nv]V = undefined;
-            inline for (0..wn) |j| inline for (0..nv) |v| {
-                acc[j][v] = if (lanes == 1) 0 else @splat(0);
-            };
-            var a = pa;
-            var b = pb;
-            for (0..k) |_| {
-                var av: [nv]V = undefined;
-                inline for (0..nv) |v| av[v] = if (lanes == 1) a[v] else a[v * lanes ..][0..lanes].*;
-                inline for (0..wn) |j| {
-                    const bv: V = if (lanes == 1) b[j] else @splat(b[j]);
-                    inline for (0..nv) |v| acc[j][v] = gk.madd(F, lanes, av[v], bv, acc[j][v]);
-                }
-                a += wm;
-                b += wn;
-            }
-            const W = @Vector(2 * lanes, F);
-            var al: W = undefined;
-            inline for (0..lanes) |i| {
-                al[2 * i] = ar;
-                al[2 * i + 1] = ai;
-            }
-            inline for (0..wn) |j| inline for (0..nv) |v| {
-                const p = c + 2 * (j * ld + v * lanes);
-                if (lanes == 1) {
-                    put(p, acc[j][v], ar, ai);
-                } else {
-                    const d = @shuffle(F, acc[j][v], undefined, twice(lanes));
-                    // whole arrays, not `util.store`: the self-hosted x86_64
-                    // backend stores a two-lane `f32` vector as sixteen bytes
-                    const cv: W = p[0 .. 2 * lanes].*;
-                    p[0 .. 2 * lanes].* = gk.madd(F, 2 * lanes, d, al, cv);
-                }
-            };
         }
 
         // ---- the copies ----------------------------------------------------
@@ -187,27 +110,8 @@ fn ThreeM(comptime T: type, comptime rg: gk.Geometry) type {
             }
         };
 
-        /// Element `(x + j, y + l)` of the matrix whose `upper` (or lower)
-        /// triangle `a` stores, conjugated for `herm` where it comes from the
-        /// other side, with a real diagonal (`symm/kernel.zig`'s source).
-        const Sym = struct {
-            a: [*]const E,
-            ld: usize,
-            x: usize,
-            y: usize,
-            upper: bool,
-            herm: bool,
-
-            fn at(s: Sym, j: usize, l: usize) E {
-                const x = s.x + j;
-                const y = s.y + l;
-                const mirrored = if (s.upper) x > y else x < y;
-                const v = if (mirrored) s.a[y + x * s.ld] else s.a[x + y * s.ld];
-                if (!s.herm) return v;
-                if (x == y) return .{ v[0], 0 };
-                return if (mirrored) .{ v[0], -v[1] } else v;
-            }
-        };
+        /// The symmetric or Hermitian operand (`symm/kernel.zig`).
+        const Sym = symm.Source(E);
 
         /// `src`'s elements as `cmult` packs them.
         fn Parted(comptime S: type) type {
@@ -243,15 +147,13 @@ fn ThreeM(comptime T: type, comptime rg: gk.Geometry) type {
         /// One function per kind of copy: the options are values.
         fn general(u: usize, across: bool, part: Part, alpha: ?E, m: BlasLong, n: BlasLong, a: [*]F, lda: BlasLong, b: [*]F) i32 {
             const src: Parted(General) = .{ .s = .{ .a = @ptrCast(a), .ld = @intCast(lda), .across = across }, .part = part, .alpha = alpha, .conj = false };
-            gk.packWith(F, u, @intCast(m), @intCast(n), b, src);
-            return 0;
+            return gk.copyFrom(F, u, m, n, b, src);
         }
 
         fn sym(u: usize, upper: bool, herm: bool, part: Part, alpha: ?E, m: BlasLong, n: BlasLong, a: [*]F, lda: BlasLong, posX: BlasLong, posY: BlasLong, b: [*]F) i32 {
             const s: Sym = .{ .a = @ptrCast(a), .ld = @intCast(lda), .x = @intCast(posX), .y = @intCast(posY), .upper = upper, .herm = herm };
             const src: Parted(Sym) = .{ .s = s, .part = part, .alpha = alpha, .conj = herm and alpha != null };
-            gk.packWith(F, u, @intCast(m), @intCast(n), b, src);
-            return 0;
+            return gk.copyFrom(F, u, m, n, b, src);
         }
 
         // `gemm3m`: rows of `op(A)` (`i`, panels of `mr`), columns of `op(B)`

@@ -121,9 +121,8 @@ fn checkAll(vt: *const Vtable) !void {
 }
 
 test "portable rot kernels match a plain loop" {
-    var vt: Vtable = .{};
-    installGeneric(&vt);
-    try checkAll(&vt);
+    const vt = check.portableVtable();
+    try checkAll(vt);
     try checkRot(XDouble, vt.qrot_k.?);
     try checkRot(std.math.Complex(XDouble), vt.xqrot_k.?);
 }

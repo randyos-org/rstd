@@ -51,35 +51,35 @@ pub const GvarTable = struct {
     }
 
     pub inline fn majorVersion(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "major_version")..]);
+        return types.field(StreamLayout, "major_version", self.table_data);
     }
 
     pub inline fn minorVersion(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "minor_version")..]);
+        return types.field(StreamLayout, "minor_version", self.table_data);
     }
 
     pub inline fn axisCount(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "axis_count")..]);
+        return types.field(StreamLayout, "axis_count", self.table_data);
     }
 
     pub inline fn sharedTupleCount(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "shared_tuple_count")..]);
+        return types.field(StreamLayout, "shared_tuple_count", self.table_data);
     }
 
     pub inline fn sharedTuplesOffset(self: Self) types.Offset32 {
-        return bytes.readIntBE(types.Offset32, self.table_data[@offsetOf(StreamLayout, "shared_tuples_offset")..]);
+        return types.field(StreamLayout, "shared_tuples_offset", self.table_data);
     }
 
     pub inline fn glyphCount(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "glyph_count")..]);
+        return types.field(StreamLayout, "glyph_count", self.table_data);
     }
 
     pub inline fn flags(self: Self) GvarFlags {
-        return @bitCast(bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "flags")..]));
+        return @bitCast(types.field(StreamLayout, "flags", self.table_data));
     }
 
     pub inline fn glyphVariationDataArrayOffset(self: Self) types.Offset32 {
-        return bytes.readIntBE(types.Offset32, self.table_data[@offsetOf(StreamLayout, "glyph_variation_data_array_offset")..]);
+        return types.field(StreamLayout, "glyph_variation_data_array_offset", self.table_data);
     }
 
     /// One of the shared tuples usable by any glyph's variation data.

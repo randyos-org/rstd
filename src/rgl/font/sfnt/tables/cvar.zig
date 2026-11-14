@@ -1,5 +1,6 @@
 const bytes = @import("../../../../bytes.zig");
 const tv = @import("tuple_variation.zig");
+const types = @import("../types.zig");
 const zigstd = @import("../../../../zigstd.zig");
 
 /// cvar's fixed header, majorVersion and minorVersion only; what
@@ -26,11 +27,11 @@ pub const CvarTable = struct {
     }
 
     pub inline fn majorVersion(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "major_version")..]);
+        return types.field(StreamLayout, "major_version", self.table_data);
     }
 
     pub inline fn minorVersion(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "minor_version")..]);
+        return types.field(StreamLayout, "minor_version", self.table_data);
     }
 
     /// The tupleVariationCount/dataOffset/tupleVariationHeaders[] portion,

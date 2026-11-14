@@ -26,23 +26,10 @@ pub const complexEntry = kernel.complexEntry;
 pub const Real = kernel.Real;
 pub const Cplx = kernel.Cplx;
 
-/// Portable block kernel: `y[0..n1] += alpha * x[0..n1]` on `@Vector`s, the
-/// `V_SIMD` branch of `daxpy_kernel_8`/`saxpy_kernel_16`.
+/// Portable block kernel on the target's suggested vectors, the `V_SIMD`
+/// branch of `daxpy_kernel_8`/`saxpy_kernel_16`.
 fn SimdBlock(comptime T: type) type {
-    return struct {
-        pub fn run(n1: BlasLong, alpha: T, x: [*]T, y: [*]T) void {
-            const lanes = comptime std.simd.suggestVectorLength(T) orelse 1;
-            const V = @Vector(lanes, T);
-            const valpha: V = @splat(alpha);
-            var i: usize = 0;
-            const end: usize = @intCast(n1);
-            while (i < end) : (i += lanes) {
-                const vx: V = x[i..][0..lanes].*;
-                const vy: V = y[i..][0..lanes].*;
-                y[i..][0..lanes].* = fma.madd(fma.fuse, V, valpha, vx, vy);
-            }
-        }
-    };
+    return kernel.VectorBlock(T, std.simd.suggestVectorLength(T) orelse 1, 1);
 }
 
 /// Whether `T` gets the `@Vector` block kernel in the portable path: not

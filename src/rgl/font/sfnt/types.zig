@@ -130,6 +130,35 @@ pub const LongDateTime = i64;
 pub const Offset16 = u16;
 pub const Offset32 = u32;
 
+pub const Order = std.math.Order;
+
+/// The index of the record of `n` sorted ones that `ctx.order(i)` (the key
+/// against record `i`) finds equal, if any: the tables' binary search.
+pub fn search(n: usize, ctx: anytype) ?usize {
+    var lo: usize = 0;
+    var hi = n;
+    while (lo < hi) {
+        const mid = lo + (hi - lo) / 2;
+        switch (ctx.order(mid)) {
+            .lt => hi = mid,
+            .gt => lo = mid + 1,
+            .eq => return mid,
+        }
+    }
+    return null;
+}
+
+/// Field `name` of table layout `L` (an `extern struct` as the font stores
+/// it) in `data`, big-endian: an integer, or a type with `fromBytes`.
+pub inline fn field(comptime L: type, comptime name: []const u8, data: []const u8) @FieldType(L, name) {
+    const T = @FieldType(L, name);
+    const at = data[@offsetOf(L, name)..];
+    return switch (@typeInfo(T)) {
+        .int => bytes.readIntBE(T, at),
+        else => T.fromBytes(at),
+    };
+}
+
 pub const TagStr = extern struct {
     data: [4]u8,
 

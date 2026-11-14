@@ -109,9 +109,8 @@ fn checkAll(vt: *const Vtable) !void {
 }
 
 test "portable swap kernels match a plain loop" {
-    var vt: Vtable = .{};
-    installGeneric(&vt);
-    try checkAll(&vt);
+    const vt = check.portableVtable();
+    try checkAll(vt);
     try checkSwap(XDouble, vt.qswap_k.?);
     try checkSwap(std.math.Complex(XDouble), vt.xswap_k.?);
 }

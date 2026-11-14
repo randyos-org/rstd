@@ -12,6 +12,9 @@ const interface = @import("interface.zig");
 const portable = @import("../portable.zig");
 const accel = @import("../apple_accel.zig");
 const threading = @import("../threading.zig");
+const ops = @import("ops.zig");
+const Num = ops.Num;
+const Ops = ops.Ops;
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -37,60 +40,6 @@ const zero = util.zero;
 const isZero = util.isZero;
 const isOne = util.isOne;
 
-fn mul(comptime T: type, a: T, b: T) T {
-    return if (comptime isComplex(T)) a.mul(b) else a * b;
-}
-
-/// `mul`, each step rounded on the x87 (`util.cmul`): the rank updates'
-/// scalars.
-pub fn mulRounded(comptime T: type, a: T, b: T) T {
-    if (comptime !isComplex(T)) return a * b;
-    const p = util.cmul(Float(T), a.re, a.im, b.re, b.im);
-    return .init(p[0], p[1]);
-}
-
-fn add(comptime T: type, a: T, b: T) T {
-    return if (comptime isComplex(T)) a.add(b) else a + b;
-}
-
-pub fn conj(comptime T: type, a: T) T {
-    return if (comptime isComplex(T)) a.conjugate() else a;
-}
-
-pub fn scaleF(comptime T: type, a: T, f: Float(T)) T {
-    return if (comptime isComplex(T)) T.init(a.re * f, a.im * f) else a * f;
-}
-
-// ---- level-1 kernels, unit stride --------------------------------------------
-
-/// `y += alpha*x`, or `alpha*conj(x)`; the kernels take `n >= 1`.
-pub fn axpyK(comptime T: type, comptime cj: bool, n: BlasLong, alpha: T, x: [*]T, y: [*]T) void {
-    if (n <= 0) return;
-    const op: portable.Op = comptime if (cj and isComplex(T)) .axpyc_k else .axpy_k;
-    _ = @call(.auto, portable.fetch(T, op, blas.table), .{ n, 0, 0 } ++ util.scalarArgs(T, alpha) ++ .{ raw(T, x), 1, raw(T, y), 1, raw(T, y), 0 });
-}
-
-/// `x . y`, or `conj(x) . y`; `cj` is ignored for real `T`.
-fn dotK(comptime T: type, comptime cj: bool, n: BlasLong, x: [*]T, y: [*]T) T {
-    if (n <= 0) return zero(T);
-    if (comptime isComplex(T)) {
-        return types.complexOf(portable.fetch(T, if (cj) .dotc_k else .dotu_k, blas.table)(n, raw(T, x), 1, raw(T, y), 1));
-    }
-    return portable.fetch(T, .dot_k, blas.table)(n, x, 1, y, 1);
-}
-
-fn copyK(comptime T: type, n: BlasLong, x: [*]T, incx: BlasLong, y: [*]T, incy: BlasLong) void {
-    if (n <= 0) return;
-    _ = portable.fetch(T, .copy_k, blas.table)(n, raw(T, x), incx, raw(T, y), incy);
-}
-
-/// `y := beta*y`, with the interface's flag 0: a zero `beta` stores zeros.
-fn scalK(comptime T: type, n: BlasLong, beta: T, y: [*]T, incy: BlasLong) void {
-    if (n <= 0) return;
-    const p = raw(T, y);
-    _ = @call(.auto, portable.fetch(T, .scal_k, blas.table), .{ n, 0, 0 } ++ util.scalarArgs(T, beta) ++ .{ p, incy, p, 0, p, 0 });
-}
-
 // ---- unit-stride copies ------------------------------------------------------
 
 /// Room for one vector copy: on the stack when it fits, else from the
@@ -106,7 +55,7 @@ pub fn Scratch(comptime T: type) type {
             if (inc == 1) return v;
             const buf = try util.Scratch(T, @alignOf(T), @alignOf(T)).init(allocator, &self.stack, @intCast(n));
             self.buf = buf;
-            copyK(T, n, v, inc, buf.ptr, 1);
+            Ops(T).init().copy(n, v, inc, buf.ptr, 1);
             return buf.ptr;
         }
 
@@ -167,7 +116,7 @@ fn gbmvDriver(comptime T: type, comptime tr: bool, comptime cj: bool, comptime x
     if (tr and split and p.workers > 1) {
         try threading.forEach(io, &p, &g, Gbmv(T, tr, cj, xc).chunk);
     } else g.columns(0, cols);
-    if (incy != 1) copyK(T, leny, g.Y, 1, y, incy);
+    if (incy != 1) Ops(T).init().copy(leny, g.Y, 1, y, incy);
 }
 
 /// `gbmvDriver`'s columns, over unit-stride `X` and `Y`; element 0 of `Y` is
@@ -195,6 +144,8 @@ fn Gbmv(comptime T: type, comptime tr: bool, comptime cj: bool, comptime xc: boo
         }
 
         fn columns(g: *const @This(), c0: BlasLong, c1: BlasLong) void {
+            const N = Num(T);
+            const o: Ops(T) = .init();
             var offset_u = g.ku - c0;
             var offset_l = g.ku + g.m - c0;
             var col = off(T, g.a, c0 * g.lda);
@@ -208,11 +159,11 @@ fn Gbmv(comptime T: type, comptime tr: bool, comptime cj: bool, comptime xc: boo
                     const xs = off(T, g.X, start - offset_u);
                     if (comptime !tr) {
                         const xi = at(T, g.X, i).*;
-                        axpyK(T, cj, length, mul(T, g.alpha, if (xc) conj(T, xi) else xi), ap, off(T, g.Y, start - offset_u - g.yb));
+                        o.axpy(cj, length, N.mul(g.alpha, if (xc) N.conj(xi, true) else xi, false), ap, off(T, g.Y, start - offset_u - g.yb));
                     } else {
-                        const t = if (comptime !xc) dotK(T, cj, length, ap, xs) else dotK(T, !cj, length, xs, ap);
-                        const v = mul(T, g.alpha, if (comptime xc and cj) conj(T, t) else t);
-                        at(T, g.Y, i).* = add(T, at(T, g.Y, i).*, v);
+                        const t = if (comptime !xc) o.dot(cj, length, ap, xs) else o.dot(!cj, length, xs, ap);
+                        const v = N.mul(g.alpha, if (comptime xc and cj) N.conj(t, true) else t, false);
+                        at(T, g.Y, i).* = N.add(at(T, g.Y, i).*, v);
                     }
                 }
                 offset_u -= 1;
@@ -263,7 +214,7 @@ fn mvDriver(comptime T: type, comptime kind: Kind, comptime lower: bool, comptim
     defer sy.deinit(allocator);
     const Y = try sy.unit(allocator, n, y, incy);
     g.columns(Y, 0, 0, n);
-    if (incy != 1) copyK(T, n, Y, 1, y, incy);
+    if (incy != 1) Ops(T).init().copy(n, Y, 1, y, incy);
 }
 
 /// `mvDriver`'s columns, over a unit-stride `X`.
@@ -285,6 +236,8 @@ fn Mv(comptime T: type, comptime kind: Kind, comptime lower: bool, comptime pack
 
         /// Columns `c0..c1` added to `Y`, whose element 0 is row `yb`.
         fn columns(g: *const @This(), Y: [*]T, yb: BlasLong, c0: BlasLong, c1: BlasLong) void {
+            const N = Num(T);
+            const o: Ops(T) = .init();
             const n = g.n;
             const alpha = g.alpha;
             const X = g.X;
@@ -301,20 +254,20 @@ fn Mv(comptime T: type, comptime kind: Kind, comptime lower: bool, comptime pack
                 const off_i = if (lower) i + 1 else i - noff; // the off-diagonals' rows
                 const xi = at(T, X, i).*;
                 const yi = at(T, Y, i - yb);
-                const ax = mul(T, alpha, xi);
+                const ax = N.mul(alpha, xi, false);
                 switch (kind) {
                     .symmetric => if (packed_ and lower) {
-                        yi.* = add(T, yi.*, mul(T, alpha, dotK(T, false, n - i, dp, off(T, X, i))));
-                        axpyK(T, false, noff, ax, off_a, off(T, Y, off_i - yb));
+                        yi.* = N.add(yi.*, N.mul(alpha, o.dot(false, n - i, dp, off(T, X, i)), false));
+                        o.axpy(false, noff, ax, off_a, off(T, Y, off_i - yb));
                     } else {
-                        axpyK(T, false, noff + 1, ax, if (lower) dp else off_a, off(T, Y, (if (lower) i else off_i) - yb));
-                        if (noff > 0) yi.* = add(T, yi.*, mul(T, alpha, dotK(T, false, noff, off_a, off(T, X, off_i))));
+                        o.axpy(false, noff + 1, ax, if (lower) dp else off_a, off(T, Y, (if (lower) i else off_i) - yb));
+                        if (noff > 0) yi.* = N.add(yi.*, N.mul(alpha, o.dot(false, noff, off_a, off(T, X, off_i)), false));
                     },
                     .hermitian, .hermitian_rev => {
-                        axpyK(T, rev, noff, ax, off_a, off(T, Y, off_i - yb));
+                        o.axpy(rev, noff, ax, off_a, off(T, Y, off_i - yb));
                         const d = if (comptime isComplex(T)) dp[0].re else dp[0];
-                        yi.* = add(T, yi.*, mul(T, alpha, scaleF(T, xi, d)));
-                        if (noff > 0) yi.* = add(T, yi.*, mul(T, alpha, dotK(T, !rev, noff, off_a, off(T, X, off_i))));
+                        yi.* = N.add(yi.*, N.mul(alpha, N.scale(xi, d), false));
+                        if (noff > 0) yi.* = N.add(yi.*, N.mul(alpha, o.dot(!rev, noff, off_a, off(T, X, off_i)), false));
                     },
                 }
                 cs += if (!packed_) g.lda else if (lower) n - i else i + 1;
@@ -361,7 +314,7 @@ pub fn gbmv(allocator: Allocator, io: Io, comptime T: type, trans: Trans, m: isi
     if (!util.fits(lenx, incx, @sizeOf(T))) return error.InvalidIncx;
     if (!util.fits(leny, incy, @sizeOf(T))) return error.InvalidIncy;
     if (accel.gbmv(T, trans, m, n, kl, ku, alpha, a, lda, x, incx, beta, y, incy)) return;
-    if (!isOne(T, beta)) scalK(T, leny, beta, y, @intCast(@abs(incy)));
+    if (!isOne(T, beta)) Ops(T).init().scal(leny, beta, y, @intCast(@abs(incy)));
     if (isZero(T, alpha)) return;
     const px = first(T, x, lenx, incx);
     const py = first(T, y, leny, incy);
@@ -385,7 +338,7 @@ fn mvInterface(allocator: Allocator, io: Io, comptime T: type, comptime kind: Ki
     // CBLAS has no `HEMVREV` triangles
     if (kind != .hermitian_rev and accel.sbmv(T, kind == .hermitian, packed_, if (lower) .l else .u, n, k, alpha, a, lda, x, incx, beta, y, incy)) return;
     const kn = n;
-    if (!isOne(T, beta)) scalK(T, kn, beta, y, @intCast(@abs(incy)));
+    if (!isOne(T, beta)) Ops(T).init().scal(kn, beta, y, @intCast(@abs(incy)));
     if (isZero(T, alpha)) return;
     const px = first(T, x, kn, incx);
     const py = first(T, y, kn, incy);
@@ -489,10 +442,10 @@ fn dense(comptime T: type, comptime st: Store, comptime kind: Kind, lower: bool,
         return if (kind == .symmetric) d else if (comptime isComplex(T)) T.init(d.re, 0) else d;
     }
     if (storeIdx(st, lower, n, ld, k, i, j)) |p| {
-        return if (kind == .hermitian_rev) conj(T, a[p]) else a[p];
+        return if (kind == .hermitian_rev) Num(T).conj(a[p], true) else a[p];
     }
     if (storeIdx(st, lower, n, ld, k, j, i)) |p| {
-        return if (kind == .hermitian) conj(T, a[p]) else a[p];
+        return if (kind == .hermitian) Num(T).conj(a[p], true) else a[p];
     }
     return zero(T);
 }
@@ -525,9 +478,9 @@ fn checkMv(comptime T: type, comptime st: Store, comptime kind: Kind, lower: boo
         var want = ys;
         for (0..n) |i| {
             var acc = zero(T);
-            for (0..n) |j| acc = add(T, acc, mul(T, dense(T, st, kind, lower, n, ld, k, &a, i, j), xs[vecAt(j, n, inc[0])]));
+            for (0..n) |j| acc = Num(T).add(acc, Num(T).mul(dense(T, st, kind, lower, n, ld, k, &a, i, j), xs[vecAt(j, n, inc[0])], false));
             const yp = vecAt(i, n, inc[1]);
-            want[yp] = add(T, if (bre == 0) zero(T) else mul(T, beta, ys[yp]), mul(T, alpha, acc));
+            want[yp] = Num(T).add(if (bre == 0) zero(T) else Num(T).mul(beta, ys[yp], false), Num(T).mul(alpha, acc, false));
         }
         if (bre == 0) for (0..n) |i| {
             ys[vecAt(i, n, inc[1])] = scalarOf(T, std.math.nan(f64), std.math.nan(f64));
@@ -586,14 +539,14 @@ fn checkRank(comptime T: type, comptime st: Store, comptime herm: bool, lower: b
             const yr = ys[vecAt(r, n, inc[1])];
             const yc = ys[vecAt(c_, n, inc[1])];
             const v = if (herm and two)
-                add(T, mul(T, alpha, mul(T, xr, conj(T, yc))), mul(T, conj(T, alpha), mul(T, yr, conj(T, xc))))
+                Num(T).add(Num(T).mul(alpha, Num(T).mul(xr, Num(T).conj(yc, true), false), false), Num(T).mul(Num(T).conj(alpha, true), Num(T).mul(yr, Num(T).conj(xc, true), false), false))
             else if (herm)
-                scaleF(T, mul(T, xr, conj(T, xc)), alpha_f)
+                Num(T).scale(Num(T).mul(xr, Num(T).conj(xc, true), false), alpha_f)
             else if (two)
-                mul(T, alpha, add(T, mul(T, xr, yc), mul(T, yr, xc)))
+                Num(T).mul(alpha, Num(T).add(Num(T).mul(xr, yc, false), Num(T).mul(yr, xc, false)), false)
             else
-                mul(T, alpha, mul(T, xr, xc));
-            want[p] = add(T, want[p], v);
+                Num(T).mul(alpha, Num(T).mul(xr, xc, false), false);
+            want[p] = Num(T).add(want[p], v);
             if (herm) {
                 if (r == c_) want[p].im = 0;
             }
@@ -662,13 +615,13 @@ fn checkGbmv(comptime T: type) !void {
                     const j = if (tr.transposed()) o else p;
                     if (i + ku < j or i > j + kl) continue;
                     var e = a[ku + i - j + j * ld];
-                    if (tr.conjA()) e = conj(T, e);
+                    if (tr.conjA()) e = Num(T).conj(e, true);
                     var xv = xs[vecAt(p, lenx, inc[0])];
-                    if (tr.conjX()) xv = conj(T, xv);
-                    acc = add(T, acc, mul(T, e, xv));
+                    if (tr.conjX()) xv = Num(T).conj(xv, true);
+                    acc = Num(T).add(acc, Num(T).mul(e, xv, false));
                 }
                 const yp = vecAt(o, leny, inc[1]);
-                want[yp] = add(T, if (bre == 0) zero(T) else mul(T, beta, ys[yp]), mul(T, alpha, acc));
+                want[yp] = Num(T).add(if (bre == 0) zero(T) else Num(T).mul(beta, ys[yp], false), Num(T).mul(alpha, acc, false));
             }
             if (bre == 0) for (0..leny) |o| {
                 ys[vecAt(o, leny, inc[1])] = scalarOf(T, std.math.nan(f64), std.math.nan(f64));

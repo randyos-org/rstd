@@ -116,12 +116,22 @@ pub fn build(b: *Build) !void {
         // (src/rgl/shaders/lib/readme.md)
         const probes = b.step("shader-probes", "Build each shaderlib probe and rgl's shaders to SPIR-V in zig-out/spv");
         const only = b.option([]const u8, "shader-probe", "shader-probes builds only this probe");
+        // each probe's disassembly must show its native instruction
+        // (`probe.expect`); spirv-dis is the Vulkan SDK's
+        const spirv_dis = b.findProgramLazy(.{ .names = &.{"spirv-dis"} });
         inline for (@typeInfo(shader_probe.Op).@"enum".field_names) |op| {
             if (only == null or std.mem.eql(u8, only.?, op)) {
                 const opts = b.addOptions();
                 opts.addOption([]const u8, "op", op);
                 const s = try rstdbuild.addShaderWith(b, optimize, b.path("src/rgl/shaders/probe.zig"), op, .{ ._rstd_mod = rstd_mod }, &.{.{ .name = "probe_op", .module = opts.createModule() }});
                 probes.dependOn(&b.addInstallFile(s.spv_frag_path, "spv/" ++ op ++ ".frag.spv").step);
+                if (comptime shader_probe.expect(@field(shader_probe.Op, op))) |text| {
+                    const dis = std.Build.Step.Run.create(b, "spirv-dis " ++ op);
+                    dis.addFileArg(spirv_dis);
+                    dis.addFileArg(s.spv_frag_path);
+                    dis.addCheck(.{ .expect_stdout_match = text });
+                    probes.dependOn(&dis.step);
+                }
             }
         }
         for ([_][]const u8{ "shapes", "glyph", "image" }) |n| {

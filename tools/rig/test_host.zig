@@ -1,6 +1,6 @@
 //! A qemu rig's QEMU on another machine over SSH (`-Dtest-host`): copies the rig's files and `tools/nix` to the host's /tmp and streams
 //! the console here and to the live log; `run.sh` takes a job slot and ends QEMU when this ssh's stdin closes. `local:<path>` arguments
-//! are copied over; a macOS arm64 host takes the `--hvf` arguments. ssh and scp come from PATH with their own config.
+//! are copied over; a macOS host takes the `--hvf` arguments, which the build passes only for rigs of its architecture. ssh and scp come from PATH with their own config.
 
 const std = @import("std");
 const Io = std.Io;
@@ -36,7 +36,7 @@ fn run(init: std.process.Init) !u8 {
     var lines = std.mem.tokenizeAny(u8, probe, "\r\n");
     const kind = lines.next() orelse return error.HostProbe;
     const dir = lines.next() orelse return error.HostProbe;
-    const use_hvf = hvf != null and std.mem.eql(u8, kind, "Darwin arm64");
+    const use_hvf = hvf != null and std.mem.startsWith(u8, kind, "Darwin ");
 
     // the files to copy, by name: one directory holds them all
     var scp: std.ArrayList([]const u8) = .empty;

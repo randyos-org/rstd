@@ -41,6 +41,16 @@ pub fn first(comptime T: type, p: [*]T, n: isize, inc: isize) [*]T {
     return if (inc < 0) off(T, p, -(n - 1) * inc) else p;
 }
 
+/// `COPY_K(n, src, inc, dst, 1)`: a strided vector into a unit-stride buffer.
+pub fn gather(comptime T: type, n: usize, src: [*]T, inc: i64, dst: [*]T) void {
+    for (0..n) |i| dst[i] = at(T, src, @as(i64, @intCast(i)) * inc).*;
+}
+
+/// `COPY_K(n, src, 1, dst, inc)`: `gather` back.
+pub fn scatter(comptime T: type, n: usize, src: [*]T, dst: [*]T, inc: i64) void {
+    for (0..n) |i| at(T, dst, @as(i64, @intCast(i)) * inc).* = src[i];
+}
+
 /// `T`'s elements as the kernels take them: floats, two per complex. Drops
 /// `const`; the kernels take mutable pointers.
 pub fn raw(comptime T: type, p: [*]const T) [*]Float(T) {

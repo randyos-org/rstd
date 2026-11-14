@@ -11,6 +11,7 @@
 
 const types = @import("../../../types.zig");
 const util = @import("../../../util.zig");
+const kernel = @import("../driver.zig");
 
 const BlasLong = types.BlasLong;
 
@@ -22,13 +23,6 @@ pub fn Real(comptime T: type) type {
     const unroll = 8;
     const chunk = vlen * unroll;
     return struct {
-        inline fn load(p: [*]const T) V {
-            return p[0..vlen].*;
-        }
-        inline fn store(p: [*]T, v: V) void {
-            p[0..vlen].* = v;
-        }
-
         /// The contiguous case.
         fn unit(len: usize, x: [*]const T, y: [*]T, da: T) void {
             const va: V = @splat(da);
@@ -37,12 +31,12 @@ pub fn Real(comptime T: type) type {
             while (i < n_main) : (i += chunk) {
                 var xs: [unroll]V = undefined;
                 var ys: [unroll]V = undefined;
-                inline for (0..unroll) |k| xs[k] = load(x + i + k * vlen);
-                inline for (0..unroll) |k| ys[k] = load(y + i + k * vlen);
-                inline for (0..unroll) |k| store(y + i + k * vlen, ys[k] + va * xs[k]);
+                inline for (0..unroll) |k| xs[k] = util.load(V, x + i + k * vlen);
+                inline for (0..unroll) |k| ys[k] = util.load(V, y + i + k * vlen);
+                inline for (0..unroll) |k| util.store(V, y + i + k * vlen, ys[k] + va * xs[k]);
             }
             while (i + vlen <= len) : (i += vlen) {
-                store(y + i, load(y + i) + va * load(x + i));
+                util.store(V, y + i, util.load(V, y + i) + va * util.load(V, x + i));
             }
             while (i < len) : (i += 1) y[i] += da * x[i];
         }
@@ -67,30 +61,8 @@ pub fn Real(comptime T: type) type {
                 return 0;
             }
 
-            // scalar, four at a time as the reference does
-            var i: usize = 0;
-            var ix: BlasLong = 0;
-            var iy: BlasLong = 0;
-            const n1 = len & ~@as(usize, 3);
-            while (i < n1) : (i += 4) {
-                const m1 = da * util.at(T, x, ix).*;
-                const m2 = da * util.at(T, x, ix + inc_x).*;
-                const m3 = da * util.at(T, x, ix + 2 * inc_x).*;
-                const m4 = da * util.at(T, x, ix + 3 * inc_x).*;
-
-                util.at(T, y, iy).* += m1;
-                util.at(T, y, iy + inc_y).* += m2;
-                util.at(T, y, iy + 2 * inc_y).* += m3;
-                util.at(T, y, iy + 3 * inc_y).* += m4;
-
-                ix += inc_x * 4;
-                iy += inc_y * 4;
-            }
-            while (i < len) : (i += 1) {
-                util.at(T, y, iy).* += da * util.at(T, x, ix).*;
-                ix += inc_x;
-                iy += inc_y;
-            }
+            // scalar, four at a time as the reference does: the driver's loop
+            kernel.Real(T, 1, null, false).call(n, da, x, inc_x, y, inc_y);
             return 0;
         }
     };

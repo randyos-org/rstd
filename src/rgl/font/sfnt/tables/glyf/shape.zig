@@ -7,6 +7,7 @@ const LocaTable = @import("../loca.zig").LocaTable;
 const GlyfTable = @import("GlyfTable.zig");
 const SimpleGlyph = @import("SimpleGlyph.zig");
 const CompositeGlyph = @import("CompositeGlyph.zig");
+const vector = @import("../../../../../linalg/__root__.zig").vector;
 
 const Allocator = zigstd.Allocator;
 const GlyphIndex = types.GlyphIndex;
@@ -163,8 +164,8 @@ fn compositeGlyphVertices(loca: LocaTable, glyf: GlyfTable, gpa: Allocator, comp
 /// transforms and the MSDF math read the same way.
 fn transformPoint(row_x: V2f32, row_y: V2f32, translate: V2f32, x: i16, y: i16) [2]i16 {
     const p: V2f32 = .{ @floatFromInt(x), @floatFromInt(y) };
-    const tx = @reduce(.Add, row_x * p) + translate[0];
-    const ty = @reduce(.Add, row_y * p) + translate[1];
+    const tx = vector.dot(row_x, p) + translate[0];
+    const ty = vector.dot(row_y, p) + translate[1];
     return .{ @trunc(tx), @trunc(ty) };
 }
 

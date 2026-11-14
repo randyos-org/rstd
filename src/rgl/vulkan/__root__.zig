@@ -172,7 +172,7 @@ pub fn drawCustom(surface: *VkSurface, pipeline: PipelineId, comptime Instance: 
 
 pub fn drawLine(surface: *VkSurface, p0: PointF32, p1: PointF32, width: f32, c: RGBA) !void {
     const d = p1.sub(p0);
-    const length = @sqrt(d.x * d.x + d.y * d.y);
+    const length = d.length();
     const mid = p0.add(p1).scaled(0.5);
     // A zero-length line degenerates to a dot: draw it as a small square
     // rather than a zero-area rect that'd rasterize to nothing.

@@ -1,4 +1,4 @@
-//! `qemu_watch <idle minutes> [--fail-fast] <halt text>... -- <qemu argv>`: runs a rig's qemu, output passed through, and ends it on a
+//! `qemu_watch <idle minutes> [--fail-fast] <halt text>... -- <qemu argv>`: runs a rig's qemu, stdout and stderr passed through, and ends it on a
 //! firmware halt text, on silence that long, or with `--fail-fast` at the first failing test. Exits with qemu's status, or 1 after ending it.
 
 const std = @import("std");
@@ -10,7 +10,8 @@ const State = struct {
     halted: std.atomic.Value(bool) = .init(false),
     /// When the first test failed, in seconds of the awake clock; 0 if none has.
     failed: std.atomic.Value(i64) = .init(0),
-    done: std.atomic.Value(bool) = .init(false),
+    /// Streams that have ended, of two.
+    done: std.atomic.Value(u8) = .init(0),
 };
 
 /// Both test runners' failure line: `FAIL <error>` and `...FAIL (<error>)`.
@@ -38,11 +39,13 @@ fn run(init: std.process.Init) !u8 {
     const fail_fast = dashes > 2 and std.mem.eql(u8, args[2], "--fail-fast");
     const halts = args[@as(usize, if (fail_fast) 3 else 2)..dashes];
 
-    var qemu = try std.process.spawn(io, .{ .argv = args[dashes + 1 ..], .stdin = .ignore, .stdout = .pipe, .stderr = .inherit });
+    var qemu = try std.process.spawn(io, .{ .argv = args[dashes + 1 ..], .stdin = .ignore, .stdout = .pipe, .stderr = .pipe });
     var state: State = .{ .last = .init(now(io)) };
-    var pump = try io.concurrent(passThrough, .{ io, qemu.stdout.?, halts, fail_fast, &state });
+    // both: test runners report on stderr
+    var out = try io.concurrent(passThrough, .{ io, qemu.stdout.?, Io.File.stdout(), halts, fail_fast, &state });
+    var err = try io.concurrent(passThrough, .{ io, qemu.stderr.?, Io.File.stderr(), halts, fail_fast, &state });
 
-    while (!state.done.load(.acquire)) {
+    while (state.done.load(.acquire) < 2) {
         try io.sleep(.fromSeconds(2), .awake);
         const failed = state.failed.load(.acquire);
         const why: ?[]const u8 = if (state.halted.load(.acquire))
@@ -59,7 +62,8 @@ fn run(init: std.process.Init) !u8 {
             return 1;
         }
     }
-    pump.await(io);
+    out.await(io);
+    err.await(io);
     return switch (try qemu.wait(io)) {
         .exited => |code| code,
         else => 1,
@@ -70,12 +74,11 @@ fn now(io: Io) i64 {
     return Io.Clock.awake.now(io).toSeconds();
 }
 
-/// Copies qemu's output to this stdout, noting when it last wrote, any halt
+/// Copies one of qemu's streams to `out`, noting when it last wrote, any halt
 /// text and, for `fail_fast`, the first failure; a chunk boundary may split
 /// them, hence the kept tail.
-fn passThrough(io: Io, from: Io.File, halts: []const []const u8, fail_fast: bool, state: *State) void {
-    defer state.done.store(true, .release);
-    const out = Io.File.stdout();
+fn passThrough(io: Io, from: Io.File, out: Io.File, halts: []const []const u8, fail_fast: bool, state: *State) void {
+    defer _ = state.done.fetchAdd(1, .release);
     var buf: [4096 + 256]u8 = undefined;
     var kept: usize = 0;
     while (true) {

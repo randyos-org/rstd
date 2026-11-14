@@ -305,16 +305,7 @@ test "faer qr: Q R = A, square, tall, wide, blocked and rank deficient" {
             defer ops.free(T, al, a0);
             if (c[2] == 0) {
                 check.fill(T, a0.ptr[0 .. m * n], m * 31 + n);
-            } else {
-                // rank c[2]: a product of random factors
-                const x = try ops.alloc(T, al, m, c[2]);
-                defer ops.free(T, al, x);
-                const y = try ops.alloc(T, al, c[2], n);
-                defer ops.free(T, al, y);
-                check.fill(T, x.ptr[0 .. m * c[2]], 3);
-                check.fill(T, y.ptr[0 .. c[2] * n], 5);
-                try blas_calls.gemm(al, check.io, T, .n, .n, ops.one(T), x, y, ops.zero(T), a0);
-            }
+            } else try lcheck.rankProduct(T, al, a0, c[2], 3);
             const qr = try ops.alloc(T, al, m, n);
             defer ops.free(T, al, qr);
             qr.copyFrom(a0);
@@ -334,18 +325,6 @@ fn qrTol(comptime F: type, m: usize, n: usize, amax: F) F {
     return @as(F, @floatFromInt(4 * (m + n))) * std.math.floatEps(F) * @max(amax, 1);
 }
 
-/// A random `m x n` of rank `r` (0: full).
-fn randomRank(comptime T: type, al: Allocator, a: Mat(T), r: usize, seed: u64) !void {
-    if (r == 0) return check.fill(T, a.ptr[0 .. a.ld * a.cols], seed);
-    const x = try ops.alloc(T, al, a.rows, r);
-    defer ops.free(T, al, x);
-    const y = try ops.alloc(T, al, r, a.cols);
-    defer ops.free(T, al, y);
-    check.fill(T, x.ptr[0 .. a.rows * r], seed);
-    check.fill(T, y.ptr[0 .. r * a.cols], seed + 1);
-    try blas_calls.gemm(al, check.io, T, .n, .n, ops.one(T), x, y, ops.zero(T), a);
-}
-
 test "faer qr: geqrf and orgqr, Q R = A and Qᴴ Q = I in LAPACK's layout" {
     const al = testing.allocator;
     inline for (test_types) |T| {
@@ -360,7 +339,9 @@ test "faer qr: geqrf and orgqr, Q R = A and Qᴴ Q = I in LAPACK's layout" {
             if (c[2] == n + 1) {
                 check.fill(T, a0.ptr[0 .. m * n], 9);
                 @memset(a0.col(4)[0..m], ops.zero(T));
-            } else try randomRank(T, al, a0, c[2], m + 7 * n);
+            } else if (c[2] == 0) {
+                check.fill(T, a0.ptr[0 .. m * n], m + 7 * n);
+            } else try lcheck.rankProduct(T, al, a0, c[2], m + 7 * n);
             const lda = m + 1;
             const a = try ops.alloc(T, al, lda, n);
             defer ops.free(T, al, a);

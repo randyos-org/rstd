@@ -105,6 +105,28 @@ pub fn Asm(comptime slot: Slot, comptime f: anytype) type {
     };
 }
 
+/// A real block on `@Vector`s: `y += alpha * x` over `lanes`-wide vectors,
+/// `unroll` of them a step, `n1` a multiple of a step; fused as `fma.fuse`
+/// says. The portable kernels', x86_64's AVX-512 and POWER's `saxpy.c`.
+pub fn VectorBlock(comptime T: type, comptime lanes: comptime_int, comptime unroll: comptime_int) type {
+    const V = @Vector(lanes, T);
+    const step = lanes * unroll;
+    return struct {
+        pub fn run(n1: BlasLong, alpha: T, x: [*]T, y: [*]T) void {
+            const va: V = @splat(alpha);
+            const n: usize = @intCast(n1);
+            std.debug.assert(n % step == 0);
+            var i: usize = 0;
+            while (i < n) : (i += step) {
+                inline for (0..unroll) |k| {
+                    const at = i + k * lanes;
+                    util.store(V, y + at, fma.madd(fma.fuse, V, va, util.load(V, x + at), util.load(V, y + at)));
+                }
+            }
+        }
+    };
+}
+
 /// The kernel `slot` around `Block` (null for none), blocks of `mask`.
 pub fn entry(comptime slot: Slot, comptime mask: comptime_int, comptime Block: ?type) Kernel(slot) {
     const k = form(slot);

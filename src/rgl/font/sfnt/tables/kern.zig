@@ -1,3 +1,4 @@
+const std = @import("std");
 const types = @import("../types.zig");
 const bytes = @import("../../../../bytes.zig");
 
@@ -48,11 +49,11 @@ pub const KernTable = struct {
     }
 
     pub inline fn version(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "version")..]);
+        return types.field(StreamLayout, "version", self.table_data);
     }
 
     pub inline fn numTables(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "n_tables")..]);
+        return types.field(StreamLayout, "n_tables", self.table_data);
     }
 
     /// Byte offset (from the start of table_data) of subtable `index`.
@@ -97,15 +98,15 @@ pub const KernSubtable = struct {
     table_data: []const u8,
 
     pub inline fn version(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(SubtableHeader, "version")..]);
+        return types.field(SubtableHeader, "version", self.table_data);
     }
 
     pub inline fn length(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(SubtableHeader, "length")..]);
+        return types.field(SubtableHeader, "length", self.table_data);
     }
 
     pub inline fn coverage(self: Self) Coverage {
-        return @bitCast(bytes.getU16BE(self.table_data[@offsetOf(SubtableHeader, "coverage")..]));
+        return @bitCast(types.field(SubtableHeader, "coverage", self.table_data));
     }
 
     const header_end = @sizeOf(SubtableHeader);
@@ -144,22 +145,16 @@ pub const KernSubtable = struct {
     pub fn getKernValue(self: Self, left: GlyphIndex, right: GlyphIndex) ?types.FWord {
         if (self.coverage().format != 0) return null;
 
-        const target = (@as(u32, @backingInt(left)) << 16) | @backingInt(right);
-        var lo: usize = 0;
-        var hi: usize = self.numPairs();
-        while (lo < hi) {
-            const mid = lo + (hi - lo) / 2;
-            const pair = self.getPair(mid);
-            const key = (@as(u32, @backingInt(pair.left)) << 16) | @backingInt(pair.right);
-            if (target < key) {
-                hi = mid;
-            } else if (target > key) {
-                lo = mid + 1;
-            } else {
-                return pair.value;
+        const Find = struct {
+            t: Self,
+            target: u32,
+            pub fn order(f: @This(), i: usize) types.Order {
+                const pair = f.t.getPair(i);
+                return std.math.order(f.target, (@as(u32, @backingInt(pair.left)) << 16) | @backingInt(pair.right));
             }
-        }
-        return null;
+        };
+        const target = (@as(u32, @backingInt(left)) << 16) | @backingInt(right);
+        return self.getPair(types.search(self.numPairs(), Find{ .t = self, .target = target }) orelse return null).value;
     }
 };
 

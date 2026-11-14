@@ -21,7 +21,7 @@ const StreamLayout = extern struct {
     off_size: u8,
 };
 
-pub const CffError = error{
+pub const CffError = Dict.ParseError || error{
     MissingCharStrings,
     MissingFdArray,
     MissingFdSelect,
@@ -32,9 +32,9 @@ pub const CffError = error{
 /// its Subrs operator (relative to the Private DICT's own start; a spec
 /// quirk, unlike every other CFF offset). Null means no Private entry or no
 /// local Subrs, both common.
-fn resolvePrivateSubrs(cff_bytes: []const u8, dict: Dict, check: bool) bytes.BytesError!?Index {
+fn resolvePrivateSubrs(cff_bytes: []const u8, dict: Dict, check: bool) (bytes.BytesError || CffError)!?Index {
     var priv: [2]i32 = undefined;
-    if (dict.getInts(.private, &priv) != 2) return null;
+    if (try dict.getInts(.private, &priv) != 2) return null;
     if (priv[0] <= 0 or priv[1] < 0) return null;
 
     const priv_size: usize = @intCast(priv[0]);
@@ -42,7 +42,7 @@ fn resolvePrivateSubrs(cff_bytes: []const u8, dict: Dict, check: bool) bytes.Byt
     if (check) try bytes.checkSlice(cff_bytes, priv_offset, priv_size);
     const private_dict: Dict = .{ .table_data = cff_bytes[priv_offset..][0..priv_size] };
 
-    const subrs_rel = private_dict.getInt(.subrs) orelse return null;
+    const subrs_rel = try private_dict.getInt(.subrs) orelse return null;
     if (subrs_rel < 0) return null;
     const subrs_offset = priv_offset + @as(usize, @intCast(subrs_rel));
     if (check) try bytes.checkOffset(cff_bytes, subrs_offset);
@@ -84,25 +84,25 @@ pub fn init(table_data: []const u8, check: bool) (bytes.BytesError || CffError)!
     const top_dict: Dict = .{ .table_data = top_dict_index.get(0) };
 
     if (check) {
-        const cstype = top_dict.getInt(.charstring_type) orelse 2;
+        const cstype = try top_dict.getInt(.charstring_type) orelse 2;
         if (cstype != 2) return CffError.UnsupportedCharstringType;
     }
 
-    const cs_off_raw = top_dict.getInt(.char_strings) orelse return CffError.MissingCharStrings;
+    const cs_off_raw = try top_dict.getInt(.char_strings) orelse return CffError.MissingCharStrings;
     if (cs_off_raw < 0) return CffError.MissingCharStrings;
     const cs_off: usize = @intCast(cs_off_raw);
     if (check) try bytes.checkOffset(table_data, cs_off);
     const charstrings_index = try Index.init(table_data[cs_off..], check);
 
-    const is_cid = top_dict.has(.ros);
+    const is_cid = try top_dict.has(.ros);
 
     var local_subrs_index: ?Index = null;
     var fd_array_index: ?Index = null;
     var fdselect_offset: ?usize = null;
 
     if (is_cid) {
-        const fdarray_off_raw = top_dict.getInt(.fd_array) orelse return CffError.MissingFdArray;
-        const fdselect_off_raw = top_dict.getInt(.fd_select) orelse return CffError.MissingFdSelect;
+        const fdarray_off_raw = try top_dict.getInt(.fd_array) orelse return CffError.MissingFdArray;
+        const fdselect_off_raw = try top_dict.getInt(.fd_select) orelse return CffError.MissingFdSelect;
         if (fdarray_off_raw < 0) return CffError.MissingFdArray;
         if (fdselect_off_raw < 0) return CffError.MissingFdSelect;
 

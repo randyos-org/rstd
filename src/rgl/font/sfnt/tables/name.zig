@@ -53,15 +53,15 @@ pub const NameTable = struct {
     }
 
     pub inline fn version(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "version")..]);
+        return types.field(StreamLayout, "version", self.table_data);
     }
 
     pub inline fn count(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "count")..]);
+        return types.field(StreamLayout, "count", self.table_data);
     }
 
     pub inline fn storageOffset(self: Self) types.Offset16 {
-        return bytes.readIntBE(types.Offset16, self.table_data[@offsetOf(StreamLayout, "storage_offset")..]);
+        return types.field(StreamLayout, "storage_offset", self.table_data);
     }
 
     /// Decodes one name record. index isn't bounds-checked against count()
