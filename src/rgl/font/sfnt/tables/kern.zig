@@ -1,3 +1,4 @@
+const std = @import("std");
 const types = @import("../types.zig");
 const bytes = @import("../../../../bytes.zig");
 
@@ -144,22 +145,16 @@ pub const KernSubtable = struct {
     pub fn getKernValue(self: Self, left: GlyphIndex, right: GlyphIndex) ?types.FWord {
         if (self.coverage().format != 0) return null;
 
-        const target = (@as(u32, @backingInt(left)) << 16) | @backingInt(right);
-        var lo: usize = 0;
-        var hi: usize = self.numPairs();
-        while (lo < hi) {
-            const mid = lo + (hi - lo) / 2;
-            const pair = self.getPair(mid);
-            const key = (@as(u32, @backingInt(pair.left)) << 16) | @backingInt(pair.right);
-            if (target < key) {
-                hi = mid;
-            } else if (target > key) {
-                lo = mid + 1;
-            } else {
-                return pair.value;
+        const Find = struct {
+            t: Self,
+            target: u32,
+            pub fn order(f: @This(), i: usize) types.Order {
+                const pair = f.t.getPair(i);
+                return std.math.order(f.target, (@as(u32, @backingInt(pair.left)) << 16) | @backingInt(pair.right));
             }
-        }
-        return null;
+        };
+        const target = (@as(u32, @backingInt(left)) << 16) | @backingInt(right);
+        return self.getPair(types.search(self.numPairs(), Find{ .t = self, .target = target }) orelse return null).value;
     }
 };
 

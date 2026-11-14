@@ -84,9 +84,8 @@ fn checkAll(vt: *const Vtable) !void {
 }
 
 test "portable copy kernels match a plain loop" {
-    var vt: Vtable = .{};
-    installGeneric(&vt);
-    try checkAll(&vt);
+    const vt = check.portableVtable();
+    try checkAll(vt);
     try checkCopy(XDouble, vt.qcopy_k.?);
     try checkCopy(std.math.Complex(XDouble), vt.xcopy_k.?);
 }

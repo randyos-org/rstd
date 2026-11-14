@@ -11,6 +11,8 @@ const util = @import("../util.zig");
 const threading = @import("../threading.zig");
 const test_io = @import("../_test/io.zig");
 const driver = @import("driver.zig");
+const loops = @import("loops.zig");
+const driver3m = @This();
 const Part = @import("gemm3m/kernel.zig").Part;
 
 const Allocator = std.mem.Allocator;
@@ -158,43 +160,69 @@ fn tile(comptime T: type, vt: *const Vtable, pass: Pass, ib: usize, mi: usize, j
 /// `[n0, n1)` of `C`, depth `k`: `gemm3m_level3.c` over `range_m` and
 /// `range_n`. A null `beta` is 1.
 pub fn drive(comptime T: type, vt: *const Vtable, d: Desc, blk: Blocking, m0: usize, m1: usize, n0: usize, n1: usize, k: usize, alpha: T, x: Matrix(T), y: Matrix(T), beta: ?T, c: [*]T, ldc: usize, work: driver.Work(Float(T))) void {
-    const ps = passes(d.conj.ofA(), d.conj.ofB());
-    const ai = if (d.conj.ofB()) -alpha.im else alpha.im;
-    var js = n0;
-    while (js < n1) : (js += blk.r) {
-        const min_j = @min(blk.r, n1 - js);
-        var ls: usize = 0;
-        var min_l: usize = 0;
-        while (ls < k) : (ls += min_l) {
-            min_l = depthSplit(k - ls, blk.q);
-            for (ps, 0..) |pass, pi| {
-                const s = if (ls == 0 and pi == 0) beta else null;
-                // the first row block packs `op(B)` as it goes
-                var min_i = Blocking.split(m1 - m0, blk.p, blk.um);
-                const once = min_i == m1 - m0;
-                packRows(T, vt, d, pass.a, x, min_l, min_i, ls, m0, work.sa);
-                var jjs = js;
-                while (jjs < js + min_j) {
-                    const min_jj = @min(js + min_j - jjs, 3 * blk.un);
-                    const pb = if (once) work.sb else work.sb + min_l * (jjs - js);
-                    packCols(T, vt, d, pass.b, y, min_l, min_jj, ls, jjs, alpha.re, ai, pb);
-                    tile(T, vt, pass, m0, min_i, jjs, min_jj, min_l, s, work.sa, pb, c, ldc);
-                    jjs += min_jj;
-                }
-                var is = m0 + min_i;
-                while (is < m1) : (is += min_i) {
-                    min_i = Blocking.split(m1 - is, blk.p, blk.um);
-                    packRows(T, vt, d, pass.a, x, min_l, min_i, ls, is, work.sa);
-                    jjs = js;
-                    while (jjs < js + min_j) {
-                        const min_jj = @min(js + min_j - jjs, 3 * blk.un);
-                        tile(T, vt, pass, is, min_i, jjs, min_jj, min_l, s, work.sa, work.sb + min_l * (jjs - js), c, ldc);
-                        jjs += min_jj;
-                    }
-                }
+    const F = Float(T);
+    const Ctx = struct {
+        vt: *const Vtable,
+        d: Desc,
+        blk: Blocking,
+        m0: usize,
+        m1: usize,
+        ar: F,
+        ai: F,
+        x: Matrix(T),
+        y: Matrix(T),
+        beta: ?T,
+        c: [*]T,
+        ldc: usize,
+        work: driver.Work(F),
+        const Outer = @This();
+
+        pub fn depth(s: *const @This(), rest: usize) usize {
+            return depthSplit(rest, s.blk.q);
+        }
+        /// The three passes of the slice, `beta` folded into the first.
+        pub fn slice(s: *const @This(), js: usize, min_j: usize, ls: usize, min_l: usize) void {
+            for (passes(s.d.conj.ofA(), s.d.conj.ofB()), 0..) |pass, pi| {
+                const p: PassCtx = .{ .s = s, .pass = pass };
+                loops.slice(&p, s.blk, s.m0, s.m1, js, min_j, ls, min_l, if (ls == 0 and pi == 0) s.beta else null, s.work.sa, s.work.sb);
             }
         }
-    }
+
+        /// One pass's packing and kernel.
+        const PassCtx = struct {
+            s: *const Outer,
+            pass: Pass,
+
+            pub fn chunk(p: *const @This(), rest: usize) usize {
+                return @min(rest, 3 * p.s.blk.un);
+            }
+            pub fn packRows(p: *const @This(), min_l: usize, min_i: usize, ls: usize, is: usize, dst: [*]F) void {
+                driver3m.packRows(T, p.s.vt, p.s.d, p.pass.a, p.s.x, min_l, min_i, ls, is, dst);
+            }
+            pub fn packCols(p: *const @This(), min_l: usize, min_jj: usize, ls: usize, jjs: usize, dst: [*]F) void {
+                driver3m.packCols(T, p.s.vt, p.s.d, p.pass.b, p.s.y, min_l, min_jj, ls, jjs, p.s.ar, p.s.ai, dst);
+            }
+            pub fn block(p: *const @This(), ib: usize, mi: usize, jb: usize, nj: usize, kl: usize, b: ?T, pa: [*]F, pb: [*]F) void {
+                tile(T, p.s.vt, p.pass, ib, mi, jb, nj, kl, b, pa, pb, p.s.c, p.s.ldc);
+            }
+        };
+    };
+    const ctx: Ctx = .{
+        .vt = vt,
+        .d = d,
+        .blk = blk,
+        .m0 = m0,
+        .m1 = m1,
+        .ar = alpha.re,
+        .ai = if (d.conj.ofB()) -alpha.im else alpha.im,
+        .x = x,
+        .y = y,
+        .beta = beta,
+        .c = c,
+        .ldc = ldc,
+        .work = work,
+    };
+    loops.columns(blk, n0, n1, k, &ctx);
 }
 
 /// `drive` over all of `C` with packing space from `allocator` (a small

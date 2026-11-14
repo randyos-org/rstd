@@ -86,16 +86,17 @@ fn checkAsum(comptime T: type, kern: anytype) !void {
 }
 
 fn checkAll(vt: *const Vtable) !void {
-    try checkAsum(f32, vt.sasum_k.?);
-    try checkAsum(f64, vt.dasum_k.?);
-    try checkAsum(std.math.Complex(f32), vt.casum_k.?);
-    try checkAsum(std.math.Complex(f64), vt.zasum_k.?);
+    var failed: ?anyerror = null;
+    check.keep(&failed, checkAsum(f32, vt.sasum_k.?));
+    check.keep(&failed, checkAsum(f64, vt.dasum_k.?));
+    check.keep(&failed, checkAsum(std.math.Complex(f32), vt.casum_k.?));
+    check.keep(&failed, checkAsum(std.math.Complex(f64), vt.zasum_k.?));
+    if (failed) |e| return e;
 }
 
 test "portable asum kernels match a plain loop" {
-    var vt: Vtable = .{};
-    installGeneric(&vt);
-    try checkAll(&vt);
+    const vt = check.portableVtable();
+    try checkAll(vt);
     try checkAsum(XDouble, vt.qasum_k.?);
     try checkAsum(std.math.Complex(XDouble), vt.xasum_k.?);
 }

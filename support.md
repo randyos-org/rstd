@@ -22,17 +22,17 @@ after it. Rig names are `zig build` steps: `qemu-test-<rig>` unless named in ful
 | --- | --- | --- | --- |
 | `x86_64-windows` | 1 | zfls | native `rstd-test` on the Zen 3 host, with `-Dblas-cores=all`; `x86_64-whpx` (the host CPU); `rstd-check-zig017`; zfls's CI |
 | `spirv32-vulkan` | 1 | rgl, shaderlib | `-Dvulkan` compiles rgl's shaders (`vulkan_v1_2`); nothing validates or runs them |
-| `x86_64-freestanding-none` | 2 | RandyOS: PC, Intel Mac | `x86_64` (TCG `max`), `x86_64-whpx` |
+| `x86_64-freestanding-none` | 2 | RandyOS: PC, Intel Mac | `x86_64` (TCG `max`, or HVF on the Intel Mac), `x86_64-whpx` |
 | `aarch64-freestanding-none` | 2 | RandyOS: Raspberry Pi 3 to 5, Apple Silicon | `aarch64` (HVF on the M6, or `cortex-a72`), `aarch64-sve` (TCG `max`) |
 | `arm-freestanding-eabi` | 2 | RandyOS: Raspberry Pi 3, 32-bit | `arm-softfp` (soft-float ABI, A15's VFP), `arm` (`eabihf`) |
 | `powerpc-freestanding-eabi` | 2 | RandyOS: iBook G3, PowerPC 750FX | `powerpc-750` (soft float: portable kernels only), `powerpc-750-hf` |
-| `x86_64-uefi-msvc` | 2 | RandyOS's loader | `x86_64-uefi` (OVMF), `rstd-check-uefi` |
+| `x86_64-uefi-msvc` | 2 | RandyOS's loader | `x86_64-uefi` (OVMF; HVF on the Intel Mac), `rstd-check-uefi` |
 | `aarch64-uefi-msvc` | 2 | RandyOS's loader (pftf) | `aarch64-uefi` (AAVMF; HVF on the M6), `rstd-check-uefi` |
-| `x86_64-linux-musl` | 2 | zfls (release, conda, Alpine) | `linux-x86_64` (TCG `max`, 4 CPUs), `rstd-check-zig017` |
+| `x86_64-linux-musl` | 2 | zfls (release, conda, Alpine) | `linux-x86_64` (TCG `max`, or HVF on the Intel Mac; 4 CPUs), `rstd-check-zig017` |
 | `aarch64-linux-musl` | 2 | zfls (release, conda, Alpine) | `linux-aarch64` (HVF on the M6, or TCG `max`), `rstd-check-zig017` |
 | `x86_64-linux-gnu`, `aarch64-linux-gnu` | 2 | zfls | the Linux rigs above with `-Drstd-tsan` only (glibc from Nix) |
 | `aarch64-windows` | 2 | zfls | `rstd-check-zig017` builds and links only; tests run only in zfls's CI |
-| `x86_64-macos` 11.0+ | 2 | zfls | `ssh-test-x86_64-macos` (Rosetta 2 on the M6), `x86_64-macos` (macOS VM, TCG), `rstd-check-macho`, `rstd-check-zig017` |
+| `x86_64-macos` 11.0+ | 2 | zfls | `ssh-test-x86_64-macos` (Intel Mac, i5-8500B, macOS 15.8), `ssh-test-x86_64-macos-rosetta` (Rosetta 2 on the M6, for comparison), `rstd-check-macho`, `rstd-check-zig017` |
 | `aarch64-macos` 11.0+ | 2 | zfls | `ssh-test-aarch64-macos` (M6, macOS 27.2), `rstd-check-macho`, `rstd-check-zig017` |
 | `x86-windows-gnu` | 3 | | `rstd-test-x87` (`pentium3` code on the Zen 3 host, Debug and ReleaseSafe) |
 | `x86-freestanding-none` | 3 | | `i386`, `i386-max`, `i386-safe`, `i386-max-safe` |
@@ -60,8 +60,8 @@ Notes:
   MVP; its work is [#51](https://github.com/randyos-org/rstd/issues/51) (S1 done), queued after M12. The bit guarantees (same bits
   for any thread count, one contract on every core, the first-NaN rule) are the CPU's only;
   under SPIR-V, Vulkan's precision rules apply (design.md, Settled decisions).
-- **macOS 11 and 12** never run: the VM builds for 13.0 and runs Sonoma, the M6 runs 27.2.
-- **Rosetta 2** stands in for an Intel Mac; no Intel Mac is at hand.
+- **macOS 11 and 12** never run: the Intel Mac has macOS 15.8 and the M6 27.2.
+- **The Intel Mac** replaces Rosetta 2 and the macOS VM (`x86_64-macos`, TCG; retired by [#98](https://github.com/randyos-org/rstd/issues/98)) as x86_64 macOS coverage; Rosetta 2's steps stay for comparison.
 - **Hardware-only paths** (T47): Linux ppc64 `mfpvr`, the mips `cpucfg` decode, the sparc `sllx`
   rewrite. The Windows arm64 registry MIDR and feature probes and the arm64 sysfs fallback are
   tested with recorded inputs (design.md, Core detection and selection), not on hardware.
@@ -74,7 +74,7 @@ tier-2 component of both macOS platforms.
 | Path | Tested by |
 | --- | --- |
 | arm64, macOS 13.3+ ILP64 symbols | `ssh-test-aarch64-macos` |
-| x86_64, macOS 13.3+ symbols | `ssh-test-x86_64-macos` (Rosetta 2), `x86_64-macos` (macOS VM) |
+| x86_64, macOS 13.3+ symbols | `ssh-test-x86_64-macos` (Intel Mac: Accelerate's AVX2 path), `ssh-test-x86_64-macos-rosetta` (its SSE path) |
 | both, Mach-O build | `rstd-check-macho` |
 | the pre-13.3 fallbacks (`$NEWLAPACK` 32-bit, classic `cblas_*`) | recorded inputs: the binding against the 11.3, 12.3 and 13.3 SDKs' export lists (native tests); no macOS 11 or 12 machine is at hand |
 | LAPACK `potrf`'s symbol spelling and special values | none yet (T114) |
@@ -103,7 +103,7 @@ Compiled and symbol-checked, never run:
 
 | Core | Runs on |
 | --- | --- |
-| `prescott`, `atom`, `core2`, `penryn`, `dunnington`, `nehalem`, `opteron`, `opteron_sse3`, `barcelona`, `nano`, `sandybridge`, `bobcat`, `haswell`, `zen` | native Zen 3 with `-Dblas-cores=all`, `x86_64-whpx`, `x86_64`, `x86_64-uefi`, `linux-x86_64` |
+| `prescott`, `atom`, `core2`, `penryn`, `dunnington`, `nehalem`, `opteron`, `opteron_sse3`, `barcelona`, `nano`, `sandybridge`, `bobcat`, `haswell`, `zen` | native Zen 3 with `-Dblas-cores=all`, `x86_64-whpx`, `x86_64`, `x86_64-uefi`, `linux-x86_64`; `ssh-test-x86_64-macos` (the Intel Mac, through `haswell`) |
 | `bulldozer`, `piledriver`, `steamroller`, `excavator` | none (untested, above) |
 | `skylakex`, `cooperlake`, `sapphirerapids` | none (untested, above) |
 

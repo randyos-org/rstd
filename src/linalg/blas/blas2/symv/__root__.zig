@@ -57,7 +57,7 @@ const check = @import("../../_test/check.zig");
 const guard = @import("../../_test/guard.zig");
 
 test "portable symv kernels match plain arithmetic" {
-    const vt = guard.portableVtable();
+    const vt = check.portableVtable();
     guard.use(vt);
     defer guard.restore();
     try checkSlots(vt);
@@ -75,7 +75,7 @@ test "x86_64's symv ports, every core's block shape, match plain arithmetic as @
     if (comptime sysinfo.target.cpu.arch != .x86_64) return error.SkipZigTest;
     const P = x86_64;
     inline for (comptime std.meta.tags(P.Micro)) |micro| {
-        var vt = guard.portableVtable().*;
+        var vt = check.portableVtable().*;
         inline for (.{ .ssymv_U, .ssymv_L, .dsymv_U, .dsymv_L }) |s| @field(vt, @tagName(s)) = P.Ported(micro).entry(s);
         try checkAll(&vt);
     }
@@ -83,7 +83,7 @@ test "x86_64's symv ports, every core's block shape, match plain arithmetic as @
 
 test "arm64's asimd symv port matches plain arithmetic, as @Vector code on this machine" {
     if (comptime sysinfo.target.cpu.arch != .aarch64) return error.SkipZigTest;
-    var vt = guard.portableVtable().*;
+    var vt = check.portableVtable().*;
     inline for (.{ .ssymv_U, .ssymv_L, .dsymv_U, .dsymv_L }) |s| @field(vt, @tagName(s)) = ported.arm64(s);
     try checkAll(&vt);
 }

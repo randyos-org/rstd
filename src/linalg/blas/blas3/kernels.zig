@@ -105,36 +105,35 @@ pub fn settle(vt: *Vtable) void {
     }
 }
 
-/// The portable kernels: the main library's own build of these.
-pub fn installGeneric(vt: *Vtable) void {
-    fill(vt, precisions, struct {
+/// `fill`'s source for the kernels built here, on tile `geo`, or each
+/// type's own (`gk.geometry`) for null.
+fn TileSource(comptime geo: ?gk.Geometry) type {
+    return struct {
+        fn tile(comptime T: type) gk.Geometry {
+            return geo orelse gk.geometry(T);
+        }
         fn function(comptime slot: Slot, comptime T: type, comptime s: type, comptime name: []const u8) KernelOf(slot) {
-            return &@field(s.Kernels(T, gk.geometry(T)), name);
+            return &@field(s.Kernels(T, tile(T)), name);
         }
         fn unroll(comptime _: Gemm, comptime T: type, comptime which: slots.Param) i32 {
-            return @field(gk.Kernels(T, gk.geometry(T)), @tagName(which));
+            return @field(gk.Kernels(T, tile(T)), @tagName(which));
         }
         fn unroll3m(comptime _: Gemm, comptime T: type, comptime which: slots.Param) i32 {
-            return @field(three_m.Kernels(T, gk.geometry(T)), @tagName(which));
+            return @field(three_m.Kernels(T, tile(T)), @tagName(which));
         }
-    });
+    };
+}
+
+/// The portable kernels: the main library's own build of these.
+pub fn installGeneric(vt: *Vtable) void {
+    fill(vt, precisions, TileSource(null));
 }
 
 /// Points `vt`'s slots for `T` at the kernels of tile `geo`, and its
 /// unrolls at the tile: for tests, which run the drivers over tiles this
 /// machine does not choose.
 pub fn installTile(vt: *Vtable, comptime T: type, comptime geo: gk.Geometry) void {
-    fill(vt, .{.{ Gemm.of(T, false), T }}, struct {
-        fn function(comptime slot: Slot, comptime U: type, comptime s: type, comptime name: []const u8) KernelOf(slot) {
-            return &@field(s.Kernels(U, geo), name);
-        }
-        fn unroll(comptime _: Gemm, comptime U: type, comptime which: slots.Param) i32 {
-            return @field(gk.Kernels(U, geo), @tagName(which));
-        }
-        fn unroll3m(comptime _: Gemm, comptime U: type, comptime which: slots.Param) i32 {
-            return @field(three_m.Kernels(U, geo), @tagName(which));
-        }
-    });
+    fill(vt, .{.{ Gemm.of(T, false), T }}, TileSource(geo));
 }
 
 /// Whether a core's features can change this target's tiles (`vectorBits`):

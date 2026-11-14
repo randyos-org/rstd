@@ -11,6 +11,8 @@ const util = @import("../util.zig");
 const gemm_kernels = @import("gemm/kernel.zig");
 const small = @import("gemm/small.zig");
 const threaded = @import("threaded.zig");
+const loops = @import("loops.zig");
+const driver = @This();
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -270,42 +272,43 @@ pub fn packCols(comptime T: type, vt: *const Vtable, d: Desc, y: Matrix(T), min_
 /// it), depth `k`, in the js / ls / is loops of `level3.c`; a null `beta`
 /// is 1.
 pub fn drive(comptime T: type, vt: *const Vtable, d: Desc, blk: Blocking, m: usize, n: usize, k: usize, alpha: T, x: Matrix(T), y: Matrix(T), beta: ?T, c: [*]T, ldc: usize, work: Work(T)) void {
-    var js: usize = 0;
-    while (js < n) : (js += blk.r) {
-        const min_j = @min(blk.r, n - js);
-        // the rows the column block meets
-        const r_lo = if (d.region == .lower) js else 0;
-        const r_hi = if (d.region == .upper) @min(m, js + min_j) else m;
-        var ls: usize = 0;
-        var min_l: usize = 0;
-        while (ls < k) : (ls += min_l) {
-            min_l = Blocking.split(k - ls, blk.q, blk.um);
-            const s = if (ls == 0) beta else null;
-            // the first row block packs `B` as it goes
-            var min_i = Blocking.split(r_hi - r_lo, blk.p, blk.um);
-            const once = min_i == r_hi - r_lo;
-            packRows(T, vt, d, x, min_l, min_i, ls, r_lo, work.sa);
-            var jjs = js;
-            while (jjs < js + min_j) {
-                const min_jj = blk.chunk(js + min_j - jjs);
-                const pb = if (once) work.sb else work.sb + min_l * (jjs - js);
-                packCols(T, vt, d, y, min_l, min_jj, ls, jjs, pb);
-                block(T, vt, d, blk, r_lo, min_i, jjs, min_jj, min_l, alpha, s, work.sa, pb, c, ldc, work.tmp);
-                jjs += min_jj;
-            }
-            var is = r_lo + min_i;
-            while (is < r_hi) : (is += min_i) {
-                min_i = Blocking.split(r_hi - is, blk.p, blk.um);
-                packRows(T, vt, d, x, min_l, min_i, ls, is, work.sa);
-                jjs = js;
-                while (jjs < js + min_j) {
-                    const min_jj = blk.chunk(js + min_j - jjs);
-                    block(T, vt, d, blk, is, min_i, jjs, min_jj, min_l, alpha, s, work.sa, work.sb + min_l * (jjs - js), c, ldc, work.tmp);
-                    jjs += min_jj;
-                }
-            }
+    const Ctx = struct {
+        vt: *const Vtable,
+        d: Desc,
+        blk: Blocking,
+        m: usize,
+        alpha: T,
+        x: Matrix(T),
+        y: Matrix(T),
+        beta: ?T,
+        c: [*]T,
+        ldc: usize,
+        work: Work(T),
+
+        pub fn depth(s: *const @This(), rest: usize) usize {
+            return Blocking.split(rest, s.blk.q, s.blk.um);
         }
-    }
+        pub fn chunk(s: *const @This(), rest: usize) usize {
+            return s.blk.chunk(rest);
+        }
+        pub fn slice(s: *const @This(), js: usize, min_j: usize, ls: usize, min_l: usize) void {
+            // the rows the column block meets
+            const r_lo = if (s.d.region == .lower) js else 0;
+            const r_hi = if (s.d.region == .upper) @min(s.m, js + min_j) else s.m;
+            loops.slice(s, s.blk, r_lo, r_hi, js, min_j, ls, min_l, if (ls == 0) s.beta else null, s.work.sa, s.work.sb);
+        }
+        pub fn packRows(s: *const @This(), min_l: usize, min_i: usize, ls: usize, is: usize, dst: [*]T) void {
+            driver.packRows(T, s.vt, s.d, s.x, min_l, min_i, ls, is, dst);
+        }
+        pub fn packCols(s: *const @This(), min_l: usize, min_jj: usize, ls: usize, jjs: usize, dst: [*]T) void {
+            driver.packCols(T, s.vt, s.d, s.y, min_l, min_jj, ls, jjs, dst);
+        }
+        pub fn block(s: *const @This(), ib: usize, mi: usize, jb: usize, nj: usize, kl: usize, b: ?T, pa: [*]T, pb: [*]T) void {
+            driver.block(T, s.vt, s.d, s.blk, ib, mi, jb, nj, kl, s.alpha, b, pa, pb, s.c, s.ldc, s.work.tmp);
+        }
+    };
+    const ctx: Ctx = .{ .vt = vt, .d = d, .blk = blk, .m = m, .alpha = alpha, .x = x, .y = y, .beta = beta, .c = c, .ldc = ldc, .work = work };
+    loops.columns(blk, 0, n, k, &ctx);
 }
 
 /// Whether rows `[ib, ie)` and columns `[jb, je)` lie wholly in `region`,
@@ -522,7 +525,10 @@ const check3 = @import("../_test/blas3/check.zig");
 
 const fromReal = util.fromReal;
 
-const Routine = enum { gemm, symm, hemm, syrk, herk, syr2k, her2k, trmm, trsm };
+const Routine = check3.Routine;
+
+/// The routines `foldedCase` takes.
+const routines = [_]Routine{ .gemm, .symm, .hemm, .syrk, .herk, .syr2k, .her2k, .trmm, .trsm };
 
 /// The operands of one `foldedCase`.
 fn Operands(comptime T: type) type {
@@ -530,27 +536,26 @@ fn Operands(comptime T: type) type {
 }
 
 /// `r` with `s` as its `beta` (`trmm`'s and `trsm`'s `alpha`), options
-/// `opt`, on `o`.
+/// `opt`, on `o`: `opt` is the side (`gemm`'s `transa`, the rank updates'
+/// `upper`), then `upper` (`transb`, `trans`), then `trans` for `trmm` and
+/// `trsm` (both conjugations for complex `gemm`; `trsm` conjugates complex).
 fn callWith(comptime T: type, vt: *const Vtable, r: Routine, opt: [3]bool, s: T, m: usize, n: usize, k: usize, o: Operands(T)) !void {
-    const al = std.testing.allocator;
-    const alpha: T = if (comptime isComplex(T)) .init(-0.75, if (r == .herk) 0 else 0.25) else -0.75;
-    const ld = o.ld;
-    const a = o.a.ptr;
-    const b = o.b.ptr;
-    const c = o.c.ptr;
-    switch (r) {
-        .gemm => try gemm(al, check.io, T, vt, opt[0], opt[1], if (opt[2] and isComplex(T)) .b else .n, m, n, k, alpha, a, ld, b, ld, s, c, ld, 1),
-        .symm => try symm(al, check.io, T, vt, false, opt[0], opt[1], m, n, alpha, a, ld, b, ld, s, c, ld, 1),
-        .syrk => try syrk(al, check.io, T, vt, false, opt[0], opt[1], n, k, alpha, a, ld, null, 0, s, c, ld, 1),
-        .syr2k => try syrk(al, check.io, T, vt, false, opt[0], opt[1], n, k, alpha, a, ld, b, ld, s, c, ld, 1),
-        .hemm, .herk, .her2k => if (comptime isComplex(T)) switch (r) {
-            .hemm => try symm(al, check.io, T, vt, true, opt[0], opt[1], m, n, alpha, a, ld, b, ld, s, c, ld, 1),
-            .herk => try syrk(al, check.io, T, vt, true, opt[0], opt[1], n, k, alpha, a, ld, null, 0, s, c, ld, 1),
-            else => try syrk(al, check.io, T, vt, true, opt[0], opt[1], n, k, alpha, a, ld, b, ld, s, c, ld, 1),
-        } else unreachable,
-        .trmm => try trmm(al, check.io, T, vt, opt[0], opt[1], opt[2], false, false, m, n, s, a, ld, c, ld, 1),
-        .trsm => try trsm(al, check.io, T, vt, opt[0], opt[1], opt[2], isComplex(T), false, m, n, s, a, ld, c, ld, 1),
-    }
+    const complex = comptime isComplex(T);
+    const alpha: T = if (complex) .init(-0.75, if (r == .herk) 0 else 0.25) else -0.75;
+    const rank = r == .syrk or r == .herk or r == .syr2k or r == .her2k;
+    const triangle = r == .trmm or r == .trsm;
+    const conj = opt[2] and complex;
+    const case: check3.Case = .{
+        .r = r,
+        .ta = if (triangle) .of(opt[2], r == .trsm and complex) else if (rank) .of(opt[1], false) else .of(opt[0], conj),
+        .tb = .of(opt[1], conj),
+        .left = opt[0],
+        .upper = if (rank) opt[0] else opt[1],
+        .m = m,
+        .n = n,
+        .k = k,
+    };
+    try check3.callAny(T, std.testing.allocator, check.io, vt, r, case, o.a.ptr, o.ld, o.b.ptr, o.ld, if (triangle) s else alpha, s, o.c.ptr, o.ld, 1);
 }
 
 /// `r` with `s` folded in against a separate pass of `s` first and then 1,
@@ -602,7 +607,7 @@ test "beta folded into the first slice gives the bits of a separate pass first" 
         check3.shrinkBlocking(T, &vt, false, own.um, own.un);
         const complex = comptime isComplex(T);
         const ss = [_]T{ fromReal(T, 0), if (complex) .init(0.5, -0.25) else 0.5, fromReal(T, -2) };
-        for (std.enums.values(Routine)) |r| {
+        for (routines) |r| {
             if (!complex and (r == .hemm or r == .herk or r == .her2k)) continue;
             for (0..8) |bits| {
                 const opt: [3]bool = .{ bits & 1 != 0, bits & 2 != 0, bits & 4 != 0 };

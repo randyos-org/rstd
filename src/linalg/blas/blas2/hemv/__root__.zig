@@ -52,7 +52,7 @@ const check = @import("../../_test/check.zig");
 const guard = @import("../../_test/guard.zig");
 
 test "portable hemv kernels match plain arithmetic" {
-    const vt = guard.portableVtable();
+    const vt = check.portableVtable();
     guard.use(vt);
     defer guard.restore();
     try checkSlots(vt);

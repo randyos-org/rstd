@@ -77,19 +77,14 @@ pub const MvarTable = struct {
     /// item is constant across the font's variation space (no delta data
     /// at all, not just a zero delta).
     pub fn findValueRecord(self: Self, tag: types.TagStr) ?ValueRecord {
-        var lo: usize = 0;
-        var hi: usize = self.valueRecordCount();
-        while (lo < hi) {
-            const mid = lo + (hi - lo) / 2;
-            const record = self.getValueRecord(mid);
-            const order = std.mem.order(u8, &record.value_tag.data, &tag.data);
-            switch (order) {
-                .lt => lo = mid + 1,
-                .gt => hi = mid,
-                .eq => return record,
+        const Find = struct {
+            t: Self,
+            tag: types.TagStr,
+            pub fn order(f: @This(), i: usize) types.Order {
+                return std.mem.order(u8, &f.tag.data, &f.t.getValueRecord(i).value_tag.data);
             }
-        }
-        return null;
+        };
+        return self.getValueRecord(types.search(self.valueRecordCount(), Find{ .t = self, .tag = tag }) orelse return null);
     }
 };
 

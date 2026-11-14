@@ -235,6 +235,18 @@ pub fn transpose(m: anytype) Transposed(@TypeOf(m)) {
     return r;
 }
 
+/// The `n` by `n` matrix whose columns are `v`, transposed, as columns:
+/// pffft's `VTRANSPOSE4` (`src/simd/pf_sse1_float.h`, marton78/pffft
+/// efc1dd2d) for any `n`, through `transpose` (`@Matrix`'s where it has one).
+pub fn transposeVecs(comptime n: comptime_int, comptime T: type, v: [n]Vec(n, T)) [n]Vec(n, T) {
+    var c: [n][n]T = undefined;
+    inline for (0..n) |j| c[j] = v[j];
+    const t = transpose(fromCols(StaticMat(n, n, T), c));
+    var r: [n]Vec(n, T) = undefined;
+    inline for (0..n) |j| r[j] = t.data[j];
+    return r;
+}
+
 /// `mᴴ` (MATLAB's `m'`); `mᵀ` for real `T`.
 pub fn ctranspose(m: anytype) Transposed(@TypeOf(m)) {
     const M = @TypeOf(m);
@@ -728,6 +740,16 @@ const V4f64 = vector.V4f64;
 const bitwise = @import("blas/_test/bitwise.zig");
 const expectSameBits = bitwise.expectSameBits;
 const math = @import("../math.zig");
+
+test "transposeVecs is pffft's VTRANSPOSE4 (_MM_TRANSPOSE4_PS)" {
+    const V = vector.V4f32;
+    const t = transposeVecs(4, f32, .{ V{ 0, 1, 2, 3 }, V{ 4, 5, 6, 7 }, V{ 8, 9, 10, 11 }, V{ 12, 13, 14, 15 } });
+    try zigstd.testExpectEqual(V{ 0, 4, 8, 12 }, t[0]);
+    try zigstd.testExpectEqual(V{ 3, 7, 11, 15 }, t[3]);
+    const d = transposeVecs(2, f64, .{ .{ 1, 2 }, .{ 3, 4 } });
+    try zigstd.testExpectEqual(vector.V2f64{ 1, 3 }, d[0]);
+    try zigstd.testExpectEqual(vector.V2f64{ 2, 4 }, d[1]);
+}
 
 test "StaticMat construction, access and transposes" {
     const M = StaticMat(2, 3, f32);
