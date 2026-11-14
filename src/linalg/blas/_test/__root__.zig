@@ -1,5 +1,5 @@
 //! Test-only code: each level's shared test helpers, the edge-case and
-//! denormal tests, and OpenBLAS's own suites ported (`from_openblas/`).
+//! denormal tests (`blas1/edge.zig`), and OpenBLAS's own suites ported (`from_openblas/`).
 
 test {
     _ = @import("types.zig");
@@ -7,7 +7,6 @@ test {
     _ = @import("bitwise.zig");
     _ = @import("blas1/edge.zig");
     _ = @import("blas1/extremum.zig");
-    _ = @import("blas1/denormal.zig");
     _ = @import("blas1/threaded.zig");
     _ = @import("blas2/edge.zig");
     _ = @import("blas2/threaded.zig");
