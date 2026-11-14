@@ -525,7 +525,10 @@ const check3 = @import("../_test/blas3/check.zig");
 
 const fromReal = util.fromReal;
 
-const Routine = enum { gemm, symm, hemm, syrk, herk, syr2k, her2k, trmm, trsm };
+const Routine = check3.Routine;
+
+/// The routines `foldedCase` takes.
+const routines = [_]Routine{ .gemm, .symm, .hemm, .syrk, .herk, .syr2k, .her2k, .trmm, .trsm };
 
 /// The operands of one `foldedCase`.
 fn Operands(comptime T: type) type {
@@ -533,27 +536,26 @@ fn Operands(comptime T: type) type {
 }
 
 /// `r` with `s` as its `beta` (`trmm`'s and `trsm`'s `alpha`), options
-/// `opt`, on `o`.
+/// `opt`, on `o`: `opt` is the side (`gemm`'s `transa`, the rank updates'
+/// `upper`), then `upper` (`transb`, `trans`), then `trans` for `trmm` and
+/// `trsm` (both conjugations for complex `gemm`; `trsm` conjugates complex).
 fn callWith(comptime T: type, vt: *const Vtable, r: Routine, opt: [3]bool, s: T, m: usize, n: usize, k: usize, o: Operands(T)) !void {
-    const al = std.testing.allocator;
-    const alpha: T = if (comptime isComplex(T)) .init(-0.75, if (r == .herk) 0 else 0.25) else -0.75;
-    const ld = o.ld;
-    const a = o.a.ptr;
-    const b = o.b.ptr;
-    const c = o.c.ptr;
-    switch (r) {
-        .gemm => try gemm(al, check.io, T, vt, opt[0], opt[1], if (opt[2] and isComplex(T)) .b else .n, m, n, k, alpha, a, ld, b, ld, s, c, ld, 1),
-        .symm => try symm(al, check.io, T, vt, false, opt[0], opt[1], m, n, alpha, a, ld, b, ld, s, c, ld, 1),
-        .syrk => try syrk(al, check.io, T, vt, false, opt[0], opt[1], n, k, alpha, a, ld, null, 0, s, c, ld, 1),
-        .syr2k => try syrk(al, check.io, T, vt, false, opt[0], opt[1], n, k, alpha, a, ld, b, ld, s, c, ld, 1),
-        .hemm, .herk, .her2k => if (comptime isComplex(T)) switch (r) {
-            .hemm => try symm(al, check.io, T, vt, true, opt[0], opt[1], m, n, alpha, a, ld, b, ld, s, c, ld, 1),
-            .herk => try syrk(al, check.io, T, vt, true, opt[0], opt[1], n, k, alpha, a, ld, null, 0, s, c, ld, 1),
-            else => try syrk(al, check.io, T, vt, true, opt[0], opt[1], n, k, alpha, a, ld, b, ld, s, c, ld, 1),
-        } else unreachable,
-        .trmm => try trmm(al, check.io, T, vt, opt[0], opt[1], opt[2], false, false, m, n, s, a, ld, c, ld, 1),
-        .trsm => try trsm(al, check.io, T, vt, opt[0], opt[1], opt[2], isComplex(T), false, m, n, s, a, ld, c, ld, 1),
-    }
+    const complex = comptime isComplex(T);
+    const alpha: T = if (complex) .init(-0.75, if (r == .herk) 0 else 0.25) else -0.75;
+    const rank = r == .syrk or r == .herk or r == .syr2k or r == .her2k;
+    const triangle = r == .trmm or r == .trsm;
+    const conj = opt[2] and complex;
+    const case: check3.Case = .{
+        .r = r,
+        .ta = if (triangle) .of(opt[2], r == .trsm and complex) else if (rank) .of(opt[1], false) else .of(opt[0], conj),
+        .tb = .of(opt[1], conj),
+        .left = opt[0],
+        .upper = if (rank) opt[0] else opt[1],
+        .m = m,
+        .n = n,
+        .k = k,
+    };
+    try check3.callAny(T, std.testing.allocator, check.io, vt, r, case, o.a.ptr, o.ld, o.b.ptr, o.ld, if (triangle) s else alpha, s, o.c.ptr, o.ld, 1);
 }
 
 /// `r` with `s` folded in against a separate pass of `s` first and then 1,
@@ -605,7 +607,7 @@ test "beta folded into the first slice gives the bits of a separate pass first" 
         check3.shrinkBlocking(T, &vt, false, own.um, own.un);
         const complex = comptime isComplex(T);
         const ss = [_]T{ fromReal(T, 0), if (complex) .init(0.5, -0.25) else 0.5, fromReal(T, -2) };
-        for (std.enums.values(Routine)) |r| {
+        for (routines) |r| {
             if (!complex and (r == .hemm or r == .herk or r == .her2k)) continue;
             for (0..8) |bits| {
                 const opt: [3]bool = .{ bits & 1 != 0, bits & 2 != 0, bits & 4 != 0 };
