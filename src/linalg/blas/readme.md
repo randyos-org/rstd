@@ -307,7 +307,7 @@ bytes are ignored. Details are in [`design.md`](../design.md#configuration).
 | `zig build qemu-test-linux-<machine>` | the full suite under Linux (`aarch64`, `aarch64-sve`, `x86_64`, `arm`, `riscv64`, `powerpc64le`, `powerpc64le-power10`); `qemu-check-linux-<machine>` builds it only |
 | `zig build qemu-test-x86_64-macos` | the unit tests in an x86_64 macOS VM, set up once (`build/qemu/macos.zig`) |
 | `zig build ssh-test-aarch64-macos -Dssh-mac=<ssh alias>` | the full suite on an Apple Silicon Mac |
-| `zig build ssh-test-x86_64-macos` | the x86_64 macOS suite on that Mac, under Rosetta 2 |
+| `zig build ssh-test-x86_64-macos -Dssh-mac-intel=<ssh alias>` | the x86_64 macOS suite on an Intel Mac; `ssh-test-x86_64-macos-rosetta` runs it on the Apple Silicon Mac under Rosetta 2 |
 | `zig build ssh-bench-aarch64-macos -Dopenblas=<checkout>` | the kernel benchmarks on that Mac ([`results-m6.md`](../../../tools/blasbench/results/results-m6.md)) |
 | `tools/blasbench/flyoff.sh zen3 <OpenBLAS dll>`, `flyoff.sh m6` | the flyoff under the timing rule, one command per host ([`readme.md`](../../../tools/blasbench/readme.md#rerunning-the-flyoff)); `zig build bench-check` compiles the bench for each host |
 | `zig build wasm-test` | the OS-free tests under Node, with and without SIMD128 |
