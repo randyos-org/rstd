@@ -5,6 +5,7 @@
 const std = @import("std");
 const ob = @import("__root__.zig");
 const blas = @import("../../__root__.zig");
+const check = @import("../check.zig");
 const apple_accel = @import("../../apple_accel.zig");
 
 const Float = ob.Float;
@@ -765,7 +766,7 @@ fn complexGemm() !void {
     inline for (.{ .{ C32, &gemm_c }, .{ C64, &gemm_z } }) |p| for (p[1]) |case| {
         const T = p[0];
         var c = case;
-        if (ob.reduced()) {
+        if (check.rig()) {
             inline for (.{ "m", "n", "k", "lda", "ldb", "ldc" }) |f| @field(c, f) = 23;
         }
         const r = prng.random();

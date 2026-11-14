@@ -5,6 +5,7 @@
 const std = @import("std");
 const ob = @import("__root__.zig");
 const blas = @import("../../__root__.zig");
+const check = @import("../check.zig");
 const types = @import("../../types.zig");
 
 const BF16 = types.BF16;
@@ -305,13 +306,13 @@ pub fn all(small: bool) !void {
 }
 
 test "compare_sgemv_sbgemv, bgemv, shgemv: the half gemvs against sgemv and a plain loop" {
-    inline for (std.enums.values(blas.HalfGemv)) |kind| try gemvAgainst(kind, ob.reduced());
+    inline for (std.enums.values(blas.HalfGemv)) |kind| try gemvAgainst(kind, check.rig());
 }
 
 test "compare_sgemm_sbgemm, bgemm, shgemm: the half gemms against sgemm and a plain loop" {
-    inline for (std.enums.values(blas.HalfGemm)) |kind| try gemmAgainst(kind, ob.reduced());
+    inline for (std.enums.values(blas.HalfGemm)) |kind| try gemmAgainst(kind, check.rig());
 }
 
 test "compare_sgemm_shgemm: shgemm's alpha and beta sweep against sgemm" {
-    try shgemmScalars(ob.reduced());
+    try shgemmScalars(check.rig());
 }
