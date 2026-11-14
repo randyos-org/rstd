@@ -8,6 +8,7 @@ const std = @import("std");
 const util = @import("../../util.zig");
 const types = @import("../../types.zig");
 const uk = @import("../../uk_block.zig");
+const coretypes = @import("../../cpu/coretypes.zig");
 
 const BlasLong = types.BlasLong;
 const Slot = util.Slot;
@@ -200,7 +201,7 @@ fn ComplexDriver(comptime slot: Slot, comptime B: type) type {
 }
 
 /// The kernel `slot` of the core whose index entry is `e` (`uk_block.Kernels`).
-pub fn entryOf(comptime slot: Slot, comptime core: []const u8, comptime e: uk.Entry, comptime Vector: fn (comptime Slot) type) Kernel(slot) {
+pub fn entryOf(comptime slot: Slot, comptime core: coretypes.X86CoreType, comptime e: uk.Entry, comptime Vector: fn (comptime Slot) type) Kernel(slot) {
     _ = core;
     const B = Blocks(slot, e, Vector);
     return if (complex(slot)) &ComplexDriver(slot, B).call else &Driver(slot, B).call;

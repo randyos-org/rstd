@@ -43,26 +43,26 @@ pub const MvarTable = struct {
     }
 
     pub inline fn majorVersion(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "major_version")..]);
+        return types.field(StreamLayout, "major_version", self.table_data);
     }
 
     pub inline fn minorVersion(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "minor_version")..]);
+        return types.field(StreamLayout, "minor_version", self.table_data);
     }
 
     /// Size in bytes of each ValueRecord in this font; use this (not
     /// @sizeOf(ValueRecord)) as the stride when walking valueRecords, per
     /// spec.
     pub inline fn valueRecordSize(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "value_record_size")..]);
+        return types.field(StreamLayout, "value_record_size", self.table_data);
     }
 
     pub inline fn valueRecordCount(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "value_record_count")..]);
+        return types.field(StreamLayout, "value_record_count", self.table_data);
     }
 
     pub fn getItemVariationStore(self: Self) ?ivs.ItemVariationStore {
-        const off = bytes.readIntBE(types.Offset16, self.table_data[@offsetOf(StreamLayout, "item_variation_store_offset")..]);
+        const off = types.field(StreamLayout, "item_variation_store_offset", self.table_data);
         if (off == 0) return null;
         return .{ .table_data = self.table_data[off..] };
     }
@@ -77,19 +77,14 @@ pub const MvarTable = struct {
     /// item is constant across the font's variation space (no delta data
     /// at all, not just a zero delta).
     pub fn findValueRecord(self: Self, tag: types.TagStr) ?ValueRecord {
-        var lo: usize = 0;
-        var hi: usize = self.valueRecordCount();
-        while (lo < hi) {
-            const mid = lo + (hi - lo) / 2;
-            const record = self.getValueRecord(mid);
-            const order = std.mem.order(u8, &record.value_tag.data, &tag.data);
-            switch (order) {
-                .lt => lo = mid + 1,
-                .gt => hi = mid,
-                .eq => return record,
+        const Find = struct {
+            t: Self,
+            tag: types.TagStr,
+            pub fn order(f: @This(), i: usize) types.Order {
+                return std.mem.order(u8, &f.tag.data, &f.t.getValueRecord(i).value_tag.data);
             }
-        }
-        return null;
+        };
+        return self.getValueRecord(types.search(self.valueRecordCount(), Find{ .t = self, .tag = tag }) orelse return null);
     }
 };
 

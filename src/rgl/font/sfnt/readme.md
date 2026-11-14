@@ -24,7 +24,7 @@ Turning a font file into a renderable glyph atlas goes through several stages. A
    - `glyf`: walks the `glyf` table's raw point/flag/coordinate byte arrays directly, handling both simple contours and *compound glyphs* - glyphs built by combining other glyphs, e.g. an accented letter made from a base letter plus a separately-defined accent mark.
    - `"cff "`: runs a bytecode interpreter. CFF fonts don't store outlines as raw point lists; they store *Type2 charstrings*.  This is a compact, stack-based bytecode format whose instructions mean things like "move by this much," "draw a curve through these points," or "call this reusable subroutine" (subroutines let a font share common shapes, like the curve of a serif, across many glyphs instead of repeating them). `runCharstring` is the small virtual machine that executes that bytecode. It runs twice per glyph: once just to count how many vertices the shape needs, then again to actually fill them in, as an allocation-avoidance strategy instead of using a growable list.
 
-4. **Fast path: direct coverage-bitmap rendering** (`render/rasterize.zig`, `render/tessellate.zig`, `render/bounds.zig`): for cases that just need a glyph rendered once at a fixed pixel size (no scaling later), the vertex outline is rasterized straight to an 8-bit coverage bitmap: each pixel's value says how much of that pixel the glyph's shape covers. `flattenCurves` recursively subdivides every curve into short straight line segments until the approximation is imperceptibly close, producing a plain polygon per contour. `rasterize` then fills those polygons with antialiasing: it computes the exact fractional area of each pixel the shape covers, sweeping scanline by scanline using signed trapezoid/triangle area math. That gives smooth edges without the cost of supersampling (rendering at a higher resolution and downscaling). `glyphBitmap` (also `Sfnt.glyphBitmap`) ties this together: get the vertices, compute the pixel-space bounding box (`glyphBitmapBox`), allocate a buffer sized to it, rasterize into it, and return a `GlyphBitmap`: width, height, and an offset describing where that bitmap sits relative to the glyph's logical origin point.
+4. **Fast path: direct coverage-bitmap rendering** (`render/rasterize.zig`, `render/tessellate.zig`, `render/bounds.zig`): for cases that just need a glyph rendered once at a fixed pixel size (no scaling later), the vertex outline is rasterized straight to an 8-bit coverage bitmap: each pixel's value says how much of that pixel the glyph's shape covers. `flattenCurves` recursively subdivides every curve into short straight line segments until the approximation is imperceptibly close, producing a plain polygon per contour. `rasterize` then fills those polygons with antialiasing: it computes the exact fractional area of each pixel the shape covers, sweeping scanline by scanline using signed trapezoid/triangle area math. That gives smooth edges without the cost of supersampling (rendering at a higher resolution and downscaling). `rasterize.glyphBitmap` ties this together: get the vertices, compute the pixel-space bounding box (`glyphBitmapBox`), allocate a buffer sized to it, rasterize into it, and return a `GlyphBitmap`: width, height, and an offset describing where that bitmap sits relative to the glyph's logical origin point.
 
 5. **Scalable path: MSDF generation** (`msdf/`, `msdf.Generator`): for glyphs that need to render crisply at any size on the GPU (the primary purpose of this library), the vertex outline instead becomes an MSDF (multichannel signed distance field): a small texture where each texel stores, per color channel, the signed distance from that point to the nearest edge of the glyph outline (negative inside the shape, positive outside). A GPU shader can then reconstruct a crisp edge at *any* zoom level with a single texture sample plus a threshold test, because the distance field itself scales smoothly; unlike a plain coverage bitmap, which just gets blurry or blocky when scaled. Multichannel (as opposed to a plain single-channel signed distance field, or SDF) means the distance is encoded across three channels using different subsets of nearby edges, which is what lets sharp corners get reconstructed sharply instead of rounding off - the classic weakness of single-channel SDFs. Producing one requires a few steps of its own:
    - The vertex outline is converted into contours made of *edge segments* (line, quadratic, or cubic segments) - the same shape, just represented the way the distance-field math operates on it directly, rather than flattened into a polygon like the fast path above.
@@ -44,7 +44,8 @@ Two side paths skip outline extraction entirely, since they're just further tabl
 A single glyph rendered straight to a coverage bitmap (the fast path):
 
 ```zig
-const Sfnt = rstd.rgl.font.sfnt.Sfnt;
+const font = rstd.rgl.font;
+const Sfnt = font.sfnt.Sfnt;
 const sfnt = try Sfnt.init(alloc, @embedFile("GoNotoCurrent-Regular.ttf"), .{});
 
 const glyph = sfnt.getGlyphIndex('A') orelse return error.MissingGlyph;
@@ -52,7 +53,7 @@ const scale = sfnt.scaleForPixelHeight(20.0);
 
 var pixels: std.ArrayList(u8) = .empty;
 defer pixels.deinit(alloc);
-const bmp = try sfnt.glyphBitmap(alloc, &pixels, glyph, scale, scale);
+const bmp = try font.render.rasterize.glyphBitmap(sfnt, alloc, &pixels, glyph, scale, scale);
 // pixels.items[0 .. bmp.width * bmp.height] is the 8-bit coverage bitmap;
 // bmp.off_x/off_y is where it sits relative to the glyph origin.
 ```
@@ -60,7 +61,7 @@ const bmp = try sfnt.glyphBitmap(alloc, &pixels, glyph, scale, scale);
 An MSDF atlas for a line of text (the scalable path), from the same `sfnt`:
 
 ```zig
-var atlas = try sfnt.buildTextAtlas(alloc, "Hello, world!", 32, 0, 0, .{ .type = .msdf });
+var atlas = try font.render.atlas.buildTextAtlas(sfnt, alloc, "Hello, world!", 32, 0, 0, .{ .type = .msdf });
 defer atlas.deinit(alloc);
 // atlas.pixels is one shared texture (kerning-aware, left to right);
 // atlas.glyphs[i].{pos,size,atlas_pos} place each glyph on screen and in it.

@@ -364,6 +364,19 @@ fn withVector(comptime check: fn (*const Vtable) anyerror!void) anyerror!void {
     return check(&vt);
 }
 
+var portable_vt: Vtable = .{};
+var portable_ready = false;
+
+/// Every level's portable kernels, in static storage: a `Vtable` on the
+/// stack costs each test's frame its size.
+pub fn portableVtable() *const Vtable {
+    if (!portable_ready) {
+        portable.install(&portable_vt);
+        portable_ready = true;
+    }
+    return &portable_vt;
+}
+
 /// Whether the tests run on a rig: the freestanding and UEFI ones, WASI, and
 /// the Linux rigs and remote Macs, which set `RSTD_TEST_PROGRESS`. `eachCore`
 /// names each core as it starts there, and the biggest cases are left to

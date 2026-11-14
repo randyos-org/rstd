@@ -121,9 +121,8 @@ fn checkAll(vt: *const Vtable) !void {
 }
 
 test "portable rot kernels match a plain loop" {
-    var vt: Vtable = .{};
-    installGeneric(&vt);
-    try checkAll(&vt);
+    const vt = check.portableVtable();
+    try checkAll(vt);
     try checkRot(XDouble, vt.qrot_k.?);
     try checkRot(std.math.Complex(XDouble), vt.xqrot_k.?);
 }
@@ -145,7 +144,7 @@ test "x86_64's rot drivers rotate every element as the reference's blocks do, bi
     inline for (.{ .srot_k, .drot_k }) |slot| {
         const F = driver.Elem(slot);
         // a vector block (haswell) and the C one (cooperlake)
-        inline for (.{ "haswell", "cooperlake" }) |core| {
+        inline for (.{ .haswell, .cooperlake }) |core| {
             const kern = driver.entryOf(slot, core, comptime index.find(slot, core).?, Vector);
             const c: F = 0.8;
             const s: F = -0.6;

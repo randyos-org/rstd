@@ -19,17 +19,18 @@ fn checkSlot(vt: *const Vtable, comptime r: anytype, comptime i: usize) !void {
 
 /// The single and double slots of every routine.
 fn checkAll(vt: *const Vtable) !void {
+    var failed: ?anyerror = null;
     inline for (extremum.routines) |r| inline for (.{ 0, 1, 3, 4 }) |i| {
-        if (i < r[2].len) try checkSlot(vt, r, i);
+        if (i < r[2].len) check.keep(&failed, checkSlot(vt, r, i));
     };
+    if (failed) |e| return e;
 }
 
 test "portable extremum kernels match a plain loop" {
-    var vt: Vtable = .{};
-    extremum.installGeneric(&vt);
+    const vt = check.portableVtable();
     inline for (extremum.routines) |r| {
         inline for (.{ 0, 1, 3, 4, 2, 5 }) |i| {
-            if (i < r[2].len) try checkSlot(&vt, r, i);
+            if (i < r[2].len) try checkSlot(vt, r, i);
         }
     }
 }

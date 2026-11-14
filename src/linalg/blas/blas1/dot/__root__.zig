@@ -199,9 +199,8 @@ fn checkAll(vt: *const Vtable) !void {
 }
 
 test "portable dot kernels match a plain loop" {
-    var vt: Vtable = .{};
-    installGeneric(&vt);
-    try checkAll(&vt);
+    const vt = check.portableVtable();
+    try checkAll(vt);
     try checkDot(XDouble, false, vt.qdot_k.?);
     try checkDot(std.math.Complex(XDouble), false, vt.xdotu_k.?);
     try checkDot(std.math.Complex(XDouble), true, vt.xdotc_k.?);
@@ -264,9 +263,8 @@ fn checkSdotWide(vt: *const Vtable) !void {
 }
 
 test "portable sdot: within half an ulp, summed in f64, dsdot its sum" {
-    var vt: Vtable = .{};
-    installGeneric(&vt);
-    try checkSdotWide(&vt);
+    const vt = check.portableVtable();
+    try checkSdotWide(vt);
 }
 
 test "every linked core's sdot: within half an ulp, summed in f64, dsdot its sum" {

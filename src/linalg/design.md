@@ -1331,7 +1331,7 @@ checks of the tier-2 rigs, `zig build shader-probes -Dvulkan` for SPIR-V).
    `dot`, `dot2`, `length`, `distance`, `norm`, `cross`, `mix` and `mulAdd`, and
    `linalg.matrix`'s `det`, `inv` and `outer`, are their instructions (table above), each
    checked by a probe (`src/rgl/shaders/lib/readme.md`); shaderlib's aliases stay S2's.
-6. **Float-slice reductions** to `linalg` (the NaN change); `rstd.simd` is gone already.
+6. **Float-slice reductions** to `linalg` (the NaN change); `rstd.simd` is gone already. Done 2026-11-12 (M13): M10 had already made `sum`, `max` and `min` take slices and views, inline up to `L` and the BLAS past it, with the first-NaN rule on both paths; M13 tests that rule on plain slices on both paths.
 7. **M2** moves the matlab port onto this layer.
 
 #### Decisions
@@ -1382,6 +1382,8 @@ randy-matrix: padded `@Vector` columns, float elements, `+ - *`, `@transpose`):
     `StaticMat` always takes the fallback code.
 19. **Conversions** to and from `[C][R]T` and `[C]@Vector(R, T)` are `StaticMat` functions;
     the fork's compiler stays as it is.
+
+M16 (2026-11-12): pffft's lane shuffles, for its FFT kernels ([#65](https://github.com/randyos-org/rstd/issues/65)), are `linalg.vector`'s `interleave`, `uninterleave`, `swapHalves`, `reverse` and `reversePairs` on any even `@Vector` length, and its `VTRANSPOSE4` is `linalg.matrix.transposeVecs` over `transpose` (`@Matrix`'s where the compiler has it).
 
 ### Planned: sparse matrices
 
@@ -1996,8 +1998,8 @@ Outside `src/linalg/blas/`:
 | `test/linux/init.zig` | PID 1 of the Linux rigs |
 | `tools/blas_asm/` | the converters |
 | `tools/blasbench/` | the benchmarks: kernels, rstd against the libraries and reference binaries, the flyoff ([`readme.md`](../../tools/blasbench/readme.md)) |
-| `tools/test_host.zig`, `tools/nix/` | running the rigs' QEMU on another machine |
-| `tools/ssh_test.zig`, `tools/qemu_watch.zig` | the SSH test runner; the rigs' watchdog |
+| `tools/rig/test_host.zig`, `tools/nix/` | running the rigs' QEMU on another machine |
+| `tools/ssh_test.zig`, `tools/rig/qemu_watch.zig` | the SSH test runner; the rigs' watchdog |
 
 **Cores handed to weaker CPUs** (T18). Where detection, as the reference's, can give a CPU a
 core whose object it cannot run, each case is decided by the [settled
@@ -2313,8 +2315,9 @@ here can.
 | `qemu-test-linux-<machine>` | a Debian netboot kernel with the hosted test executable as PID 1 (`test/linux/init.zig`), `-smp 4` | auxiliary-vector detection, threads, files; the machines below |
 | `qemu-test-x86_64-macos` | an installed x86_64 macOS VM under TCG, tests over SSH; not run until an Intel Mac replaces it (T141) | Mach-O at run time on an x86 CPU model |
 | `ssh-test-aarch64-macos` | the full suite on an Apple Silicon Mac over SSH (`-Dssh-mac`, default `macmini-m6`) | `vortex`, `vortexm4`, SME without SVE, which QEMU's `-cpu max` cannot show; Accelerate |
-| `ssh-test-x86_64-macos` | the x86_64 macOS suite on that Mac under Rosetta 2 | Mach-O x86_64, faster than the VM; the SSE cores only, since Rosetta hides AVX |
-| `ssh-test-x86_64-macos-avx2` | as above, with `ROSETTA_ADVERTISE_AVX=1` | rstd's `sandybridge`, `haswell` and `zen` cores too; not Accelerate's AVX2 path (SSH Mac below) |
+| `ssh-test-x86_64-macos` | the x86_64 macOS suite on an Intel Mac over SSH (`-Dssh-mac-intel`, default `macmini-intel`) | Mach-O x86_64 on real hardware: the cores its CPU runs; Accelerate's AVX2 path |
+| `ssh-test-x86_64-macos-rosetta` | the x86_64 macOS suite on the Apple Silicon Mac under Rosetta 2 | a comparison with the Intel Mac; the SSE cores only, since Rosetta hides AVX |
+| `ssh-test-x86_64-macos-rosetta-avx2` | as above, with `ROSETTA_ADVERTISE_AVX=1` | rstd's `sandybridge`, `haswell` and `zen` cores too; not Accelerate's AVX2 path (SSH Mac below) |
 | `wasm-test` | WASI under Node, a module with SIMD128 and one without (`wasm-test-simd128`, `wasm-test-portable`) | the freestanding rigs' tests, `abi.zig` and `threading.zig`, on the SIMD core and the portable path |
 | `rstd-check-macho` | build only, x86_64 and aarch64 macOS, every core | Mach-O assembly errors |
 | `rstd-check-uefi` | build only, x86_64 and aarch64 UEFI, the UEFI rigs' runner, no filter | every OS-free test compiles for UEFI, also those the rigs leave out |
@@ -2378,11 +2381,11 @@ Rig mechanics:
 - **Results.** Where the machine has semihosting (aarch64, arm, riscv64, MIPS) the runner exits
   with the number of failed tests; elsewhere the step checks the printed summary for
   "0 failed". Consoles log live to `.zig-cache/qemu-test-<name>.log`. `-Dfail-fast` ends a rig
-  at its first failing test (`tools/qemu_watch.zig`, the SSH steps too; not the macOS VM).
+  at its first failing test (`tools/rig/qemu_watch.zig`, the SSH steps too; not the macOS VM).
 - **Images.** OpenBIOS on `sun4u` maps 0x400000 to 0x800000 only (seen on the rig, `build/qemu/machines.zig`; OpenBIOS's source not checked), so the sparc64 rigs (stubs now) split
   their tests into images by filter (`parts` in `build/qemu/machines.zig`), and the build, under
   `qemu-check` too, fails an image whose loaded span is past that window (`load_window`,
-  `tools/load_window.zig`). `-Dqemu-test-part=<part>` builds and runs only that image.
+  `tools/rig/load_window.zig`). `-Dqemu-test-part=<part>` builds and runs only that image.
 - **UEFI.** The app boots from a read-only FAT drive (QEMU's vvfat) with the edk2 firmware
   Nix's QEMU ships, as read-only pflash (`tools/nix/run.sh` finds it, so only on the test
   host). It takes its heap and a 1 MiB stack from boot services, turns off the watchdog,
@@ -2395,7 +2398,7 @@ Rig mechanics:
   cases are left to native runs.
 - **Test host.** The rigs' QEMU runs on another machine, `-Dtest-host=<ssh alias>`
   (`macmini-m6` by default when rstd is the root project; `-Dtest-host-off` runs it here); the
-  images still build here (`tools/test_host.zig`). Each run copies its files to the host's
+  images still build here (`tools/rig/test_host.zig`). Each run copies its files to the host's
   `/tmp`, runs QEMU from the Nix flake in `tools/nix` (nixpkgs pinned by `flake.lock`) and
   streams the console back to the watchdog and live log. At most `-Dtest-host-jobs` (8, our default) rigs run
   there at once, across builds. On an arm64 Mac, `aarch64`, `aarch64-uefi` and `linux-aarch64` run under HVF on

@@ -147,20 +147,21 @@ fn checkFlag(comptime T: type, kern: anytype) !void {
 }
 
 fn checkAll(vt: *const Vtable) !void {
-    try checkScal(f32, vt.sscal_k.?);
-    try checkScal(f64, vt.dscal_k.?);
-    try checkScal(std.math.Complex(f32), vt.cscal_k.?);
-    try checkScal(std.math.Complex(f64), vt.zscal_k.?);
-    try checkFlag(f32, vt.sscal_k.?);
-    try checkFlag(f64, vt.dscal_k.?);
-    try checkFlag(std.math.Complex(f32), vt.cscal_k.?);
-    try checkFlag(std.math.Complex(f64), vt.zscal_k.?);
+    var failed: ?anyerror = null;
+    check.keep(&failed, checkScal(f32, vt.sscal_k.?));
+    check.keep(&failed, checkScal(f64, vt.dscal_k.?));
+    check.keep(&failed, checkScal(std.math.Complex(f32), vt.cscal_k.?));
+    check.keep(&failed, checkScal(std.math.Complex(f64), vt.zscal_k.?));
+    check.keep(&failed, checkFlag(f32, vt.sscal_k.?));
+    check.keep(&failed, checkFlag(f64, vt.dscal_k.?));
+    check.keep(&failed, checkFlag(std.math.Complex(f32), vt.cscal_k.?));
+    check.keep(&failed, checkFlag(std.math.Complex(f64), vt.zscal_k.?));
+    if (failed) |e| return e;
 }
 
 test "portable scal kernels match a plain loop" {
-    var vt: Vtable = .{};
-    installGeneric(&vt);
-    try checkAll(&vt);
+    const vt = check.portableVtable();
+    try checkAll(vt);
     try checkScal(XDouble, vt.qscal_k.?);
     try checkScal(std.math.Complex(XDouble), vt.xscal_k.?);
 }

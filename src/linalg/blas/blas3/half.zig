@@ -6,6 +6,7 @@ const std = @import("std");
 const sysinfo = @import("builtin");
 const blas = @import("../__root__.zig");
 const driver = @import("driver.zig");
+const loops = @import("loops.zig");
 const interface = @import("interface.zig");
 const threaded = @import("threaded.zig");
 const threading = @import("../threading.zig");
@@ -182,42 +183,34 @@ fn Problem(comptime kind: HalfGemm) type {
             _ = p.slot("_kernel")(@intCast(mi), @intCast(nj), @intCast(kl), p.alpha, pa, pb, at, @intCast(p.ldc));
         }
 
-        /// `level3.c`'s js / ls / is loops over `C`'s `m x n`.
+        /// `level3.c`'s js / ls / is loops over `C`'s `m x n` (`loops.zig`).
         fn drive(p: *const Self, m: usize, n: usize, work: W) void {
-            const blk = p.blk;
-            var js: usize = 0;
-            while (js < n) : (js += blk.r) {
-                const min_j = @min(blk.r, n - js);
-                var ls: usize = 0;
-                var min_l: usize = 0;
-                while (ls < p.k) : (ls += min_l) {
-                    min_l = Blocking.split(p.k - ls, blk.q, blk.um);
-                    const s = if (ls == 0) p.beta else null;
-                    // the first row block packs `B` as it goes
-                    var min_i = Blocking.split(m, blk.p, blk.um);
-                    const once = min_i == m;
-                    p.packRows(min_l, min_i, ls, 0, work.sa);
-                    var jjs = js;
-                    while (jjs < js + min_j) {
-                        const min_jj = blk.chunk(js + min_j - jjs);
-                        const pb = if (once) work.sb else work.sb + min_l * (jjs - js);
-                        p.packCols(min_l, min_jj, ls, jjs, pb);
-                        p.block(0, min_i, jjs, min_jj, min_l, s, work.sa, pb);
-                        jjs += min_jj;
-                    }
-                    var is = min_i;
-                    while (is < m) : (is += min_i) {
-                        min_i = Blocking.split(m - is, blk.p, blk.um);
-                        p.packRows(min_l, min_i, ls, is, work.sa);
-                        jjs = js;
-                        while (jjs < js + min_j) {
-                            const min_jj = blk.chunk(js + min_j - jjs);
-                            p.block(is, min_i, jjs, min_jj, min_l, s, work.sa, work.sb + min_l * (jjs - js));
-                            jjs += min_jj;
-                        }
-                    }
+            const Ctx = struct {
+                p: *const Self,
+                m: usize,
+                work: W,
+
+                pub fn depth(s: *const @This(), rest: usize) usize {
+                    return Blocking.split(rest, s.p.blk.q, s.p.blk.um);
                 }
-            }
+                pub fn chunk(s: *const @This(), rest: usize) usize {
+                    return s.p.blk.chunk(rest);
+                }
+                pub fn slice(s: *const @This(), js: usize, min_j: usize, ls: usize, min_l: usize) void {
+                    loops.slice(s, s.p.blk, 0, s.m, js, min_j, ls, min_l, if (ls == 0) s.p.beta else null, s.work.sa, s.work.sb);
+                }
+                pub fn packRows(s: *const @This(), min_l: usize, min_i: usize, ls: usize, is: usize, dst: [*]I) void {
+                    s.p.packRows(min_l, min_i, ls, is, dst);
+                }
+                pub fn packCols(s: *const @This(), min_l: usize, min_jj: usize, ls: usize, jjs: usize, dst: [*]I) void {
+                    s.p.packCols(min_l, min_jj, ls, jjs, dst);
+                }
+                pub fn block(s: *const @This(), ib: usize, mi: usize, jb: usize, nj: usize, kl: usize, b: ?O, pa: [*]I, pb: [*]I) void {
+                    s.p.block(ib, mi, jb, nj, kl, b, pa, pb);
+                }
+            };
+            const ctx: Ctx = .{ .p = p, .m = m, .work = work };
+            loops.columns(p.blk, 0, n, p.k, &ctx);
         }
 
         /// Up to `want` workers, each on a range of columns (rows when `C`

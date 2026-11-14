@@ -1,19 +1,7 @@
 //! LoongArch64: the sources read their arguments from the LP64D registers.
 
-const std = @import("std");
 const arch = @import("__root__.zig");
-const map = @import("../openblas.zig");
-const Error = arch.Error;
-
-const Kernel = arch.Kernel;
-
-fn coreDefines(a: std.mem.Allocator, _: Kernel, core: []const u8) Error![]const []const u8 {
-    // what getarch's `config.h` defines, where it knows the core
-    if (try map.getarch(core)) |d| return d;
-    const out = try a.alloc([]const u8, 1);
-    out[0] = try a.print("-D{s}", .{core});
-    return out;
-}
+const arch_table = @import("../arches.zig");
 
 /// Fixes for bugs in the LSX/LASX sources, still in OpenBLAS v0.3.34-317;
 /// the qemu rig's per-core tests found each one.
@@ -376,13 +364,12 @@ fn nrm2Forwards(comptime shift: []const u8) []const u8 {
 }
 
 pub const loongarch64: arch.Arch = .{
-    .name = "loongarch64",
+    .arch = arch_table.loongarch64,
     .triple = "loongarch64-linux-gnu",
     // getarch's `config.h` defines `__64BIT__` for a 64-bit build; without it
     // `LDARG` is `ld.w`, which truncates a pointer passed on the stack
     .config_h = "#define ARCH_LOONGARCH64 1\n#define BINARY64 1\n#define __64BIT__ 1\n",
     .defines = &.{ "-DASSEMBLER", "-DARCH_LOONGARCH64", "-DASMNAME=k", "-DASMFNAME=k_", "-DNAME=k_", "-DCNAME=k", "-DOS_LINUX" },
-    .core_defines = coreDefines,
     .patches = &patches,
     .retired = &retired,
 };

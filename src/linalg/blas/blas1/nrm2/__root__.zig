@@ -97,10 +97,12 @@ fn checkNrm2(comptime T: type, kern: anytype) !void {
 }
 
 fn checkAll(vt: *const Vtable) !void {
-    try checkNrm2(f32, vt.snrm2_k.?);
-    try checkNrm2(f64, vt.dnrm2_k.?);
-    try checkNrm2(std.math.Complex(f32), vt.cnrm2_k.?);
-    try checkNrm2(std.math.Complex(f64), vt.znrm2_k.?);
+    var failed: ?anyerror = null;
+    check.keep(&failed, checkNrm2(f32, vt.snrm2_k.?));
+    check.keep(&failed, checkNrm2(f64, vt.dnrm2_k.?));
+    check.keep(&failed, checkNrm2(std.math.Complex(f32), vt.cnrm2_k.?));
+    check.keep(&failed, checkNrm2(std.math.Complex(f64), vt.znrm2_k.?));
+    if (failed) |e| return e;
 }
 
 /// Magnitudes by element, as powers of two: a cycle through `exps`.
@@ -168,9 +170,8 @@ fn checkAccuracy(vt: *const Vtable) !void {
 }
 
 test "portable nrm2: within an ulp for s and c, of n/2 for d and z, denormal to near the largest" {
-    var vt: Vtable = .{};
-    installGeneric(&vt);
-    try checkAccuracy(&vt);
+    const vt = check.portableVtable();
+    try checkAccuracy(vt);
 }
 
 test "every linked core's nrm2: within an ulp for s and c, of n/2 for d and z, denormal to near the largest" {
@@ -178,9 +179,8 @@ test "every linked core's nrm2: within an ulp for s and c, of n/2 for d and z, d
 }
 
 test "portable nrm2 kernels match a plain loop" {
-    var vt: Vtable = .{};
-    installGeneric(&vt);
-    try checkAll(&vt);
+    const vt = check.portableVtable();
+    try checkAll(vt);
     try checkNrm2(XDouble, vt.qnrm2_k.?);
     try checkNrm2(std.math.Complex(XDouble), vt.xnrm2_k.?);
 }

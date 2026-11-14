@@ -4,11 +4,11 @@
 //
 // var pixels: std.ArrayList(u8) = .empty;
 // defer pixels.deinit(alloc);
-// const bmp = try sfnt.glyphBitmap(alloc, &pixels, glyph, scale, scale);
+// const bmp = try font.render.rasterize.glyphBitmap(sfnt, alloc, &pixels, glyph, scale, scale);
 // // pixels.items[0 .. bmp.width * bmp.height] is the 8-bit coverage bitmap;
 // // bmp.off_x/off_y is where it sits relative to the glyph origin.
 
-// var atlas = try sfnt.buildTextAtlas(alloc, "Hello, world!", 32, 0, 0, .{ .type = .msdf });
+// var atlas = try font.render.atlas.buildTextAtlas(sfnt, alloc, "Hello, world!", 32, 0, 0, .{ .type = .msdf });
 // defer atlas.deinit(alloc);
 // atlas.pixels is one shared texture (kerning-aware, left to right);
 // atlas.glyphs[i].{pos,size,atlas_pos} place each glyph both on screen
@@ -18,13 +18,9 @@ pub const Sfnt = @import("Sfnt.zig");
 pub const types = @import("types.zig");
 pub const aux_types = @import("aux_types.zig");
 pub const tables = @import("tables/__root__.zig");
-// old paths of font.render and font.msdf, still used by rgui
-pub const render = @import("../render/__root__.zig");
-pub const msdf = @import("../msdf/__root__.zig");
 const zigstd = @import("../../../zigstd.zig");
 
 pub const Vertex = aux_types.Vertex;
-pub const BitmapBox = render.bounds.BitmapBox;
 
 test {
     zigstd.testRefAllDecls(@This());

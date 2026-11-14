@@ -14,6 +14,7 @@ const portable = @import("../portable.zig");
 const bf = @import("../ext/bf16/__root__.zig");
 const accel = @import("../apple_accel.zig");
 const threading = @import("../threading.zig");
+const Ops = @import("ops.zig").Ops;
 const Op = portable.Op;
 
 const Allocator = std.mem.Allocator;
@@ -51,15 +52,6 @@ const isOne = util.isOne;
 
 const isZero = util.isZero;
 
-/// `y := beta*y` over `n` elements at the unadjusted `y`, the way the
-/// reference does it: with the scal kernel's flag 0, so a zero `beta`
-/// overwrites NaN.
-fn scaleY(comptime T: type, n: isize, beta: T, y: [*]T, incy: isize) void {
-    const py = raw(T, y);
-    const inc: BlasLong = @intCast(@abs(incy));
-    _ = @call(.auto, portable.fetch(T, .scal_k, blas.vtable), .{ n, 0, 0 } ++ util.scalarArgs(T, beta) ++ .{ py, inc, py, 0, py, 0 });
-}
-
 // ---- scratch buffer ----------------------------------------------------------
 
 /// `MAX_STACK_ALLOC`, in every level-2 driver.
@@ -96,7 +88,7 @@ pub fn gemv(allocator: Allocator, io: Io, comptime T: type, trans: Trans, m: isi
     if (!util.fits(lenx, incx, @sizeOf(T))) return error.InvalidIncx;
     if (!util.fits(leny, incy, @sizeOf(T))) return error.InvalidIncy;
     if (try accel.gemv(io, T, trans, m, n, alpha, a, lda, x, incx, beta, y, incy)) return;
-    if (!isOne(T, beta)) scaleY(T, leny, beta, y, incy);
+    if (!isOne(T, beta)) Ops(T).init().scal(leny, beta, y, @intCast(@abs(incy)));
     if (isZero(T, alpha)) return;
     switch (trans) {
         inline else => |t| {
@@ -116,11 +108,6 @@ const quantum = 64;
 /// x86_64's kernels take rows in blocks of up to 4096 (`NBMAX`), the last
 /// block's remainder first (`gemv/driver.zig`), so only whole blocks split.
 const gemv_rows = 4096;
-
-/// The `op` kernel of `T` on `m` by `n`.
-fn gemvCall(comptime T: type, comptime op: Op, m: isize, n: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, y: [*]T, incy: isize, buf: [*]Float(T)) void {
-    _ = @call(.auto, portable.fetch(T, op, blas.vtable), .{ m, n, 0 } ++ util.scalarArgs(T, alpha) ++ .{ raw(T, a), lda, raw(T, x), incx, raw(T, y), incy, buf });
-}
 
 fn gemvRun(allocator: Allocator, io: Io, comptime T: type, comptime t: Trans, m: isize, n: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) (Allocator.Error || Io.Cancelable)!void {
     const F = Float(T);
@@ -161,7 +148,7 @@ fn gemvRun(allocator: Allocator, io: Io, comptime T: type, comptime t: Trans, m:
                 const s: isize = @intCast(c.start);
                 const pa: [*]T = @ptrCast(util.at(T, g.a, if (tr) s * g.lda else s));
                 const py: [*]T = @ptrCast(util.at(T, g.y, s * g.incy));
-                gemvCall(T, op, @intCast(d[0]), @intCast(d[1]), g.alpha, pa, g.lda, g.x, g.incx, py, g.incy, part.ptr);
+                Ops(T).init().gemvK(op, @intCast(d[0]), @intCast(d[1]), g.alpha, pa, g.lda, g.x, g.incx, py, g.incy, part.ptr);
             }
         };
         const g: G = .{ .m = m, .n = n, .alpha = alpha, .a = a, .lda = lda, .x = x, .incx = incx, .y = y, .incy = incy };
@@ -174,7 +161,7 @@ fn gemvRun(allocator: Allocator, io: Io, comptime T: type, comptime t: Trans, m:
     // x86_64, for `cgemv_t.S` (<https://github.com/OpenMathLib/OpenBLAS/issues/746>,
     // `interface/zgemv.c:250`, v0.3.34-317), which no core here takes; no
     // kernel here lets what the buffer held reach `y` (`buffers.md`)
-    gemvCall(T, op, m, n, alpha, a, lda, x, incx, y, incy, sc.ptr);
+    Ops(T).init().gemvK(op, m, n, alpha, a, lda, x, incx, y, incy, sc.ptr);
 }
 
 // ---- half-precision gemv -----------------------------------------------------
@@ -395,7 +382,7 @@ fn mv(allocator: Allocator, io: Io, comptime T: type, comptime base: []const u8,
     if (!util.fits(n, incx, @sizeOf(T))) return error.InvalidIncx;
     if (!util.fits(n, incy, @sizeOf(T))) return error.InvalidIncy;
     if (accel.symv(T, base[0] == 'h', uplo, n, alpha, a, lda, x, incx, beta, y, incy)) return;
-    if (!isOne(T, beta)) scaleY(T, n, beta, y, incy);
+    if (!isOne(T, beta)) Ops(T).init().scal(n, beta, y, @intCast(@abs(incy)));
     if (isZero(T, alpha)) return;
     const px = first(T, x, n, incx);
     const py = first(T, y, n, incy);
@@ -436,7 +423,7 @@ fn mvRun(allocator: Allocator, io: Io, comptime T: type, comptime name: []const 
     // x86_64's SSE `symv` and `hemv` read past their copies of `x` and `y`,
     // and NaN there reaches `y`
     if (sysinfo.target.cpu.arch == .x86_64) @memset(sc.slice(), 0);
-    mvCall(T, op, n, n, alpha, a, lda, x, incx, y, incy, sc.ptr);
+    Ops(T).init().mv(op, n, n, alpha, a, lda, x, incx, y, incy, sc.ptr);
 }
 
 /// Bytes of buffer the core's `symv` or `hemv` kernel of `m` needs, whichever
@@ -444,11 +431,6 @@ fn mvRun(allocator: Allocator, io: Io, comptime T: type, comptime name: []const 
 fn mvBytes(comptime F: type, comptime complex: bool, m: usize, unit_x: bool, unit_y: bool) usize {
     const cs = if (complex) 2 else 1;
     return @max(sym.composeBytes(F, cs, m, unit_x, unit_y), sym.sseBytes(F, cs, m));
-}
-
-/// The `op` kernel on the columns `offset` selects of an `m` by `m` triangle.
-fn mvCall(comptime T: type, comptime op: Op, m: isize, offset: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, y: [*]T, incy: isize, buf: [*]Float(T)) void {
-    _ = @call(.auto, portable.fetch(T, op, blas.vtable), .{ m, offset } ++ util.scalarArgs(T, alpha) ++ .{ raw(T, a), lda, raw(T, x), incx, raw(T, y), incy, buf });
 }
 
 /// `symv_thread.c`'s split over `p`'s column chunks: each chunk's columns
@@ -488,7 +470,7 @@ fn mvChunks(allocator: Allocator, io: Io, comptime T: type, comptime op: Op, com
             if (sysinfo.target.cpu.arch == .x86_64) @memset(b, 0);
             const c0: isize = @intCast(c.start);
             const off: isize = if (lower) c0 else 0;
-            mvCall(T, op, @intCast(g.m(c)), @intCast(c.end - c.start), g.alpha, @ptrCast(util.at(T, g.a, off * (g.lda + 1))), g.lda, @ptrCast(util.at(T, g.x, off * g.incx)), g.incx, part.ptr, 1, @ptrCast(@alignCast(b.ptr)));
+            Ops(T).init().mv(op, @intCast(g.m(c)), @intCast(c.end - c.start), g.alpha, @ptrCast(util.at(T, g.a, off * (g.lda + 1))), g.lda, @ptrCast(util.at(T, g.x, off * g.incx)), g.incx, part.ptr, 1, @ptrCast(@alignCast(b.ptr)));
         }
     };
     var g: G = .{ .n = nu, .alpha = alpha, .a = a, .lda = lda, .x = x, .incx = incx, .direct = direct, .parts = undefined };

@@ -109,12 +109,12 @@ pub fn main(init: std.process.Init) !void {
             const v = a[eq + 1 ..];
             const k = std.meta.stringToEnum(Opt, a[2..eq]) orelse return error.BadOption;
             switch (k) {
-                .openblas => opts.paths[0] = v,
-                .blis => opts.paths[1] = v,
-                .accelerate => opts.paths[2] = v,
-                .reference => opts.paths[3] = v,
-                .eigen => opts.paths[4] = v,
-                .@"aocl-libflame" => opts.paths[5] = v,
+                .openblas => opts.paths.set(.openblas, v),
+                .blis => opts.paths.set(.blis, v),
+                .accelerate => opts.paths.set(.accelerate, v),
+                .reference => opts.paths.set(.reference, v),
+                .eigen => opts.paths.set(.eigen, v),
+                .@"aocl-libflame" => opts.paths.set(.aoclflame, v),
                 .threads => {
                     opts.threads = if (std.mem.eql(u8, v, "default")) null else std.fmt.parseInt(u31, v, 10) catch return error.BadOption;
                     if (opts.threads == 0) return error.BadOption;
@@ -171,7 +171,7 @@ pub fn main(init: std.process.Init) !void {
     // only when named: it times rstd alone, which the flyoff's runs don't want
     if (!alone and want(sections.items, "kern3")) try ownLevel3(io, gpa);
     const lib_sections = want(sections.items, "lib1") or want(sections.items, "lib2") or want(sections.items, "lib3") or want(sections.items, "lapack");
-    if (lib_sections or (all and (opts.paths[0] != null or alone))) {
+    if (lib_sections or (all and (opts.paths.get(.openblas) != null or alone))) {
         try loadLibs(opts);
         if (all or want(sections.items, "lib1")) try libLevel1(io, gpa);
         if (all or want(sections.items, "lib2")) try libLevel2(io, gpa);
@@ -273,7 +273,7 @@ const peak_text = blk: {
 const LoopCtx = struct {
     iters: usize,
     f: *const fn (usize) void,
-    fn run(o: *anyopaque) void {
+    pub fn run(o: *anyopaque) void {
         const c: *LoopCtx = @ptrCast(@alignCast(o));
         c.f(c.iters);
     }
@@ -283,7 +283,7 @@ const LoopCtx = struct {
 fn ghz(io: Io) !f64 {
     var ctx: LoopCtx = .{ .iters = 1_000_000, .f = clockLoop };
     var out: [1]f64 = undefined;
-    try bench.race(io, .{ .min_ns = 5 * std.time.ns_per_ms, .batches = 9 }, &.{.{ .ctx = &ctx, .run = LoopCtx.run }}, &out);
+    try bench.race(io, .{ .min_ns = 5 * std.time.ns_per_ms, .batches = 9 }, &.{.of(&ctx)}, &out);
     return 8.0 * @as(f64, @floatFromInt(ctx.iters)) / out[0] / 1e9;
 }
 
@@ -304,7 +304,7 @@ fn probe(io: Io) !void {
         }
     }.f };
     var out: [2]f64 = undefined;
-    try bench.race(io, l1_timing, &.{ .{ .ctx = &s, .run = LoopCtx.run }, .{ .ctx = &d, .run = LoopCtx.run } }, &out);
+    try bench.race(io, l1_timing, &.{ .of(&s), .of(&d) }, &out);
     const flops = 16.0 * 2.0 * @as(f64, @floatFromInt(s.iters));
     std.debug.print("peak fmla: {d:.1} GFLOP/s single, {d:.1} double\n", .{ flops * 4 / out[0] / 1e9, flops * 2 / out[1] / 1e9 });
     try clock(io, "probe");

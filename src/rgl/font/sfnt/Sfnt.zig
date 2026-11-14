@@ -4,12 +4,10 @@ const zigstd = @import("../../../zigstd.zig");
 const tables = @import("tables/__root__.zig");
 const types = @import("types.zig");
 const aux_types = @import("aux_types.zig");
-const render = @import("../render/__root__.zig");
 const charstring = @import("tables/cff/charstring.zig");
 const glyf_shape = @import("tables/glyf/shape.zig");
 
 const Vertex = aux_types.Vertex;
-const rasterize = render.rasterize;
 const Allocator = zigstd.Allocator;
 const GlyphIndex = types.GlyphIndex;
 const typeBEToNative = bytes.typeBEToNative;
@@ -302,12 +300,6 @@ pub fn glyphKernAdvance(self: Self, a: GlyphIndex, b: GlyphIndex) i16 {
     if (self.kern) |kern| return kern.getKernValue(a, b) orelse 0;
     return 0;
 }
-
-pub const glyphBitmap = rasterize.glyphBitmap;
-pub const glyphBitmapSubpixel = rasterize.glyphBitmapSubpixel;
-pub const glyphBitmapBoxSubpixel = render.bounds.glyphBitmapBoxSubpixel;
-pub const glyphBitmapBox = render.bounds.glyphBitmapBox;
-pub const buildTextAtlas = render.atlas.buildTextAtlas;
 
 const setU16BE = bytes.setU16BE;
 const setU32BE = bytes.setU32BE;

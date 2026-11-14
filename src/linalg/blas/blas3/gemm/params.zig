@@ -10,6 +10,7 @@ const data = @import("params_data.zig");
 const coretypes = @import("../../cpu/coretypes.zig");
 const corespec = @import("../../cpu/corespec.zig");
 const select = @import("../../cpu/select.zig");
+const cache = @import("../../cpu/detect/cache.zig");
 const driver = @import("../driver.zig");
 const slots = @import("../../slots.zig");
 const small = @import("small.zig");
@@ -126,65 +127,11 @@ pub const Env = struct {
     }
 };
 
-/// The cache sizes of this machine where an instruction gives them: cpuid on
-/// x86 (`get_l2_size` / `get_l3_size`) and cpucfg on LoongArch. Elsewhere, and
-/// where the answer is zero, the defaults stand (OpenBLAS assumes 256 KB on x86
-/// and 512 KB on RISC-V, which reads sysfs and so needs an OS).
+/// This machine's cache sizes (`cpu/detect/cache.zig`), the rest at their
+/// defaults.
 pub fn detect() Env {
-    var env: Env = .{};
-    switch (sysinfo.target.cpu.arch) {
-        .x86_64, .x86 => {
-            const id = cpuid(0x80000006, 0);
-            const l2: i32 = @intCast((id.ecx >> 16) & 0xffff);
-            env.l2_kb = if (l2 > 0) l2 else 256;
-            env.l3_kb = @intCast(((id.edx >> 18) & 0x3fff) * 512);
-            const vendor = cpuid(0, 0);
-            const leaf7 = cpuid(7, 0);
-            // "Auth" of "AuthenticAMD"
-            env.amd_avx512 = vendor.ebx == 0x68747541 and (leaf7.ebx & (1 << 16)) != 0;
-        },
-        .loongarch64 => {
-            const cfg = cpucfg(0x14);
-            const mb = ((cfg & 0xffff) + 1) * (@as(u64, 1) << @intCast((cfg >> 16) & 0xff)) * (@as(u64, 1) << @intCast((cfg >> 24) & 0x7f)) / 1024 / 1024;
-            env.l3_kb = @intCast(mb * 1024);
-            env.prid = @truncate(cpucfg(0));
-        },
-        else => {},
-    }
-    return env;
-}
-
-const CpuidResult = struct { eax: u32, ebx: u32, ecx: u32, edx: u32 };
-
-fn cpuid(leaf: u32, sub: u32) CpuidResult {
-    switch (sysinfo.target.cpu.arch) {
-        .x86_64, .x86 => {
-            var a: u32 = undefined;
-            var b: u32 = undefined;
-            var c: u32 = undefined;
-            var d: u32 = undefined;
-            asm volatile ("cpuid"
-                : [a] "={eax}" (a),
-                  [b] "={ebx}" (b),
-                  [c] "={ecx}" (c),
-                  [d] "={edx}" (d),
-                : [leaf] "{eax}" (leaf),
-                  [sub] "{ecx}" (sub),
-            );
-            return .{ .eax = a, .ebx = b, .ecx = c, .edx = d };
-        },
-        else => return .{ .eax = 0, .ebx = 0, .ecx = 0, .edx = 0 },
-    }
-}
-
-fn cpucfg(word: u32) u64 {
-    switch (sysinfo.target.cpu.arch) {
-        .loongarch64 => return asm volatile ("cpucfg %[ret], %[id]"
-            : [ret] "=r" (-> u64),
-            : [id] "r" (word),
-        ),
-        else => return 0,
-    }
+    const c = cache.detect();
+    return .{ .l2_kb = c.l2_kb, .l3_kb = c.l3_kb, .amd_avx512 = c.amd_avx512, .prid = c.prid };
 }
 
 // ---- the rules -------------------------------------------------------------
@@ -192,30 +139,30 @@ fn cpucfg(word: u32) u64 {
 /// `setparam-ref.c`'s L2 rules of the x86 cores whose `p` is open, the LA464
 /// override, and `parameter.c`'s `GENERIC` rule (`:451`), which is x86's
 /// (`installGeneric` takes `.none` off x86).
-pub fn ruleFor(comptime family: Family, comptime core_name: []const u8) Rule {
-    const eq = std.mem.eql;
-    if (comptime family == .generic) return .{ .affine = .{ .mul = .{ 56, 28, 28, 14, 14, 7 }, .shift = 6, .cap = 16 } };
-    // the old names are `getarch.c` aliases of these
-    if (comptime family == .loongarch64 and (eq(u8, core_name, "la464") or eq(u8, core_name, "loongson3r5"))) return .la464;
-    if (comptime family == .loongarch64 and (eq(u8, core_name, "la264") or eq(u8, core_name, "loongson2k1000"))) return .la264;
-    if (comptime family != .x86 and family != .x86_64) return .none;
-    // `setparam-ref.c:1600`, over Athlon's fixed header `p`
-    if (comptime eq(u8, core_name, "katmai") or eq(u8, core_name, "coppermine") or eq(u8, core_name, "banias") or
-        eq(u8, core_name, "yonah") or eq(u8, core_name, "athlon"))
-        return .{ .affine = .{ .mul = .{ 64, 32, 32, 16, 16, 8 } } };
-    // `setparam-ref.c` has no block for it: `parameter.c:46`'s `DEFAULT_GEMM_P`
-    if (comptime eq(u8, core_name, "p5"))
-        return .{ .affine = .{ .mul = .{ 0, 0, 0, 0, 0, 0 }, .add = .{ 128, 128, 128, 128, 128, 128 } } };
-    if (comptime eq(u8, core_name, "northwood")) return .{ .affine = .{ .mul = .{ 96, 48, 48, 24, 24, 12 } } };
-    if (comptime eq(u8, core_name, "atom")) return .{ .affine = .{ .mul = .{ 0, 0, 0, 0, 0, 0 }, .add = .{ 256, 128, 128, 64, 64, 32 } } };
-    if (comptime eq(u8, core_name, "prescott")) return .{ .affine = .{ .mul = .{ 56, 28, 28, 14, 14, 7 } } };
-    if (comptime eq(u8, core_name, "core2"))
-        return .{ .affine = .{ .mul = .{ 92, 46, 46, 23, 23, 11 }, .shift = 9, .add = .{ 8, 8, 4, 4, 4, 2 } } };
-    if (comptime eq(u8, core_name, "penryn") or eq(u8, core_name, "dunnington"))
-        return .{ .affine = .{ .mul = .{ 42, 42, 21, 21, 42, 21 }, .shift = 9, .add = .{ 8, 8, 4, 4, 8, 4 } } };
-    if (comptime eq(u8, core_name, "opteron") or eq(u8, core_name, "opteron_sse3"))
-        return .{ .affine = .{ .mul = .{ 56, 28, 28, 14, 14, 7 }, .add = .{ 224, 112, 112, 56, 56, 28 } } };
-    return .none;
+pub fn ruleFor(comptime family: Family, comptime core: CoreOf(family)) Rule {
+    return switch (family) {
+        .generic => .{ .affine = .{ .mul = .{ 56, 28, 28, 14, 14, 7 }, .shift = 6, .cap = 16 } },
+        // the old names are `getarch.c` aliases of these
+        .loongarch64 => switch (core) {
+            .la464, .loongson3r5 => .la464,
+            .la264, .loongson2k1000 => .la264,
+            else => .none,
+        },
+        .x86, .x86_64 => switch (core) {
+            // `setparam-ref.c:1600`, over Athlon's fixed header `p`
+            .katmai, .coppermine, .banias, .yonah, .athlon => .{ .affine = .{ .mul = .{ 64, 32, 32, 16, 16, 8 } } },
+            // `setparam-ref.c` has no block for it: `parameter.c:46`'s `DEFAULT_GEMM_P`
+            .p5 => .{ .affine = .{ .mul = .{ 0, 0, 0, 0, 0, 0 }, .add = .{ 128, 128, 128, 128, 128, 128 } } },
+            .northwood => .{ .affine = .{ .mul = .{ 96, 48, 48, 24, 24, 12 } } },
+            .atom => .{ .affine = .{ .mul = .{ 0, 0, 0, 0, 0, 0 }, .add = .{ 256, 128, 128, 64, 64, 32 } } },
+            .prescott => .{ .affine = .{ .mul = .{ 56, 28, 28, 14, 14, 7 } } },
+            .core2 => .{ .affine = .{ .mul = .{ 92, 46, 46, 23, 23, 11 }, .shift = 9, .add = .{ 8, 8, 4, 4, 4, 2 } } },
+            .penryn, .dunnington => .{ .affine = .{ .mul = .{ 42, 42, 21, 21, 42, 21 }, .shift = 9, .add = .{ 8, 8, 4, 4, 8, 4 } } },
+            .opteron, .opteron_sse3 => .{ .affine = .{ .mul = .{ 56, 28, 28, 14, 14, 7 }, .add = .{ 224, 112, 112, 56, 56, 28 } } },
+            else => .none,
+        },
+        else => .none,
+    };
 }
 
 /// One precision's set of `p`, `q`, `r`.
@@ -289,12 +236,12 @@ fn setPrec(vt: *Vtable, comptime g: Gemm, sh: Shape, r: Resolved) void {
 }
 
 /// Fills the vtable's blocking parameters for a core of `family`.
-pub fn install(vt: *Vtable, comptime family: Family, comptime core_name: []const u8, table: Table, env: Env) void {
-    installRule(vt, family, core_name, table, env, comptime ruleFor(family, core_name));
+pub fn install(vt: *Vtable, comptime family: Family, comptime core: CoreOf(family), table: Table, env: Env) void {
+    installRule(vt, family, core, table, env, comptime ruleFor(family, core));
 }
 
 /// `install` under `rule`.
-fn installRule(vt: *Vtable, comptime family: Family, comptime core_name: []const u8, table: Table, env: Env, comptime rule: Rule) void {
+fn installRule(vt: *Vtable, comptime family: Family, comptime core: CoreOf(family), table: Table, env: Env, comptime rule: Rule) void {
     const x86 = comptime (family == .x86 or family == .x86_64);
 
     vt.offsetA = table.offset_a;
@@ -333,8 +280,10 @@ fn installRule(vt: *Vtable, comptime family: Family, comptime core_name: []const
 
     if (comptime family == .x86_64) {
         // AMD parts with AVX-512 run the Skylake-X kernels on other blocking
-        const eq = std.mem.eql;
-        const skx = comptime (eq(u8, core_name, "skylakex") or eq(u8, core_name, "cooperlake") or eq(u8, core_name, "sapphirerapids"));
+        const skx = comptime switch (core) {
+            .skylakex, .cooperlake, .sapphirerapids => true,
+            else => false,
+        };
         if (skx and env.amd_avx512 and env.l3_kb > 0 and @rem(env.l3_kb, 32768) == 0 and env.l2_kb == 1024) {
             const pq = [4][2]i32{ .{ 384, 512 }, .{ 512, 512 }, .{ 160, 480 }, .{ 176, 256 } };
             inline for (0..4) |i| res[i] = .{ .p = pq[i][0], .q = pq[i][1], .r = 0 };
@@ -504,7 +453,7 @@ fn familyBranch(family: Family) GenericBranch {
 pub fn installGeneric(vt: *Vtable, comptime branch: GenericBranch, buffer_size: i64, env: Env) void {
     var table = (if (branch == .x86) data.generic(.generic) else data.generic_off_x86(branch)).?;
     table.buffer_size = buffer_size;
-    installRule(vt, .generic, "generic", table, env, comptime if (branch == .x86) ruleFor(.generic, "generic") else .none);
+    installRule(vt, .generic, .generic, table, env, comptime if (branch == .x86) ruleFor(.generic, .generic) else .none);
 }
 
 /// `BUFFER_SIZE` of the generic table on a target: its own, since OpenBLAS's
@@ -539,7 +488,7 @@ pub fn installCore(vt: *Vtable, comptime family: Family, core: CoreOf(family), e
             if (comptime family == .generic) {
                 installGeneric(vt, native_branch, native_buffer_size, env);
             } else if (tableFor(family, c)) |table| {
-                install(vt, family, @tagName(c), table, env);
+                install(vt, family, c, table, env);
             } else {
                 installGeneric(vt, comptime familyBranch(family), @field(data, @tagName(family) ++ "_buffer_size"), env);
             }

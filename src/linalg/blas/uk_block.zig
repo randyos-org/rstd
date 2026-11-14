@@ -45,17 +45,22 @@ pub const Entry = struct {
     own: type = void,
 };
 
-/// The row of `entries` for `slot` on `core`, if its driver is C.
-pub fn find(comptime entries: []const Entry, comptime slot: Slot, comptime core: []const u8) ?Entry {
+/// The row of `entries` for `slot` on `core`, its architecture's core enum,
+/// if its driver is C.
+pub fn find(comptime entries: []const Entry, comptime slot: Slot, comptime core: anytype) ?Entry {
     @setEvalBranchQuota(1_000_000);
     inline for (entries) |e| {
-        if (comptime e.slot == slot) {
-            inline for (e.cores) |c| {
-                if (comptime std.mem.eql(u8, @tagName(c), core)) return e;
-            }
-        }
+        if (comptime e.slot == slot and lists(e, core)) return e;
     }
     return null;
+}
+
+/// Whether `e` names `core`.
+fn lists(comptime e: Entry, comptime core: anytype) bool {
+    inline for (e.cores) |c| {
+        if (c == core) return true;
+    }
+    return false;
 }
 
 /// The kernel `slot` of the core whose entry is `e`. `Driver` is the routine's
@@ -114,13 +119,10 @@ pub fn Kernels(
         /// combines the two.
         fn found(comptime core: Core, comptime slot: Slot) ?Entry {
             @setEvalBranchQuota(1_000_000);
-            const e = ukidx.find(slot, @tagName(core)) orelse return null;
+            const e = ukidx.find(slot, core) orelse return null;
             var count: usize = 0;
-            for (ukidx.entries) |x| {
-                if (x.slot != slot) continue;
-                inline for (x.cores) |c| {
-                    if (comptime std.mem.eql(u8, @tagName(c), @tagName(core))) count += 1;
-                }
+            inline for (ukidx.entries) |x| {
+                if (comptime x.slot == slot and lists(x, core)) count += 1;
             }
             return if (count == 1) e else null;
         }
@@ -149,7 +151,7 @@ pub fn Kernels(
                 if (comptime asm_kernels.hasSlot(core, slot)) {
                     asm_kernels.exportOne(slot, core);
                 } else if (comptime found(core, slot)) |e| {
-                    const k = if (@hasDecl(Driver, "entryOf")) Driver.entryOf(slot, @tagName(core), e, Vector) else driven(Driver, slot, e, Vector);
+                    const k = if (@hasDecl(Driver, "entryOf")) Driver.entryOf(slot, core, e, Vector) else driven(Driver, slot, e, Vector);
                     registry.exportKernel(k, slot, core);
                 }
             }

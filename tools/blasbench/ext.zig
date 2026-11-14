@@ -3,7 +3,6 @@
 const std = @import("std");
 const Io = std.Io;
 const rstd = @import("rstd");
-const bench = @import("bench.zig");
 const bb = @import("blas_bench.zig");
 const kernels = @import("kernels.zig");
 const libs = @import("libs.zig");
@@ -24,14 +23,11 @@ const l2_bytes = kernels.l2_bytes;
 
 const cast = libs.cast;
 const Col = libs.Col;
-const Diff = libs.Diff;
 const fail = libs.fail;
 const lib_cols = libs.lib_cols;
 const lookupF = libs.lookupF;
 const Num = libs.Num;
 const printHeader = libs.printHeader;
-const printRow = libs.printRow;
-const Rstd = libs.Rstd;
 const rstd_alloc = libs.rstd_alloc;
 const rstd_col = libs.rstd_col;
 const rstdFirst = libs.rstdFirst;
@@ -518,7 +514,7 @@ fn ExtCall(comptime E: type, comptime p: Prec) type {
             if (s.f) |f| return E.lib(p, f, s.w);
             if (comptime hasRstd(E)) E.rstd(p, s.w) catch |e| fail(e);
         }
-        fn run(o: *anyopaque) void {
+        pub fn run(o: *anyopaque) void {
             const s: *@This() = @ptrCast(@alignCast(o));
             s.call();
         }
@@ -549,13 +545,8 @@ fn raceExt(io: Io, gpa: std.mem.Allocator, comptime E: type, comptime table_leve
         if (n > libs.n_max) continue;
         try w.setup(gpa, E, n);
         const len = outLen(E, p, n);
-        var ctxs: [ext_cols.len]EC = undefined;
-        var calls: [ext_cols.len]bench.Call = undefined;
-        var at: [ext_cols.len]?usize = @splat(null);
-        var diffs: [ext_cols.len]?Diff = @splat(null);
-        var count: usize = 0;
+        var es: libs.Entrants(EC, ext_cols.len) = .{};
         var ok = true;
-        var mine: Rstd = .{};
         var have_mine = false;
         for (0..ext_cols.len) |o| {
             const i = rstdFirst(o);
@@ -564,9 +555,9 @@ fn raceExt(io: Io, gpa: std.mem.Allocator, comptime E: type, comptime table_leve
             if (i == rstd_col) {
                 if (!comptime hasRstd(E)) continue;
             } else if (fns[i] == null) continue;
-            ctxs[count] = .{ .f = fns[i], .w = &w };
+            const ctx = es.add(i, .{ .f = fns[i], .w = &w });
             w.reset(E);
-            ctxs[count].call();
+            ctx.call();
             if (libs.lib_err) |err| return err;
             const e = checkExt(E, p, &w);
             if (w.info != 0 or (e != null and e.? > wrongLimit(E, n))) {
@@ -576,23 +567,15 @@ fn raceExt(io: Io, gpa: std.mem.Allocator, comptime E: type, comptime table_leve
             const got = w.out(E);
             if (i == rstd_col) {
                 @memcpy(kout[0..len], got);
-                mine = .{ .err = e, .bits = std.hash.Wyhash.hash(0, std.mem.sliceAsBytes(got)) };
+                es.mine = .{ .err = e, .bits = std.hash.Wyhash.hash(0, std.mem.sliceAsBytes(got)) };
                 have_mine = true;
-            } else if (have_mine and col.lib != null) diffs[i] = .{ .eps = diffNorm(p.F, kout[0..len], got), .bound = sumBound(terms(E, n)) };
-            at[i] = count;
-            count += 1;
+            } else if (have_mine and col.lib != null) es.diffs[i] = .{ .eps = diffNorm(p.F, kout[0..len], got), .bound = sumBound(terms(E, n)) };
         }
-        if (!ok or count == 0) continue;
-        for (0..count) |k| calls[k] = .{ .ctx = &ctxs[k], .run = EC.run };
+        if (!ok or es.count == 0) continue;
         w.reset(E);
-        var secs: [ext_cols.len]f64 = undefined;
-        try bench.race(io, timing, calls[0..count], &secs);
-        if (libs.lib_err) |err| return err;
-        const flops = E.flops(@floatFromInt(n)) * @as(f64, if (p.complex) 4 else 1);
-        var rates: [ext_cols.len]?f64 = undefined;
-        for (at, &rates) |j, *rt| rt.* = if (j) |k| flops / secs[k] / 1e9 else null;
+        const rates = try es.race(io, timing, E.flops(@floatFromInt(n)) * @as(f64, if (p.complex) 4 else 1));
         std.debug.print("| {s} | {s} | {d} | ", .{ E.name, p.name, n });
-        printRow(&ext_cols, &rates, &diffs, mine);
+        es.print(&ext_cols, &rates);
     }
 }
 

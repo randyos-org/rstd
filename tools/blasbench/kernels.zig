@@ -124,10 +124,23 @@ pub fn Bufs(comptime F: type) type {
     };
 }
 
-/// Element `k` of a vector at stride `inc`, widened, as (re, im).
-fn elem(comptime p: Prec, v: []const p.F, k: usize, inc: usize) [2]f64 {
+/// A widened element, real ones with a zero imaginary part.
+const Cf = std.math.Complex(f64);
+
+/// Element `k` of a vector at stride `inc`, widened.
+fn elem(comptime p: Prec, v: []const p.F, k: usize, inc: usize) Cf {
     const at = k * inc * p.cs();
-    return .{ v[at], if (p.complex) v[at + 1] else 0 };
+    return .init(v[at], if (p.complex) v[at + 1] else 0);
+}
+
+/// Part `q` of `c`: 0 its real part, 1 its imaginary.
+fn part(c: Cf, q: usize) f64 {
+    return if (q == 0) c.re else c.im;
+}
+
+/// `|re| + |im|`, the size of `c`'s terms.
+fn size(c: Cf) f64 {
+    return @abs(c.re) + @abs(c.im);
 }
 
 /// Whether float `i` of a vector of `n` at stride `inc` belongs to it.
@@ -138,27 +151,25 @@ fn visited(comptime p: Prec, i: usize, n: usize, inc: usize) bool {
 
 /// What reduction `r` should give, (re, im), and the size of its terms.
 pub fn l1Scalar(comptime r: L1, comptime p: Prec, b: Bufs(p.F), n: usize, inc: usize) struct { want: [2]f64, scale: f64 } {
-    var re: f64 = 0;
-    var im: f64 = 0;
+    var sum: Cf = .init(0, 0);
     var mag: f64 = 0;
     for (0..n) |k| {
         const xv = elem(p, b.x0, k, inc);
         const yv = elem(p, b.y0, k, inc);
         switch (r) {
             .dot => {
-                re += xv[0] * yv[0] - xv[1] * yv[1];
-                im += xv[0] * yv[1] + xv[1] * yv[0];
-                mag += (@abs(xv[0]) + @abs(xv[1])) * (@abs(yv[0]) + @abs(yv[1]));
+                sum = sum.add(xv.mul(yv));
+                mag += size(xv) * size(yv);
             },
-            .nrm2 => re += xv[0] * xv[0] + xv[1] * xv[1],
-            .asum => re += @abs(xv[0]) + @abs(xv[1]),
+            .nrm2 => sum.re += xv.re * xv.re + xv.im * xv.im,
+            .asum => sum.re += size(xv),
             else => comptime unreachable,
         }
     }
     return switch (r) {
-        .dot => .{ .want = .{ re, im }, .scale = mag },
-        .nrm2 => .{ .want = .{ @sqrt(re), 0 }, .scale = @sqrt(re) },
-        .asum => .{ .want = .{ re, 0 }, .scale = re },
+        .dot => .{ .want = .{ sum.re, sum.im }, .scale = mag },
+        .nrm2 => .{ .want = .{ @sqrt(sum.re), 0 }, .scale = @sqrt(sum.re) },
+        .asum => .{ .want = .{ sum.re, 0 }, .scale = sum.re },
         else => comptime unreachable,
     };
 }
@@ -168,35 +179,33 @@ pub fn l1Scalar(comptime r: L1, comptime p: Prec, b: Bufs(p.F), n: usize, inc: u
 pub fn l1Elem(comptime r: L1, comptime p: Prec, b: Bufs(p.F), k: usize, inc: usize, q: usize) [4]f64 {
     const x0 = elem(p, b.x0, k, inc);
     const y0 = elem(p, b.y0, k, inc);
-    var wx = x0[q];
-    var wy = y0[q];
-    var sx: f64 = @abs(x0[q]);
-    var sy: f64 = @abs(y0[q]);
+    var wx = part(x0, q);
+    var wy = part(y0, q);
+    var sx: f64 = @abs(part(x0, q));
+    var sy: f64 = @abs(part(y0, q));
     switch (r) {
         .axpy => {
             const al = rounded(p, axpy_alpha);
-            const a: [2]f64 = if (p.complex) .{ al, al } else .{ al, 0 };
-            const t: [2]f64 = .{ a[0] * x0[0] - a[1] * x0[1], a[0] * x0[1] + a[1] * x0[0] };
-            wy = y0[q] + t[q];
-            sy = @abs(y0[q]) + @abs(a[0]) * (@abs(x0[0]) + @abs(x0[1])) + @abs(a[1]) * (@abs(x0[0]) + @abs(x0[1]));
+            const a: Cf = .init(al, if (p.complex) al else 0);
+            wy = part(y0, q) + part(a.mul(x0), q);
+            sy = @abs(part(y0, q)) + @abs(a.re) * size(x0) + @abs(a.im) * size(x0);
         },
         .scal => {
-            const a: [2]f64 = if (p.complex) .{ rounded(p, cscal_alpha[0]), rounded(p, cscal_alpha[1]) } else .{ scal_alpha, 0 };
-            const t: [2]f64 = .{ a[0] * x0[0] - a[1] * x0[1], a[0] * x0[1] + a[1] * x0[0] };
-            wx = t[q];
-            sx = @abs(x0[0]) + @abs(x0[1]);
+            const a: Cf = if (p.complex) .init(rounded(p, cscal_alpha[0]), rounded(p, cscal_alpha[1])) else .init(scal_alpha, 0);
+            wx = part(a.mul(x0), q);
+            sx = size(x0);
         },
-        .copy => wy = x0[q],
+        .copy => wy = part(x0, q),
         .swap => {
-            wx = y0[q];
-            wy = x0[q];
+            wx = part(y0, q);
+            wy = part(x0, q);
         },
         .rot => {
             const rc = rounded(p, rot_cs[0]);
             const rs = rounded(p, rot_cs[1]);
-            wx = rc * x0[q] + rs * y0[q];
-            wy = rc * y0[q] - rs * x0[q];
-            sx = @abs(x0[q]) + @abs(y0[q]);
+            wx = rc * part(x0, q) + rs * part(y0, q);
+            wy = rc * part(y0, q) - rs * part(x0, q);
+            sx = @abs(part(x0, q)) + @abs(part(y0, q));
             sy = sx;
         },
         else => comptime unreachable,
@@ -263,7 +272,7 @@ pub fn checkL1(comptime r: L1, comptime p: Prec, f: Fn(l1Slot(r, p)), n: usize, 
             const y1 = elem(p, b.y, k, inc);
             for (0..p.cs()) |q| {
                 const w = l1Elem(r, p, b, k, inc, q);
-                worst = @max(worst, Elem.err(x1[q], w[0], w[2], eps), Elem.err(y1[q], w[1], w[3], eps));
+                worst = @max(worst, Elem.err(part(x1, q), w[0], w[2], eps), Elem.err(part(y1, q), w[1], w[3], eps));
             }
         }
         // every float not in the vectors as it was
@@ -357,7 +366,7 @@ fn raceL1(io: Io, comptime r: L1, comptime p: Prec, b: Bufs(p.F)) !void {
                 ok = false;
             }
             ctxs[i] = .{ .f = fns[i], .n = @intCast(n), .inc = @intCast(case.inc), .x = b.x.ptr, .y = b.y.ptr };
-            calls[i] = .{ .ctx = &ctxs[i], .run = C.run };
+            calls[i] = .of(&ctxs[i]);
         }
         if (!ok) continue;
         b.reset();
@@ -470,7 +479,7 @@ fn raceGemv(io: Io, gpa: std.mem.Allocator, comptime p: Prec, comptime t: []cons
         var ok = true;
         for (0..count) |i| {
             ctxs[i] = .{ .f = fns[i], .n = @intCast(n), .a = a.ptr, .x = x.ptr, .y = y.ptr, .buf = buf.ptr };
-            calls[i] = .{ .ctx = &ctxs[i], .run = C.run };
+            calls[i] = .of(&ctxs[i]);
             @memcpy(y, y0);
             ctxs[i].call();
             const e = checkGemv(p, t[0] == 't', n, a, x, y, y0);
@@ -503,28 +512,24 @@ pub fn checkGemv(comptime p: Prec, trans: bool, n: usize, a: []const p.F, x: []c
     const eps: f64 = std.math.floatEps(p.F);
     const cs = p.cs();
     const g = rounded(p, gemv_alpha);
-    const al = [2]f64{ g, if (p.complex) g else 0 };
+    const al: Cf = .init(g, if (p.complex) g else 0);
     var worst: f64 = 0;
     for (0..n) |i| {
-        var re: f64 = 0;
-        var im: f64 = 0;
+        var sum: Cf = .init(0, 0);
         var mag: f64 = 0;
         for (0..n) |l| {
             // A(i, l) or A(l, i)
             const at = if (trans) (l + i * n) * cs else (i + l * n) * cs;
-            const av = [2]f64{ a[at], if (p.complex) a[at + 1] else 0 };
-            const xv = [2]f64{ x[l * cs], if (p.complex) x[l * cs + 1] else 0 };
-            re += av[0] * xv[0] - av[1] * xv[1];
-            im += av[0] * xv[1] + av[1] * xv[0];
-            mag += (@abs(av[0]) + @abs(av[1])) * (@abs(xv[0]) + @abs(xv[1]));
+            const av = elem(p, a, at / cs, 1);
+            const xv = elem(p, x, l, 1);
+            sum = sum.add(av.mul(xv));
+            mag += size(av) * size(xv);
         }
-        const y_re: f64 = y0[i * cs];
-        const y_im: f64 = if (p.complex) y0[i * cs + 1] else 0;
-        const want = [2]f64{ y_re + al[0] * re - al[1] * im, y_im + al[0] * im + al[1] * re };
+        const want = elem(p, y0, i, 1).add(al.mul(sum));
         for (0..cs) |q| {
             const got: f64 = y[i * cs + q];
-            const scale = @abs(y0[i * cs + q]) + (@abs(al[0]) + @abs(al[1])) * mag;
-            worst = @max(worst, @abs(got - want[q]) / ((@as(f64, @floatFromInt(n)) + 8) * eps * scale));
+            const scale = @abs(y0[i * cs + q]) + size(al) * mag;
+            worst = @max(worst, @abs(got - part(want, q)) / ((@as(f64, @floatFromInt(n)) + 8) * eps * scale));
         }
     }
     for (n * cs..y.len) |i| {
@@ -686,7 +691,7 @@ fn KernelCall(comptime p: Prec) type {
             _ = s.im.kernel(@intCast(s.m), @intCast(s.n), @intCast(s.k), 1, s.sa, s.sb, s.c, @intCast(s.m));
         }
 
-        fn run(o: *anyopaque) void {
+        pub fn run(o: *anyopaque) void {
             const s: *@This() = @ptrCast(@alignCast(o));
             s.call();
         }
@@ -789,7 +794,7 @@ fn raceGemm(io: Io, gpa: std.mem.Allocator, comptime p: Prec) !void {
             _ = im.itcopy(kk, km, a.ptr, km, sas[i].ptr);
             _ = im.oncopy(kk, kn, b.ptr, kk, sbs[i].ptr);
             ctxs[i] = .{ .im = im, .m = km, .n = kn, .k = kk, .sa = sas[i].ptr, .sb = sbs[i].ptr, .c = c.ptr };
-            calls[i] = .{ .ctx = &ctxs[i], .run = KC.run };
+            calls[i] = .of(&ctxs[i]);
             @memcpy(c[0 .. km * kn], c0[0 .. km * kn]);
             ctxs[i].call();
             const e = checkGemmReal(F, km, kn, kk, a[0 .. km * kk], b[0 .. kk * kn], c[0 .. km * kn], c0[0 .. km * kn], 0);
@@ -822,7 +827,7 @@ fn raceGemm(io: Io, gpa: std.mem.Allocator, comptime p: Prec) !void {
         var calls: [impls.len]bench.Call = undefined;
         for (impls, 0..) |im, i| {
             ctxs[i] = .{ .im = im, .blk = blks[i], .n = n, .a = a.ptr, .b = b.ptr, .c = c.ptr, .sa = sas[i].ptr, .sb = sbs[i].ptr };
-            calls[i] = .{ .ctx = &ctxs[i], .run = GC.run };
+            calls[i] = .of(&ctxs[i]);
             @memcpy(c[0 .. n * n], c0[0 .. n * n]);
             ctxs[i].call();
             const e = checkGemmReal(F, n, n, n, a[0 .. n * n], b[0 .. n * n], c[0 .. n * n], c0[0 .. n * n], 256);
@@ -871,7 +876,7 @@ fn OwnKernel(comptime p: Prec) type {
                 _ = s.kernel(@intCast(s.m), @intCast(s.n), @intCast(s.k), 1, s.sa, s.sb, s.c, @intCast(s.m));
         }
 
-        fn run(o: *anyopaque) void {
+        pub fn run(o: *anyopaque) void {
             const s: *@This() = @ptrCast(@alignCast(o));
             s.call();
         }
@@ -893,7 +898,7 @@ fn OwnGemm(comptime p: Prec) type {
             blas.gemm(rstd_alloc, .failing, Num(p), .n, .n, ni, ni, ni, one, cast(p, s.a), ni, cast(p, s.b), ni, one, cast(p, s.c), ni) catch |e| fail(e);
         }
 
-        fn run(o: *anyopaque) void {
+        pub fn run(o: *anyopaque) void {
             const s: *@This() = @ptrCast(@alignCast(o));
             s.call();
         }
@@ -987,7 +992,7 @@ fn ownGemm(io: Io, gpa: std.mem.Allocator, comptime p: Prec) !void {
         return error.WrongKernel;
     }
     var ksecs: [1]f64 = undefined;
-    try bench.race(io, l1_timing, &.{.{ .ctx = &kc, .run = OwnKernel(p).run }}, &ksecs);
+    try bench.race(io, l1_timing, &.{.of(&kc)}, &ksecs);
     const krate = flop * @as(f64, @floatFromInt(km * kn * kk)) / ksecs[0] / 1e9;
     std.debug.print("| kernel alone, {d} x {d}, depth {d} | {d:.1} | 1.00 |\n", .{ km, kn, kk, krate });
 
@@ -1001,7 +1006,7 @@ fn ownGemm(io: Io, gpa: std.mem.Allocator, comptime p: Prec) !void {
             return error.WrongGemm;
         }
         var secs: [1]f64 = undefined;
-        try bench.race(io, l3_timing, &.{.{ .ctx = &gc, .run = OwnGemm(p).run }}, &secs);
+        try bench.race(io, l3_timing, &.{.of(&gc)}, &secs);
         const nf: f64 = @floatFromInt(n);
         const rate = flop * nf * nf * nf / secs[0] / 1e9;
         std.debug.print("| gemm, n = {d} | {d:.1} | {d:.2} |\n", .{ n, rate, rate / krate });

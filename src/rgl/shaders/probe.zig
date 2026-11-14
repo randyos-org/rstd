@@ -59,6 +59,37 @@ pub const Op = enum {
     vec_arith,
 };
 
+/// What `spirv-dis` must show in `op`'s module: its native instruction, an
+/// extended one between spaces, or null where none is due (lib/readme.md's
+/// table). `shader-probes` fails on a probe that lacks it.
+pub fn expect(op: Op) ?[]const u8 {
+    return switch (op) {
+        .dot, .dot_asm, .dot2 => "OpDot",
+        .cross, .cross_asm => " Cross ",
+        .length => " Length ",
+        .distance => " Distance ",
+        .normalize => " Normalize ",
+        .reflect => " Reflect ",
+        .refract => " Refract ",
+        .faceforward => " FaceForward ",
+        .inversesqrt, .inversesqrt_vec => " InverseSqrt ",
+        .fma_muladd, .fma_builtin => " Fma ",
+        .mix, .mix_scalar => " FMix ",
+        .step => " Step ",
+        .smoothstep => " SmoothStep ",
+        .fract, .fract_scalar => " Fract ",
+        .clamp, .clamp_vec => " FClamp ",
+        .minmax => " FMin ",
+        .mat_vec => "OpMatrixTimesVector",
+        .vec_mat => "OpVectorTimesMatrix",
+        .mat_mat => "OpMatrixTimesMatrix",
+        .det => " Determinant ",
+        .inv => " MatrixInverse ",
+        .outer => "OpOuterProduct",
+        .dot_reduce, .vec_arith => null,
+    };
+}
+
 const in_a = param("a", Vec3, 0);
 const in_b = param("b", Vec3, 1);
 const in_c = param("c", Vec3, 2);

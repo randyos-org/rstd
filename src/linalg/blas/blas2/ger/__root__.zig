@@ -172,7 +172,7 @@ fn checkSlots(vt: *const Vtable) !void {
 }
 
 test "portable ger kernels match plain arithmetic" {
-    const vt = guard.portableVtable();
+    const vt = check.portableVtable();
     guard.use(vt);
     defer guard.restore();
     try checkSlots(vt);

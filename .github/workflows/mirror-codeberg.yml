@@ -22,6 +22,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Push branches and tags
+        id: push
+        # a failed mirror is a warning, never a failed check (issue #299)
+        continue-on-error: true
         env:
           KEY: ${{ secrets.CODEBERG_MIRROR_KEY }}
           SOURCE: ${{ github.server_url }}/${{ github.repository }}.git
@@ -38,3 +41,6 @@ jobs:
           # heads and tags only: Codeberg's own refs (refs/pull) stay
           git -C rstd.git push --force --prune git@codeberg.org:randyos/rstd.git \
             'refs/heads/*:refs/heads/*' 'refs/tags/*:refs/tags/*'
+      - name: Warn that the mirror failed
+        if: steps.push.outcome == 'failure'
+        run: echo "::warning::Mirroring to Codeberg failed; the next push or the nightly run retries."

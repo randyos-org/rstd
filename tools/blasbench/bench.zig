@@ -15,6 +15,11 @@ pub const Timing = struct {
 pub const Call = struct {
     ctx: *anyopaque,
     run: *const fn (*anyopaque) void,
+
+    /// `ctx`'s call: its type's `run`.
+    pub fn of(ctx: anytype) Call {
+        return .{ .ctx = ctx, .run = @typeInfo(@TypeOf(ctx)).pointer.child.run };
+    }
 };
 
 /// The most contestants one race takes.
@@ -88,14 +93,14 @@ fn timeOne(io: Io, k: Kernel, n: usize, x: []f64, y: []f64, min_ns: i96) !f64 {
         n: usize,
         x: []f64,
         y: []f64,
-        fn run(p: *anyopaque) void {
+        pub fn run(p: *anyopaque) void {
             const c: *@This() = @ptrCast(@alignCast(p));
             _ = c.k(@intCast(c.n), 0, 0, alpha, c.x.ptr, 1, c.y.ptr, 1, c.x.ptr, 0);
         }
     };
     var ctx: Ctx = .{ .k = k, .n = n, .x = x, .y = y };
     var out: [1]f64 = undefined;
-    try race(io, .{ .min_ns = min_ns, .batches = 5 }, &.{.{ .ctx = &ctx, .run = Ctx.run }}, &out);
+    try race(io, .{ .min_ns = min_ns, .batches = 5 }, &.{.of(&ctx)}, &out);
     return out[0];
 }
 

@@ -82,13 +82,13 @@ fn expandTabs(a: std.mem.Allocator, s: []const u8) ![]const u8 {
 /// should convert as they would for that build, not a single-target one.
 fn runCpp(a: std.mem.Allocator, ar: Arch, inc: []const u8, k: Kernel, core: []const u8, v: arch.Variant, dump_macros: bool) ![]const u8 {
     var argv: std.ArrayList([]const u8) = .empty;
-    try argv.appendSlice(a, &.{ "zig", "cc", "-E", "-P", "-x", "assembler-with-cpp", "-w", "-DDYNAMIC_ARCH", "-I", inc, "-I", map.root, "-I", try map.path(&.{ map.root, "kernel", ar.name }), "-target", v.triple orelse ar.triple });
+    try argv.appendSlice(a, &.{ "zig", "cc", "-E", "-P", "-x", "assembler-with-cpp", "-w", "-DDYNAMIC_ARCH", "-I", inc, "-I", map.root, "-I", try map.path(&.{ map.root, "kernel", ar.arch.ob }), "-target", v.triple orelse ar.triple });
     try argv.appendSlice(a, ar.defines);
     if (k.prec.double()) try argv.append(a, "-DDOUBLE");
     if (k.prec.complex()) try argv.append(a, "-DCOMPLEX");
     if (k.conj) try argv.append(a, "-DCONJ");
     try argv.appendSlice(a, k.defines);
-    try argv.appendSlice(a, try ar.core_defines(a, k, core));
+    try argv.appendSlice(a, try ar.coreDefines(a, core));
     try argv.appendSlice(a, v.defines);
     if (dump_macros) try argv.append(a, "-dM");
     try argv.append(a, try patched(a, ar, inc, k.source, v));
@@ -104,7 +104,7 @@ fn runCpp(a: std.mem.Allocator, ar: Arch, inc: []const u8, k: Kernel, core: []co
 /// `inc` when any apply (its includes still resolve through `-I`), else the
 /// upstream file.
 fn patched(a: std.mem.Allocator, ar: Arch, inc: []const u8, source: []const u8, v: arch.Variant) ![]const u8 {
-    const upstream = try map.path(&.{ map.root, "kernel", ar.name, source });
+    const upstream = try map.path(&.{ map.root, "kernel", ar.arch.ob, source });
     var text: ?[]const u8 = null;
     for ([_][]const arch.Patch{ ar.patches, v.patches }) |list| for (list) |*p| {
         if (!std.mem.eql(u8, p.source, source)) continue;
@@ -130,7 +130,7 @@ fn checkRetired(a: std.mem.Allocator, ar: Arch) !void {
             if (std.mem.eql(u8, q.source, p.source)) break false;
         } else true;
         if (!first) continue;
-        const upstream = try map.path(&.{ map.root, "kernel", ar.name, p.source });
+        const upstream = try map.path(&.{ map.root, "kernel", ar.arch.ob, p.source });
         var t = map.read(upstream) orelse map.die("cannot read {s}", .{upstream});
         for (ar.retired[i..]) |q| if (std.mem.eql(u8, q.source, p.source)) {
             t = try q.apply(a, t);
@@ -146,7 +146,7 @@ fn checkApplied(ar: Arch) void {
 }
 
 fn unapplied(ar: Arch, p: *const arch.Patch) noreturn {
-    map.die("{s}: the patch for {s} applies to nothing converted; move it to `retired`", .{ ar.name, p.source });
+    map.die("{s}: the patch for {s} applies to nothing converted; move it to `retired`", .{ ar.arch.ob, p.source });
 }
 
 /// The preprocessed source, tab-free and without empty lines.
@@ -432,7 +432,7 @@ fn emit(a: std.mem.Allocator, ar: Arch, k: Kernel, texts: []const Text, lines: [
         \\/// Each function's core and variant{s}.
         \\pub const keys = .{{
         \\
-    , .{ role, who.items, ar.name, k.source, map.pin, if (part_count > 0) ", and its parts (`__bk`'s arguments)" else "" });
+    , .{ role, who.items, ar.arch.ob, k.source, map.pin, if (part_count > 0) ", and its parts (`__bk`'s arguments)" else "" });
     for (texts, 0..) |t, i| {
         try put(&w, a, "    .{{ .core = .{f}, .variant = \"{s}\"", .{ std.zig.fmtId(t.core), t.variant });
         if (part_count > 0) {
@@ -508,10 +508,10 @@ const Jobs = struct { jobs: []Job, ambiguous: std.StringHashMapUnmanaged(void) }
 
 fn jobsOf(a: std.mem.Allocator, ar: Arch, role_list: []const roles.Role, makefile: []const u8) !?Jobs {
     var jobs: std.ArrayList(Job) = .empty;
-    const all_cores = try map.cores(ar.name) orelse return null;
+    const all_cores = try map.cores(ar.arch.ob) orelse return null;
     for (all_cores) |core| {
         for (role_list) |r| {
-            for (try map.resolveKey(ar.name, core, r.key, makefile)) |source| {
+            for (try map.resolveKey(ar.arch.ob, core, r.key, makefile)) |source| {
                 if (!ar.is_asm(source)) continue;
                 const k: Kernel = .{ .source = source, .prec = r.prec, .conj = r.conj, .role_name = r.name, .slot = r.slot.?, .defines = r.defines };
                 const job = findJob(&jobs, k) orelse blk: {
@@ -526,7 +526,7 @@ fn jobsOf(a: std.mem.Allocator, ar: Arch, role_list: []const roles.Role, makefil
     var ambiguous: std.StringHashMapUnmanaged(void) = .empty;
     for (all_cores) |core| {
         for (role_list) |r| {
-            if ((try map.resolveKey(ar.name, core, r.key, makefile)).len < 2) continue;
+            if ((try map.resolveKey(ar.arch.ob, core, r.key, makefile)).len < 2) continue;
             try ambiguous.put(a, try a.print("{s}:{s}", .{ try lowered(a, core), r.name }), {});
         }
     }
@@ -667,11 +667,11 @@ fn writeArchIndex(a: std.mem.Allocator, dir: []const u8, entries: []const Entry,
 
 fn convert(a: std.mem.Allocator, ar: Arch, role_list: []const roles.Role, out_root: []const u8, makefile: []const u8) !void {
     const io = map.io;
-    const inc = try a.print(".zig-cache/blas_asm_inc_{s}", .{ar.name});
+    const inc = try a.print(".zig-cache/blas_asm_inc_{s}", .{ar.arch.ob});
     try Io.Dir.cwd().createDirPath(io, inc);
     try Io.Dir.cwd().writeFile(io, .{ .sub_path = try map.path(&.{ inc, "config.h" }), .data = ar.config_h });
 
-    const dir = try a.print("{s}/{s}/asm", .{ out_root, ar.name });
+    const dir = try a.print("{s}/{s}/asm", .{ out_root, ar.arch.dir });
     const found = try jobsOf(a, ar, role_list, makefile) orelse return;
 
     var entries: std.ArrayList(Entry) = .empty;
@@ -683,7 +683,7 @@ fn convert(a: std.mem.Allocator, ar: Arch, role_list: []const roles.Role, out_ro
         if (!ar.assembles(k.source)) continue;
 
         // nor are kernels no core would install (`roles.skip`)
-        if (roles.skipped(ar.name, k.slot)) |s| {
+        if (roles.skipped(ar.arch.ob, k.slot)) |s| {
             if (!s.cores) continue;
             const e = try skips.getOrPut(a, k.slot);
             if (!e.found_existing) e.value_ptr.* = .empty;
@@ -739,7 +739,7 @@ pub fn main(init: std.process.Init) !void {
     var arch_named = false;
     var dir_named = false;
     var level_named = false;
-    for (arches) |ar| arch_named = arch_named or wants(want.items, &.{ar.name});
+    for (arches) |ar| arch_named = arch_named or wants(want.items, &.{ar.arch.ob});
     for (groups.values()) |g| dir_named = dir_named or wants(want.items, &.{g.dir});
     for (levels) |lv| level_named = level_named or wants(want.items, &.{lv.dir});
 
@@ -748,11 +748,11 @@ pub fn main(init: std.process.Init) !void {
         if (level_named and !wants(want.items, &.{g.level.dir})) continue;
         const out_root = try a.print("{s}/{s}", .{ base, path });
         for (arches) |ar| {
-            if (arch_named and !wants(want.items, &.{ar.name})) continue;
+            if (arch_named and !wants(want.items, &.{ar.arch.ob})) continue;
             try convert(a, ar, g.roles.items, out_root, g.level.makefile);
         }
     }
-    for (arches) |ar| if (!arch_named or wants(want.items, &.{ar.name})) try checkRetired(a, ar);
+    for (arches) |ar| if (!arch_named or wants(want.items, &.{ar.arch.ob})) try checkRetired(a, ar);
     if (want.items.len == 0) for (arches) |ar| checkApplied(ar);
 }
 

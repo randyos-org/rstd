@@ -3,7 +3,7 @@
 
 const std = @import("std");
 const Io = std.Io;
-const remote = @import("remote.zig");
+const remote = @import("remote");
 
 const local_prefix = "local:";
 const env_prefix = "env:";

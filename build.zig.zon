@@ -92,5 +92,7 @@
         "build",
         "LICENSE",
         "src",
+        // rgui builds this through the dependency (addGenIconStep)
+        "tools/gen_icon.zig",
     },
 }
