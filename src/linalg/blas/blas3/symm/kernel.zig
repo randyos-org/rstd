@@ -7,6 +7,32 @@ const gk = @import("../gemm/kernel.zig");
 
 const BlasLong = types.BlasLong;
 
+/// Element `(x + j, y + l)` of the matrix whose `upper` (or lower) triangle
+/// `a` stores, conjugated for `herm` where it comes from the other side, with
+/// a real diagonal; `E` is `F`, or `[2]F` for complex. 3M's copies read it too.
+pub fn Source(comptime E: type) type {
+    const complex = @typeInfo(E) == .array;
+    return struct {
+        a: [*]const E,
+        ld: usize,
+        x: usize,
+        y: usize,
+        upper: bool,
+        herm: bool,
+
+        pub fn at(s: @This(), j: usize, l: usize) E {
+            const x = s.x + j;
+            const y = s.y + l;
+            const mirrored = if (s.upper) x > y else x < y;
+            const v = if (mirrored) s.a[y + x * s.ld] else s.a[x + y * s.ld];
+            if (comptime !complex) return v;
+            if (!s.herm) return v;
+            if (x == y) return .{ v[0], 0 };
+            return if (mirrored) .{ v[0], -v[1] } else v;
+        }
+    };
+}
+
 pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
     const complex = types.isComplex(T);
     const F = types.Float(T);
@@ -16,34 +42,12 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
     const mr = geo.mr();
     const nr = geo.nr;
     return struct {
-        /// The element `(x, y)` of the matrix `upper` (or lower) stores,
-        /// conjugated for `herm` when it comes from the other side, with a real
-        /// diagonal.
-        const Source = struct {
-            a: [*]const E,
-            ld: usize,
-            x: usize,
-            y: usize,
-            upper: bool,
-            herm: bool,
-
-            pub fn at(s: Source, j: usize, l: usize) E {
-                const x = s.x + j;
-                const y = s.y + l;
-                const mirrored = if (s.upper) x > y else x < y;
-                const v = if (mirrored) s.a[y + x * s.ld] else s.a[x + y * s.ld];
-                if (comptime !complex) return v;
-                if (!s.herm) return v;
-                if (x == y) return .{ v[0], 0 };
-                return if (mirrored) .{ v[0], -v[1] } else v;
-            }
-        };
+        const Src = Source(E);
 
         /// One function for every copy of a precision: the options are values.
         fn copy(u: usize, upper: bool, herm: bool, m: BlasLong, n: BlasLong, a: [*]F, lda: BlasLong, posX: BlasLong, posY: BlasLong, b: [*]F) i32 {
-            const src: Source = .{ .a = @ptrCast(a), .ld = @intCast(lda), .x = @intCast(posX), .y = @intCast(posY), .upper = upper, .herm = herm };
-            gk.packWith(E, u, @intCast(m), @intCast(n), @ptrCast(b), src);
-            return 0;
+            const src: Src = .{ .a = @ptrCast(a), .ld = @intCast(lda), .x = @intCast(posX), .y = @intCast(posY), .upper = upper, .herm = herm };
+            return gk.copyFrom(E, u, m, n, b, src);
         }
 
         pub fn symm_iutcopy(m: BlasLong, n: BlasLong, a: [*]F, lda: BlasLong, posX: BlasLong, posY: BlasLong, b: [*]F) callconv(cc) i32 {

@@ -43,8 +43,7 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
 
         fn copy(u: usize, upper: bool, across: bool, unit: bool, m: BlasLong, n: BlasLong, a: [*]F, lda: BlasLong, posX: BlasLong, posY: BlasLong, b: [*]F) i32 {
             const src: Source = .{ .a = @ptrCast(a), .ld = @intCast(lda), .x = @intCast(posX), .y = @intCast(posY), .across = across, .upper = upper, .unit = unit };
-            gk.packWith(E, u, @intCast(m), @intCast(n), @ptrCast(b), src);
-            return 0;
+            return gk.copyFrom(E, u, m, n, b, src);
         }
 
         /// The copy `trmm_<io><ul><nt><un>copy`.
@@ -101,19 +100,6 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
         pub const trmm_kernel_RR = if (complex) Kernel(false, false, true).f else {};
         pub const trmm_kernel_RC = if (complex) Kernel(false, true, true).f else {};
 
-        /// The gemm kernel conjugating the triangle's side.
-        fn gemm(left: bool, conj: bool, m: usize, n: usize, k: usize, alpha: [*]const F, a: [*]E, b: [*]E, c: [*]E, ldc: usize) void {
-            const bm: BlasLong = @intCast(m);
-            const bn: BlasLong = @intCast(n);
-            const bk: BlasLong = @intCast(k);
-            if (comptime complex) {
-                const f = if (!conj) &G.gemm_kernel_n else if (left) &G.gemm_kernel_l else &G.gemm_kernel_r;
-                _ = f(bm, bn, bk, alpha[0], alpha[1], @ptrCast(a), @ptrCast(b), @ptrCast(c), @intCast(ldc));
-            } else {
-                _ = G.gemm_kernel(bm, bn, bk, alpha[0], a, b, c, @intCast(ldc));
-            }
-        }
-
         fn run(left: bool, from: bool, conj: bool, bm: BlasLong, bn: BlasLong, bk: BlasLong, alpha: [*]const F, ba: [*]F, bb: [*]F, bc: [*]F, ldc: BlasLong, offset: BlasLong) void {
             const m: usize = @intCast(bm);
             const n: usize = @intCast(bn);
@@ -140,7 +126,7 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
                     const d1 = clip(off + width, k);
                     const rest: [2]usize = if (from) .{ d1, ku } else .{ 0, d0 };
                     for (0..wn) |j| @memset(pc[j * ld ..][0..w], zero);
-                    if (rest[1] > rest[0]) gemm(left, conj, w, wn, rest[1] - rest[0], alpha, pa + rest[0] * w, pb + rest[0] * wn, pc, ld);
+                    if (rest[1] > rest[0]) gk.sideKernel(G, F, complex, left, conj, w, wn, rest[1] - rest[0], alpha, pa + rest[0] * w, pb + rest[0] * wn, pc, ld);
                     for (0..wn) |j| for (0..w) |i| {
                         // the row (left) or column of `op(A)` this element is
                         const at: isize = off + @as(isize, @intCast(if (left) i else j));

@@ -10,6 +10,7 @@ const data = @import("params_data.zig");
 const coretypes = @import("../../cpu/coretypes.zig");
 const corespec = @import("../../cpu/corespec.zig");
 const select = @import("../../cpu/select.zig");
+const cache = @import("../../cpu/detect/cache.zig");
 const driver = @import("../driver.zig");
 const slots = @import("../../slots.zig");
 const small = @import("small.zig");
@@ -126,65 +127,11 @@ pub const Env = struct {
     }
 };
 
-/// The cache sizes of this machine where an instruction gives them: cpuid on
-/// x86 (`get_l2_size` / `get_l3_size`) and cpucfg on LoongArch. Elsewhere, and
-/// where the answer is zero, the defaults stand (OpenBLAS assumes 256 KB on x86
-/// and 512 KB on RISC-V, which reads sysfs and so needs an OS).
+/// This machine's cache sizes (`cpu/detect/cache.zig`), the rest at their
+/// defaults.
 pub fn detect() Env {
-    var env: Env = .{};
-    switch (sysinfo.target.cpu.arch) {
-        .x86_64, .x86 => {
-            const id = cpuid(0x80000006, 0);
-            const l2: i32 = @intCast((id.ecx >> 16) & 0xffff);
-            env.l2_kb = if (l2 > 0) l2 else 256;
-            env.l3_kb = @intCast(((id.edx >> 18) & 0x3fff) * 512);
-            const vendor = cpuid(0, 0);
-            const leaf7 = cpuid(7, 0);
-            // "Auth" of "AuthenticAMD"
-            env.amd_avx512 = vendor.ebx == 0x68747541 and (leaf7.ebx & (1 << 16)) != 0;
-        },
-        .loongarch64 => {
-            const cfg = cpucfg(0x14);
-            const mb = ((cfg & 0xffff) + 1) * (@as(u64, 1) << @intCast((cfg >> 16) & 0xff)) * (@as(u64, 1) << @intCast((cfg >> 24) & 0x7f)) / 1024 / 1024;
-            env.l3_kb = @intCast(mb * 1024);
-            env.prid = @truncate(cpucfg(0));
-        },
-        else => {},
-    }
-    return env;
-}
-
-const CpuidResult = struct { eax: u32, ebx: u32, ecx: u32, edx: u32 };
-
-fn cpuid(leaf: u32, sub: u32) CpuidResult {
-    switch (sysinfo.target.cpu.arch) {
-        .x86_64, .x86 => {
-            var a: u32 = undefined;
-            var b: u32 = undefined;
-            var c: u32 = undefined;
-            var d: u32 = undefined;
-            asm volatile ("cpuid"
-                : [a] "={eax}" (a),
-                  [b] "={ebx}" (b),
-                  [c] "={ecx}" (c),
-                  [d] "={edx}" (d),
-                : [leaf] "{eax}" (leaf),
-                  [sub] "{ecx}" (sub),
-            );
-            return .{ .eax = a, .ebx = b, .ecx = c, .edx = d };
-        },
-        else => return .{ .eax = 0, .ebx = 0, .ecx = 0, .edx = 0 },
-    }
-}
-
-fn cpucfg(word: u32) u64 {
-    switch (sysinfo.target.cpu.arch) {
-        .loongarch64 => return asm volatile ("cpucfg %[ret], %[id]"
-            : [ret] "=r" (-> u64),
-            : [id] "r" (word),
-        ),
-        else => return 0,
-    }
+    const c = cache.detect();
+    return .{ .l2_kb = c.l2_kb, .l3_kb = c.l3_kb, .amd_avx512 = c.amd_avx512, .prid = c.prid };
 }
 
 // ---- the rules -------------------------------------------------------------
