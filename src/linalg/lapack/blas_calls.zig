@@ -113,7 +113,7 @@ pub fn ger(al: Allocator, io: Io, comptime T: type, alpha: T, x: [*]T, incx: usi
     blas.ger(al, io, T, @intCast(a.rows), @intCast(a.cols), alpha, x, @intCast(incx), y, @intCast(incy), a.ptr, @intCast(a.ld)) catch |e| return narrow(Error, e);
 }
 
-/// `‖x‖₂` (`blas.nrm2`).
+/// `‖x‖₂` (`l1.nrm2`).
 pub fn nrm2(io: Io, comptime T: type, n: usize, x: [*]T, inc: usize) Float(T) {
     if (n == 0) return 0;
     return l1.nrm2(io, T, @intCast(n), x, @intCast(inc)) catch unreachable;
