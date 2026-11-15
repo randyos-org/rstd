@@ -21,6 +21,7 @@ const blas3 = @import("blas3/__root__.zig");
 const ext = @import("ext/__root__.zig");
 const l1 = blas1.api;
 const l2 = blas2.interface;
+const l2api = blas2.api;
 const tri = blas2.triangular;
 const band = blas2.banded;
 const rank = blas2.rank;
@@ -44,10 +45,11 @@ pub const HalfGemm = blas3.half.HalfGemm;
 
 /// Level 1, two vectors: counts that disagree, or `error.Canceled`.
 pub const Level1Error = l1.PairError;
-/// Level 2: bad arguments, `error.OutOfMemory` or `error.Canceled`.
-pub const Level2Error = l2.Error;
+/// Level 2: counts that disagree, a slice too short for its matrix or a
+/// leading dimension too small; `error.OutOfMemory` or `error.Canceled`.
+pub const Level2Error = l2api.Error;
 /// `gemvHalf`, which allocates nothing: `Level2Error` less `OutOfMemory`.
-pub const GemvHalfError = l2.HalfError;
+pub const GemvHalfError = l2api.HalfError;
 /// Level 3: bad arguments, `error.OutOfMemory` or `error.Canceled`.
 pub const Level3Error = l3.Error;
 /// `gemmtHalf`, which allocates nothing: `Level3Error` less `OutOfMemory`.
@@ -87,31 +89,31 @@ pub const zrotg = l1.zrotg;
 pub const rotmg = l1.rotmg;
 pub const cabs1 = l1.cabs1;
 
-pub const gemv = l2.gemv;
-pub const gemvHalf = l2.gemvHalf;
-pub const ger = l2.ger;
-pub const gerc = l2.gerc;
-pub const symv = l2.symv;
-pub const hemv = l2.hemv;
-pub const trmv = tri.trmv;
-pub const trsv = tri.trsv;
-pub const tbmv = tri.tbmv;
-pub const tbsv = tri.tbsv;
-pub const tpmv = tri.tpmv;
-pub const tpsv = tri.tpsv;
-pub const gbmv = band.gbmv;
-pub const sbmv = band.sbmv;
-pub const hbmv = band.hbmv;
-pub const spmv = band.spmv;
-pub const hpmv = band.hpmv;
-pub const syr = rank.syr;
-pub const spr = rank.spr;
-pub const her = rank.her;
-pub const hpr = rank.hpr;
-pub const syr2 = rank.syr2;
-pub const spr2 = rank.spr2;
-pub const her2 = rank.her2;
-pub const hpr2 = rank.hpr2;
+pub const gemv = l2api.gemv;
+pub const gemvHalf = l2api.gemvHalf;
+pub const ger = l2api.ger;
+pub const gerc = l2api.gerc;
+pub const symv = l2api.symv;
+pub const hemv = l2api.hemv;
+pub const trmv = l2api.trmv;
+pub const trsv = l2api.trsv;
+pub const tbmv = l2api.tbmv;
+pub const tbsv = l2api.tbsv;
+pub const tpmv = l2api.tpmv;
+pub const tpsv = l2api.tpsv;
+pub const gbmv = l2api.gbmv;
+pub const sbmv = l2api.sbmv;
+pub const hbmv = l2api.hbmv;
+pub const spmv = l2api.spmv;
+pub const hpmv = l2api.hpmv;
+pub const syr = l2api.syr;
+pub const spr = l2api.spr;
+pub const her = l2api.her;
+pub const hpr = l2api.hpr;
+pub const syr2 = l2api.syr2;
+pub const spr2 = l2api.spr2;
+pub const her2 = l2api.her2;
+pub const hpr2 = l2api.hpr2;
 
 pub const gemm = l3.gemm;
 pub const symm = l3.symm;

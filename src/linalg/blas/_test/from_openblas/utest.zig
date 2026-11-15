@@ -5,6 +5,7 @@
 const std = @import("std");
 const ob = @import("__root__.zig");
 const blas = @import("../../__root__.zig");
+const l2 = @import("../../blas2/core.zig");
 const l1 = @import("../../blas1/interface.zig");
 const lapack = @import("../../../lapack/__root__.zig");
 
@@ -344,7 +345,7 @@ fn strmvLower() !void {
     // row-major lower, not transposed: column-major upper, transposed
     var lower = [9]f32{ 2.0, 0.0, 0.0, 3.0, 4.0, 0.0, 5.0, 6.0, 7.0 };
     var v = [3]f32{ 11.0, 13.0, 17.0 };
-    try blas.trmv(std.testing.allocator, ob.io, f32, .u, .t, .n, 3, &lower, 3, &v, 1);
+    try l2.trmv(std.testing.allocator, ob.io, f32, .u, .t, .n, 3, &lower, 3, &v, 1);
     try nears(f32, &.{ 22.0, 85.0, 252.0 }, &v, single_eps, "strmv");
 }
 
@@ -407,7 +408,7 @@ fn gemvNanInf() !void {
         var y: [2 * n - 1]F = @splat(0);
         const ny: usize = if (inc == 1) n else 2 * n - 1;
         for (0..n) |i| y[i * @as(usize, @intCast(inc))] = if (i % 2 == 0) std.math.nan(F) else std.math.inf(F);
-        try blas.gemv(al, ob.io, F, .n, n, n, 0, &a, n, &x, 1, 0, &y, inc);
+        try l2.gemv(al, ob.io, F, .n, n, n, 0, &a, n, &x, 1, 0, &y, inc);
         for (y[0..ny]) |v| try ob.expect(v == 0, "sgemv 0_nan_inf");
     };
 }
@@ -436,7 +437,7 @@ fn cgemvNanInf() !void {
             var y: [2 * n]C = @splat(.init(0, 0));
             const s: usize = @intCast(inc);
             for (0..n) |i| y[i * s] = if (i % 2 == 0) c.even else c.odd;
-            try blas.gemv(al, ob.io, C, .n, n, n, .init(0, 0), &a, n, &x, 1, c.beta, &y, inc);
+            try l2.gemv(al, ob.io, C, .n, n, n, .init(0, 0), &a, n, &x, 1, c.beta, &y, inc);
             for (y[0 .. n * s], 0..) |v, k| {
                 if (k % s != 0) {
                     try ob.expect(v.re == 0 and v.im == 0, c.name);

@@ -5,6 +5,7 @@
 const std = @import("std");
 const ob = @import("__root__.zig");
 const blas = @import("../../__root__.zig");
+const l2 = @import("../../blas2/core.zig");
 const l1 = @import("../../blas1/interface.zig");
 const check = @import("../check.zig");
 const types = @import("../../types.zig");
@@ -138,8 +139,8 @@ fn gemvAgainst(comptime kind: blas.HalfGemv, small: bool) !void {
                     @memset(dd, 0);
                     const xi: isize = @intCast(x);
                     const ii: isize = @intCast(inc);
-                    try blas.gemv(al, ob.io, f32, trans, xi, xi, alpha, a.ptr, xi, b.ptr, ii, beta, c.ptr, ii);
-                    try blas.gemvHalf(ob.io, kind, trans, xi, xi, try toHalf(Out, alpha), aa.ptr, xi, bb.ptr, ii, try toHalf(Out, beta), cc.ptr, ii);
+                    try l2.gemv(al, ob.io, f32, trans, xi, xi, alpha, a.ptr, xi, b.ptr, ii, beta, c.ptr, ii);
+                    try l2.gemvHalf(ob.io, kind, trans, xi, xi, try toHalf(Out, alpha), aa.ptr, xi, bb.ptr, ii, try toHalf(Out, beta), cc.ptr, ii);
                     for (dd) |*v| v.* *= beta;
                     for (0..x) |j| for (0..x) |i| {
                         if (trans == .n) {

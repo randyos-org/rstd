@@ -6,6 +6,7 @@
 
 const std = @import("std");
 const blas = @import("../blas/__root__.zig");
+const l2 = @import("../blas/blas2/core.zig");
 const l1 = @import("../blas/blas1/interface.zig");
 const types = @import("../blas/types.zig");
 const driver = @import("../blas/blas3/driver.zig");
@@ -91,7 +92,7 @@ pub fn gramUpper(al: Allocator, io: Io, comptime T: type, alpha: Float(T), a: Ma
     try driver.syrk(al, io, T, table(T), comptime isComplex(T), true, true, n, a.rows, scalar(T, alpha), a.ptr, a.ld, null, 0, scalar(T, beta), c.ptr, c.ld, w);
 }
 
-/// `y := alpha op(A) x + beta y` (`blas.gemv`; `trans` as its letters), `A`
+/// `y := alpha op(A) x + beta y` (`l2.gemv`; `trans` as its letters), `A`
 /// being `m x n`. Unlike `gemv`, `y` is scaled by `beta` even for an empty
 /// product.
 pub fn gemv(al: Allocator, io: Io, comptime T: type, trans: Trans, alpha: T, a: Mat(T), x: [*]T, incx: usize, beta: T, y: [*]T, incy: usize) Error!void {
@@ -104,13 +105,13 @@ pub fn gemv(al: Allocator, io: Io, comptime T: type, trans: Trans, alpha: T, a: 
         .n, .r, .o, .s => .n,
         .t, .c, .u, .d => .t,
     };
-    blas.gemv(al, io, T, t, @intCast(a.rows), @intCast(a.cols), alpha, a.ptr, @intCast(a.ld), x, @intCast(incx), beta, y, @intCast(incy)) catch |e| return narrow(Error, e);
+    l2.gemv(al, io, T, t, @intCast(a.rows), @intCast(a.cols), alpha, a.ptr, @intCast(a.ld), x, @intCast(incx), beta, y, @intCast(incy)) catch |e| return narrow(Error, e);
 }
 
-/// `A += alpha x yᵀ` (`blas.ger`), unconjugated.
+/// `A += alpha x yᵀ` (`l2.ger`), unconjugated.
 pub fn ger(al: Allocator, io: Io, comptime T: type, alpha: T, x: [*]T, incx: usize, y: [*]T, incy: usize, a: Mat(T)) Error!void {
     if (a.rows == 0 or a.cols == 0) return;
-    blas.ger(al, io, T, @intCast(a.rows), @intCast(a.cols), alpha, x, @intCast(incx), y, @intCast(incy), a.ptr, @intCast(a.ld)) catch |e| return narrow(Error, e);
+    l2.ger(al, io, T, @intCast(a.rows), @intCast(a.cols), alpha, x, @intCast(incx), y, @intCast(incy), a.ptr, @intCast(a.ld)) catch |e| return narrow(Error, e);
 }
 
 /// `‖x‖₂` (`l1.nrm2`).
@@ -183,5 +184,5 @@ pub fn zrot(comptime T: type, n: usize, x: [*]T, incx: usize, y: [*]T, incy: usi
 
 /// `?TRSV` through rstd's BLAS.
 pub fn trsv(al: Allocator, io: Io, comptime T: type, upper: bool, op: Trans, unit: bool, n: usize, a: [*]const T, lda: usize, x: [*]T) Error!void {
-    blas.trsv(al, io, T, if (upper) .u else .l, op, if (unit) .u else .n, @intCast(n), @constCast(a), @intCast(lda), x, 1) catch |e| return narrow(Error, e);
+    l2.trsv(al, io, T, if (upper) .u else .l, op, if (unit) .u else .n, @intCast(n), @constCast(a), @intCast(lda), x, 1) catch |e| return narrow(Error, e);
 }

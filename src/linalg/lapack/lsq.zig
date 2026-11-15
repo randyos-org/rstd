@@ -5,6 +5,7 @@
 
 const std = @import("std");
 const blas = @import("../blas/__root__.zig");
+const l2 = @import("../blas/blas2/core.zig");
 const types = @import("../blas/types.zig");
 const util = @import("../blas/util.zig");
 const ops = @import("ops.zig");
@@ -179,7 +180,7 @@ fn larz(al: Allocator, io: Io, comptime T: type, left: bool, m: usize, n: usize,
         try blas_calls.gemv(al, io, T, .n, one, c.sub(0, n - l, m, l), vv, incv, one, work, 1);
         try blas_calls.axpy(io, T, m, ntau, work, 1, c.ptr, 1);
         if (comptime isComplex(T)) {
-            if (m > 0 and l > 0) blas.gerc(al, io, T, @intCast(m), @intCast(l), ntau, work, 1, vv, @intCast(incv), c.ptr + (n - l) * c.ld, @intCast(c.ld)) catch |e| return ops.narrow(ops.Error, e);
+            if (m > 0 and l > 0) l2.gerc(al, io, T, @intCast(m), @intCast(l), ntau, work, 1, vv, @intCast(incv), c.ptr + (n - l) * c.ld, @intCast(c.ld)) catch |e| return ops.narrow(ops.Error, e);
         } else {
             try blas_calls.ger(al, io, T, ntau, work, 1, vv, incv, c.sub(0, n - l, m, l));
         }
