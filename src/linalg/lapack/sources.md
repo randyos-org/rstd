@@ -30,7 +30,7 @@ Two of libflame's names are not what they say: `gesdd` is "redirected to GESVD" 
 
 ## LAPACK routines
 
-"Needs" says why rstd wants the routine: **has** (in `src/linalg/lapack/` on `review`), an item (T34 SVD, T110 ReLAPACK, T111 the rest from faer, T70), or **M** for `rstd.linalg`'s MATLAB-like API (M1 to M4; M2 names the LINPACK and EISPACK routines each replaces). In the source columns "own" is the candidate's own implementation, with its file (OpenBLAS's from its root, ReLAPACK's in `relapack/src/`, faer's in `faer/src/linalg/`, libflame's and AOCL-libFLAME's in `src/map/lapack2flamec/` and its `f2c/c/`); "-" is none. Evidence for **has** rows is the accuracy tests design.md's Verification lists for `src/linalg/lapack/`.
+"Needs" says why rstd wants the routine: **has** (in `src/linalg/lapack/`; the T34, T110, T111, T115 and T123 in this table are items from before the move to issues, all landed), or **M** for `rstd.linalg`'s MATLAB-like API (M1 to M4; M2 names the LINPACK and EISPACK routines each replaces). In the source columns "own" is the candidate's own implementation, with its file (OpenBLAS's from its root, ReLAPACK's in `relapack/src/`, faer's in `faer/src/linalg/`, libflame's and AOCL-libFLAME's in `src/map/lapack2flamec/` and its `f2c/c/`); "-" is none. Evidence for **has** rows is the accuracy tests design.md's Verification lists for `src/linalg/lapack/`.
 
 ### Cholesky and triangular
 
@@ -40,7 +40,7 @@ Two of libflame's names are not what they say: `gesdd` is "redirected to GESVD" 
 | `potf2` | has | own, `lapack/potf2/` | - | inside `llt/factor.rs` | FLAME | ref | OpenBLAS | `potrf`'s base case | accuracy tests; not raced |
 | `potrs` | has | ref (`exports/gensymbol.pl:498`) | - | own, `llt/solve.rs` | ref | ref | the reference's two `trsm`s over rstd's drivers | the method is two solves; the drivers are rstd's | accuracy tests; not raced |
 | `potri` | has | own, `interface/lapack/potri.c` | (`trtri`, `lauum`) | own, `llt/inverse.rs` | FLAME `FLA_Trinv`, `FLA_Ttmm` | AMD: `fla_dpotri_small_avx2` (`FLA_potri.c:177`) | OpenBLAS | Q10 | accuracy tests; not raced |
-| `pbtrf` | T110 (ReLAPACK covers it; T110 does not name it) | - | own, `dpbtrf.c` | - | ref | ref | ReLAPACK | only non-reference source | accuracy tests; not raced |
+| `pbtrf` | has (ReLAPACK) | - | own, `dpbtrf.c` | - | ref | ref | ReLAPACK | only non-reference source | accuracy tests; not raced |
 | `trtri`, `trti2` | has | own, `lapack/trtri/`, `trti2/` | own (`trtri`) | own, `triangular_inverse.rs` | FLAME `FLA_Trinv` | ref | OpenBLAS | Q10 | accuracy tests; not raced |
 | `lauum`, `lauu2` | has | own, `lapack/lauum/`, `lauu2/` | own (`lauum`) | inside `llt/inverse.rs` (`matmul::triangular`) | FLAME `FLA_Ttmm` | ref | OpenBLAS | Q10 | accuracy tests; not raced |
 | `trtrs` | has | own, `lapack/trtrs/` | - | own, `triangular_solve.rs` | ref | ref | OpenBLAS | Q10 | accuracy tests; not raced |
@@ -55,22 +55,22 @@ Two of libflame's names are not what they say: `gesdd` is "redirected to GESVD" 
 | `laswp` | has (`blas/ext/`) | own, `lapack/laswp/` | - | permutations inside `lu/` | ref | ref | OpenBLAS | Q10 | accuracy tests; not raced |
 | `getri` | has (T123); M (`wgedi`, `inv`) | - | - | own, `partial_pivoting/inverse.rs` | ref | AMD: `lapack_getri_small_d`, plain C (`src/lapack/x86/generic/`) | faer (`lu.zig`: `trtri` on `U` and `L`, `inv(U) inv(L)` by `trmm`, the columns swapped back) | the anthology rule: faer before the reference | `A A⁻¹ = I` every type, sizes 1 to 33; a zero pivot leaves `A` as `getrf` left it; not raced |
 | `gecon` | has (T115); M (`wgeco`, `rcond`, `cond`) | - | - | - | ref | ref | Reference-LAPACK (`norm.zig`, with `xLACN2`, `xLATRS`) | neither faer nor libflame has its own; the reference is the fallback (Q11, 2026-10-30) | within `dtest.in`'s threshold (30) of `1 / (‖A‖ ‖A⁻¹‖)` by `dget06.f`'s ratio, both norms, graded matrices; special values; not raced |
-| `gbtrf` | T110 | - | own, `dgbtrf.c` | - | ref | ref | the reference's `xGBTF2` | ReLAPACK's recursion gives a wrong factor ([#244](https://github.com/randyos-org/rstd/issues/244)) | accuracy tests; not raced |
+| `gbtrf` | has | - | own, `dgbtrf.c` | - | ref | ref | the reference's `xGBTF2` | ReLAPACK's recursion gives a wrong factor ([#244](https://github.com/randyos-org/rstd/issues/244)) | accuracy tests; not raced |
 
 ### Symmetric indefinite and generalized definite
 
 | Routine | Needs | OpenBLAS | ReLAPACK | faer | libflame | AOCL-libFLAME | Choice | Why | Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `sytrf`, `hetrf` (and `_rook`) | T110; M (`ldl`, symmetric `mldivide`) | - | own, recursive, `dsytrf.c`, `dsytrf_rook.c` | own, Bunch-Kaufman with partial, rook and rook-diagonal pivoting, `cholesky/bunch_kaufman/factor.rs` | ref | ref | the reference's blocked loop over ReLAPACK's panels | ReLAPACK's recursion gives a wrong factor ([#242](https://github.com/randyos-org/rstd/issues/242), [#243](https://github.com/randyos-org/rstd/issues/243)); faer's storage is not LAPACK's | accuracy tests; not raced; faer is the other candidate |
+| `sytrf`, `hetrf` (and `_rook`) | has; M (`ldl`, symmetric `mldivide`: #364) | - | own, recursive, `dsytrf.c`, `dsytrf_rook.c` | own, Bunch-Kaufman with partial, rook and rook-diagonal pivoting, `cholesky/bunch_kaufman/factor.rs` | ref | ref | the reference's blocked loop over ReLAPACK's panels | ReLAPACK's recursion gives a wrong factor ([#242](https://github.com/randyos-org/rstd/issues/242), [#243](https://github.com/randyos-org/rstd/issues/243)); faer's storage is not LAPACK's | accuracy tests; not raced; faer is the other candidate |
 | `sytrs`, `sytri` (`hetrs`, `hetri`) | M | - | - | own, `bunch_kaufman/solve.rs`, `inverse.rs` | ref | ref | open | faer's solve reads faer's factor, so it follows the `sytrf` choice | none |
-| `sygst`, `hegst` | T110; M (`eig(A, B)`) | - | own, `dsygst.c` | - | FLAME `FLA_Eig_gest` | FLAME | ReLAPACK | T110 | accuracy tests; not raced; FLAME is the other candidate |
+| `sygst`, `hegst` | has (ReLAPACK); M (`eig(A, B)`: #365) | - | own, `dsygst.c` | - | FLAME `FLA_Eig_gest` | FLAME | ReLAPACK | T110 | accuracy tests; not raced; FLAME is the other candidate |
 | `sygv`, `hegv`, `sygvd` | M (`eig(A, B)`) | - | - | - | ref | ref | `potrf`, `sygst`, then `syevd` as chosen | a driver over the rows above | none |
 
 ### Sylvester
 
 | Routine | Needs | OpenBLAS | ReLAPACK | faer | libflame | AOCL-libFLAME | Choice | Why | Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `trsyl` | T110; M (`sylvester`, `lyap`, `sqrtm`, `logm`) | - | own, recursive, `dtrsyl.c` | - (a 2 x 2 `lasy2` inside `evd/schur/real_schur.rs` only) | FLAME `FLA_Sylv`, off | FLAME `FLA_Sylv`, off | ReLAPACK | T110 | accuracy tests; not raced |
+| `trsyl` | has; M (`sylvester`, `lyap`: #367; `sqrtm`, `logm`) | - | own, recursive, `dtrsyl.c` | - (a 2 x 2 `lasy2` inside `evd/schur/real_schur.rs` only) | FLAME `FLA_Sylv`, off | FLAME `FLA_Sylv`, off | ReLAPACK | T110 | accuracy tests; not raced |
 | `tgsyl` | has (T118) | - | own, `dtgsyl.c` | - | ref | ref | ReLAPACK (`tgsyl.zig`), the reference's `xTGSY2` below the crossover | only non-reference source; two ReLAPACK bugs fixed ([#246](https://github.com/randyos-org/rstd/issues/246), [#247](https://github.com/randyos-org/rstd/issues/247)) | both equations' residuals, every `trans` and type; `dif` against `σ_min` of the Kronecker form and against one `xTGSY2`; not raced |
 
 ### QR, LQ and least squares
@@ -89,17 +89,17 @@ Two of libflame's names are not what they say: `gesdd` is "redirected to GESVD" 
 
 | Routine | Needs | OpenBLAS | ReLAPACK | faer | libflame | AOCL-libFLAME | Choice | Why | Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `gesvd` | T34 (`wsvdc`, `svd`, `rank`, `null`, `orth`) | - (OpenBLAS's `test_kernel_regress.c` needs it) | - | own, `svd/mod.rs`, QR iteration | FLAME `FLA_Svd_ext`: restructured bidiagonal QR (below) | AMD: `fla_dgesvd_small6`, `_xx_small10` and others (AVX2, `dgesvd.c`) | faer (`svd.zig`) | T34 | `A - U Σ Vᴴ` and orthogonality within faer's `test_svd` tolerance, every job and precision, and `test_kernel_regress.c`; four faer fixes ([#250](https://github.com/randyos-org/rstd/issues/250), [#252](https://github.com/randyos-org/rstd/issues/252), [#253](https://github.com/randyos-org/rstd/issues/253), [#255](https://github.com/randyos-org/rstd/issues/255)); not raced |
-| `gesdd` | T34 | - | - | own, divide and conquer, `svd/bidiag_svd.rs` | redirected to `gesvd` | ref (`dgesdd.c` over `dbdsdc`) | faer (`svd.zig`) | T34 | as `gesvd`; not raced |
-| `gebrd`, `orgbr`, `ormbr` | inside T34 | - | - (not covered) | own, `svd/bidiag.rs` | FLAME `FLA_Bidiag_UT` | FLAME | faer | T34 | with `gesvd` |
-| `bdsqr`, `bdsdc` | inside T34 | - | - | own, `svd/bidiag_svd.rs` | FLAME `FLA_Bsvd`, off | AMD: `dlasr` rotations (AVX2), `dbdsqr_small` | `bdsqr`: Reference-LAPACK `xBDSQR` (`bidiag_svd.zig`'s `qrAlgorithm`, with `xLASV2`, `xLAS2`; T126); `bdsdc`: faer's divide and conquer over it | faer's QR iteration loses a graded bidiagonal's small values (an absolute `abs(d) <= eps` test; M1's E4), the reference keeps them (Demmel and Kahan); dqds (`xLASQ1` to `xLASQ6`) for values alone is T131 | with `gesvd`; E4's graded bidiagonal, reversed and random, against `f128` (T126) |
+| `gesvd` | has (`wsvdc`, `svd`, `rank`, `null`, `orth`) | - (OpenBLAS's `test_kernel_regress.c` needs it) | - | own, `svd/mod.rs`, QR iteration | FLAME `FLA_Svd_ext`: restructured bidiagonal QR (below) | AMD: `fla_dgesvd_small6`, `_xx_small10` and others (AVX2, `dgesvd.c`) | faer (`svd.zig`) | T34 | `A - U Σ Vᴴ` and orthogonality within faer's `test_svd` tolerance, every job and precision, and `test_kernel_regress.c`; four faer fixes ([#250](https://github.com/randyos-org/rstd/issues/250), [#252](https://github.com/randyos-org/rstd/issues/252), [#253](https://github.com/randyos-org/rstd/issues/253), [#255](https://github.com/randyos-org/rstd/issues/255)); not raced |
+| `gesdd` | has | - | - | own, divide and conquer, `svd/bidiag_svd.rs` | redirected to `gesvd` | ref (`dgesdd.c` over `dbdsdc`) | faer (`svd.zig`) | T34 | as `gesvd`; not raced |
+| `gebrd`, `orgbr`, `ormbr` | has, inside `gesvd` | - | - (not covered) | own, `svd/bidiag.rs` | FLAME `FLA_Bidiag_UT` | FLAME | faer | T34 | with `gesvd` |
+| `bdsqr`, `bdsdc` | has, inside `gesvd` and `gesdd` | - | - | own, `svd/bidiag_svd.rs` | FLAME `FLA_Bsvd`, off | AMD: `dlasr` rotations (AVX2), `dbdsqr_small` | `bdsqr`: Reference-LAPACK `xBDSQR` (`bidiag_svd.zig`'s `qrAlgorithm`, with `xLASV2`, `xLAS2`; T126); `bdsdc`: faer's divide and conquer over it | faer's QR iteration loses a graded bidiagonal's small values (an absolute `abs(d) <= eps` test; M1's E4), the reference keeps them (Demmel and Kahan); dqds (`xLASQ1` to `xLASQ6`) for values alone is T131 | with `gesvd`; E4's graded bidiagonal, reversed and random, against `f128` (T126) |
 
 ### Eigenvalues
 
 | Routine | Needs | OpenBLAS | ReLAPACK | faer | libflame | AOCL-libFLAME | Choice | Why | Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `sytrd`, `hetrd` | inside T111 (`syevd`; lower only, not public) | - | - (not covered) | own, `evd/tridiag.rs` | FLAME `FLA_Tridiag_UT` | AMD: OpenMP (`dsytrd.c:255`) | faer (`tridiag.zig`) | T111 | `Qᴴ A Q` tridiagonal; not raced |
-| `orgtr`, `ormtr`, `unmtr` | inside T111; M (`htribk`) | - | - | own, `householder.rs` | FLAME | FLAME | faer | T111 | with `syevd` |
+| `sytrd`, `hetrd` | has, inside `syevd` (`syevd`; lower only, not public) | - | - (not covered) | own, `evd/tridiag.rs` | FLAME `FLA_Tridiag_UT` | AMD: OpenMP (`dsytrd.c:255`) | faer (`tridiag.zig`) | T111 | `Qᴴ A Q` tridiagonal; not raced |
+| `orgtr`, `ormtr`, `unmtr` | has, inside `syevd`; M (`htribk`) | - | - | own, `householder.rs` | FLAME | FLAME | faer | T111 | with `syevd` |
 | `syevd`, `heevd` (and `syev`, `steqr`, `stedc`) | has (T111); M (symmetric `eig`) | - | - | own, `evd/mod.rs`: QR iteration below 128, divide and conquer above (`tridiag_evd.rs`) | ref; `FLA_Hevd` and `FLA_Tevd` exist but no LAPACK name maps to them | ref | faer (`evd.zig`, `tridiag_evd.zig`); `syev` and `heev` by QR iteration; `.u` reduced from the bottom (as `J A J`), as `xSYTRD` (T125) | T111 | `A V - V Λ`, orthogonality, special, clustered, graded matrices both ways against `f128` (T125), OpenBLAS's `test_laed3_nan.c`; not raced |
 | `laed3` (with `laed4`) | not ported | own, `lapack/laed3/` | - | faer's own merge, `tridiag_evd.rs` (`secular_eq`, `divide_and_conquer`) | ref | ref | faer's, inside `syevd` | OpenBLAS's serves only the reference's `stedc`, which rstd does not port; its test (`test/test_laed3_nan.c`) runs against `syevd` | `test_laed3_nan.c` |
 | `gehrd`, `orghr`, `ormhr` | `gehrd`, `orghr` have (T123); M (`corth`, `hess`) | - | - (not covered) | own, `evd/hessenberg.rs` (unblocked, and blocked from 256) | FLAME `FLA_Hess_UT`, off | ref | faer (`hessenberg.zig`, unblocked only so far), with LAPACK's `tau` and `ilo`/`ihi`; `orghr` by `dorghr.f`'s shift over `orgqr` | T111 | `Qᴴ A Q` Hessenberg on the `ilo..ihi` block, `Q` unitary; not raced |
@@ -130,7 +130,7 @@ Where more than one source serves a family. The per-core detail is in the `cover
 | Level-3 loops and threading | OpenBLAS `level3.c`, `level3_thread.c`; BLIS's ways and barriers | `level3.c`'s loops, BLIS's threading | Settled decisions, "Level-3 threading follows BLIS" | flyoff threaded rows, indicative only |
 | `beta` on `C` | OpenBLAS's separate pass; BLIS's first `KC` slice | BLIS's | same bits, one pass less (comparisons.md 7) | bits by construction; speed not raced alone |
 | `trsm` diagonal | OpenBLAS's inverted diagonal; BLIS's division option | division | `1/d` overflows for denormal `d` (comparisons.md 10) | special-value tests; speed not raced |
-| Small and skinny `gemm` | OpenBLAS's small-matrix kernels; BLIS's `sup` path | none yet (T30) | not ported | not yet raced |
+| Small and skinny `gemm` | OpenBLAS's small-matrix kernels; BLIS's `sup` path | OpenBLAS's, in `blas3/gemm/small.zig`; BLIS's `sup` path: #370 | ported | not yet raced |
 | `gemmt` | rstd's driver (OpenBLAS's); ReLAPACK's recursive `xgemmt`; BLIS's `gemmt` | rstd's driver; ReLAPACK's for its LAPACK callers (T110) | T110 | not yet raced |
 | Apple blocking | OpenBLAS `VORTEX` `P`, `Q`; BLIS Firestorm `KC` 4096 and 3072 | OpenBLAS's | the extracted tables | not yet raced (comparisons.md 9's sweep) |
 | Routed reductions (extremes, `nrm2`, `sdot`; x86_64's peeling reductions) | converted assembly; `@Vector` (`vector.zig`); Accelerate | `@Vector` where the vector unit is IEEE, else portable; Accelerate on macOS only where `apple_accel.zig`'s `sends` says | Settled decisions, "No address dependence"; one contract (comparisons.md X1) | flyoff: `nrm2` up to 11.7 times OpenBLAS on Zen 3, `asum` 0.67 to 2.6; macOS routing table from results-flyoff-macos-aarch64.md |

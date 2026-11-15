@@ -67,8 +67,6 @@ How the code is structured, and why, is in [`design.md`](../design.md).
   and `lahqr`); `trevc3`/`trevc` (every `SIDE` and `HOWMNY`); `gees` (`dgees.f`'s sort, by
   `trsen`); `laset` and `lapy2`.
 
-Not yet: threading in levels 1 and 2 ([`threading.md`](threading.md)).
-
 ### Targets
 
 Every target compiles, with the portable kernels at least. Per-core kernels exist for these

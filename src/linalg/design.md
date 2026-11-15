@@ -2104,7 +2104,7 @@ Questions decided once, with the reason, so they are not reopened without new ev
   only on size and target, not on the type holding the data, so a call gives the same bits every
   time ("Planned: the public `rstd.linalg` layer", above). The BLAS keeps its slice and stride routines for `linalg` to
   call. `rstd.simd` is gone: its element-wise helpers (`mix`, `mulAdd`) moved to
-  `linalg.vector`, and slice reductions become BLAS routines ([#52](https://github.com/randyos-org/rstd/issues/52)). Under SPIR-V each operation is
+  `linalg.vector`, and slice reductions became BLAS routines ([#52](https://github.com/randyos-org/rstd/issues/52)). Under SPIR-V each operation is
   SPIR-V's own instruction where one exists (`OpDot`, GLSL.std.450 `Length`, `Fma`: GLSL.std.450
   1.00 revision 17, <https://registry.khronos.org/SPIR-V/specs/unified1/GLSL.std.450.html>), used as is,
   not rebuilt or tuned: the goal is one API, not GPU speed.
@@ -2295,7 +2295,7 @@ to the same expectations. Where a core's converted kernels did otherwise, they a
   in `_test/from_openblas/__root__.zig`: `xerbla` and bad letters (only the letters a type
   rejects remain), checks that scalars come back unchanged, row-major CBLAS, `test_fork.c`,
   `test_post_fork*.c`, and the `ARMV8` `sdot`/`ddot` cases that preload a vector register.
-- **Pending.** `blat3` runs every level-3 routine through the flat API, and `test_potrs.c`
+- **More ports.** `blat3` runs every level-3 routine through the flat API, and `test_potrs.c`
   and `test_kernel_regress.c`'s `dgesvd` run through `rstd.linalg.lapack`, the latter's
   matrix from glibc's `rand` as on OpenBLAS's Linux CI. `compare.zig` ports `test/compare_sgemv_*.c` and
   `compare_sgemm_*.c`: the half routines against `sgemv` and `sgemm` and a plain loop, to order
@@ -2437,8 +2437,8 @@ Rig mechanics:
 
 ## Implementation plan
 
-1. **Threading** of levels 1 and 2 ([`threading.md`](blas/threading.md)'s plan); level 3 threads.
-2. **Zig-idiomatic interface.** Slices, exact error sets with plain names, and documented
+1. **Threading.** Landed: levels 1, 2 and 3 thread ([`threading.md`](blas/threading.md)).
+2. **Zig-idiomatic interface** (Z7 to Z18, [#308](https://github.com/randyos-org/rstd/issues/308) to [#319](https://github.com/randyos-org/rstd/issues/319)). Slices, exact error sets with plain names, and documented
    panics ([above](#planned-a-zig-idiomatic-interface)), with the codebase-wide pass.
 3. **Remaining level 3.** Landed: 3M, the small-matrix path, and bfloat16 and half-precision
    level 3 (`blas3/half.zig`); Cooper Lake's `sbgemm` small-matrix kernels, in the portable bits.
