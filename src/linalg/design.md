@@ -137,12 +137,15 @@ Conventions shared by every interface:
 - **Errors.** Each file has an `ArgError` set named after the reference's `xerbla` arguments
   (`InvalidTrans`, `InvalidLda`, `InvalidIncx`, ...), checked in the reference's order, so the
   first bad argument wins. Each level's `Error` adds `Allocator.Error` where it allocates and
-  `Io.Cancelable` everywhere; the root exports level 3's as `Level3Error`, and the
-  extensions' as `ExtError`. Level 1's public routines (`blas1/api.zig`, Z8) take strided
+  `Io.Cancelable` everywhere; the root exports the extensions' as `ExtError`. Level 1's
+  public routines (`blas1/api.zig`, Z8) take strided
   views over this core and return exact sets: `error.LengthMismatch` for two vectors, and
   `error.Canceled` where they thread. Level 2's (`blas2/api.zig`, Z9; the core gathered in
   `blas2/core.zig`) take matrices as a slice and leading dimension and vectors as views, the
   sizes from the views; `Level2Error` adds `SliceTooShort` and `LeadingDimensionTooSmall`.
+  Level 3's (`blas3/api.zig`, Z10; `blas3/core.zig`) take matrices the same way, sizes as
+  `usize`, every slice checked by `util.holds`; `Level3Error` has those two errors, and the
+  batched routines' `BatchError` adds `LengthMismatch` for lists that differ in length.
   A vector or matrix that could not fit the address space (`util.fits`, `util.fitsMatrix`)
   returns its stride's or leading dimension's error, so no index computation overflows.
 - **Letters.** Transposes, triangles, sides and diagonals are one set of letter enums for every

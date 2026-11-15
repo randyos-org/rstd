@@ -789,7 +789,8 @@ const Gemm3 = struct {
     }
     pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
         const n = w.in();
-        try blas.gemm(rstd_alloc, libs.rstd_io, Num(p), .n, .n, n, n, n, num(p, 1), cast(p, w.a.ptr), n, cast(p, w.b.ptr), n, num(p, 1), cast(p, w.c.ptr), n);
+        const u: usize = @intCast(n);
+        try blas.gemm(rstd_alloc, libs.rstd_io, Num(p), .n, .n, u, u, u, num(p, 1), libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), u, libs.matrix(Num(p), cast(p, w.b.ptr), n, n, n), u, num(p, 1), libs.matrix(Num(p), cast(p, w.c.ptr), n, n, n), u);
     }
     pub fn residual(comptime p: Prec, w: *const Work(p), i: usize, j: usize) ?[2]f64 {
         return productAt(p, w, i, j, struct {
@@ -817,7 +818,8 @@ const Symm = struct {
     }
     pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
         const n = w.in();
-        try blas.symm(rstd_alloc, libs.rstd_io, Num(p), .l, .u, n, n, num(p, 1), cast(p, w.a.ptr), n, cast(p, w.b.ptr), n, num(p, 1), cast(p, w.c.ptr), n);
+        const u: usize = @intCast(n);
+        try blas.symm(rstd_alloc, libs.rstd_io, Num(p), .l, .u, u, u, num(p, 1), libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), u, libs.matrix(Num(p), cast(p, w.b.ptr), n, n, n), u, num(p, 1), libs.matrix(Num(p), cast(p, w.c.ptr), n, n, n), u);
     }
     pub fn residual(comptime p: Prec, w: *const Work(p), i: usize, j: usize) ?[2]f64 {
         return productAt(p, w, i, j, struct {
@@ -845,7 +847,8 @@ const Syrk = struct {
     }
     pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
         const n = w.in();
-        try blas.syrk(rstd_alloc, libs.rstd_io, Num(p), .u, .n, n, n, num(p, 1), cast(p, w.a.ptr), n, num(p, 1), cast(p, w.c.ptr), n);
+        const u: usize = @intCast(n);
+        try blas.syrk(rstd_alloc, libs.rstd_io, Num(p), .u, .n, u, u, num(p, 1), libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), u, num(p, 1), libs.matrix(Num(p), cast(p, w.c.ptr), n, n, n), u);
     }
     /// `c0 + A Aᵀ`, upper triangle.
     pub fn residual(comptime p: Prec, w: *const Work(p), i: usize, j: usize) ?[2]f64 {
@@ -875,7 +878,8 @@ const Trmm = struct {
     pub const lib = libTri;
     pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
         const n = w.in();
-        try blas.trmm(rstd_alloc, libs.rstd_io, Num(p), .l, .u, .n, .n, n, n, num(p, 1), cast(p, w.a.ptr), n, cast(p, w.b.ptr), n);
+        const u: usize = @intCast(n);
+        try blas.trmm(rstd_alloc, libs.rstd_io, Num(p), .l, .u, .n, .n, u, u, num(p, 1), libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), u, libs.matrix(Num(p), cast(p, w.b.ptr), n, n, n), u);
     }
     pub fn residual(comptime p: Prec, w: *const Work(p), i: usize, j: usize) ?[2]f64 {
         const r = triRow(p, w, .b0, i, j);
@@ -896,7 +900,8 @@ const Trsm = struct {
     pub const lib = libTri;
     pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
         const n = w.in();
-        try blas.trsm(rstd_alloc, libs.rstd_io, Num(p), .l, .u, .n, .n, n, n, num(p, 1), cast(p, w.a.ptr), n, cast(p, w.b.ptr), n);
+        const u: usize = @intCast(n);
+        try blas.trsm(rstd_alloc, libs.rstd_io, Num(p), .l, .u, .n, .n, u, u, num(p, 1), libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), u, libs.matrix(Num(p), cast(p, w.b.ptr), n, n, n), u);
     }
     /// `A X` against the right-hand sides.
     pub fn residual(comptime p: Prec, w: *const Work(p), i: usize, j: usize) ?[2]f64 {

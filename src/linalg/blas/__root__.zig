@@ -26,6 +26,7 @@ const tri = blas2.triangular;
 const band = blas2.banded;
 const rank = blas2.rank;
 const l3 = blas3.interface;
+const l3api = blas3.api;
 const util = @import("util.zig");
 
 // ---- the BLAS routines ---------------------------------------------------------
@@ -50,14 +51,15 @@ pub const Level1Error = l1.PairError;
 pub const Level2Error = l2api.Error;
 /// `gemvHalf`, which allocates nothing: `Level2Error` less `OutOfMemory`.
 pub const GemvHalfError = l2api.HalfError;
-/// Level 3: bad arguments, `error.OutOfMemory` or `error.Canceled`.
-pub const Level3Error = l3.Error;
+/// Level 3: a slice too short for its matrix or a leading dimension too
+/// small; `error.OutOfMemory` or `error.Canceled`.
+pub const Level3Error = l3api.Error;
 /// `gemmtHalf`, which allocates nothing: `Level3Error` less `OutOfMemory`.
-pub const GemmtHalfError = blas3.half.HalfError;
-/// The batched gemms: `Level3Error` and `error.InvalidCount`.
-pub const BatchError = blas3.batch.Error;
+pub const GemmtHalfError = l3api.HalfError;
+/// The batched gemms: `Level3Error` and `error.LengthMismatch`.
+pub const BatchError = l3api.BatchError;
 /// One group of `gemmBatch` or `gemmHalfBatch`, by input and output type.
-pub const GemmGroup = blas3.batch.Group;
+pub const GemmGroup = l3api.Group;
 /// The extensions (`geadd`, `omatcopy`, `imatcopy`, `laswp`): bad arguments,
 /// `error.OutOfMemory` (`imatcopy`) or `error.Canceled`.
 pub const ExtError = ext.interface.Error;
@@ -115,31 +117,31 @@ pub const spr2 = l2api.spr2;
 pub const her2 = l2api.her2;
 pub const hpr2 = l2api.hpr2;
 
-pub const gemm = l3.gemm;
-pub const symm = l3.symm;
-pub const hemm = l3.hemm;
-pub const syrk = l3.syrk;
-pub const herk = l3.herk;
-pub const syr2k = l3.syr2k;
-pub const her2k = l3.her2k;
-pub const trmm = l3.trmm;
-pub const trsm = l3.trsm;
-pub const gemmt = l3.gemmt;
-pub const gemm3m = l3.gemm3m;
-pub const symm3m = l3.symm3m;
-pub const hemm3m = l3.hemm3m;
+pub const gemm = l3api.gemm;
+pub const symm = l3api.symm;
+pub const hemm = l3api.hemm;
+pub const syrk = l3api.syrk;
+pub const herk = l3api.herk;
+pub const syr2k = l3api.syr2k;
+pub const her2k = l3api.her2k;
+pub const trmm = l3api.trmm;
+pub const trsm = l3api.trsm;
+pub const gemmt = l3api.gemmt;
+pub const gemm3m = l3api.gemm3m;
+pub const symm3m = l3api.symm3m;
+pub const hemm3m = l3api.hemm3m;
 
 pub const geadd = ext.interface.geadd;
 pub const omatcopy = ext.interface.omatcopy;
 pub const imatcopy = ext.interface.imatcopy;
 pub const laswp = ext.interface.laswp;
 
-pub const gemmHalf = blas3.half.gemmHalf;
-pub const gemmtHalf = blas3.half.gemmtHalf;
-pub const gemmBatch = blas3.batch.gemmBatch;
-pub const gemmBatchStrided = blas3.batch.gemmBatchStrided;
-pub const gemmHalfBatch = blas3.batch.gemmHalfBatch;
-pub const gemmHalfBatchStrided = blas3.batch.gemmHalfBatchStrided;
+pub const gemmHalf = l3api.gemmHalf;
+pub const gemmtHalf = l3api.gemmtHalf;
+pub const gemmBatch = l3api.gemmBatch;
+pub const gemmBatchStrided = l3api.gemmBatchStrided;
+pub const gemmHalfBatch = l3api.gemmHalfBatch;
+pub const gemmHalfBatchStrided = l3api.gemmHalfBatchStrided;
 
 // ---- selection and the vtable ----------------------------------------------------
 

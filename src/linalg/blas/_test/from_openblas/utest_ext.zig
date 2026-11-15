@@ -5,6 +5,7 @@
 const std = @import("std");
 const ob = @import("__root__.zig");
 const blas = @import("../../__root__.zig");
+const l3 = @import("../../blas3/core.zig");
 const l2 = @import("../../blas2/core.zig");
 const l1 = @import("../../blas1/interface.zig");
 const check = @import("../check.zig");
@@ -806,8 +807,8 @@ fn complexGemm() !void {
         }
         const alpha = val(T, c.alpha);
         const beta = val(T, c.beta);
-        try blas.gemm(al, ob.io, T, tav, tbv, c.m, c.n, c.k, alpha, av.ptr, c.lda, bv.ptr, c.ldb, beta, cv.ptr, c.ldc);
-        try blas.gemm(al, ob.io, T, transOf(c.transa), transOf(c.transb), c.m, c.n, c.k, alpha, a.ptr, c.lda, b.ptr, c.ldb, beta, cm.ptr, c.ldc);
+        try l3.gemm(al, ob.io, T, tav, tbv, c.m, c.n, c.k, alpha, av.ptr, c.lda, bv.ptr, c.ldb, beta, cv.ptr, c.ldc);
+        try l3.gemm(al, ob.io, T, transOf(c.transa), transOf(c.transb), c.m, c.n, c.k, alpha, a.ptr, c.lda, b.ptr, c.ldb, beta, cm.ptr, c.ldc);
         try expectNorm(c.name, T, matDiff(T, @intCast(c.m), @intCast(c.n), cm, cv, @intCast(c.ldc)), tol(T, single_eps, double_eps));
     };
 }
@@ -835,7 +836,7 @@ fn gemmtCase(comptime T: type, c: Case, r: std.Random) !void {
             else => error.InvalidLdc,
         };
         const one = val(T, .{ 1, 1 });
-        return ob.expectError(want, blas.gemmt(al, ob.io, T, uplo.?, transOf(c.transa), transOf(c.transb), c.m, c.k, one, &x, c.lda, &x, c.ldb, one, &x, c.ldc), c.name);
+        return ob.expectError(want, l3.gemmt(al, ob.io, T, uplo.?, transOf(c.transa), transOf(c.transb), c.m, c.k, one, &x, c.lda, &x, c.ldb, one, &x, c.ldc), c.name);
     }
     const m: usize = @intCast(c.m);
     const ldc: usize = @intCast(c.ldc);
@@ -856,11 +857,11 @@ fn gemmtCase(comptime T: type, c: Case, r: std.Random) !void {
     defer al.free(want);
     const alpha = val(T, c.alpha);
     const beta = val(T, c.beta);
-    try blas.gemm(al, ob.io, T, transOf(c.transa), transOf(c.transb), c.m, c.m, c.k, alpha, a.ptr, c.lda, b.ptr, c.ldb, beta, full.ptr, c.ldc);
+    try l3.gemm(al, ob.io, T, transOf(c.transa), transOf(c.transb), c.m, c.m, c.k, alpha, a.ptr, c.lda, b.ptr, c.ldb, beta, full.ptr, c.ldc);
     for (0..m) |j| for (0..m) |i| {
         if (if (c.uplo == 'U') i <= j else i >= j) want[i + j * ldc] = full[i + j * ldc];
     };
-    try blas.gemmt(al, ob.io, T, uplo.?, transOf(c.transa), transOf(c.transb), c.m, c.k, alpha, a.ptr, c.lda, b.ptr, c.ldb, beta, cm.ptr, c.ldc);
+    try l3.gemmt(al, ob.io, T, uplo.?, transOf(c.transa), transOf(c.transb), c.m, c.k, alpha, a.ptr, c.lda, b.ptr, c.ldb, beta, cm.ptr, c.ldc);
     const floats: f64 = @floatFromInt(m * ldc * @as(usize, if (comptime isComplex(T)) 2 else 1));
     try expectNorm(c.name, T, diffNorm(T, @intCast(m * ldc), cm, want, 1) / floats, tol(T, single_eps, double_eps));
 }
@@ -918,8 +919,8 @@ fn bgemmCase(c: BgemmCase, r: std.Random) !void {
     }
     const alpha = truncBf16(c.alpha);
     const beta = truncBf16(c.beta);
-    try blas.gemmHalf(al, ob.io, .sbgemm, transOf(c.ta), transOf(c.tb), c.m, c.n, c.k, bitsF32(alpha), a.ptr, c.lda, b.ptr, c.ldb, bitsF32(beta), cs.ptr, c.ldc);
-    try blas.gemmHalf(al, ob.io, .bgemm, transOf(c.ta), transOf(c.tb), c.m, c.n, c.k, alpha, a.ptr, c.lda, b.ptr, c.ldb, beta, cb.ptr, c.ldc);
+    try l3.gemmHalf(al, ob.io, .sbgemm, transOf(c.ta), transOf(c.tb), c.m, c.n, c.k, bitsF32(alpha), a.ptr, c.lda, b.ptr, c.ldb, bitsF32(beta), cs.ptr, c.ldc);
+    try l3.gemmHalf(al, ob.io, .bgemm, transOf(c.ta), transOf(c.tb), c.m, c.n, c.k, alpha, a.ptr, c.lda, b.ptr, c.ldb, beta, cb.ptr, c.ldc);
     var worst: f32 = 0;
     for (0..n) |j| for (0..m) |i| {
         const want = cs[j * ldc + i];
