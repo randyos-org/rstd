@@ -217,8 +217,6 @@ pub const cabs1 = core.cabs1;
 
 const check = @import("../_test/check.zig");
 
-const io = check.io;
-
 /// `v`'s elements in its order.
 fn gather(comptime T: type, v: anytype, out: []T) []T {
     for (out[0..v.n], 0..) |*o, i| o.* = v.get(i);
@@ -239,21 +237,21 @@ test "api: a negative stride is the vector read backward" {
         // against contiguous copies in the views' order
         var cy: [3]T = undefined;
         @memcpy(&cy, gather(T, y.toConst(), &buf));
-        const d = try dot(io, T, x, y.toConst());
-        try check.expectClose(T, try dot(io, T, .of(&rx), .of(&cy)), d, 0);
-        try copy(io, T, x, y);
+        const d = try dot(check.io, T, x, y.toConst());
+        try check.expectClose(T, try dot(check.io, T, .of(&rx), .of(&cy)), d, 0);
+        try copy(check.io, T, x, y);
         for (0..3) |i| try check.expectClose(T, rx[i], y.get(i), 0);
-        try check.expectClose(Float(T), nrm2(io, T, .of(&rx)), nrm2(io, T, x), check.tolerance(Float(T), 2));
+        try check.expectClose(Float(T), nrm2(check.io, T, .of(&rx)), nrm2(check.io, T, x), check.tolerance(Float(T), 2));
     }
 }
 
 test "api: scal, asum, sum and the extremes take every element of a backward view" {
     var a = [_]f64{ 1, 9, -2, 9, 3, 0, -4 };
     const x = try Strided(f64).init(&a, 4, -2);
-    try check.expectClose(f64, 10, try asum(io, f64, x.toConst()), 0);
-    try check.expectClose(f64, -2, try sum(io, f64, x.toConst()), 0);
-    try check.expectClose(f64, 4, (try extreme(io, f64, .amax, x.toConst())).?, 0);
-    try scal(io, f64, 2, x);
+    try check.expectClose(f64, 10, try asum(check.io, f64, x.toConst()), 0);
+    try check.expectClose(f64, -2, try sum(check.io, f64, x.toConst()), 0);
+    try check.expectClose(f64, 4, (try extreme(check.io, f64, .amax, x.toConst())).?, 0);
+    try scal(check.io, f64, 2, x);
     try std.testing.expectEqualSlices(f64, &.{ 2, 9, -4, 9, 6, 0, -8 }, &a);
 }
 
@@ -261,23 +259,23 @@ test "api: index is the view's first extreme, backward too" {
     const a = [_]f64{ 5, 0, -5, 0, 1 };
     // view order: 1, -5, 5; the first |5| in it is -5, at 1
     const back = try ConstStrided(f64).init(&a, 3, -2);
-    try std.testing.expectEqual(@as(?usize, 1), try index(io, f64, .amax, back));
-    try std.testing.expectEqual(@as(?usize, 0), try index(io, f64, .amax, try ConstStrided(f64).init(&a, 3, 2)));
-    try std.testing.expectEqual(@as(?usize, 2), try index(io, f64, .max, back));
+    try std.testing.expectEqual(@as(?usize, 1), try index(check.io, f64, .amax, back));
+    try std.testing.expectEqual(@as(?usize, 0), try index(check.io, f64, .amax, try ConstStrided(f64).init(&a, 3, 2)));
+    try std.testing.expectEqual(@as(?usize, 2), try index(check.io, f64, .max, back));
     const nan = [_]f64{ std.math.nan(f64), 1, std.math.nan(f64) };
-    try std.testing.expectEqual(@as(?usize, 0), try index(io, f64, .amax, try ConstStrided(f64).init(&nan, 3, -1)));
+    try std.testing.expectEqual(@as(?usize, 0), try index(check.io, f64, .amax, try ConstStrided(f64).init(&nan, 3, -1)));
 }
 
 test "api: empty views, and counts that disagree" {
     var a = [_]f64{ 1, 2, 3 };
     const e = try ConstStrided(f64).init(&a, 0, 1);
-    try std.testing.expectEqual(@as(?usize, null), try index(io, f64, .amax, e));
-    try std.testing.expectEqual(@as(?f64, null), try extreme(io, f64, .max, e));
-    try check.expectClose(f64, 0, nrm2(io, f64, e), 0);
-    try check.expectClose(f64, 0, try dot(io, f64, e, e), 0);
+    try std.testing.expectEqual(@as(?usize, null), try index(check.io, f64, .amax, e));
+    try std.testing.expectEqual(@as(?f64, null), try extreme(check.io, f64, .max, e));
+    try check.expectClose(f64, 0, nrm2(check.io, f64, e), 0);
+    try check.expectClose(f64, 0, try dot(check.io, f64, e, e), 0);
     const x = ConstStrided(f64).of(&a);
     const y = try Strided(f64).init(&a, 2, 1);
-    try std.testing.expectError(error.LengthMismatch, dot(io, f64, x, y.toConst()));
-    try std.testing.expectError(error.LengthMismatch, axpy(io, f64, 1, x, y));
-    try std.testing.expectError(error.LengthMismatch, rotm(io, f64, try Strided(f64).init(&a, 3, 1), y, &.{ -2, 0, 0, 0, 0 }));
+    try std.testing.expectError(error.LengthMismatch, dot(check.io, f64, x, y.toConst()));
+    try std.testing.expectError(error.LengthMismatch, axpy(check.io, f64, 1, x, y));
+    try std.testing.expectError(error.LengthMismatch, rotm(check.io, f64, try Strided(f64).init(&a, 3, 1), y, &.{ -2, 0, 0, 0, 0 }));
 }
