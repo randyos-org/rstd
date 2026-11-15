@@ -33,7 +33,7 @@ fn bySema(_: void, a: Decl, b: Decl) bool {
     return a.sema_ns > b.sema_ns;
 }
 
-fn report(body: []const u8, top: usize) void {
+fn report(body: []const u8, top: usize) std.mem.Allocator.Error!void {
     const H = Server.Message.TimeReport;
     var h: H = undefined;
     @memcpy(std.mem.asBytes(&h), body[0..@sizeOf(H)]);
@@ -53,7 +53,7 @@ fn report(body: []const u8, top: usize) void {
     var files: std.ArrayList([]const u8) = .empty;
     for (0..h.files_len) |_| {
         const end = std.mem.findScalarPos(u8, body, at, 0).?;
-        files.append(A, body[at..end]) catch @panic("OOM");
+        try files.append(A, body[at..end]);
         at = end + 1;
     }
     var decls: std.ArrayList(Decl) = .empty;
@@ -67,7 +67,7 @@ fn report(body: []const u8, top: usize) void {
         const cg = std.mem.readInt(u64, body[at + 16 ..][0..8], .little);
         const ln = std.mem.readInt(u64, body[at + 24 ..][0..8], .little);
         at += 32;
-        decls.append(A, .{ .name = name, .file = files.items[file], .count = count, .sema_ns = sema, .codegen_ns = cg, .link_ns = ln }) catch @panic("OOM");
+        try decls.append(A, .{ .name = name, .file = files.items[file], .count = count, .sema_ns = sema, .codegen_ns = cg, .link_ns = ln });
     }
     std.mem.sort(Decl, decls.items, {}, bySema);
     std.debug.print("{d} declarations; the {d} with the most semantic analysis:\n", .{ decls.items.len, @min(top, decls.items.len) });
@@ -113,7 +113,7 @@ pub fn main(init: std.process.Init) !void {
         const t: Server.Message.Tag = @fromBackingInt(@intCast(tag));
         switch (t) {
             .time_report => {
-                report(body, top);
+                try report(body, top);
                 reported = true;
             },
             // an update ends with the emitted file's digest, or with errors
