@@ -21,7 +21,6 @@ const tri = blas2.triangular;
 const band = blas2.banded;
 const rank = blas2.rank;
 const l3 = blas3.interface;
-// pub const util = @import("util.zig");
 const util = @import("util.zig");
 
 // ---- the BLAS routines ---------------------------------------------------------
