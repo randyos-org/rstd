@@ -474,7 +474,8 @@ jobs:
     needs: [version, check, test, test-tier34, rig]
     if: >-
       ${{ !cancelled() && needs.version.outputs.release == 'true'
-      && needs.check.result == 'success' && needs.test.result == 'success' }}
+      && needs.check.result == 'success' && needs.test.result == 'success'
+      && needs.rig.result == 'success' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write
