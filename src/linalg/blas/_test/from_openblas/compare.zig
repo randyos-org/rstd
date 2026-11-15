@@ -5,6 +5,7 @@
 const std = @import("std");
 const ob = @import("__root__.zig");
 const blas = @import("../../__root__.zig");
+const l1 = @import("../../blas1/interface.zig");
 const check = @import("../check.zig");
 const types = @import("../../types.zig");
 
@@ -21,7 +22,7 @@ fn isClose(a: f32, b: f32, rtol: f64, atol: f64) bool {
 fn toBf(v: f32) !BF16 {
     var in = v;
     var out: BF16 = undefined;
-    try blas.sbtobf16(ob.io, f32, 1, @ptrCast(&in), 1, @ptrCast(&out), 1);
+    try l1.sbtobf16(ob.io, f32, 1, @ptrCast(&in), 1, @ptrCast(&out), 1);
     return out;
 }
 
@@ -29,7 +30,7 @@ fn toBf(v: f32) !BF16 {
 fn fromBf(v: BF16) !f32 {
     var in = v;
     var out: f32 = undefined;
-    try blas.bf16to(ob.io, f32, 1, @ptrCast(&in), 1, @ptrCast(&out), 1);
+    try l1.bf16to(ob.io, f32, 1, @ptrCast(&in), 1, @ptrCast(&out), 1);
     return out;
 }
 
@@ -50,13 +51,13 @@ fn fromHalf(comptime E: type, v: E) !f32 {
 
 /// `n` values at stride `inc` into `E`, as `toHalf` does each.
 fn toHalves(comptime E: type, n: usize, src: []const f32, inc: usize, dst: []E) !void {
-    if (E == BF16) return blas.sbtobf16(ob.io, f32, @intCast(n), @constCast(src.ptr), @intCast(inc), dst.ptr, @intCast(inc));
+    if (E == BF16) return l1.sbtobf16(ob.io, f32, @intCast(n), @constCast(src.ptr), @intCast(inc), dst.ptr, @intCast(inc));
     for (0..n) |i| dst[i * inc] = @floatCast(src[i * inc]);
 }
 
 /// `n` values at stride `inc` out of `E`, as `fromHalf` does each.
 fn fromHalves(comptime E: type, n: usize, src: []const E, inc: usize, dst: []f32) !void {
-    if (E == BF16) return blas.bf16to(ob.io, f32, @intCast(n), @constCast(src.ptr), @intCast(inc), dst.ptr, @intCast(inc));
+    if (E == BF16) return l1.bf16to(ob.io, f32, @intCast(n), @constCast(src.ptr), @intCast(inc), dst.ptr, @intCast(inc));
     for (0..n) |i| dst[i * inc] = @floatCast(src[i * inc]);
 }
 

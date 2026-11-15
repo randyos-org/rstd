@@ -19,7 +19,7 @@ const blas1 = @import("blas1/__root__.zig");
 const blas2 = @import("blas2/__root__.zig");
 const blas3 = @import("blas3/__root__.zig");
 const ext = @import("ext/__root__.zig");
-const l1 = blas1.interface;
+const l1 = blas1.api;
 const l2 = blas2.interface;
 const tri = blas2.triangular;
 const band = blas2.banded;
@@ -30,8 +30,9 @@ const util = @import("util.zig");
 
 // ---- the BLAS routines ---------------------------------------------------------
 //
-// Fortran argument order, column-major, sizes and strides `isize`, the element
-// type explicit. Each takes `io` after its allocator, or first without one
+// Level 1 on strided views (`blas1/api.zig`); levels 2 and 3 in Fortran
+// argument order, column-major, sizes and strides `isize`. The element type
+// explicit. Each takes `io` after its allocator, or first without one
 // (`threading.md`); bad arguments return named errors in `xerbla`'s order.
 
 pub const Trans = types.Trans;
@@ -42,8 +43,8 @@ pub const Extreme = l1.Extreme;
 pub const HalfGemv = l2.HalfGemv;
 pub const HalfGemm = blas3.half.HalfGemm;
 
-/// Level 1: a stride past the address space, or `error.Canceled`.
-pub const Level1Error = l1.Error;
+/// Level 1, two vectors: counts that disagree, or `error.Canceled`.
+pub const Level1Error = l1.PairError;
 /// Level 2: bad arguments, `error.OutOfMemory` or `error.Canceled`.
 pub const Level2Error = l2.Error;
 /// `gemvHalf`, which allocates nothing: `Level2Error` less `OutOfMemory`.
