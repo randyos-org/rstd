@@ -19,6 +19,8 @@ pub fn sdRoundedBox(p: Vec2, b: Vec2, r: Float) Float {
     return @min(@max(q[0], q[1]), 0.0) + length(@max(q, splat(Vec2, 0))) - r;
 }
 
+// Kept on purpose: Inigo Quilez's GLSL, the port reference for the 2D distance
+// functions, each uncommented and adapted as rgl needs its shape (user, 2026-11-15).
 // // Chamfer Box - exact
 // float sdChamferBox( in vec2 p, in vec2 b, in float chamfer )
 // {
