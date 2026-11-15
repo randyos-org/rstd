@@ -288,7 +288,7 @@ jobs:
   # (randyos-org/zig-toolchain's build of zig-build). Natively where a hosted
   # runner has the OS and ISA; 32-bit x86 natively on x86_64; other Linux ISAs
   # under qemu-user (`-fqemu`, as Zig's own CI ran them); wasm under Node. The
-  # freestanding RandyOS targets need the QEMU rigs (build/qemu), not yet here.
+  # freestanding RandyOS targets run on the QEMU rigs, in the rig job below.
   test:
     name: Test (${{ matrix.platform.name }}, ${{ matrix.zig }})
     needs: version
@@ -396,9 +396,63 @@ jobs:
         platform: ${{ fromJSON(needs.version.outputs.tier34) }}
     steps: *test-steps
 
+  # The QEMU rigs of RandyOS's targets (support.md, tier 2; build/qemu), on the
+  # latest Zig only, as RandyOS builds with it: the x86_64 ones under KVM, which
+  # GitHub's Linux runners offer (issue #343). The other rigs join as their
+  # issues land (#344 to #349).
+  rig:
+    name: Rig (${{ matrix.rig }})
+    needs: version
+    if: ${{ needs.version.outputs.ci == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        rig: [x86_64, x86_64-smp]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.version.outputs.sha }}
+          submodules: recursive
+
+      - uses: randyos-org/zig-toolchain/setup@main
+
+      # KVM for the runner's user: GitHub's documented udev rule
+      - name: QEMU and KVM
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq qemu-system-x86
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          qemu-system-x86_64 --version
+          ls -l /dev/kvm
+
+      - name: Fetch dependencies
+        run: |
+          for wait in 15 30 60 120; do
+            zig build --fetch && exit 0
+            echo "::warning::fetching dependencies failed; retrying in ${wait}s"
+            sleep "$wait"
+          done
+          zig build --fetch
+
+      - name: Rig
+        env:
+          RIG: ${{ matrix.rig }}
+        run: zig build "qemu-test-$RIG" -Dqemu-kvm -Dfail-fast=true -Dtest-host-off --summary line
+
+      # the rig's console, which the step's output may have cut short
+      - name: Live log
+        if: ${{ failure() }}
+        env:
+          RIG: ${{ matrix.rig }}
+        run: tail -c 300000 ".zig-cache/qemu-test-$RIG.log" || true
+
   ci-result:
     name: CI
-    needs: [version, version-check, check, test, test-tier34]
+    needs: [version, version-check, check, test, test-tier34, rig]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     steps:
@@ -417,7 +471,7 @@ jobs:
 
   release:
     name: Release v${{ needs.version.outputs.version }}
-    needs: [version, check, test, test-tier34]
+    needs: [version, check, test, test-tier34, rig]
     if: >-
       ${{ !cancelled() && needs.version.outputs.release == 'true'
       && needs.check.result == 'success' && needs.test.result == 'success' }}
