@@ -238,7 +238,8 @@ test "api: a negative stride is the vector read backward" {
         var cy: [3]T = undefined;
         @memcpy(&cy, gather(T, y.toConst(), &buf));
         const d = try dot(check.io, T, x, y.toConst());
-        try check.expectClose(T, try dot(check.io, T, .of(&rx), .of(&cy)), d, 0);
+        // strided and contiguous take different kernel paths: close, not the same bits
+        try check.expectClose(T, try dot(check.io, T, .of(&rx), .of(&cy)), d, check.tolerance(Float(T), 2));
         try copy(check.io, T, x, y);
         for (0..3) |i| try check.expectClose(T, rx[i], y.get(i), 0);
         try check.expectClose(Float(T), nrm2(check.io, T, .of(&rx)), nrm2(check.io, T, x), check.tolerance(Float(T), 2));
