@@ -43,7 +43,7 @@ fn dotWith(path: Path, io: Io, sx: anytype, sy: @TypeOf(sx)) Io.Cancelable!@Type
     const T = @TypeOf(sx.ptr[0]);
     if (sx.n == 0) return ops.zero(T);
     if (path == .fixed) return fixed(T, "dot", sx.n, .{ sx, sy });
-    const f = if (comptime isComplex(T)) blas.dotc else blas.dot;
+    const f = if (comptime isComplex(T)) l1.dotc else l1.dot;
     return f(io, T, toIsize(sx.n), sx.ptr, toIsize(sx.inc), sy.ptr, toIsize(sy.inc)) catch |e| return narrow(Io.Cancelable, e);
 }
 
