@@ -8,6 +8,10 @@ const apple_accel = @import("apple_accel.zig");
 pub const types = @import("types.zig");
 pub const cpu = @import("cpu/__root__.zig");
 pub const Vtable = @import("Vtable.zig");
+/// Strided vector views and the shared error pieces (`strided.zig`).
+pub const strided = @import("strided.zig");
+pub const Strided = strided.Strided;
+pub const ConstStrided = strided.ConstStrided;
 pub const Config = @import("Config.zig");
 /// The `@Vector` kernels some cores install; `tools/blasbench` races them.
 pub const vector = @import("vector.zig");
@@ -480,6 +484,7 @@ test {
     // hosted only: the rigs' `linalg.blas._test.` filter would take it
     if (comptime test_io.hosted) _ = @import("_test/apple_accel.zig");
     _ = @import("threading.zig");
+    _ = @import("strided.zig");
     _ = @import("_test/__root__.zig");
     zigstd.testRefAllDecls(@This());
 }
