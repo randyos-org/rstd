@@ -165,7 +165,8 @@ pub inline fn zero(comptime V: type) V {
 /// order, each product after the first fused into the sum as `mulAdd` says;
 /// a complex real part adds `re re` then `im im`, its imaginary part `re im`
 /// then `-im re`. Under SPIR-V `OpDot`.
-pub inline fn dot(a: anytype, b: @TypeOf(a)) Elem(@TypeOf(a)) {
+/// A plain `fn`, as `length`.
+pub fn dot(a: anytype, b: @TypeOf(a)) Elem(@TypeOf(a)) {
     // builtins, not `Elem` and `Real` again: calls cost the caller's quota
     const T = @TypeOf(a[0]);
     if (on_spirv and comptime spirvVec(@TypeOf(a))) return spvDot(a, b);
@@ -181,7 +182,8 @@ pub inline fn dot(a: anytype, b: @TypeOf(a)) Elem(@TypeOf(a)) {
 }
 
 /// `dot(v, v)`'s real part, `Σ |v[i]|²`, as the real type.
-pub inline fn dot2(v: anytype) Real(Elem(@TypeOf(v))) {
+/// A plain `fn`, as `length`.
+pub fn dot2(v: anytype) Real(Elem(@TypeOf(v))) {
     if (on_spirv and comptime spirvVec(@TypeOf(v))) return spvDot(v, v);
     const E = Elem(@TypeOf(v));
     const complex = comptime isComplex(E);
