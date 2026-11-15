@@ -80,8 +80,8 @@ const InitOptions = struct {
     /// Which font of a collection (.ttc/.otc) to load; 0 for a single font.
     font_index: u32 = 0,
     /// Print each skipped (unrecognized) table tag to stderr, as png.zig's
-    /// `DecodeOptions.debug` does.
-    debug: bool = true,
+    /// `DecodeOptions.debug` does; off by default, as there.
+    debug: bool = false,
 };
 
 /// How many fonts `font_data` holds: a collection's count, else 1.
