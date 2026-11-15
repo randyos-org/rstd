@@ -137,8 +137,10 @@ Conventions shared by every interface:
 - **Errors.** Each file has an `ArgError` set named after the reference's `xerbla` arguments
   (`InvalidTrans`, `InvalidLda`, `InvalidIncx`, ...), checked in the reference's order, so the
   first bad argument wins. Each level's `Error` adds `Allocator.Error` where it allocates and
-  `Io.Cancelable` everywhere; the root exports them as `Level1Error` to `Level3Error`, and
-  the extensions' as `ExtError`.
+  `Io.Cancelable` everywhere; the root exports them as `Level2Error` and `Level3Error`, and
+  the extensions' as `ExtError`. Level 1's public routines (`blas1/api.zig`, Z8) take strided
+  views over this core and return exact sets: `error.LengthMismatch` for two vectors, and
+  `error.Canceled` where they thread.
   A vector or matrix that could not fit the address space (`util.fits`, `util.fitsMatrix`)
   returns its stride's or leading dimension's error, so no index computation overflows.
 - **Letters.** Transposes, triangles, sides and diagonals are one set of letter enums for every

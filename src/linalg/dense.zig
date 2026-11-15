@@ -12,6 +12,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
 const blas = @import("blas/__root__.zig");
+const l1 = @import("blas/blas1/interface.zig");
 const lapack = @import("lapack/__root__.zig");
 const vector = @import("vector.zig");
 const matrix = @import("matrix.zig");
@@ -57,7 +58,7 @@ fn normWith(path: Path, io: Io, s: anytype) Io.Cancelable!Real(@TypeOf(s.ptr[0])
     const T = @TypeOf(s.ptr[0]);
     if (s.n == 0) return 0;
     if (path == .fixed) return fixed(Real(T), "length", s.n, .{s});
-    return blas.nrm2(io, T, toIsize(s.n), s.ptr, toIsize(s.inc)) catch |e| return narrow(Io.Cancelable, e);
+    return l1.nrm2(io, T, toIsize(s.n), s.ptr, toIsize(s.inc)) catch |e| return narrow(Io.Cancelable, e);
 }
 
 /// `Σ x[i]`: in order up to the inline limit, else the BLAS's `sum`, the
@@ -71,13 +72,13 @@ fn sumWith(path: Path, io: Io, s: anytype) Io.Cancelable!@TypeOf(s.ptr[0]) {
     const T = @TypeOf(s.ptr[0]);
     if (s.n == 0) return ops.zero(T);
     if (path == .fixed) return fixed(T, "sum", s.n, .{s});
-    if (comptime !isComplex(T)) return blas.sum(io, T, toIsize(s.n), s.ptr, toIsize(s.inc)) catch |e| return narrow(Io.Cancelable, e);
+    if (comptime !isComplex(T)) return l1.sum(io, T, toIsize(s.n), s.ptr, toIsize(s.inc)) catch |e| return narrow(Io.Cancelable, e);
     const F = Real(T);
     const parts: [*]F = @ptrCast(s.ptr);
     const inc = toIsize(2 * s.inc);
     return .{
-        .re = blas.sum(io, F, toIsize(s.n), parts, inc) catch |e| return narrow(Io.Cancelable, e),
-        .im = blas.sum(io, F, toIsize(s.n), parts + 1, inc) catch |e| return narrow(Io.Cancelable, e),
+        .re = l1.sum(io, F, toIsize(s.n), parts, inc) catch |e| return narrow(Io.Cancelable, e),
+        .im = l1.sum(io, F, toIsize(s.n), parts + 1, inc) catch |e| return narrow(Io.Cancelable, e),
     };
 }
 
@@ -103,7 +104,7 @@ fn extremeWith(comptime which: blas.Extreme, path: Path, io: Io, s: anytype) Io.
     const T = @TypeOf(s.ptr[0]);
     if (s.n == 0) return 0;
     if (path == .fixed) return fixed(T, "extreme", s.n, .{ which, s });
-    return blas.extreme(io, T, which, toIsize(s.n), s.ptr, toIsize(s.inc)) catch |e| return narrow(Io.Cancelable, e);
+    return l1.extreme(io, T, which, toIsize(s.n), s.ptr, toIsize(s.inc)) catch |e| return narrow(Io.Cancelable, e);
 }
 
 /// `y += a x`, by the BLAS's `axpy`.
@@ -113,7 +114,7 @@ pub fn axpy(io: Io, a: anytype, x: anytype, y: anytype) VectorError!void {
     const sy = try strided(viewOf(y).constView());
     if (sx.n != sy.n) return error.DimensionMismatch;
     const alpha: T = a;
-    blas.axpy(io, T, toIsize(sx.n), alpha, sx.ptr, toIsize(sx.inc), sy.ptr, toIsize(sy.inc)) catch |e| return narrow(Io.Cancelable, e);
+    l1.axpy(io, T, toIsize(sx.n), alpha, sx.ptr, toIsize(sx.inc), sy.ptr, toIsize(sy.inc)) catch |e| return narrow(Io.Cancelable, e);
 }
 
 /// `x *= a`, element by element as `linalg.matrix.scale` (design.md,

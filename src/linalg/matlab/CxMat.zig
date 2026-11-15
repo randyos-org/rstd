@@ -5,6 +5,7 @@ const std = @import("std");
 const zigstd = @import("../../zigstd.zig");
 const scalar = @import("scalar.zig");
 const blas = @import("../blas/__root__.zig");
+const l1 = @import("../blas/blas1/interface.zig");
 const cholesky = @import("cholesky.zig");
 const lu = @import("lu.zig");
 const generators = @import("generators.zig");
@@ -168,7 +169,7 @@ pub fn transpose(self: Self, out: Self) void {
 pub fn scale(self: Self, io: std.Io, s: Cx) std.Io.Cancelable!void {
     for (1..self.n + 1) |j| {
         const c = self.col(j);
-        try scalar.level1(blas.rot(io, f64, @intCast(self.m), c.r.ptr, 1, c.i.ptr, 1, s.re, -s.im));
+        try scalar.level1(l1.rot(io, f64, @intCast(self.m), c.r.ptr, 1, c.i.ptr, 1, s.re, -s.im));
     }
 }
 
