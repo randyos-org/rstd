@@ -12,6 +12,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
 const blas = @import("blas/__root__.zig");
+const ext = @import("blas/ext/interface.zig");
 const l3 = @import("blas/blas3/core.zig");
 const l2 = @import("blas/blas2/core.zig");
 const l1 = @import("blas/blas1/interface.zig");
@@ -217,7 +218,7 @@ fn transposeWith(comptime trans: blas.Trans, io: Io, o: anytype, a: anytype) Tra
     if (a.rows == 0 or a.cols == 0) return;
     const one = ops.one(T);
     const t: blas.Trans = if (comptime isComplex(T)) trans else .t;
-    blas.omatcopy(io, T, t, toIsize(a.rows), toIsize(a.cols), one, a.data.ptr, toIsize(a.ld), o.data.ptr, toIsize(o.ld)) catch |e| return narrow(Io.Cancelable, e);
+    ext.omatcopy(io, T, t, toIsize(a.rows), toIsize(a.cols), one, a.data.ptr, toIsize(a.ld), o.data.ptr, toIsize(o.ld)) catch |e| return narrow(Io.Cancelable, e);
 }
 
 // ---- determinant, inverse and solve -----------------------------------------
