@@ -25,6 +25,8 @@ pub fn addQemuTests(b: *Build, optimize: Optimize) !Rigs {
     const filters = b.option([]const []const u8, "qemu-test-filter", "Only run tests whose name contains this (repeatable)") orelse &.{};
     const only_parts = b.option([]const []const u8, "qemu-test-part", "Only build and run this part of a rig that splits its tests into images, e.g. blas3-kernel-complex (repeatable)") orelse &.{};
     for (only_parts) |o| if (!hasPart(o)) std.debug.panic("-Dqemu-test-part: no rig has a part named {s}", .{o});
+    // declared whether or not a Linux rig's kernel is fetched yet
+    _ = nixHere(b);
     // On when rstd is the project being built, so a dependent never fetches OSX-KVM.
     const macos_vm = vmOption(b, "macos-vm", "the macOS VM rigs", "OSX-KVM");
     const mac: macos.Options = if (macos_vm) .{
@@ -192,6 +194,17 @@ fn kvm(b: *Build) bool {
     return on;
 }
 
+var nix_here_on: ?struct { owner: *Build, on: bool } = null;
+
+/// `-Dqemu-nix-here`: the Linux rigs' Nix packages (glibc under
+/// `-Drstd-tsan`) from this machine's Nix, without `-Dtest-host` (CI).
+fn nixHere(b: *Build) bool {
+    if (nix_here_on) |k| if (k.owner == b) return k.on;
+    const on = b.option(bool, "qemu-nix-here", "The Linux rigs take their Nix packages (glibc with -Drstd-tsan) from this machine's Nix (CI)") orelse false;
+    nix_here_on = .{ .owner = b, .on = on };
+    return on;
+}
+
 var fail_fast: ?struct { owner: *Build, on: bool } = null;
 
 /// `-Dfail-fast`: end a rig at its first failing test rather than run the rest.
@@ -223,8 +236,9 @@ pub fn addConsole(b: *Build, run: *Build.Step.Run, m: Machine, host: ?TestHost) 
 /// null until the kernel's package is fetched.
 fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedTarget, optimize: Optimize, filters: []const []const u8, host: ?TestHost, rig_check: *Build.Step) !?*Build.Step.Run {
     const kernel = b.dependencyLazy(l.dep, .{}) catch return null;
-    // ThreadSanitizer wants glibc, and its loader, from Nix (`tools/nix/blas.sh`)
-    const nix: ?[]const u8 = if (!buildroot.tsan or host == null) null else switch (target.result.cpu.arch) {
+    // ThreadSanitizer wants glibc, and its loader, from Nix (`tools/nix/blas.sh`):
+    // `-Dtest-host`'s, or with `-Dqemu-nix-here` this machine's
+    const nix: ?[]const u8 = if (!buildroot.tsan or (host == null and !nixHere(b))) null else switch (target.result.cpu.arch) {
         .x86_64 => "x86_64-linux",
         .aarch64 => "aarch64-linux",
         else => null,
@@ -244,7 +258,7 @@ fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedT
         .optimize = optimize,
     }) });
     const pack: Initramfs = .init(b, "initramfs.cpio", init_exe, test_exe);
-    if (nix) |system| pack.run.addPrefixedFileArg("+", (try tools.nixBlas(b, host.?.alias, system, false)).captureStdOut(.{}));
+    if (nix) |system| pack.run.addPrefixedFileArg("+", (try tools.nixBlas(b, if (host) |h| h.alias else null, system, false)).captureStdOut(.{}));
     rig_check.dependOn(&pack.run.step);
 
     const run = qemuCommand(b, m, host);
