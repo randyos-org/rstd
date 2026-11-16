@@ -28,8 +28,8 @@ after it. Rig names are `zig build` steps: `qemu-test-<rig>` unless named in ful
 | `powerpc-freestanding-eabi` | 2 | RandyOS: iBook G3, PowerPC 750FX | `powerpc-750` (soft float: portable kernels only), `powerpc-750-hf`; both in CI under TCG |
 | `x86_64-uefi-msvc` | 2 | RandyOS's loader | `x86_64-uefi` (OVMF; HVF on the Intel Mac, or KVM in CI), `rstd-check-uefi` (CI too) |
 | `aarch64-uefi-msvc` | 2 | RandyOS's loader (pftf) | `aarch64-uefi` (AAVMF; HVF on the M6, or arm64 runners in CI), `rstd-check-uefi` |
-| `x86_64-linux-musl` | 2 | zfls (release, conda, Alpine) | `linux-x86_64` (TCG `max`, or HVF on the Intel Mac; 4 CPUs), `rstd-check-zig017` |
-| `aarch64-linux-musl` | 2 | zfls (release, conda, Alpine) | `linux-aarch64` (HVF on the M6, or TCG `max`), `rstd-check-zig017` |
+| `x86_64-linux-musl` | 2 | zfls (release, conda, Alpine) | `linux-x86_64` (TCG `max`, HVF on the Intel Mac, or KVM in CI; 4 CPUs), `rstd-check-zig017` |
+| `aarch64-linux-musl` | 2 | zfls (release, conda, Alpine) | `linux-aarch64` (HVF on the M6, or TCG `max`; in CI on arm64 runners, with `linux-aarch64-sve`), `rstd-check-zig017` |
 | `x86_64-linux-gnu`, `aarch64-linux-gnu` | 2 | zfls | the Linux rigs above with `-Drstd-tsan` only (glibc from Nix) |
 | `aarch64-windows` | 2 | zfls | `rstd-check-zig017` builds and links only; tests run only in zfls's CI |
 | `x86_64-macos` 11.0+ | 2 | zfls | `ssh-test-x86_64-macos` (Intel Mac, i5-8500B, macOS 15.8), `ssh-test-x86_64-macos-rosetta` (Rosetta 2 on the M6, for comparison), `rstd-check-macho`, `rstd-check-zig017` |

@@ -764,6 +764,7 @@ const base_machines = [_]Machine{
         .qemu = "qemu-system-x86_64",
         .args = &.{ "-M", "pc", "-cpu", "max", "-smp", "4" },
         .hvf = &.{ "-accel", "hvf", "-M", "pc", "-cpu", "host", "-smp", "4" },
+        .kvm = &.{ "-accel", "kvm", "-M", "pc", "-cpu", "host", "-smp", "4" },
         // the initramfs and its unpacked copy: the test, with every core's
         // kernels and their debug info, is about 700 MB, and `/` (where tests
         // write files) gets half the memory
