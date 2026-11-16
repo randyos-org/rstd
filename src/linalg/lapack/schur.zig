@@ -823,8 +823,7 @@ test "lapack trsen: the selected cluster leads, s against the Kronecker solve, s
             @memcpy(kf, kk);
             const ipiv = try al.alloc(usize, nn);
             defer al.free(ipiv);
-            const nni: isize = @intCast(nn);
-            try lu.gesv(al, check.io, T, nni, 1, kf.ptr, nni, ipiv.ptr, x.ptr, nni, null);
+            try lu.gesv(al, check.io, T, nn, 1, kf, nn, ipiv, x, nn);
             var xf: F = 0;
             for (x) |v| xf += ops.abs2(T, v);
             const s_true = 1 / @sqrt(1 + xf);
@@ -834,6 +833,7 @@ test "lapack trsen: the selected cluster leads, s against the Kronecker solve, s
             const sv = try al.alloc(F, nn);
             defer al.free(sv);
             var dummy: [1]T = undefined;
+            const nni: isize = @intCast(nn);
             try svd.gesvd(al, check.io, T, .n, .n, nni, nni, kf.ptr, nni, sv.ptr, &dummy, 1, &dummy, 1, null);
             const smin = sv[nn - 1];
             const root = @sqrt(@as(F, @floatFromInt(nn)));

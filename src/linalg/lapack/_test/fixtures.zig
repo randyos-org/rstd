@@ -183,8 +183,9 @@ pub fn LuProblem(comptime T: type) type {
             al.free(self.ipiv);
         }
 
-        pub fn factorIt(self: *Self, al: Allocator, pivot: ?*usize) lu.GetrfError!void {
-            return lu.getrf(al, check.io, T, @intCast(self.m), @intCast(self.n), self.a.ptr, @intCast(self.lda), self.ipiv.ptr, pivot);
+        /// `getrf`: the first zero pivot, or null.
+        pub fn factorIt(self: *Self, al: Allocator) lu.GetrfError!?usize {
+            return lu.getrf(al, check.io, T, self.m, self.n, self.a, self.lda, self.ipiv);
         }
 
         pub fn l(self: *const Self, i: usize, k: usize) W(T) {

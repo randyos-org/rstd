@@ -1005,7 +1005,8 @@ const Getrf = struct {
         f(&n, &n, w.a.ptr, &n, w.ipiv.ptr, &w.info);
     }
     pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
-        try lapack.getrf(rstd_alloc, libs.rstd_io, Num(p), w.in(), w.in(), cast(p, w.a.ptr), w.in(), w.rpiv.ptr, null);
+        const n = w.in();
+        _ = try lapack.getrf(rstd_alloc, libs.rstd_io, Num(p), w.n, w.n, libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), w.n, w.rpiv);
         // the libraries' 1-based form, which `residual` reads
         for (w.ipiv[0..w.n], w.rpiv[0..w.n]) |*d, s| d.* = @intCast(s + 1);
     }
@@ -1051,7 +1052,7 @@ const Getrs = struct {
     }
     pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
         const n = w.in();
-        try lapack.getrs(rstd_alloc, libs.rstd_io, Num(p), .n, n, n, cast(p, w.a.ptr), n, w.rpiv.ptr, cast(p, w.b.ptr), n);
+        try lapack.getrs(rstd_alloc, libs.rstd_io, Num(p), .n, w.n, w.n, libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), w.n, w.rpiv, libs.matrix(Num(p), cast(p, w.b.ptr), n, n, n), w.n);
     }
     pub fn residual(comptime p: Prec, w: *const Work(p), i: usize, j: usize) ?[2]f64 {
         return solveAt(p, w, i, j);
@@ -1077,7 +1078,7 @@ const Gesv = struct {
     }
     pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
         const n = w.in();
-        try lapack.gesv(rstd_alloc, libs.rstd_io, Num(p), n, 1, cast(p, w.a.ptr), n, w.rpiv.ptr, cast(p, w.b.ptr), n, null);
+        try lapack.gesv(rstd_alloc, libs.rstd_io, Num(p), w.n, 1, libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), w.n, w.rpiv, libs.matrix(Num(p), cast(p, w.b.ptr), n, 1, n), w.n);
     }
     pub fn residual(comptime p: Prec, w: *const Work(p), i: usize, j: usize) ?[2]f64 {
         return solveAt(p, w, i, j);
@@ -1101,7 +1102,8 @@ const Trtri = struct {
         f(&fc.U, &fc.N, &n, w.a.ptr, &n, &w.info, 1, 1);
     }
     pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
-        try lapack.trtri(rstd_alloc, libs.rstd_io, Num(p), .u, .n, w.in(), cast(p, w.a.ptr), w.in(), null);
+        const n = w.in();
+        try lapack.trtri(rstd_alloc, libs.rstd_io, Num(p), .u, .n, w.n, libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), w.n);
     }
     /// `A X` against `I`, upper triangle.
     pub fn residual(comptime p: Prec, w: *const Work(p), i: usize, j: usize) ?[2]f64 {
@@ -1335,6 +1337,6 @@ const Gbtrf = struct {
     }
     pub const has_rstd = @hasDecl(lapack, "gbtrf");
     pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
-        try lapack.gbtrf(rstd_alloc, libs.rstd_io, Num(p), w.in(), w.in(), band_k, band_k, cast(p, w.a.ptr), band_rows, w.rpiv.ptr, null);
+        _ = try lapack.gbtrf(Num(p), w.n, w.n, band_k, band_k, libs.matrix(Num(p), cast(p, w.a.ptr), band_rows, w.in(), band_rows), band_rows, w.rpiv);
     }
 };

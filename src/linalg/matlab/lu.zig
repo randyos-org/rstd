@@ -33,18 +33,13 @@ pub const Lu = struct {
         errdefer allocator.free(ipiv);
         const z: ?[]Cx = if (complex or !a.isReal()) try a.toPacked(Cx, allocator) else null;
         errdefer if (z) |x| allocator.free(x);
-        var singular = false;
-        const ni: isize = @intCast(n);
         const r = if (z) |x|
-            lapack.getrf(allocator, io, Cx, ni, ni, x.ptr, ni, ipiv.ptr, null)
+            lapack.getrf(allocator, io, Cx, n, n, x, @max(n, 1), ipiv)
         else
-            lapack.getrf(allocator, io, f64, ni, ni, a.r.ptr, @intCast(a.lda), ipiv.ptr, null);
-        r catch |e| switch (e) {
-            error.Singular => singular = true,
-            // the arguments come from `a`
-            else => |x| return ops.narrow(Allocator.Error || Io.Cancelable, x),
-        };
-        return .{ .a = a, .ipiv = ipiv, .z = z, .singular = singular };
+            lapack.getrf(allocator, io, f64, n, n, a.r, a.lda, ipiv);
+        // the arguments come from `a`
+        const zero = r catch |e| return ops.narrow(Allocator.Error || Io.Cancelable, e);
+        return .{ .a = a, .ipiv = ipiv, .z = z, .singular = zero != null };
     }
 
     pub fn deinit(f: Lu, allocator: Allocator) void {
@@ -55,14 +50,13 @@ pub const Lu = struct {
     /// `op(A) X = B` in place of `b` (`n x p`), by `getrs`; a complex `b`
     /// needs `f` factored `complex`.
     pub fn solve(f: Lu, trans: lapack.Trans, b: CxMat, allocator: Allocator, io: Io) Error!void {
-        const ni: isize = @intCast(f.a.n);
-        const p: isize = @intCast(b.n);
+        const n = f.a.n;
         if (f.z) |x| {
             const zb = try b.toPacked(Cx, allocator);
             defer allocator.free(zb);
-            try solved(lapack.getrs(allocator, io, Cx, trans, ni, p, x.ptr, ni, f.ipiv.ptr, zb.ptr, ni));
+            try solved(lapack.getrs(allocator, io, Cx, trans, n, b.n, x, @max(n, 1), f.ipiv, zb, @max(n, 1)));
             b.fromPacked(Cx, zb);
-        } else try solved(lapack.getrs(allocator, io, f64, trans, ni, p, f.a.r.ptr, @intCast(f.a.lda), f.ipiv.ptr, b.r.ptr, @intCast(b.lda)));
+        } else try solved(lapack.getrs(allocator, io, f64, trans, n, b.n, f.a.r, f.a.lda, f.ipiv, b.r, b.lda));
     }
 
     fn solved(r: lapack.GetrsError!void) Error!void {
@@ -141,11 +135,11 @@ pub fn inv(self: CxMat, allocator: Allocator, io: Io) Error!f64 {
     defer f.deinit(allocator);
     if (f.singular) return error.Singular;
     const rc = try rcond(f, allocator, io, anorm);
-    const ni: isize = @intCast(self.n);
+    const n = self.n;
     const r = if (f.z) |x|
-        lapack.getri(allocator, io, Cx, ni, x.ptr, ni, f.ipiv.ptr, null)
+        lapack.getri(allocator, io, Cx, n, x, @max(n, 1), f.ipiv)
     else
-        lapack.getri(allocator, io, f64, ni, self.r.ptr, @intCast(self.lda), f.ipiv.ptr, null);
+        lapack.getri(allocator, io, f64, n, self.r, self.lda, f.ipiv);
     r catch |e| return ops.narrow(Error, e);
     if (f.z) |x| self.fromPacked(Cx, x);
     return rc;
