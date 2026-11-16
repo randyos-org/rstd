@@ -1571,6 +1571,7 @@ routine and matches the reference; `apple_accel.zig` binds it and routes to it.
   - `axpby` with a zero `alpha`: it reads `x`. Both, real and complex.
   - A zero stride on a vector the routine writes (`swap`, `axpby`): Accelerate rejects it as an invalid parameter and exits. Both. Zero strides on read vectors go to Accelerate.
   - Complex `gemv` with a `beta` that has a zero part and NaN or an infinity in `y`: it skips that part's products, as for `scal`. arm64, the `$NEWLAPACK` sets only.
+  - Real `symv` with an infinity in `x`: some `y(i)` come out NaN where the reference gives an infinity, though every entry of `A` is nonzero. arm64, all three sets (in the probe 1024 of 3072 cases for `ssymv`, 2048 for `dsymv`); not on x86_64 or under Rosetta 2 ([#410](https://github.com/randyos-org/rstd/issues/410)).
   - The triangular level 2 with NaN or an infinity in `x`, and `trmm` with one in `B`: past
     small orders it multiplies them by the triangle's zeros. Real `trmv`: arm64 only; complex `trmv` (orders 33 and 130 in the tests): both.
   - `ger`, `gerc` with one in `x`: it does not pass over a zero `y`. Both.

@@ -1082,6 +1082,11 @@ test "quirk cases run rstd's kernels, and the Hermitian diagonal comes out real"
     try zigstd.testExpectEqualSlices(f64, &.{ 2, 0, 4, 1 }, &y);
     try l1.axpby(io, Complex64, 4, .init(1, 1), &z, 1, .init(2, 0), &w, 1);
     try p.saw(x86_64, "complex axpby, beta with a zero part");
+    // real `symv`'s too (issue #410): arm64 gives NaN where this is inf
+    var sv: [4]f64 = @splat(0);
+    try l2.symv(al, io, f64, .u, 4, 1, &a, 4, &x, 1, 0, &sv, 1);
+    try p.saw(x86_64, "symv, x not finite");
+    for (sv) |v| try zigstd.testExpectEqual(inf, v);
     try l2.trmv(al, io, f64, .u, .n, .n, 4, &a, 4, &x, 1);
     try p.saw(x86_64, "trmv, x not finite");
     try l2.ger(al, io, f64, 4, 4, 1, &x, 1, &y, 1, &a, 4);
