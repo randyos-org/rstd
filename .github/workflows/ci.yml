@@ -399,9 +399,9 @@ jobs:
   # The QEMU rigs of RandyOS's targets (support.md, tier 2; build/qemu), on the
   # latest Zig only, as RandyOS builds with it: the x86_64 ones under KVM, which
   # GitHub's Linux runners offer (issues #343, #344), and the aarch64 ones on its
-  # arm64 runners, under KVM where they offer it (#345). QEMU and its firmware come
+  # arm64 runners, under KVM where they offer it (#345, #346). QEMU and its firmware come
   # from tools/nix's flake, as on the Macs' rigs. The other rigs join as their
-  # issues land (#346 to #349).
+  # issues land (#347 to #349).
   rig:
     name: Rig (${{ matrix.rig }})
     needs: version
@@ -419,6 +419,7 @@ jobs:
           - { rig: aarch64, runner: ubuntu-24.04-arm }
           - { rig: aarch64-smp, runner: ubuntu-24.04-arm }
           - { rig: aarch64-sve, runner: ubuntu-24.04-arm }
+          - { rig: aarch64-uefi, runner: ubuntu-24.04-arm }
     steps:
       - uses: actions/checkout@v7
         with:

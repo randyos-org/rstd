@@ -730,6 +730,7 @@ const base_machines = [_]Machine{
         .qemu = "qemu-system-aarch64",
         .args = &.{ "-M", "virt", "-cpu", "cortex-a72" },
         .hvf = &.{ "-accel", "hvf", "-M", "virt", "-cpu", "host" },
+        .kvm = &.{ "-accel", "kvm", "-M", "virt,gic-version=host", "-cpu", "host" },
         .memory = "1G",
         .boot = .{ .kernel = .{
             .linker_script = "",
