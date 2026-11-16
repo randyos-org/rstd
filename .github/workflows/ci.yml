@@ -398,19 +398,27 @@ jobs:
 
   # The QEMU rigs of RandyOS's targets (support.md, tier 2; build/qemu), on the
   # latest Zig only, as RandyOS builds with it: the x86_64 ones under KVM, which
-  # GitHub's Linux runners offer (issues #343, #344). QEMU and its firmware come
+  # GitHub's Linux runners offer (issues #343, #344), and the aarch64 ones on its
+  # arm64 runners, under KVM where they offer it (#345). QEMU and its firmware come
   # from tools/nix's flake, as on the Macs' rigs. The other rigs join as their
-  # issues land (#345 to #349).
+  # issues land (#346 to #349).
   rig:
     name: Rig (${{ matrix.rig }})
     needs: version
     if: ${{ needs.version.outputs.ci == 'true' }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 350
     strategy:
       fail-fast: false
       matrix:
-        rig: [x86_64, x86_64-smp, x86_64-uefi]
+        include:
+          - { rig: x86_64, runner: ubuntu-24.04 }
+          - { rig: x86_64-smp, runner: ubuntu-24.04 }
+          - { rig: x86_64-uefi, runner: ubuntu-24.04 }
+          # arm64 runners: KVM where they expose it, else TCG; SVE under TCG `max`
+          - { rig: aarch64, runner: ubuntu-24.04-arm }
+          - { rig: aarch64-smp, runner: ubuntu-24.04-arm }
+          - { rig: aarch64-sve, runner: ubuntu-24.04-arm }
     steps:
       - uses: actions/checkout@v7
         with:
@@ -428,7 +436,9 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-          ls -l /dev/kvm
+          # -Dqemu-kvm only where the runner has KVM; the rigs without KVM arguments
+          # run under TCG either way
+          if [ -w /dev/kvm ]; then echo "KVM=-Dqemu-kvm" >> "$GITHUB_ENV"; else echo "::notice::no /dev/kvm on this runner: TCG"; fi
           nix build ./tools/nix#qemu --out-link "$RUNNER_TEMP/qemu"
           echo "$RUNNER_TEMP/qemu/bin" >> "$GITHUB_PATH"
           "$RUNNER_TEMP/qemu/bin/qemu-system-x86_64" --version
@@ -445,7 +455,8 @@ jobs:
       - name: Rig
         env:
           RIG: ${{ matrix.rig }}
-        run: zig build "qemu-test-$RIG" -Dqemu-kvm -Dfail-fast=true -Dtest-host-off --summary line
+        # KVM splits into words on purpose, and may be empty
+        run: zig build "qemu-test-$RIG" $KVM -Dfail-fast=true -Dtest-host-off --summary line
 
       # every OS-free test built for UEFI, x86_64 and aarch64, beside the rig
       - name: rstd-check-uefi
