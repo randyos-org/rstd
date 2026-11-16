@@ -420,6 +420,9 @@ jobs:
           - { rig: aarch64-smp, runner: ubuntu-24.04-arm }
           - { rig: aarch64-sve, runner: ubuntu-24.04-arm }
           - { rig: aarch64-uefi, runner: ubuntu-24.04-arm }
+          # 32-bit Arm: TCG on any runner
+          - { rig: arm, runner: ubuntu-24.04 }
+          - { rig: arm-softfp, runner: ubuntu-24.04 }
     steps:
       - uses: actions/checkout@v7
         with:
