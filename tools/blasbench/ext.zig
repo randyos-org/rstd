@@ -116,9 +116,9 @@ pub const ext_cols = lib_cols[0..4].* ++ [_]Col{
 
 pub const ext_l2 = .{ Ger, Symv, Trsv, Gbmv };
 pub const ext_l3 = .{ Gemm3, Symm, Syrk, Trmm, Trsm };
-/// rstd's LAPACK, then the hooks: T34's SVD (faer), T111's QR and
-/// eigensolver, T110's ReLAPACK set; each races the libraries now and
-/// takes rstd's column once its routine lands.
+/// rstd's LAPACK. An entry gates rstd's call on `@hasDecl`, so it races
+/// once the routine lands; `Geqrf` and `Syevd` race the libraries alone until
+/// their rstd call is added (issue #120).
 const lapack_ops = .{ Potrf, Getrf, Getrs, Gesv, Trtri, Potri, Gesvd, Gesdd, Geqrf, Syevd, Sytrf, Gbtrf };
 
 pub fn libLapack(io: Io, gpa: std.mem.Allocator) !void {
@@ -1140,7 +1140,7 @@ fn svdAt(comptime p: Prec, w: *const Work(p), i: usize, j: usize) [2]f64 {
     return .{ cdist(s, w.at(.orig, i + j * n)), mag };
 }
 
-/// T34 (faer): thin `U` and `Vᵀ` (`S`).
+/// faer: thin `U` and `Vᵀ` (`S`).
 const Gesvd = struct {
     pub const name = "gesvd";
     pub const shape: Shape = .mm;
@@ -1174,7 +1174,7 @@ const Gesvd = struct {
     }
 };
 
-/// T34 (faer): `jobz` `S`.
+/// faer: `jobz` `S`.
 const Gesdd = struct {
     pub const name = "gesdd";
     pub const shape: Shape = .mm;
@@ -1208,7 +1208,7 @@ const Gesdd = struct {
     }
 };
 
-/// T111 (faer): add `rstd` when its `geqrf` lands; `tau` in `s`.
+/// faer's QR; rstd's call waits on issue #120. `tau` in `s`.
 const Geqrf = struct {
     pub const name = "geqrf";
     pub const shape: Shape = .mm;
@@ -1227,8 +1227,7 @@ const Geqrf = struct {
     }
 };
 
-/// T111 (faer): `syevd`, `heevd` complex, with vectors; add `rstd` when its
-/// eigensolver lands.
+/// `syevd`, `heevd` complex, with vectors; rstd's call waits on issue #120.
 const Syevd = struct {
     pub const name = "syevd";
     pub const shape: Shape = .mm;
@@ -1274,7 +1273,7 @@ const Syevd = struct {
     }
 };
 
-/// T110 (ReLAPACK): Bunch-Kaufman, symmetric (not Hermitian) complex too;
+/// ReLAPACK: Bunch-Kaufman, symmetric (not Hermitian) complex too;
 /// no residual, which would need the pivots' blocks.
 const Sytrf = struct {
     pub const name = "sytrf";
@@ -1299,7 +1298,7 @@ const Sytrf = struct {
     }
 };
 
-/// T110 (ReLAPACK): kl = ku = `band_k` in LAPACK's band storage, kl rows
+/// ReLAPACK: kl = ku = `band_k` in LAPACK's band storage, kl rows
 /// for the fill, at `gemv`'s band sizes; no residual.
 const Gbtrf = struct {
     pub const name = "gbtrf";
