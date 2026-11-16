@@ -120,7 +120,7 @@ pub fn build(b: *Build) !void {
             .root_source_file = b.path("tools/shader_run/main.zig"),
             .target = target,
             .optimize = optimize,
-            .link_libc = target.result.os.tag != .windows,
+            .link_libc = if (target.result.os.tag == .windows) null else true,
             .imports = &.{
                 .{ .name = "rstd", .module = rstd_mod },
                 .{ .name = vulkan_mod.name, .module = vulkan_mod.mod },
