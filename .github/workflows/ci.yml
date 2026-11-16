@@ -398,8 +398,9 @@ jobs:
 
   # The QEMU rigs of RandyOS's targets (support.md, tier 2; build/qemu), on the
   # latest Zig only, as RandyOS builds with it: the x86_64 ones under KVM, which
-  # GitHub's Linux runners offer (issue #343). The other rigs join as their
-  # issues land (#344 to #349).
+  # GitHub's Linux runners offer (issues #343, #344). QEMU and its firmware come
+  # from tools/nix's flake, as on the Macs' rigs. The other rigs join as their
+  # issues land (#345 to #349).
   rig:
     name: Rig (${{ matrix.rig }})
     needs: version
@@ -409,7 +410,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        rig: [x86_64, x86_64-smp]
+        rig: [x86_64, x86_64-smp, x86_64-uefi]
     steps:
       - uses: actions/checkout@v7
         with:
@@ -418,16 +419,19 @@ jobs:
 
       - uses: randyos-org/zig-toolchain/setup@main
 
-      # KVM for the runner's user: GitHub's documented udev rule
+      - uses: cachix/install-nix-action@v31
+
+      # KVM for the runner's user: GitHub's documented udev rule. qemu_watch
+      # finds the firmware in share/qemu beside the binary on PATH.
       - name: QEMU and KVM
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq qemu-system-x86
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-          qemu-system-x86_64 --version
           ls -l /dev/kvm
+          nix build ./tools/nix#qemu --out-link "$RUNNER_TEMP/qemu"
+          echo "$RUNNER_TEMP/qemu/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/qemu/bin/qemu-system-x86_64" --version
 
       - name: Fetch dependencies
         run: |
@@ -442,6 +446,11 @@ jobs:
         env:
           RIG: ${{ matrix.rig }}
         run: zig build "qemu-test-$RIG" -Dqemu-kvm -Dfail-fast=true -Dtest-host-off --summary line
+
+      # every OS-free test built for UEFI, x86_64 and aarch64, beside the rig
+      - name: rstd-check-uefi
+        if: ${{ matrix.rig == 'x86_64-uefi' }}
+        run: zig build rstd-check-uefi -Dtest-host-off --summary line
 
       # the rig's console, which the step's output may have cut short
       - name: Live log

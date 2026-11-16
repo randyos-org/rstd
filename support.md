@@ -26,7 +26,7 @@ after it. Rig names are `zig build` steps: `qemu-test-<rig>` unless named in ful
 | `aarch64-freestanding-none` | 2 | RandyOS: Raspberry Pi 3 to 5, Apple Silicon | `aarch64` (HVF on the M6, or `cortex-a72`), `aarch64-sve` (TCG `max`) |
 | `arm-freestanding-eabi` | 2 | RandyOS: Raspberry Pi 3, 32-bit | `arm-softfp` (soft-float ABI, A15's VFP), `arm` (`eabihf`) |
 | `powerpc-freestanding-eabi` | 2 | RandyOS: iBook G3, PowerPC 750FX | `powerpc-750` (soft float: portable kernels only), `powerpc-750-hf` |
-| `x86_64-uefi-msvc` | 2 | RandyOS's loader | `x86_64-uefi` (OVMF; HVF on the Intel Mac), `rstd-check-uefi` |
+| `x86_64-uefi-msvc` | 2 | RandyOS's loader | `x86_64-uefi` (OVMF; HVF on the Intel Mac, or KVM in CI), `rstd-check-uefi` (CI too) |
 | `aarch64-uefi-msvc` | 2 | RandyOS's loader (pftf) | `aarch64-uefi` (AAVMF; HVF on the M6), `rstd-check-uefi` |
 | `x86_64-linux-musl` | 2 | zfls (release, conda, Alpine) | `linux-x86_64` (TCG `max`, or HVF on the Intel Mac; 4 CPUs), `rstd-check-zig017` |
 | `aarch64-linux-musl` | 2 | zfls (release, conda, Alpine) | `linux-aarch64` (HVF on the M6, or TCG `max`), `rstd-check-zig017` |

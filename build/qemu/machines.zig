@@ -714,6 +714,7 @@ const base_machines = [_]Machine{
         .qemu = "qemu-system-x86_64",
         .args = &.{ "-M", "q35", "-cpu", "max" },
         .hvf = &.{ "-accel", "hvf", "-M", "q35", "-cpu", "host" },
+        .kvm = &.{ "-accel", "kvm", "-M", "q35", "-cpu", "host" },
         .memory = "1G",
         .boot = .{ .kernel = .{
             .linker_script = "",

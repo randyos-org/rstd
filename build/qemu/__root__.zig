@@ -336,7 +336,8 @@ fn addKernelRun(b: *Build, m: Machine, k: Boot.Kernel, target: rstdbuild.Resolve
         _ = esp.addCopyFile(test_exe.getEmittedBin(), b.fmt("EFI/BOOT/{s}", .{boot}));
         // read-only pflash, without a variable store: OVMF's code is no
         // multiple of 64 KiB, which `-bios` wants
-        if (testHostFor(m, host) == null) run.step.dependOn(&b.addFail(b.fmt("{s} runs on -Dtest-host, whose tools/nix/run.sh finds QEMU's firmware", .{m.name})).step);
+        // `@qemu-data@`: QEMU's firmware directory, which `tools/nix/run.sh` fills
+        // in on a test host and `tools/rig/qemu_watch.zig` here
         run.addArgs(&.{ "-drive", b.fmt("if=pflash,unit=0,format=raw,readonly=on,file=@qemu-data@/{s}", .{fw}), "-nic", "none", "-drive" });
         const drive = "if=none,id=esp,format=raw,readonly=on,file=fat:";
         run.addPrefixedDirectoryArg(if (testHostFor(m, host) != null) drive ++ "local:" else drive, esp.getDirectory());
