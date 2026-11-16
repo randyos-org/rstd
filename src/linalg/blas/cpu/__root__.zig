@@ -15,7 +15,6 @@ const gemv = @import("../blas2/gemv/__root__.zig");
 const blas = @import("../__root__.zig");
 pub const select = @import("select.zig");
 
-// pub const auxv = @import("_auxv.zig");
 pub const arm = Arch(.arm);
 pub const arm64 = Arch(.arm64);
 pub const generic = Arch(.generic);

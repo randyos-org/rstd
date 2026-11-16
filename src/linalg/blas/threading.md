@@ -121,8 +121,8 @@ w = min(cpu_count, ceiling, size_max)
 
 workers, where `ceiling` is `OPENBLAS_NUM_THREADS`, else `GOTO_NUM_THREADS`, else unbounded,
 and `size_max` is the most workers the routine's threshold justifies for the problem size.
-`OMP_NUM_THREADS`, `OMP_ADAPTIVE` and `thread_timeout` remain parsed in `Config` but have no
-effect, since there is no spinning server. The calling thread is worker 0.
+`OMP_NUM_THREADS`, `OMP_ADAPTIVE` and `OPENBLAS_THREAD_TIMEOUT` are not read, since there is
+no spinning server. The calling thread is worker 0.
 
 The worker count affects only speed. Targets that report one CPU (freestanding builds, the
 single-core qemu rigs through their `Thread` override) run serially without special cases. When the `Io`

@@ -408,8 +408,7 @@ cpu.Arch(family): vtableFromCoreType(core)
   (the LLVM model of the CPU a core is named for, or of the weakest part it covers, plus what
   `runnable` requires), apart from the spec. `excess` is what an object uses beyond that and
   beyond the target; the build stops on any (`checkIsa` in `build/blaskern.zig`), and a test
-  tries every architecture with its baselines and each core's own CPU as targets. `undecided`
-  lists spec features waiting on a decision; keep it empty. The check sees
+  tries every architecture with its baselines and each core's own CPU as targets. The check sees
   compiler-chosen instructions only: x86 inline assembly is not held to the target's features.
 - **Groups.** `build/blaskern.zig` takes `corespec.kernelCores(arch)` (the cores with kernels,
   derived from the registries and checked by a test in `cpu/__root__.zig`), keeps those whose
@@ -1688,14 +1687,14 @@ Initialization also caches the CPU count in `cpu_count` (1 without threads).
 | `OPENBLAS_L2_SIZE` | `l2_size_override` | replaces the detected L2 size (KiB) in the blocking rules |
 | `OPENBLAS_NUM_THREADS`, else `OPENBLAS_DEFAULT_NUM_THREADS` | `num_threads` | LA464's blocking set; the thread ceiling of [`threading.md`](blas/threading.md) |
 | `GOTO_NUM_THREADS` | `goto_num_threads` | the fallback ceiling of [`threading.md`](blas/threading.md) |
-| `OMP_NUM_THREADS`, `OMP_ADAPTIVE`, `OPENBLAS_THREAD_TIMEOUT` | `omp_num_threads`, `omp_adaptive`, `thread_timeout` | parsed, no effect |
-| `GOTO_DEBUG` | `goto_debug` | parsed, no effect |
-| `OPENBLAS_MAIN_FREE`, `GOTOBLAS_MAIN_FREE` | `main_free` | parsed, no effect |
 | `LD_HWCAP_MASK` | `ld_hwcap_mask` | s390x only: ANDed with `AT_HWCAP` before detection (`cpuid_zarch.h:35`) |
 | `RSTD_BLAS_ACCELERATE` (rstd's own) | `accelerate` | macOS: 0 keeps the routines off Accelerate ([above](#apple-accelerate)) |
 
 Integers parse with Zig's base-0 rules after trimming whitespace; negative values clamp to 0
-except `GOTO_DEBUG`, `OPENBLAS_L2_SIZE` and `LD_HWCAP_MASK`. A bare leading zero is decimal, not
+except `OPENBLAS_L2_SIZE` and `LD_HWCAP_MASK`. OpenBLAS's variables for OpenMP (`OMP_NUM_THREADS`,
+`OMP_ADAPTIVE`), its thread pool (`OPENBLAS_THREAD_TIMEOUT`), debug prints (`GOTO_DEBUG`) and NUMA
+buffers (`OPENBLAS_MAIN_FREE`) are not read: rstd has none of those
+([#88](https://github.com/randyos-org/rstd/issues/88)). A bare leading zero is decimal, not
 octal as with `strtoul` (`0o` is octal). Diagnostics print as `OpenBLAS: ...` through
 `std.debug.print`, never on freestanding targets.
 
