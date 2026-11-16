@@ -50,14 +50,20 @@ fn dotCol(comptime F: type, t: Mat(F), c: usize, from: usize, to: usize, x: [*]c
     return s;
 }
 
-/// `x`'s rows `from..to` (and `y`'s) scaled so the largest `|x(k)| +
-/// |y(k)|` (`|x(k)|` alone without `y`) is 1, as `HOWMNY = 'A'` leaves them.
-fn normalize(comptime F: type, x: [*]F, y: ?[*]F, from: usize, to: usize) void {
-    var emax: F = 0;
-    for (from..to) |k| emax = @max(emax, @abs(x[k]) + (if (y) |v| @abs(v[k]) else 0));
+/// `x`'s rows `from..to` (and `y`'s, a real pair's imaginary part) scaled so
+/// the largest `|x(k)| + |y(k)|` (`|re| + |im|` for complex) is 1, as
+/// `HOWMNY = 'A'` and `'B'` leave them. A zero vector stays zero, where
+/// `dtrevc3.f` and `ztrevc3.f` scale by `1 / 0` unguarded and leave NaN: a
+/// deliberate deviation (issue #90); valid input never gives one.
+fn normalize(comptime T: type, x: [*]T, y: ?[*]T, from: usize, to: usize) void {
+    var emax: Float(T) = 0;
+    for (from..to) |k| emax = @max(emax, ops.abs1(T, x[k]) + (if (y) |v| ops.abs1(T, v[k]) else 0));
+    if (emax == 0) return;
     const remax = 1 / emax;
-    scal(F, x[from..to], remax);
-    if (y) |v| scal(F, v[from..to], remax);
+    for (x[from..to]) |*e| e.* = ops.mulReal(T, e.*, remax);
+    if (y) |v| {
+        for (v[from..to]) |*e| e.* = ops.mulReal(T, e.*, remax);
+    }
 }
 
 /// `dtrevc3.f` with `SIDE = 'R'` or `'L'`, `HOWMNY = 'A'`: the right
@@ -353,12 +359,7 @@ pub fn complex(al: Allocator, io: Io, comptime T: type, right: bool, t: Mat(T), 
         }
         for (lo..hi) |k| t.at(k, k).* = diag[k];
         // largest `|re| + |im|` to 1 (`IZAMAX`, `ZDSCAL`)
-        const from = if (right) 0 else ki;
-        const to = if (right) ki + 1 else n;
-        var big: F = -1;
-        for (from..to) |k| big = @max(big, ops.abs1(T, v[k]));
-        const remax = 1 / big;
-        for (v[from..to]) |*e| e.* = ops.mulReal(T, e.*, remax);
+        normalize(T, v, null, if (right) 0 else ki, if (right) ki + 1 else n);
     }
 }
 
@@ -442,11 +443,11 @@ pub fn trevc3(allocator: Allocator, io: Io, comptime T: type, side: Side, howmny
                 var j: usize = 0;
                 while (j < un) : (j += 1) {
                     if (comptime ops.isComplex(T)) {
-                        normalizeColumn(T, dst.col(j)[0..un]);
+                        normalize(T, dst.col(j), null, 0, un);
                     } else if (pairAt(T, tm, j)) {
                         normalize(T, dst.col(j), dst.col(j + 1), 0, un);
                         j += 1;
-                    } else normalizeColumn(T, dst.col(j)[0..un]);
+                    } else normalize(T, dst.col(j), null, 0, un);
                 }
             },
             .s => {
@@ -474,15 +475,6 @@ pub fn trevc3(allocator: Allocator, io: Io, comptime T: type, side: Side, howmny
 fn pairAt(comptime T: type, t: Mat(T), j: usize) bool {
     if (comptime ops.isComplex(T)) return false;
     return j + 1 < t.rows and t.get(j + 1, j) != 0;
-}
-
-/// Largest `|re| + |im|` (`|x|` for real) to 1.
-fn normalizeColumn(comptime T: type, v: []T) void {
-    var big: Float(T) = 0;
-    for (v) |e| big = @max(big, ops.abs1(T, e));
-    if (big == 0) return;
-    const remax = 1 / big;
-    for (v) |*e| e.* = ops.mulReal(T, e.*, remax);
 }
 
 // ---- tests ---------------------------------------------------------------------
@@ -599,4 +591,24 @@ test "trevc3: A's eigenvectors after gehrd, orghr and hseqr, back-transformed an
     try testing.expectError(error.InvalidSelect, trevc3(al, check.io, f64, .r, .s, null, 2, &a, 2, &a, 1, &a, 2, 2, &m));
     try testing.expectError(error.InvalidLdvr, trevc3(al, check.io, f64, .r, .a, null, 2, &a, 2, &a, 1, &a, 1, 2, &m));
     try testing.expectError(error.InvalidMm, trevc3(al, check.io, f64, .r, .a, null, 2, &a, 2, &a, 1, &a, 2, 1, &m));
+}
+
+test "trevc3: a zero Q back-transforms to zero columns, not NaN, real with a pair and complex" {
+    const al = testing.allocator;
+    inline for (.{ f64, types.Complex64 }) |T| {
+        const n = 3;
+        // real: a standardized 2 x 2 pair, then a single; complex: upper triangular
+        const t: [n * n]T = if (comptime types.isComplex(T)) .{
+            .init(1, 0),   .init(0, 0),    .init(0, 0),
+            .init(0.5, 1), .init(2, 1),    .init(0, 0),
+            .init(1, 0),   .init(0.25, 0), .init(3, -1),
+        } else .{ 1, -0.5, 0, 2, 1, 0, 0.5, 0.25, 3 };
+        var tm = t;
+        var vl: [n * n]T = @splat(ops.zero(T));
+        var vr: [n * n]T = @splat(ops.zero(T));
+        var m: isize = 0;
+        try trevc3(al, check.io, T, .b, .b, null, n, &tm, n, &vl, n, &vr, n, n, &m);
+        try testing.expectEqual(@as(isize, n), m);
+        for (vl, vr) |l, r| try testing.expect(ops.abs1(T, l) == 0 and ops.abs1(T, r) == 0);
+    }
 }

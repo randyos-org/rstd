@@ -21,19 +21,19 @@ after it. Rig names are `zig build` steps: `qemu-test-<rig>` unless named in ful
 | Target | Tier | Consumer | Tested by |
 | --- | --- | --- | --- |
 | `x86_64-windows` | 1 | zfls | native `rstd-test` on the Zen 3 host, with `-Dblas-cores=all`; `x86_64-whpx` (the host CPU); `rstd-check-zig017`; zfls's CI |
-| `spirv32-vulkan` | 1 | rgl, shaderlib | `-Dvulkan` compiles rgl's shaders (`vulkan_v1_2`); nothing validates or runs them |
+| `spirv32-vulkan` | 1 | rgl, shaderlib | `-Dvulkan` compiles rgl's shaders (`vulkan_v1_2`); `shader-check` validates them with `spirv-val`, in CI too; nothing runs them yet (#380) |
 | `x86_64-freestanding-none` | 2 | RandyOS: PC, Intel Mac | `x86_64` and `x86_64-smp` (TCG `max`, HVF on the Intel Mac, or KVM in CI), `x86_64-whpx` |
 | `aarch64-freestanding-none` | 2 | RandyOS: Raspberry Pi 3 to 5, Apple Silicon | `aarch64` (HVF on the M6, or `cortex-a72`), `aarch64-sve` (TCG `max`) |
 | `arm-freestanding-eabi` | 2 | RandyOS: Raspberry Pi 3, 32-bit | `arm-softfp` (soft-float ABI, A15's VFP), `arm` (`eabihf`) |
 | `powerpc-freestanding-eabi` | 2 | RandyOS: iBook G3, PowerPC 750FX | `powerpc-750` (soft float: portable kernels only), `powerpc-750-hf` |
 | `x86_64-uefi-msvc` | 2 | RandyOS's loader | `x86_64-uefi` (OVMF; HVF on the Intel Mac), `rstd-check-uefi` |
 | `aarch64-uefi-msvc` | 2 | RandyOS's loader (pftf) | `aarch64-uefi` (AAVMF; HVF on the M6), `rstd-check-uefi` |
-| `x86_64-linux-musl` | 2 | zfls (release, conda, Alpine) | `linux-x86_64` (TCG `max`, or HVF on the Intel Mac; 4 CPUs), `rstd-check-zig017` |
-| `aarch64-linux-musl` | 2 | zfls (release, conda, Alpine) | `linux-aarch64` (HVF on the M6, or TCG `max`), `rstd-check-zig017` |
-| `x86_64-linux-gnu`, `aarch64-linux-gnu` | 2 | zfls | the Linux rigs above with `-Drstd-tsan` only (glibc from Nix) |
-| `aarch64-windows` | 2 | zfls | `rstd-check-zig017` builds and links only; tests run only in zfls's CI |
-| `x86_64-macos` 11.0+ | 2 | zfls | `ssh-test-x86_64-macos` (Intel Mac, i5-8500B, macOS 15.8), `ssh-test-x86_64-macos-rosetta` (Rosetta 2 on the M6, for comparison), `rstd-check-macho`, `rstd-check-zig017` |
-| `aarch64-macos` 11.0+ | 2 | zfls | `ssh-test-aarch64-macos` (M6, macOS 27.2), `rstd-check-macho`, `rstd-check-zig017` |
+| `x86_64-linux-musl` | 2 | zfls (release, conda, Alpine) | `linux-x86_64` (TCG `max`, or HVF on the Intel Mac; 4 CPUs), CI's native `x86_64-linux-musl` legs, `rstd-check-zig017` |
+| `aarch64-linux-musl` | 2 | zfls (release, conda, Alpine) | `linux-aarch64` (HVF on the M6, or TCG `max`), `linux-aarch64-sve` (TCG `max`: the SVE and SME cores), CI's native `aarch64-linux-musl` legs, `rstd-check-zig017` |
+| `x86_64-linux-gnu`, `aarch64-linux-gnu` | 2 | zfls | CI's native legs (`ubuntu-24.04`, `ubuntu-24.04-arm`); the Linux rigs above with `-Drstd-tsan` (glibc from Nix) |
+| `aarch64-windows` | 2 | zfls | CI's native legs (`windows-11-arm`), `rstd-check-zig017` |
+| `x86_64-macos` 11.0+ | 2 | zfls | `ssh-test-x86_64-macos` (Intel Mac, i5-8500B, macOS 15.8), CI's native legs (`macos-15-intel`), `ssh-test-x86_64-macos-rosetta` (Rosetta 2 on the M6, for comparison), `rstd-check-macho`, `rstd-check-zig017` |
+| `aarch64-macos` 11.0+ | 2 | zfls | `ssh-test-aarch64-macos` (M6, macOS 27.2), CI's native legs (`macos-15`), `rstd-check-macho`, `rstd-check-zig017` |
 | `x86-windows-gnu` | 3 | | `rstd-test-x87` (`pentium3` code on the Zen 3 host, Debug and ReleaseSafe) |
 | `x86-freestanding-none` | 3 | | `i386`, `i386-max`, `i386-safe`, `i386-max-safe` |
 | `arm-linux` | 3 | | `linux-arm`; runs with tier 2 in the MVP sweep, for the arm cores under an OS |
@@ -57,7 +57,7 @@ after it. Rig names are `zig build` steps: `qemu-test-<rig>` unless named in ful
 Notes:
 
 - **SPIR-V** (`rstd.linalg` under SPIR-V, rgl's shaders, shaderlib) waited for the CPU BLAS
-  MVP; its work is [#51](https://github.com/randyos-org/rstd/issues/51) (S1 done), queued after M12. The bit guarantees (same bits
+  MVP; S1 and S2 ([#51](https://github.com/randyos-org/rstd/issues/51)) made shaderlib the shaders' one API over `linalg`, and [#353](https://github.com/randyos-org/rstd/issues/353) validates and runs them. The bit guarantees (same bits
   for any thread count, one contract on every core, the first-NaN rule) are the CPU's only;
   under SPIR-V, Vulkan's precision rules apply (design.md, Settled decisions).
 - **macOS 11 and 12** never run: the Intel Mac has macOS 15.8 and the M6 27.2.
@@ -92,12 +92,10 @@ Compiled and symbol-checked, never run:
 
 | Cores | Platforms | Why | Item |
 | --- | --- | --- | --- |
-| `skylakex`, `cooperlake`, `sapphirerapids` | every x86_64 one | AVX-512: the Zen 3 host lacks it, so WHPX cannot show it; TCG has none | T43, T24, T44 |
+| `skylakex`, `cooperlake`, `sapphirerapids` | every x86_64 one | AVX-512: the Zen 3 host lacks it, so WHPX cannot show it; TCG has none | T43, T44 |
 | `bulldozer`, `piledriver`, `steamroller`, `excavator` | every x86_64 one | FMA4 and XOP: the host lacks them; TCG has none | T43 |
-| `a64fx`, `armv8sve`, `neoversev1`, `neoversen2`, `neoversev2`, `cortexa510`, `cortexa710`, `cortexx2` | `aarch64-linux` | the rig's baseline build links no SVE core | T40 |
-| `armv9sme`, `vortexm4` | `aarch64-linux` | the Debian 6.12 kernel has no SME, so no hwcap | T40 |
 | every SVE and SME core | `aarch64-uefi-msvc` | the UEFI rig has no SVE (`cortex-a72`, or the M6 under HVF) | |
-| every aarch64 core | `aarch64-windows` | no Windows arm64 machine; zfls's CI runs zfls, not rstd's tests; detection is tested with recorded inputs | T47 |
+| every aarch64 core but the runner's | `aarch64-windows` | CI's `windows-11-arm` legs run the cores their CPU can; detection is tested with recorded inputs | T47 |
 
 ### x86_64 (tier 1)
 
@@ -135,7 +133,7 @@ and every POWER core is tier 3.
 | x86 | `prescott`, `yonah`, `atom`, `core2`, `penryn`, `dunnington`, `nehalem`, `opteron_sse3`, `barcelona`, `nano`, `bobcat` | `i386-max` |
 | x86 | `athlon` (3DNow!) | unsettled: whether TCG `max` shows 3DNow! is unchecked; the Zen 3 host has none |
 | powerpc64, powerpc64le | `power3`, `power4`, `power5`, `power6`, `ppc970`, `cell`, `power8`, `power9` | `powerpc64` (every 64-bit core), `powerpc64le`, `linux-powerpc64le` |
-| powerpc64, powerpc64le | `power10` | `powerpc64`, `powerpc64le-power10`; not `linux-powerpc64le` (baseline build, T40) |
+| powerpc64, powerpc64le | `power10` | `powerpc64`, `powerpc64le-power10`, `linux-powerpc64le-power10` |
 | powerpc | `power3`, `power4`, `power5`, `power6`, `ppc970`, `cell` | `powerpc-pseries` (32-bit code on POWER10) |
 | powerpc | `power8`, `power9` | `powerpc-power9` (32-bit code on POWER9) |
 | powerpc | `ppcg4` | `powerpc` (G4) |
@@ -165,5 +163,5 @@ and every POWER core is tier 3.
 
 | Toolchain | Used by | Checked by |
 | --- | --- | --- |
-| Zig 0.18.0-dev.751+069480a1a (self-built) | rstd itself, RandyOS | every step above |
+| Zig 0.18.0-dev.1029+1ebdf2f8f (self-built) | rstd itself, RandyOS | every step above |
 | Zig 0.17.1 | zfls (ReleaseSafe, its six targets) | `rstd-check-zig017`: builds and links zfls's targets, every core, without running them; `zig build -h` after build-script edits |

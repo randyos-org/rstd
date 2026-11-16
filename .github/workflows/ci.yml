@@ -450,9 +450,43 @@ jobs:
           RIG: ${{ matrix.rig }}
         run: tail -c 300000 ".zig-cache/qemu-test-$RIG.log" || true
 
+  # rgl's shaders and shaderlib's probes compiled for spirv32-vulkan (tier 1,
+  # support.md) and validated by spirv-val, on the latest Zig, as RandyOS
+  # builds with it (issue #353)
+  shaders:
+    name: Shaders
+    needs: version
+    if: ${{ needs.version.outputs.ci == 'true' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.version.outputs.sha }}
+          submodules: recursive
+
+      - uses: randyos-org/zig-toolchain/setup@main
+
+      - name: spirv-tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq spirv-tools
+          spirv-val --version
+
+      - name: Fetch dependencies
+        run: |
+          for wait in 15 30 60 120; do
+            zig build --fetch && exit 0
+            echo "::warning::fetching dependencies failed; retrying in ${wait}s"
+            sleep "$wait"
+          done
+          zig build --fetch
+
+      - name: Validate
+        run: zig build shader-check -Dvulkan -Dtest-host-off --summary line
+
   ci-result:
     name: CI
-    needs: [version, version-check, check, test, test-tier34, rig]
+    needs: [version, version-check, check, test, test-tier34, rig, shaders]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     steps:
@@ -471,11 +505,12 @@ jobs:
 
   release:
     name: Release v${{ needs.version.outputs.version }}
-    needs: [version, check, test, test-tier34, rig]
+    needs: [version, check, test, test-tier34, rig, shaders]
     if: >-
       ${{ !cancelled() && needs.version.outputs.release == 'true'
       && needs.check.result == 'success' && needs.test.result == 'success'
-      && needs.rig.result == 'success' }}
+      && needs.rig.result == 'success'
+      && needs.shaders.result == 'success' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write

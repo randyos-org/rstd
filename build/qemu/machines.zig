@@ -16,7 +16,7 @@ pub const Machine = struct {
     /// Overrides the build's optimize mode; OpenBIOS maps about 4 MB of a sparc64
     /// image, which debug builds of the tests outgrow. sparc64 uses `.fast`, as
     /// `.small` from Zig 0.18.0-dev.250 jumps into unrelated code in the gemm
-    /// parameter test (an LLVM `-Oz` miscompile on sparc64, it appears).
+    /// parameter test (an LLVM `-Oz` miscompile on sparc64, it appears; issue #183).
     optimize: ?Optimize = null,
     memory: []const u8 = "128M",
     boot: Boot,
