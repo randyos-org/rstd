@@ -137,8 +137,10 @@ Conventions shared by every interface:
 - **Errors.** Each file has an `ArgError` set named after the reference's `xerbla` arguments
   (`InvalidTrans`, `InvalidLda`, `InvalidIncx`, ...), checked in the reference's order, so the
   first bad argument wins. Each level's `Error` adds `Allocator.Error` where it allocates and
-  `Io.Cancelable` everywhere; the root exports them as `Level1Error` to `Level3Error`, and
-  the extensions' as `ExtError`.
+  `Io.Cancelable` everywhere; the root exports them as `Level2Error` and `Level3Error`, and
+  the extensions' as `ExtError`. Level 1's public routines (`blas1/api.zig`, Z8) take strided
+  views over this core and return exact sets: `error.LengthMismatch` for two vectors, and
+  `error.Canceled` where they thread.
   A vector or matrix that could not fit the address space (`util.fits`, `util.fitsMatrix`)
   returns its stride's or leading dimension's error, so no index computation overflows.
 - **Letters.** Transposes, triangles, sides and diagonals are one set of letter enums for every
@@ -168,11 +170,16 @@ and `vector` for `tools/blasbench`. The interface files stay where they are.
 
 Decided (2026-10-26), not yet implemented; the interface above is the reference's shape, which
 users are not assumed to know. Part of the codebase-wide pass to make rstd more Zig-idiomatic.
+For the BLAS and LAPACK alike, one group of routines at a time (user, 2026-11-15): each group's
+signatures take every change below at once, so none changes twice. [Z7](https://github.com/randyos-org/rstd/issues/308) adds the views and the shared error pieces; Z8 to Z18 ([#309](https://github.com/randyos-org/rstd/issues/309) to [#319](https://github.com/randyos-org/rstd/issues/319)) move the groups: levels 1, 2 and 3 (with batched and half), the extensions, then LAPACK by family.
 
-- **Slices.** Vectors and matrices are slices (`[]const T`, `[]T`), not many-pointers, so a
-  short buffer is caught instead of overrun. A size the slice already carries is not a separate
-  argument; strides and leading dimensions remain only where they describe a layout inside the
-  slice. Each routine checks that its slices cover what its sizes and strides need.
+- **Slices.** Matrices are slices (`[]const T`, `[]T`), not many-pointers, so a short buffer is
+  caught instead of overrun, with their sizes and leading dimension. Vectors are views,
+  `blas.Strided(T)` and `blas.ConstStrided(T)` (`blas/strided.zig`, user, 2026-11-13): the
+  slice, the element count and the stride, from `of(slice)` (contiguous, the slice's length)
+  or `init(slice, n, stride)`, which refuses a zero stride or a slice too short. The count is
+  never inferred from the slice, so spare elements cannot change it. Each routine checks that
+  its slices cover what its sizes and strides need.
 - **Errors, not panics, for bad input.** A wrong length, size or stride, or a letter the routine
   does not take, is an input error the caller can fix and retry: it returns an error.
 - **Panics only when unrecoverable.** A broken invariant found mid-calculation, or a state

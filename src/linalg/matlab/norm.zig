@@ -7,6 +7,7 @@ const scalar = @import("scalar.zig");
 const CxMat = @import("CxMat.zig");
 const svd = @import("svd.zig");
 const blas = @import("../blas/__root__.zig");
+const l1 = @import("../blas/blas1/interface.zig");
 const level1 = scalar.level1;
 const Io = std.Io;
 
@@ -14,10 +15,10 @@ const Io = std.Io;
 /// real and imaginary parts (M2: BLAS 1, which scales where WNRM2's fast
 /// path lost digits, M1's E8). `incx` as BLAS's: `xr`, `xi` start at the
 /// storage's first element, a negative stride walking it backward.
-pub fn vecNorm2(io: Io, n: usize, xr: []const f64, xi: []const f64, incx: isize) blas.Level1Error!f64 {
+pub fn vecNorm2(io: Io, n: usize, xr: []const f64, xi: []const f64, incx: isize) l1.Error!f64 {
     const ni: isize = @intCast(n);
-    const re = try blas.nrm2(io, f64, ni, @constCast(xr.ptr), incx);
-    return std.math.hypot(re, try blas.nrm2(io, f64, ni, @constCast(xi.ptr), incx));
+    const re = try l1.nrm2(io, f64, ni, @constCast(xr.ptr), incx);
+    return std.math.hypot(re, try l1.nrm2(io, f64, ni, @constCast(xi.ptr), incx));
 }
 
 /// `NORM(V,P)`: general p-norm, `(sum(|v_i|**p))**(1/p)`. For `p == 2`,
@@ -63,7 +64,7 @@ pub fn matNorm2(self: CxMat, allocator: Allocator, io: std.Io) svd.Error!f64 {
 fn asum(io: Io, n: usize, r: []f64, i: []f64, inc: usize) Io.Cancelable!f64 {
     const ni: isize = @intCast(n);
     const si: isize = @intCast(inc);
-    return try level1(blas.asum(io, f64, ni, r.ptr, si)) + try level1(blas.asum(io, f64, ni, i.ptr, si));
+    return try level1(l1.asum(io, f64, ni, r.ptr, si)) + try level1(l1.asum(io, f64, ni, i.ptr, si));
 }
 
 /// `NORM(X,1)`: max column sum of `|re|+|im|` (WGECO's `anorm`), by

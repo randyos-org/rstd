@@ -5,6 +5,7 @@ const std = @import("std");
 const scalar = @import("scalar.zig");
 const CxMat = @import("CxMat.zig");
 const blas = @import("../blas/__root__.zig");
+const l1 = @import("../blas/blas1/interface.zig");
 const ops = @import("../lapack/ops.zig");
 const Cx = scalar.Cx;
 const ix = scalar.ix;
@@ -31,7 +32,7 @@ pub fn rref(self: CxMat, allocator: Allocator, io: Io, eps: f64) (Allocator.Erro
 fn rrefPacked(comptime T: type, io: Io, m: usize, n: usize, x: []T, eps: f64) Io.Cancelable!void {
     const mi: isize = @intCast(m);
     var tol: f64 = 0.0;
-    for (0..n) |j| tol = @max(tol, try level1(blas.asum(io, T, mi, x[j * m ..].ptr, 1)));
+    for (0..n) |j| tol = @max(tol, try level1(l1.asum(io, T, mi, x[j * m ..].ptr, 1)));
     tol *= eps * @as(f64, @floatFromInt(2 * @max(m, n)));
 
     // 0-based; a row from column `l` on is `w` entries `m` apart
@@ -39,7 +40,7 @@ fn rrefPacked(comptime T: type, io: Io, m: usize, n: usize, x: []T, eps: f64) Io
     var l: usize = 0;
     while (k < m and l < n) {
         const col = x[l * m ..][0..m];
-        const amax = try level1(blas.index(io, T, .amax, @intCast(m - k), col[k..].ptr, 1));
+        const amax = try level1(l1.index(io, T, .amax, @intCast(m - k), col[k..].ptr, 1));
         const piv = k + @as(usize, @intCast(amax)) - 1;
         if (ops.abs1(T, col[piv]) <= tol) {
             @memset(col[k..], ops.zero(T));
@@ -47,12 +48,12 @@ fn rrefPacked(comptime T: type, io: Io, m: usize, n: usize, x: []T, eps: f64) Io
             continue;
         }
         const w: isize = @intCast(n - l);
-        try level1(blas.swap(io, T, w, x[l * m + piv ..].ptr, mi, x[l * m + k ..].ptr, mi));
-        try level1(blas.scal(io, T, w, recip(col[k]), x[l * m + k ..].ptr, mi));
+        try level1(l1.swap(io, T, w, x[l * m + piv ..].ptr, mi, x[l * m + k ..].ptr, mi));
+        try level1(l1.scal(io, T, w, recip(col[k]), x[l * m + k ..].ptr, mi));
         col[k] = ops.one(T);
         for (0..m) |row| {
             if (row == k) continue;
-            try level1(blas.axpy(io, T, w, ops.neg(T, col[row]), x[l * m + k ..].ptr, mi, x[l * m + row ..].ptr, mi));
+            try level1(l1.axpy(io, T, w, ops.neg(T, col[row]), x[l * m + k ..].ptr, mi, x[l * m + row ..].ptr, mi));
         }
         k += 1;
         l += 1;
@@ -189,7 +190,7 @@ pub fn magic(io: Io, a: []f64, lda: usize, n: usize) Io.Cancelable!void {
 
 /// `dswap` of `n` contiguous entries.
 fn swap(io: Io, n: usize, x: []f64, y: []f64) Io.Cancelable!void {
-    try level1(blas.swap(io, f64, @intCast(n), x.ptr, 1, y.ptr, 1));
+    try level1(l1.swap(io, f64, @intCast(n), x.ptr, 1, y.ptr, 1));
 }
 
 /// DIAG: `v` (length `n`) on the `k`-th diagonal (above for `k > 0`) of
