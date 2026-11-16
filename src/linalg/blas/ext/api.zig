@@ -1,8 +1,8 @@
 //! The public extension routines (issue #312): matrices as a slice and its
 //! leading dimension, column-major, sizes `usize`, each slice checked to hold
 //! its matrix (`util.holds`), over the reference-shaped core
-//! (`interface.zig`). Pivots are 0-based row indices (user, 2026-11-15); the
-//! core keeps the reference's 1-based ones, and `laswp` converts.
+//! (`interface.zig`). Pivots are 0-based row indices (user, 2026-11-15, issue
+//! #398), inside too: `laswp` hands its view to the row-swap kernel as it is.
 
 const std = @import("std");
 const types = @import("../types.zig");
@@ -42,7 +42,7 @@ fn mapped(e: core.Error) ImatcopyError {
         error.OutOfMemory => error.OutOfMemory,
         error.InvalidTrans => error.UnsupportedTranspose,
         error.InvalidLda, error.InvalidLdb, error.InvalidLdc => error.LeadingDimensionTooSmall,
-        error.Canceled, error.InvalidM, error.InvalidN, error.InvalidRows, error.InvalidCols, error.InvalidK1, error.InvalidIncx, error.InvalidIpiv => unreachable,
+        error.Canceled, error.InvalidM, error.InvalidN, error.InvalidRows, error.InvalidCols => unreachable,
     };
 }
 
@@ -104,19 +104,13 @@ pub fn laswp(io: Io, comptime T: type, m: usize, n: usize, a: []T, lda: usize, f
     if (count == 0 or n == 0) return;
     if (first > m or count > m - first) return error.PivotOutOfRange;
     for (0..count) |i| if (ipiv.get(i) >= m) return error.PivotOutOfRange;
-    // the reference's 1-based pivots, a chunk at a time, through its kernel
-    var buf: [256]isize = undefined;
     const backward = ipiv.stride < 0 and count > 1;
-    const step: usize = @abs(ipiv.stride);
-    var done: usize = 0;
-    while (done < count) {
-        const c = @min(buf.len, count - done);
-        // the chunk's places in the slice, from the end when backward
-        const p0 = if (backward) count - done - c else done;
-        for (buf[0..c], 0..) |*b, j| b.* = @intCast(ipiv.data[(p0 + j) * step] + 1);
-        const k1 = first + p0 + 1;
-        laswp_kernel.swapRows(T, n, a.ptr, lda, k1, k1 + c - 1, &buf, if (backward) -1 else 1);
-        done += c;
+    const step: usize = if (count > 1) @abs(ipiv.stride) else 1;
+    if (step == 1) return laswp_kernel.swapRows(T, n, a.ptr, lda, first, count, ipiv.data.ptr, backward);
+    // pivots `step` apart: one swap at a time, in the view's order
+    for (0..count) |s| {
+        const p = if (backward) count - 1 - s else s;
+        laswp_kernel.swapRows(T, n, a.ptr, lda, first + p, 1, ipiv.data.ptr + p * step, false);
     }
 }
 
@@ -124,6 +118,8 @@ pub fn laswp(io: Io, comptime T: type, m: usize, n: usize, a: []T, lda: usize, f
 
 const check = @import("../_test/check.zig");
 const testing = std.testing;
+const ref = @import("laswp/__root__.zig");
+const bitwise = @import("../_test/bitwise.zig");
 
 test "api: omatcopy transposes into a slice, and refuses overlap and short slices" {
     const a = [_]f64{ 1, 2, 3, 4, 5, 6 };
@@ -145,17 +141,35 @@ test "api: geadd's conjugating letters are an error; imatcopy in place" {
     try testing.expectEqualSlices(f64, &.{ 2, 6, 4, 8 }, &x);
 }
 
-test "api: laswp's 0-based pivots match the core's 1-based ones, and a backward view undoes them" {
-    // 4 x 2, column-major: rows 0..3 are 10, 20, 30, 40 (and 11, 21, 31, 41)
-    var a = [_]f64{ 10, 20, 30, 40, 11, 21, 31, 41 };
-    var b = a;
-    const piv = [_]usize{ 2, 3, 3 };
-    try laswp(check.io, f64, 4, 2, &a, 4, 0, .of(&piv));
-    const piv1 = [_]isize{ 3, 4, 4 };
-    try core.laswp(check.io, f64, 2, &b, 4, 1, 3, &piv1, 1);
-    try testing.expectEqualSlices(f64, &b, &a);
-    try laswp(check.io, f64, 4, 2, &a, 4, 0, try .init(&piv, 3, -1));
-    try testing.expectEqualSlices(f64, &.{ 10, 20, 30, 40, 11, 21, 31, 41 }, &a);
-    try testing.expectError(error.PivotOutOfRange, laswp(check.io, f64, 4, 2, &a, 4, 0, .of(&[_]usize{4})));
-    try testing.expectError(error.PivotOutOfRange, laswp(check.io, f64, 4, 2, &a, 4, 2, .of(&piv)));
+test "api: laswp follows dlaswp.f on 0-based pivots, any stride, and checks every pivot first" {
+    const al = testing.allocator;
+    inline for (.{ f32, types.Complex64, f128 }) |T| {
+        for ([_]isize{ 1, -1, 2, -2 }) |incx| {
+            const m = 9;
+            const n = 4;
+            const lda = m + 2;
+            var ipiv: [2 * m]isize = undefined;
+            ref.pivots(&ipiv, m, @abs(incx));
+            const a = try al.alloc(T, lda * n);
+            defer al.free(a);
+            check.fill(T, a, 4);
+            const want = try al.dupe(T, a);
+            defer al.free(want);
+            // rows 2 to 8, 1-based, as `dlaswp.f` takes them
+            ref.laswpRef(T, n, want, lda, 2, 8, &ipiv, incx);
+            var zero: [2 * m]usize = undefined;
+            for (&zero, ipiv) |*z, p| z.* = @intCast(p - 1);
+            try laswp(check.io, T, m, n, a, lda, 1, try .init(zero[1..], 7, incx));
+            for (want, a) |w, g| try testing.expect(bitwise.same(T, w, g, true));
+        }
+    }
+    var a: [12]f64 = @splat(1);
+    var piv = [_]usize{ 0, 1, 2, 3 };
+    try laswp(check.io, f64, 4, 3, &a, 4, 0, try .init(&piv, 0, 1));
+    try testing.expectError(error.LeadingDimensionTooSmall, laswp(check.io, f64, 4, 3, &a, 3, 0, .of(&piv)));
+    try testing.expectError(error.PivotOutOfRange, laswp(check.io, f64, 4, 3, &a, 4, 1, .of(&piv)));
+    piv[2] = 4;
+    try testing.expectError(error.PivotOutOfRange, laswp(check.io, f64, 4, 3, &a, 4, 0, .of(&piv)));
+    try testing.expectError(error.PivotOutOfRange, laswp(check.io, f64, 4, 3, &a, 4, 0, try .init(&piv, 4, -1)));
+    for (a) |v| try testing.expectEqual(1, v);
 }

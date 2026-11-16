@@ -23,13 +23,13 @@ pub const Determinant = struct { mantissa: Cx, exponent10: f64 };
 /// them.
 pub const Lu = struct {
     a: CxMat,
-    ipiv: []isize,
+    ipiv: []usize,
     z: ?[]Cx,
     singular: bool,
 
     pub fn init(a: CxMat, complex: bool, allocator: Allocator, io: Io) Error!Lu {
         const n = a.n;
-        const ipiv = try allocator.alloc(isize, n);
+        const ipiv = try allocator.alloc(usize, n);
         errdefer allocator.free(ipiv);
         const z: ?[]Cx = if (complex or !a.isReal()) try a.toPacked(Cx, allocator) else null;
         errdefer if (z) |x| allocator.free(x);
@@ -88,7 +88,7 @@ pub fn det(self: CxMat, allocator: Allocator, io: Io) Error!Determinant {
     var d = Cx.init(1.0, 0.0);
     var exp10: f64 = 0.0;
     for (1..self.n + 1) |i| {
-        if (f.ipiv[i - 1] != i) d = Cx.init(-d.re, -d.im);
+        if (f.ipiv[i - 1] != i - 1) d = Cx.init(-d.re, -d.im);
         d = f.diag(i).mul(d);
         if (blas.cabs1(Cx, d) == 0.0) break;
         while (blas.cabs1(Cx, d) < 1.0) {

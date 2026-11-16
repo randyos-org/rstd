@@ -148,8 +148,8 @@ Conventions shared by every interface:
   batched routines' `BatchError` adds `LengthMismatch` for lists that differ in length. The
   extensions' (`ext/api.zig`, Z11) likewise, with `UnsupportedTranspose` for a letter one
   does not take and `Overlap` for `omatcopy`'s `A` and `B` sharing memory; `laswp` takes
-  0-based pivots (user, 2026-11-15), converting to the core's 1-based ones until H159 makes
-  the core 0-based too.
+  0-based pivots (user, 2026-11-15), as the LU routines and the row-swap kernel do inside
+  (H159, [#398](https://github.com/randyos-org/rstd/issues/398)).
   A vector or matrix that could not fit the address space (`util.fits`, `util.fitsMatrix`)
   returns its stride's or leading dimension's error, so no index computation overflows.
 - **Letters.** Transposes, triangles, sides and diagonals are one set of letter enums for every

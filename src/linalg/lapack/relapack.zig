@@ -127,7 +127,7 @@ pub fn potrfRec(al: Allocator, io: Io, comptime T: type, uplo: Uplo, n: usize, a
 /// The reference wins: a zero pivot in the left half does not stop the
 /// recursion, which ReLAPACK's `if (*info) return` does, so the
 /// factorization completes, as `xGETRF`'s.
-pub fn getrf(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize, a: [*]T, lda: isize, ipiv: [*]isize, pivot: ?*usize) lu.GetrfError!void {
+pub fn getrf(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize, a: [*]T, lda: isize, ipiv: [*]usize, pivot: ?*usize) lu.GetrfError!void {
     comptime ops.requireFloat(T, "getrf");
     if (m < 0) return error.InvalidM;
     if (n < 0) return error.InvalidN;
@@ -141,14 +141,14 @@ pub fn getrf(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize,
     // the right remainder: `A_R = A_L \ P A_R`
     if (um < un) {
         const ar = a + la * um;
-        laswp.swapRows(T, un - um, ar, la, 1, um, ipiv, 1);
+        laswp.swapRows(T, un - um, ar, la, 0, um, ipiv, false);
         try trsm(allocator, io, T, true, .l, .l, .n, .u, um, un - um, scalar(T, 1), a, la, ar, la);
     }
     return lu.singular(info, pivot);
 }
 
 /// `RELAPACK_?getrf_rec` on `m x n`, `m >= n`: the first zero pivot, or 0.
-fn getrfRec(al: Allocator, io: Io, comptime T: type, m: usize, n: usize, a: [*]T, lda: usize, ipiv: [*]isize) Error!usize {
+fn getrfRec(al: Allocator, io: Io, comptime T: type, m: usize, n: usize, a: [*]T, lda: usize, ipiv: [*]usize) Error!usize {
     if (m == 0 or n == 0) return 0;
     if (n <= crossover) return lu.getf2(T, interface.table(T), m, n, a, lda, ipiv);
     const n1 = split(T, n);
@@ -158,13 +158,13 @@ fn getrfRec(al: Allocator, io: Io, comptime T: type, m: usize, n: usize, a: [*]T
     const bl = a + n1;
     const br = ar + n1;
     const info = try getrfRec(al, io, T, m, n1, a, lda, ipiv);
-    laswp.swapRows(T, n2, ar, lda, 1, n1, ipiv, 1);
+    laswp.swapRows(T, n2, ar, lda, 0, n1, ipiv, false);
     // A_TR = A_TL \ A_TR; A_BR -= A_BL A_TR
     try trsm(al, io, T, true, .l, .l, .n, .u, n1, n2, scalar(T, 1), a, lda, ar, lda);
     try gemm(al, io, T, .n, .n, m2, n2, n1, scalar(T, -1), bl, lda, ar, lda, scalar(T, 1), br, lda);
     const info2 = try getrfRec(al, io, T, m2, n2, br, lda, ipiv + n1);
-    laswp.swapRows(T, n1, bl, lda, 1, n2, ipiv + n1, 1);
-    for (ipiv[n1..n]) |*p| p.* += @intCast(n1);
+    laswp.swapRows(T, n1, bl, lda, 0, n2, ipiv + n1, false);
+    for (ipiv[n1..n]) |*p| p.* += n1;
     return if (info != 0) info else if (info2 != 0) info2 + n1 else 0;
 }
 
