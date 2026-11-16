@@ -25,7 +25,6 @@ const tri = blas2.triangular;
 const band = blas2.banded;
 const rank = blas2.rank;
 const l3 = blas3.interface;
-// pub const util = @import("util.zig");
 const util = @import("util.zig");
 
 // ---- the BLAS routines ---------------------------------------------------------
@@ -461,7 +460,7 @@ test "no core puts a kernel of its own in a q or x slot" {
     }
 }
 
-// the Linux rigs match this line against the core they expect (T40); only
+// the Linux rigs match this line against the core they expect; only
 // there, as `zig build` reports a passing test's stderr as a failed command
 // (issue #276)
 test "the core in use" {

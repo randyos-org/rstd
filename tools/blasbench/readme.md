@@ -1,13 +1,14 @@
 # blasbench
 
-Races rstd's BLAS and LAPACK against other libraries, and its arm64 kernels against OpenBLAS's assembly. `blas_bench.zig` is the bench (`kernels.zig`, `libs.zig` and `ext.zig` hold the sections), `bench.zig` the timing loop, `merge.zig` the merge of repeated runs, `flyoff.sh` the timed reruns, `nix/` the Eigen shim. Results: [`results-flyoff.md`](results/results-flyoff.md) (every OS and CPU at hand), [`results-m6.md`](results/results-m6.md) and [`results-m6-libraries.md`](results/results-m6-libraries.md) (the M6).
+Races rstd's BLAS and LAPACK against other libraries, and its arm64 kernels against OpenBLAS's assembly. `blas_bench.zig` is the bench (`kernels.zig`, `libs.zig`, `ext.zig` and `l3thread.zig` hold the sections), `bench.zig` the timing loop, `merge.zig` the merge of repeated runs, `flyoff.sh` the timed reruns, `nix/` the Eigen shim. Results: [`results-flyoff.md`](results/results-flyoff.md) (every OS and CPU at hand), [`results-m6.md`](results/results-m6.md) and [`results-m6-libraries.md`](results/results-m6-libraries.md) (the M6).
 
 ## Sections
 
 - `probe`, `l1`, `l2`, `l3`: arm64 kernels in their vtable slots' ABI (`l3` needs `-Dopenblas`).
 - `kern3` (only when named, any host): the selected core's gemm kernel alone, on a `P` by 64 block of depth `Q` its own copies packed, against rstd's whole `gemm` at n = 128 to 1024 on one worker, every type: how much of the kernel's rate the driver keeps (T21).
+- `l3thread` (only when named, any host): rstd's public `gemm` at n = 256 to 2000, `f64` and `f32`, serial and at 2, 4, 8 and 16 workers (`l3thread.zig`), medians in GFLOPS: how level 3 scales with workers ([`threading.md`](../../src/linalg/blas/threading.md)).
 - `lib1`, `lib2`, `lib3`: rstd's public routines against the libraries through CBLAS (level 1, `gemv`, `gemm`), then the table-driven races through each library's Fortran-ABI routines: `ger`, `symv`, `trsv`, `gbmv` in `lib2`; `gemm`, `symm`, `syrk`, `trmm`, `trsm` in `lib3`.
-- `lapack`: `potrf`, `getrf`, `getrs`, `gesv`, `trtri`, `potri`, and the routines rstd does not have yet, which race the libraries until it does: `gesvd`, `gesdd` (T34), `geqrf`, `syevd` (T111), `sytrf`, `gbtrf` (T110).
+- `lapack`: `potrf`, `getrf`, `getrs`, `gesv`, `trtri`, `potri`, `gesvd`, `gesdd`, `sytrf` and `gbtrf`; `geqrf` and `syevd` race the libraries alone until their rstd call is added (#120).
 
 Adding a routine to `lib2`, `lib3` or `lapack` is adding an entry to `ext_l2`, `ext_l3` or `lapack_ops`: a struct naming its operands, FLOP count, Fortran-ABI call, rstd's call and a residual (the comment above `Level` in `ext.zig`). An entry written before rstd has the routine gates rstd's call on `@hasDecl`, so it joins the race when the routine lands.
 
@@ -15,7 +16,7 @@ Every contestant is checked once on fresh data before timing (its residual, in e
 
 ## Options
 
-The bench takes `--name=value` options, then section names; with none named every section but `kern3` that the host and options allow runs.
+The bench takes `--name=value` options, then section names; with none named every section but `kern3` and `l3thread` that the host and options allow runs.
 
 - `--openblas=<library>` (`-Dopenblas-lib`), `--blis=<library>`, `--accelerate=<path>` (macOS' framework by default), `--reference=<liblapack>`, `--eigen=<shim>`, `--aocl-libflame=<library>`: the libraries, by absolute path; each but OpenBLAS is skipped with a warning when it cannot load. The library sections run unnamed only with `--openblas`.
 - `--threads=<n>` or `--threads=default`: each library's thread count and rstd's ceiling; 1 by default.

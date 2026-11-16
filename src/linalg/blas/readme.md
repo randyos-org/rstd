@@ -67,8 +67,6 @@ How the code is structured, and why, is in [`design.md`](../design.md).
   and `lahqr`); `trevc3`/`trevc` (every `SIDE` and `HOWMNY`); `gees` (`dgees.f`'s sort, by
   `trsen`); `laset` and `lapy2`.
 
-Not yet: threading in levels 1 and 2 ([`threading.md`](threading.md)).
-
 ### Targets
 
 Every target compiles, with the portable kernels at least. Per-core kernels exist for these
@@ -295,7 +293,8 @@ runs the closest linked core's kernels, or the portable ones.
 | `LD_HWCAP_MASK` | s390x: masks the hardware capabilities before detection |
 
 `OMP_NUM_THREADS`, `OMP_ADAPTIVE`, `OPENBLAS_THREAD_TIMEOUT`, `GOTO_DEBUG` and
-`OPENBLAS_MAIN_FREE`/`GOTOBLAS_MAIN_FREE` are read and have no effect. Values longer than 64
+`OPENBLAS_MAIN_FREE`/`GOTOBLAS_MAIN_FREE` are not read: rstd has no OpenMP, thread pool, debug
+prints or NUMA buffers. Values longer than 64
 bytes are ignored. Details are in [`design.md`](../design.md#configuration).
 
 ## Tests
