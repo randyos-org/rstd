@@ -119,6 +119,9 @@ pub fn build(b: *Build) !void {
             .root_source_file = b.path("tools/shader_run/main.zig"),
             .target = target,
             .optimize = optimize,
+            // the Vulkan loader needs `dlopen`; std's libc-free ELF loader
+            // misses /usr/lib/<triple> and the loader's own dependencies
+            .link_libc = target.result.os.tag != .windows,
             .imports = &.{
                 .{ .name = "rstd", .module = rstd_mod },
                 .{ .name = vulkan_mod.name, .module = vulkan_mod.mod },
