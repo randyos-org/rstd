@@ -585,8 +585,9 @@ calls:
 2000). Both scaled alike past 4 workers, so the limit there is shared (blocking, kernels,
 memory), not the protocol.
 
-`blas3/threaded.zig` as shipped, the same machine and bench (`l3thread bench`, built with
-`zig test -O fast`, since `rstd-test` builds the tests `debug` whatever `-Doptimize` says),
+`blas3/threaded.zig` as shipped, the same machine and bench (then the test `l3thread bench`, built with
+`zig test -O fast`, since `rstd-test` builds the tests `debug` whatever `-Doptimize` says; now
+[`tools/blasbench`](../../../tools/blasbench/readme.md)'s `l3thread` section, where a count is a ceiling),
 2026-10-29; medians of four quiet runs, each a median of 9 to 25 interleaved calls:
 
 | Type | n | serial | 2 | 4 | 8 | 16 |

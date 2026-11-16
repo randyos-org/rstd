@@ -3,7 +3,6 @@
 //! loops, packing and kernel calls, so the same bits at any worker count.
 
 const std = @import("std");
-const sysinfo = @import("builtin");
 const blas = @import("../__root__.zig");
 const Vtable = @import("../Vtable.zig");
 const driver = @import("driver.zig");
@@ -310,62 +309,10 @@ fn Team(comptime T: type) type {
 // ---- tests -------------------------------------------------------------------------
 
 const zigstd = @import("../../../zigstd.zig");
-const check = @import("../_test/check.zig");
-
-const fill = check.fillMixed;
 
 test "ways use what they may and keep a panel per part" {
     try zigstd.testExpectEqual([2]usize{ 4, 4 }, ways(1000, 1000, 16, 8, 4));
     try zigstd.testExpectEqual([2]usize{ 1, 7 }, ways(8, 1000, 7, 8, 4));
     try zigstd.testExpectEqual([2]usize{ 7, 1 }, ways(1000, 4, 7, 8, 4));
     try zigstd.testExpectEqual([2]usize{ 1, 1 }, ways(1, 1, 9, 8, 4));
-}
-
-// `L3THREAD_BENCH` set, a fast Windows build (`rstd-test -Doptimize=fast`):
-// medians of serial and threaded `gemm` at 2, 4, 8 and 16 workers.
-test "l3thread bench" {
-    if (comptime sysinfo.target.os.tag != .windows or sysinfo.mode != .fast) return error.SkipZigTest;
-    if (std.process.Environ.getWindows(.{ .block = .global }, std.unicode.wtf8ToWtf16LeStringLiteral("L3THREAD_BENCH")) == null) return error.SkipZigTest;
-    const al = std.heap.page_allocator;
-    var threaded: Io.Threaded = .init(al, .{});
-    defer threaded.deinit();
-    const io = threaded.io();
-    const vt = blas.vtable();
-    std.debug.print("core {s}\n", .{blas.coreName()});
-    // scratch from a buffer touched once, so no call pays for fresh pages
-    const scratch = try al.alloc(u8, 256 << 20);
-    defer al.free(scratch);
-    @memset(scratch, 0);
-    var fba: std.heap.FixedBufferAllocator = .init(scratch);
-    inline for (.{ f64, f32 }) |T| for ([_]usize{ 256, 512, 1000, 2000 }) |n| {
-        const a = try al.alloc(T, n * n);
-        defer al.free(a);
-        const b = try al.alloc(T, n * n);
-        defer al.free(b);
-        const c = try al.alloc(T, n * n);
-        defer al.free(c);
-        fill(T, a, 1);
-        fill(T, b, 2);
-        @memset(c, 0);
-        const reps: usize = if (n >= 2000) 9 else if (n >= 1000) 15 else 25;
-        const counts = [_]u32{ 2, 4, 8, 16 };
-        // serial, then each count
-        var times: [1 + counts.len][25]f64 = undefined;
-        // the first round warms up and is not kept
-        for (0..reps + 1) |round| for (0..times.len) |x| {
-            fba.reset();
-            const t0 = Io.Clock.awake.now(io).toNanoseconds();
-            try driver.gemm(fba.allocator(), io, T, vt, false, false, .n, n, n, n, 1, a.ptr, n, b.ptr, n, 0, c.ptr, n, if (x == 0) 1 else counts[x - 1]);
-            if (round > 0) times[x][round - 1] = @floatFromInt(Io.Clock.awake.now(io).toNanoseconds() - t0);
-        };
-        const flops = 2.0 * @as(f64, @floatFromInt(n * n * n));
-        std.debug.print("{s} n={d}: serial {d:.1}", .{ @typeName(T), n, flops / median(times[0][0..reps]) });
-        for (counts, 0..) |w, i| std.debug.print(" | w={d} {d:.1}", .{ w, flops / median(times[1 + i][0..reps]) });
-        std.debug.print(" GFLOPS\n", .{});
-    };
-}
-
-fn median(x: []f64) f64 {
-    std.mem.sort(f64, x, {}, std.sort.asc(f64));
-    return x[x.len / 2];
 }
