@@ -369,15 +369,15 @@ fn everyRoutine(comptime T: type, on_: bool) !void {
     try blas.scal(io, T, n, al1, &x, 1);
     try p.saw(true, "scal");
     _ = try blas.dot(io, T, n, &x, 1, &y, 1);
-    try p.saw(T != f32, "dot");
+    try p.saw(T != f32 or (x86_64 and !accel.rosetta()), "dot");
     if (cx) {
         _ = try blas.dotc(io, T, n, &x, 1, &y, 1);
         try p.saw(true, "dotc");
         try blas.axpyc(io, T, n, al1, &x, 1, &y, 1);
         try p.saw(false, "axpyc");
-        // `alpha` has a zero imaginary part (`quirks`)
+        // `alpha` has a zero imaginary part, a quirk on arm64 only
         try blas.scalReal(io, T, n, 0.5, &x, 1);
-        try p.saw(false, "scalReal");
+        try p.saw(x86_64, "scalReal");
     } else {
         var param = [5]T{ -1, 0.5, 0.25, -0.25, 0.75 };
         try blas.rotm(io, T, n, &x, 1, &y, 1, &param);
@@ -385,12 +385,12 @@ fn everyRoutine(comptime T: type, on_: bool) !void {
     }
     if (T == f32) {
         _ = try blas.dsdot(io, n, &x, 1, &y, 1);
-        try p.saw(!x86_64, "dsdot");
+        try p.saw(!accel.rosetta(), "dsdot");
         _ = try blas.sdsdot(io, n, 0.5, &x, 1, &y, 1);
-        try p.saw(!x86_64, "sdsdot");
+        try p.saw(!accel.rosetta(), "sdsdot");
     }
     _ = try blas.nrm2(io, T, n, &x, 1);
-    try p.saw(x86_64 and Float(T) == f64, "nrm2");
+    try p.saw(x86_64 and (Float(T) == f64 or !accel.rosetta()), "nrm2");
     _ = try blas.nrm2(io, T, n, &x, -1);
     try p.saw(false, "nrm2, a negative stride");
     _ = try blas.asum(io, T, n, &x, 1);
@@ -991,12 +991,12 @@ test "Accelerate's level-1 results match rstd's kernels on special values, strid
 }
 
 /// Whether a level-1 call at stride `inc` stays off Accelerate whatever
-/// `sends` says: the `x86_64` `cblas_dsdot`, and the strides `nrm2`, `asum`
+/// `sends` says: `cblas_dsdot` under Rosetta 2, and the strides `nrm2`, `asum`
 /// and `scal` (a quick return) leave out.
 fn kept1(comptime T: type, r: R1, inc: isize) bool {
     return switch (r) {
-        .dot, .dsdot => x86_64 and T == f32,
-        .nrm2 => if (Float(T) == f32) x86_64 else inc <= 0,
+        .dot, .dsdot => T == f32 and accel.rosetta(),
+        .nrm2 => inc <= 0 or (Float(T) == f32 and accel.rosetta()),
         .asum, .scal => inc <= 0,
         .iamax => true,
         else => false,
@@ -1069,18 +1069,19 @@ test "quirk cases run rstd's kernels, and the Hermitian diagonal comes out real"
     b[5] = inf;
     var p: Probe = .init(true);
 
+    // the zero-part quirks and real `trmv`'s show on arm64 only (issue #388)
     try blas.scal(io, Complex64, 4, .init(1.5, 0), &z, 1);
-    try p.saw(false, "complex scal, alpha with a zero part");
+    try p.saw(x86_64, "complex scal, alpha with a zero part");
     try zigstd.testExpectTrue(std.math.isNan(z[0].im));
     try blas.axpy(io, Complex64, 4, .init(0, 1), &z, 1, &w, 1);
-    try p.saw(false, "complex axpy, alpha with a zero part");
+    try p.saw(x86_64, "complex axpy, alpha with a zero part");
     try blas.axpby(io, f64, 4, 0, &x, 1, 2, &y, 1);
     try p.saw(false, "axpby, zero alpha");
     try zigstd.testExpectEqualSlices(f64, &.{ 2, 0, 4, 1 }, &y);
     try blas.axpby(io, Complex64, 4, .init(1, 1), &z, 1, .init(2, 0), &w, 1);
-    try p.saw(false, "complex axpby, beta with a zero part");
+    try p.saw(x86_64, "complex axpby, beta with a zero part");
     try blas.trmv(al, io, f64, .u, .n, .n, 4, &a, 4, &x, 1);
-    try p.saw(false, "trmv, x not finite");
+    try p.saw(x86_64, "trmv, x not finite");
     try blas.ger(al, io, f64, 4, 4, 1, &x, 1, &y, 1, &a, 4);
     try p.saw(false, "ger, x not finite");
     // a zero factor beside an infinity, through rstd; without one, Accelerate
