@@ -60,9 +60,9 @@ pub const GemmtHalfError = l3api.HalfError;
 pub const BatchError = l3api.BatchError;
 /// One group of `gemmBatch` or `gemmHalfBatch`, by input and output type.
 pub const GemmGroup = l3api.Group;
-/// `laswp`, on the reference-shaped core until Z12: bad arguments by the
-/// reference's names.
-pub const ExtError = ext.interface.Error;
+/// `laswp`: a row or pivot outside the matrix, a slice too short or a leading
+/// dimension too small.
+pub const LaswpError = ext.api.LaswpError;
 /// `geadd`: an unsupported letter, a slice too short or a leading dimension
 /// too small.
 pub const GeaddError = ext.api.GeaddError;
@@ -141,7 +141,7 @@ pub const hemm3m = l3api.hemm3m;
 pub const geadd = ext.api.geadd;
 pub const omatcopy = ext.api.omatcopy;
 pub const imatcopy = ext.api.imatcopy;
-pub const laswp = ext.interface.laswp;
+pub const laswp = ext.api.laswp;
 
 pub const gemmHalf = l3api.gemmHalf;
 pub const gemmtHalf = l3api.gemmtHalf;
