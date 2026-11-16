@@ -397,8 +397,9 @@ jobs:
     steps: *test-steps
 
   # rgl's shaders and shaderlib's probes compiled for spirv32-vulkan (tier 1,
-  # support.md) and validated by spirv-val, on the latest Zig, as RandyOS
-  # builds with it (issue #353)
+  # support.md), validated by spirv-val (issue #353) and run on Mesa's lavapipe,
+  # a CPU Vulkan device, against the CPU (tools/shader_run, #380); on the latest
+  # Zig, as RandyOS builds with it
   shaders:
     name: Shaders
     needs: version
@@ -412,10 +413,10 @@ jobs:
 
       - uses: randyos-org/zig-toolchain/setup@main
 
-      - name: spirv-tools
+      - name: spirv-tools and lavapipe
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq spirv-tools
+          sudo apt-get install -y -qq spirv-tools mesa-vulkan-drivers libvulkan1
           spirv-val --version
 
       - name: Fetch dependencies
@@ -429,6 +430,9 @@ jobs:
 
       - name: Validate
         run: zig build shader-check -Dvulkan -Dtest-host-off --summary line
+
+      - name: Run
+        run: zig build shader-run -Dvulkan -Dtest-host-off --summary line
 
   ci-result:
     name: CI

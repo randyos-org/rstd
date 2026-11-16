@@ -111,7 +111,26 @@ pub fn build(b: *Build) !void {
     const rstd_mod = try addRstdModule(b, "rstd", target, optimize, blas_cores, .{ .vulkan = vulkan_opt, .renderdoc = renderdoc_opt });
     if (vulkan_opt) {
         try rstdbuild.wireRglShaders(b, optimize, rstd_mod);
-        rstdbuild.addVulkan(b).addImportToModule(rstd_mod);
+        const vulkan_mod = rstdbuild.addVulkan(b);
+        vulkan_mod.addImportToModule(rstd_mod);
+        // shaderlib's probes and rgl's pipelines on a headless device, their
+        // SPIR-V embedded (tools/shader_run, issue #380)
+        const shader_run = b.addExecutable(.{ .name = "shader-run", .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/shader_run/main.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "rstd", .module = rstd_mod },
+                .{ .name = vulkan_mod.name, .module = vulkan_mod.mod },
+                .{ .name = "probe", .module = b.createModule(.{
+                    .root_source_file = b.path("src/rgl/shaders/probe.zig"),
+                    .target = target,
+                    .optimize = optimize,
+                    .imports = &.{.{ .name = "rstd", .module = rstd_mod }},
+                }) },
+            },
+        }) });
+        b.step("shader-run", "Run shaderlib's probes and rgl's pipelines on the first Vulkan device and check them (tools/shader_run)").dependOn(&b.addRunArtifact(shader_run).step);
         // one shader per shaderlib operation, and rgl's own, to disassemble
         // (src/rgl/shaders/lib/readme.md)
         const probes = b.step("shader-probes", "Build each shaderlib probe and rgl's shaders to SPIR-V in zig-out/spv");
@@ -124,10 +143,12 @@ pub fn build(b: *Build) !void {
         const shader_check = b.step("shader-check", "Validate every shaderlib probe and rgl shader with spirv-val (Vulkan 1.2)");
         const spirv_val = b.findProgramLazy(.{ .names = &.{"spirv-val"} });
         inline for (@typeInfo(shader_probe.Op).@"enum".field_names) |op| {
+            const opts = b.addOptions();
+            opts.addOption([]const u8, "op", op);
+            const s = try rstdbuild.addShaderWith(b, optimize, b.path("src/rgl/shaders/probe.zig"), op, .{ ._rstd_mod = rstd_mod }, &.{.{ .name = "probe_op", .module = opts.createModule() }});
+            shader_run.root_module.addAnonymousImport(op ++ ".vert.spv", .{ .root_source_file = s.spv_vert_path });
+            shader_run.root_module.addAnonymousImport(op ++ ".frag.spv", .{ .root_source_file = s.spv_frag_path });
             if (only == null or std.mem.eql(u8, only.?, op)) {
-                const opts = b.addOptions();
-                opts.addOption([]const u8, "op", op);
-                const s = try rstdbuild.addShaderWith(b, optimize, b.path("src/rgl/shaders/probe.zig"), op, .{ ._rstd_mod = rstd_mod }, &.{.{ .name = "probe_op", .module = opts.createModule() }});
                 validate(b, shader_check, spirv_val, s, op);
                 probes.dependOn(&b.addInstallFile(s.spv_frag_path, "spv/" ++ op ++ ".frag.spv").step);
                 if (comptime shader_probe.expect(@field(shader_probe.Op, op))) |text| {

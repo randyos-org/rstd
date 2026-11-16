@@ -21,7 +21,7 @@ after it. Rig names are `zig build` steps: `qemu-test-<rig>` unless named in ful
 | Target | Tier | Consumer | Tested by |
 | --- | --- | --- | --- |
 | `x86_64-windows` | 1 | zfls | native `rstd-test` on the Zen 3 host, with `-Dblas-cores=all`; `x86_64-whpx` (the host CPU); `rstd-check-zig017`; zfls's CI |
-| `spirv32-vulkan` | 1 | rgl, shaderlib | `-Dvulkan` compiles rgl's shaders (`vulkan_v1_2`); `shader-check` validates them with `spirv-val`, in CI too; nothing runs them yet (#380) |
+| `spirv32-vulkan` | 1 | rgl, shaderlib | `-Dvulkan` compiles rgl's shaders (`vulkan_v1_2`); `shader-check` validates them with `spirv-val`; `shader-run` draws with them and runs shaderlib's probes on a Vulkan device against the CPU (`tools/shader_run`); both in CI, on Mesa's lavapipe |
 | `x86_64-freestanding-none` | 2 | RandyOS: PC, Intel Mac | `x86_64` (TCG `max`, or HVF on the Intel Mac), `x86_64-whpx` |
 | `aarch64-freestanding-none` | 2 | RandyOS: Raspberry Pi 3 to 5, Apple Silicon | `aarch64` (HVF on the M6, or `cortex-a72`), `aarch64-sve` (TCG `max`) |
 | `arm-freestanding-eabi` | 2 | RandyOS: Raspberry Pi 3, 32-bit | `arm-softfp` (soft-float ABI, A15's VFP), `arm` (`eabihf`) |
