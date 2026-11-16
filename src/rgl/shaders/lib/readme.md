@@ -4,7 +4,7 @@ GLSL-friendly math for rgl's shaders (`math.zig`, `sdf.zig`) over `rstd.linalg` 
 
 ## Probes
 
-`../probe.zig` is one fragment shader per operation (its `Op` enum). `zig build shader-probes -Dvulkan` builds every probe (`-Dshader-probe=<op>` builds one) and the `rgl`, `glyph` and `image` shaders, and installs the `.spv` files to `zig-out/spv/`. Each probe with a native instruction (`probe.expect`) is disassembled with `spirv-dis` (Vulkan SDK, on `PATH`), and the step fails if the instruction is missing, so an operation that falls back to scalar code breaks the build. Check modules with `spirv-val --target-env vulkan1.2`.
+`../probe.zig` is one fragment shader per operation (its `Op` enum). `zig build shader-probes -Dvulkan` builds every probe (`-Dshader-probe=<op>` builds one) and the `rgl`, `glyph` and `image` shaders, and installs the `.spv` files to `zig-out/spv/`. `zig build shader-check -Dvulkan` runs `spirv-val` (Vulkan 1.2) on every stage of all of them, as CI's Shaders job does (#353). Each probe with a native instruction (`probe.expect`) is disassembled with `spirv-dis` (Vulkan SDK, on `PATH`), and the step fails if the instruction is missing, so an operation that falls back to scalar code breaks the build. Check modules with `spirv-val --target-env vulkan1.2`.
 
 ## What the backend emits (S1, 2026-10-30)
 
