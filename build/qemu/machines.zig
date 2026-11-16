@@ -19,6 +19,9 @@ pub const Machine = struct {
     /// parameter test (an LLVM `-Oz` miscompile on sparc64, it appears).
     optimize: ?Optimize = null,
     memory: []const u8 = "128M",
+    /// `memory` under `-Drstd-tsan`, whose shadow memory and bigger test
+    /// outgrow it (ENOMEM in faer's evd tests at 3G, issue #408)
+    tsan_memory: ?[]const u8 = null,
     boot: Boot,
     /// Why this rig is not wired up yet; a stub gets no step.
     stub: ?[]const u8 = null,
@@ -746,6 +749,7 @@ const base_machines = [_]Machine{
         .hvf = &.{ "-accel", "hvf", "-M", "virt", "-cpu", "host", "-smp", "4" },
         .hvf_core = "vortexm4",
         .memory = "1G",
+        .tsan_memory = "8G",
         .boot = .{ .linux = .{ .dep = "debian_netboot_arm64", .kernel = "debian-installer/arm64/linux", .console = "ttyAMA0" } },
     },
     .{
@@ -769,6 +773,7 @@ const base_machines = [_]Machine{
         // kernels and their debug info, is about 700 MB, and `/` (where tests
         // write files) gets half the memory
         .memory = "3G",
+        .tsan_memory = "8G",
         .boot = .{ .linux = .{ .dep = "debian_netboot_amd64", .kernel = "debian-installer/amd64/linux", .console = "ttyS0" } },
     },
     .{

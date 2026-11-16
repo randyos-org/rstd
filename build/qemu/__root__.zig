@@ -225,7 +225,8 @@ pub fn liveLog(b: *Build, m: Machine) []const u8 {
 /// monitor keeps `-nographic`'s firmware console. On a test host
 /// `tools/rig/test_host.zig` writes the log.
 pub fn addConsole(b: *Build, run: *Build.Step.Run, m: Machine, host: ?TestHost) void {
-    run.addArgs(&.{ "-m", m.memory, "-nographic", "-no-reboot" });
+    const memory = if (buildroot.tsan) m.tsan_memory orelse m.memory else m.memory;
+    run.addArgs(&.{ "-m", memory, "-nographic", "-no-reboot" });
     const log = if (testHostFor(m, host) != null) "" else b.fmt(",logfile={s}", .{liveLog(b, m)});
     // not `-mon`, deprecated (a warning) from QEMU 11.1
     run.addArgs(&.{ "-chardev", b.fmt("stdio,id=con,mux=on,signal=off{s}", .{log}), "-serial", "chardev:con", "-monitor", "chardev:con" });
