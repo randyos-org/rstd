@@ -359,31 +359,29 @@ fn solveWith(path: Path, allocator: Allocator, io: Io, o: anytype, a: ConstView(
     if (path == .fixed) return fixed(error{Singular}!void, "solve", n, .{ o, a, b });
     const x = try copyOf(T, allocator, b);
     defer x.deinit(allocator);
-    const nn = toIsize(n);
-    const k = toIsize(b.cols);
-    const ld = toIsize(@max(n, 1));
+    const ld = @max(n, 1);
     switch (structureOf(a)) {
         .upper, .lower => |s| {
             const uplo: lapack.Uplo = if (s == .upper) .u else .l;
-            lapack.trtrs(allocator, io, T, uplo, .n, .n, n, b.cols, a.data, a.ld, x.data, @max(n, 1)) catch |e| return narrow(error{Singular} || Error, e);
+            lapack.trtrs(allocator, io, T, uplo, .n, .n, n, b.cols, a.data, a.ld, x.data, ld) catch |e| return narrow(error{Singular} || Error, e);
         },
         .hermitian, .general => |s| {
             const f = try copyOf(T, allocator, a);
             defer f.deinit(allocator);
             if (s == .hermitian) cholesky: {
-                lapack.potrf(allocator, io, T, .u, nn, f.data.ptr, ld, null) catch |e| switch (e) {
+                lapack.potrf(allocator, io, T, .u, n, f.data, ld) catch |e| switch (e) {
                     error.NotPositiveDefinite => {
                         copyInto(T, f.data, n, a);
                         break :cholesky;
                     },
                     else => return narrow(Error, e),
                 };
-                lapack.potrs(allocator, io, T, .u, nn, k, f.data.ptr, ld, x.data.ptr, ld) catch |e| return narrow(Error, e);
+                lapack.potrs(allocator, io, T, .u, n, b.cols, f.data, ld, x.data, ld) catch |e| return narrow(Error, e);
                 return copyInto(T, o.data, o.ld, x.constView());
             }
             const ipiv = try allocator.alloc(usize, n);
             defer allocator.free(ipiv);
-            lapack.gesv(allocator, io, T, n, b.cols, f.data, @max(n, 1), ipiv, x.data, @max(n, 1)) catch |e| return narrow(error{Singular} || Error, e);
+            lapack.gesv(allocator, io, T, n, b.cols, f.data, ld, ipiv, x.data, ld) catch |e| return narrow(error{Singular} || Error, e);
         },
     }
     copyInto(T, o.data, o.ld, x.constView());
@@ -482,7 +480,7 @@ pub fn chol(allocator: Allocator, io: Io, a: anytype) CholError!Mat(ElementOf(@T
     const n = ca.rows;
     const r = try copyOf(T, allocator, ca);
     errdefer r.deinit(allocator);
-    lapack.potrf(allocator, io, T, .u, toIsize(n), r.data.ptr, toIsize(@max(n, 1)), null) catch |e| return narrow(error{NotPositiveDefinite} || Error, e);
+    lapack.potrf(allocator, io, T, .u, n, r.data, @max(n, 1)) catch |e| return narrow(error{NotPositiveDefinite} || Error, e);
     for (0..n) |j| @memset(r.data[j * n + j + 1 .. (j + 1) * n], ops.zero(T));
     return r;
 }

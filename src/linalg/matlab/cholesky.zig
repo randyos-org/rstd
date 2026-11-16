@@ -4,7 +4,7 @@
 const std = @import("std");
 const scalar = @import("scalar.zig");
 const CxMat = @import("CxMat.zig");
-const lapack = @import("../lapack/__root__.zig");
+const cholesky = @import("../lapack/cholesky.zig");
 const ops = @import("../lapack/ops.zig");
 const Cx = scalar.Cx;
 const Allocator = std.mem.Allocator;
@@ -20,21 +20,27 @@ pub const Error = error{NotPositiveDefinite} || Allocator.Error || Io.Cancelable
 pub fn chol(self: CxMat, allocator: Allocator, io: Io, minor: ?*usize) Error!void {
     // `potrf` rejects an empty matrix's `lda` of 0
     if (self.n == 0) return;
-    const ni: isize = @intCast(self.n);
-    if (self.isReal()) {
-        try factored(lapack.potrf(allocator, io, f64, .u, ni, self.r.ptr, @intCast(self.lda), minor));
-    } else {
+    const n = self.n;
+    // MATLAB's `p`: the failed pivot's index, which `potrf` does not return
+    const failed = if (self.isReal())
+        try factored(cholesky.potrfChecked(allocator, io, f64, .u, n, self.r, self.lda))
+    else blk: {
         const z = try self.toPacked(Cx, allocator);
         defer allocator.free(z);
         defer self.fromPacked(Cx, z);
-        try factored(lapack.potrf(allocator, io, Cx, .u, ni, z.ptr, ni, minor));
+        break :blk try factored(cholesky.potrfChecked(allocator, io, Cx, .u, n, z, n));
+    };
+    if (failed) |k| {
+        // MATLAB's order, 1-based
+        if (minor) |m| m.* = k + 1;
+        return error.NotPositiveDefinite;
     }
     self.triu(0);
 }
 
-fn factored(r: lapack.PotrfError!void) Error!void {
+fn factored(r: cholesky.CheckedError!?usize) (Allocator.Error || Io.Cancelable)!?usize {
     // the arguments come from `self`
-    r catch |e| return ops.narrow(Error, e);
+    return r catch |e| ops.narrow(Allocator.Error || Io.Cancelable, e);
 }
 
 const zigstd = @import("../../zigstd.zig");

@@ -463,12 +463,12 @@ test "utest: cgemv, zgemv, NaN and infinity through beta 0, 2i and 2" {
 fn potrfBug695() !void {
     const al = std.testing.allocator;
     var a1 = carr(C32, 100, potrf_a1);
-    try lapack.potrf(al, ob.io, C32, .u, 10, &a1, 10, null);
+    try lapack.potrf(al, ob.io, C32, .u, 10, &a1, 10);
     var a2 = carr(C64, 100, potrs_a2);
     var b = carr(C64, 20, potrs_b);
     try lapack.potrs(al, ob.io, C64, .l, 10, 2, &a2, 10, &b, 10);
     var a3 = carr(C32, 100, potrf_a1);
-    try lapack.potrf(al, ob.io, C32, .u, 10, &a3, 10, null);
+    try lapack.potrf(al, ob.io, C32, .u, 10, &a3, 10);
     try ob.expect(!std.math.isNan(a3[91].re) and !std.math.isNan(a3[91].im), "cpotrf bug 695: NaN in A3[91]");
 }
 
@@ -484,7 +484,7 @@ fn potrfSmoke() !void {
         const complex = comptime ob.isComplex(T);
         const a1: [4]T = if (complex) carr(T, 4, .{ 2, 0, 0.3, 0.1, 0.3, -0.1, 3, 0 }) else arr(T, 4, .{ 2, 0.3, 0.3, 3 });
         var a = a1;
-        try lapack.potrf(al, ob.io, T, uplo, 2, &a, 2, null);
+        try lapack.potrf(al, ob.io, T, uplo, 2, &a, 2);
         // the other triangle
         a[if (uplo == .l) 2 else 1] = if (complex) .init(0, 0) else 0;
         var b: [4]T = undefined;

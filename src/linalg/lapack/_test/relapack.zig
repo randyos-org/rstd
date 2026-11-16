@@ -38,7 +38,7 @@ fn potrfCases(vt: *const Vtable) anyerror!void {
         if (check.rig() and n > 70) continue;
         var p = try fixtures.CholProblem(T).init(al, n, upper, n * 37 + @intFromBool(upper));
         defer p.deinit(al);
-        relapack.potrf(al, check.io, T, lcheck.uploOf(upper), @intCast(n), p.a.ptr, @intCast(p.lda), null) catch |e| {
+        relapack.potrf(al, check.io, T, lcheck.uploOf(upper), n, p.a, p.lda) catch |e| {
             check.say("relapack potrf {s} n={d} upper={}\n", .{ @typeName(T), n, upper });
             return e;
         };
@@ -53,7 +53,7 @@ test "relapack potrf: A = L Lᴴ from a known L, both triangles, on every linked
     try check.eachCore(potrfCases);
 }
 
-test "relapack potrf: the first minor that is not positive definite, either half" {
+test "relapack potrf: the first pivot that is not positive, either half" {
     const al = testing.allocator;
     inline for (.{ f64, types.Complex32 }) |T| for ([_]bool{ true, false }) |upper| {
         const n = 49;
@@ -62,9 +62,10 @@ test "relapack potrf: the first minor that is not positive definite, either half
         for ([_]usize{ 0, 23, 24, 25, 40, 48 }) |k| {
             p.store();
             p.a[k * (p.lda + 1)] = scalar(T, -100);
-            var minor: usize = 0;
-            try testing.expectError(error.NotPositiveDefinite, relapack.potrf(al, check.io, T, lcheck.uploOf(upper), n, p.a.ptr, @intCast(p.lda), &minor));
-            try testing.expectEqual(k + 1, minor);
+            try testing.expectError(error.NotPositiveDefinite, relapack.potrf(al, check.io, T, lcheck.uploOf(upper), n, p.a, p.lda));
+            p.store();
+            p.a[k * (p.lda + 1)] = scalar(T, -100);
+            try testing.expectEqual(@as(?usize, k), try relapack.potrfRec(al, check.io, T, lcheck.uploOf(upper), n, p.a.ptr, p.lda));
         }
     };
 }
@@ -139,16 +140,16 @@ test "relapack potrf, getrf, trtri, lauum: the first bad argument, nothing read 
     const al = testing.allocator;
     var a: [4]f64 = @splat(lcheck.poisoned(f64));
     var ipiv: [2]usize = @splat(std.math.maxInt(usize));
-    try testing.expectError(error.InvalidUplo, relapack.potrf(al, check.io, f64, .v, 2, &a, 2, null));
-    try testing.expectError(error.InvalidN, relapack.potrf(al, check.io, f64, .u, -1, &a, 2, null));
-    try testing.expectError(error.InvalidLda, relapack.potrf(al, check.io, f64, .u, 2, &a, 1, null));
+    try testing.expectError(error.UnsupportedUplo, relapack.potrf(al, check.io, f64, .v, 2, &a, 2));
+    try testing.expectError(error.SliceTooShort, relapack.potrf(al, check.io, f64, .u, 3, &a, 3));
+    try testing.expectError(error.LeadingDimensionTooSmall, relapack.potrf(al, check.io, f64, .u, 2, &a, 1));
     try testing.expectError(error.LeadingDimensionTooSmall, relapack.getrf(al, check.io, f64, 2, 2, &a, 1, &ipiv));
     try testing.expectError(error.SliceTooShort, relapack.getrf(al, check.io, f64, 2, 3, &a, 2, &ipiv));
     try testing.expectError(error.SliceTooShort, relapack.getrf(al, check.io, f64, 2, 2, &a, 2, ipiv[0..1]));
     try testing.expectError(error.UnsupportedUplo, relapack.trtri(al, check.io, f64, .m, .n, 2, &a, 2));
     try testing.expectError(error.SliceTooShort, relapack.trtri(al, check.io, f64, .u, .n, 3, &a, 3));
     try testing.expectError(error.LeadingDimensionTooSmall, relapack.lauum(al, check.io, f64, .l, 2, &a, 1));
-    try relapack.potrf(al, check.io, f64, .u, 0, &a, 1, null);
+    try relapack.potrf(al, check.io, f64, .u, 0, &a, 1);
     try testing.expectEqual(@as(?usize, null), try relapack.getrf(al, check.io, f64, 0, 2, &a, 1, &ipiv));
     try relapack.trtri(al, check.io, f64, .l, .n, 0, &a, 1);
     try relapack.lauum(al, check.io, f64, .l, 0, &a, 1);
@@ -168,8 +169,8 @@ test "with -Drelapack, ReLAPACK's potrf, getrf, trtri and lauum agree with OpenB
         defer p.deinit(al);
         const x = try al.dupe(T, p.a);
         defer al.free(x);
-        try root.potrf(al, io, T, uplo, n, x.ptr, @intCast(p.lda), null);
-        try chol.potrf(al, io, T, uplo, n, p.a.ptr, @intCast(p.lda), null);
+        try root.potrf(al, io, T, uplo, n, x, p.lda);
+        try chol.potrf(al, io, T, uplo, n, p.a, p.lda);
         try fixtures.expectAgree(T, "potrf", n, x, p.a);
 
         var t = try fixtures.Tri(T).init(al, n, upper, false, 78);
@@ -203,7 +204,7 @@ const Big = struct {
 
     fn potrfRun(self: Big, io: Io, out: []f64) anyerror!void {
         @memcpy(out, self.a);
-        try relapack.potrf(testing.allocator, io, f64, .l, lcheck.big_n, out.ptr, lcheck.big_n, null);
+        try relapack.potrf(testing.allocator, io, f64, .l, lcheck.big_n, out, lcheck.big_n);
     }
 
     fn getrfRun(self: Big, io: Io, out: []f64) anyerror!void {
@@ -223,7 +224,7 @@ test "relapack potrf and getrf: the same bits inline and threaded" {
 
 // ---- sygst tests ------------------------------------------------------------------
 
-fn gstCase(comptime T: type, al: Allocator, itype: isize, upper: bool, n: usize, seed: u64) !void {
+fn gstCase(comptime T: type, al: Allocator, problem: relapack.Problem, upper: bool, n: usize, seed: u64) !void {
     // `B` from a known Cholesky factor, `A` Hermitian, both in `uplo`'s triangle
     var p = try fixtures.CholProblem(T).init(al, n, upper, seed);
     defer p.deinit(al);
@@ -242,7 +243,7 @@ fn gstCase(comptime T: type, al: Allocator, itype: isize, upper: bool, n: usize,
         if (if (upper) i <= j else i >= j) b[i + j * ldb] = lcheck.toT(T, f[i + j * n]);
     };
     const routine = if (comptime isComplex(T)) relapack.hegst else relapack.sygst;
-    try routine(al, check.io, T, itype, lcheck.uploOf(upper), @intCast(n), h.a.ptr, @intCast(h.lda), b.ptr, @intCast(ldb));
+    try routine(al, check.io, T, problem, lcheck.uploOf(upper), n, h.a, h.lda, b, ldb);
     // the result, whole
     const c = try al.alloc(W(T), n * n);
     defer al.free(c);
@@ -252,26 +253,26 @@ fn gstCase(comptime T: type, al: Allocator, itype: isize, upper: bool, n: usize,
         c[i + j * n] = if (s) v else reference.conjW(v);
     };
     // `M X Mᴴ` against the other side: `L C Lᴴ` or `Uᴴ C U` against `A`
-    // (itype 1); `C` against `Lᴴ A L` or `U A Uᴴ`
+    // (`ax_lbx`); `C` against `Lᴴ A L` or `U A Uᴴ`
     const m = try al.alloc(W(T), n * n);
     defer al.free(m);
     for (0..n) |j| for (0..n) |i| {
-        const flip = (itype == 1) == upper;
+        const flip = (problem == .ax_lbx) == upper;
         m[i + j * n] = if (flip) reference.conjW(f[j + i * n]) else f[i + j * n];
     };
     const r = try al.alloc(W(T), n * n);
     defer al.free(r);
     const mag = try al.alloc(f128, n * n);
     defer al.free(mag);
-    try symmetric.sandwich(T, al, n, m, if (itype == 1) c else h.w, r, mag);
-    const other = if (itype == 1) h.w else c;
+    try symmetric.sandwich(T, al, n, m, if (problem == .ax_lbx) c else h.w, r, mag);
+    const other = if (problem == .ax_lbx) h.w else c;
     const eps: f128 = std.math.floatEps(Float(T));
     const ulps: f128 = @floatFromInt(32 * (n + 2));
     for (0..n) |j| for (0..n) |i| {
         const d = reference.abs1(reference.subW(r[i + j * n], other[i + j * n]));
         const allowed = ulps * eps * (mag[i + j * n] + reference.abs1(other[i + j * n])) + std.math.floatMin(Float(T));
         if (!(d <= allowed)) {
-            check.say("sygst {s} itype {d} {s} n={d}: ({d},{d}) off by {e}, allowed {e}\n", .{ @typeName(T), itype, if (upper) "u" else "l", n, i, j, @as(f64, @floatCast(d)), @as(f64, @floatCast(allowed)) });
+            check.say("sygst {s} {t} {s} n={d}: ({d},{d}) off by {e}, allowed {e}\n", .{ @typeName(T), problem, if (upper) "u" else "l", n, i, j, @as(f64, @floatCast(d)), @as(f64, @floatCast(allowed)) });
             return error.TestUnexpectedResult;
         }
     };
@@ -289,13 +290,13 @@ fn gstCase(comptime T: type, al: Allocator, itype: isize, upper: bool, n: usize,
     };
 }
 
-test "relapack sygst, hegst: every itype, both triangles, against the products, every type" {
+test "relapack sygst, hegst: every problem, both triangles, against the products, every type" {
     const al = testing.allocator;
-    inline for (test_types) |T| for ([_]isize{ 1, 2, 3 }) |itype| for ([_]bool{ true, false }) |upper| {
+    inline for (test_types) |T| for (std.enums.values(relapack.Problem), 1..) |problem, pi| for ([_]bool{ true, false }) |upper| {
         for ([_]usize{ 1, 2, 24, 25, 40, 57 }) |n| {
             if (check.rig() and n > 40) continue;
-            gstCase(T, al, itype, upper, n, n * 5 + @as(u64, @intCast(itype))) catch |e| {
-                check.say("sygst {s} itype {d} n={d}\n", .{ @typeName(T), itype, n });
+            gstCase(T, al, problem, upper, n, n * 5 + pi) catch |e| {
+                check.say("sygst {s} {t} n={d}\n", .{ @typeName(T), problem, n });
                 return e;
             };
         }
@@ -305,25 +306,23 @@ test "relapack sygst, hegst: every itype, both triangles, against the products, 
 test "relapack sygst, hegst: past the crossover twice over, f64 and c64" {
     if (check.rig()) return error.SkipZigTest;
     const al = testing.allocator;
-    inline for (.{ f64, types.Complex64 }) |T| for ([_]isize{ 1, 2 }) |itype| for ([_]bool{ true, false }) |upper| {
-        try gstCase(T, al, itype, upper, 100, 7);
+    inline for (.{ f64, types.Complex64 }) |T| for ([_]relapack.Problem{ .ax_lbx, .abx_lx }) |problem| for ([_]bool{ true, false }) |upper| {
+        try gstCase(T, al, problem, upper, 100, 7);
     };
 }
 
-test "relapack sygst, hegst: the first bad argument, nothing read for n = 0" {
+test "relapack sygst, hegst: a reversed uplo, short slices, small leading dimensions; nothing read for n = 0" {
     const al = testing.allocator;
     var a: [4]f64 = @splat(lcheck.poisoned(f64));
     const b: [4]f64 = @splat(lcheck.poisoned(f64));
-    try testing.expectError(error.InvalidItype, relapack.sygst(al, check.io, f64, 0, .v, 2, &a, 2, &b, 2));
-    try testing.expectError(error.InvalidItype, relapack.sygst(al, check.io, f64, 4, .u, 2, &a, 2, &b, 2));
-    try testing.expectError(error.InvalidUplo, relapack.sygst(al, check.io, f64, 1, .m, 2, &a, 2, &b, 2));
-    try testing.expectError(error.InvalidN, relapack.sygst(al, check.io, f64, 1, .u, -1, &a, 2, &b, 2));
-    try testing.expectError(error.InvalidLda, relapack.sygst(al, check.io, f64, 2, .u, 2, &a, 1, &b, 2));
-    try testing.expectError(error.InvalidLdb, relapack.sygst(al, check.io, f64, 3, .l, 2, &a, 2, &b, 1));
-    try relapack.sygst(al, check.io, f64, 1, .l, 0, &a, 1, &b, 1);
+    try testing.expectError(error.UnsupportedUplo, relapack.sygst(al, check.io, f64, .ax_lbx, .m, 2, &a, 2, &b, 2));
+    try testing.expectError(error.LeadingDimensionTooSmall, relapack.sygst(al, check.io, f64, .abx_lx, .u, 2, &a, 1, &b, 2));
+    try testing.expectError(error.LeadingDimensionTooSmall, relapack.sygst(al, check.io, f64, .bax_lx, .l, 2, &a, 2, &b, 1));
+    try testing.expectError(error.SliceTooShort, relapack.sygst(al, check.io, f64, .ax_lbx, .l, 3, &a, 3, &b, 3));
+    try relapack.sygst(al, check.io, f64, .ax_lbx, .l, 0, &a, 1, &b, 1);
     for (a) |x| try testing.expect(std.math.isNan(x));
     var z: [1]types.Complex32 = @splat(lcheck.poisoned(types.Complex32));
-    try testing.expectError(error.InvalidLdb, relapack.hegst(al, check.io, types.Complex32, 1, .u, 1, &z, 1, &z, 0));
+    try testing.expectError(error.LeadingDimensionTooSmall, relapack.hegst(al, check.io, types.Complex32, .ax_lbx, .u, 1, &z, 1, &z, 0));
 }
 
 const BigGst = struct {
@@ -332,7 +331,7 @@ const BigGst = struct {
 
     fn run(self: BigGst, io: Io, out: []f64) anyerror!void {
         @memcpy(out, self.a);
-        try relapack.sygst(testing.allocator, io, f64, 1, .l, lcheck.big_n, out.ptr, lcheck.big_n, self.b.ptr, lcheck.big_n);
+        try relapack.sygst(testing.allocator, io, f64, .ax_lbx, .l, lcheck.big_n, out, lcheck.big_n, self.b, lcheck.big_n);
     }
 };
 
@@ -342,7 +341,7 @@ test "relapack sygst: the same bits inline and threaded" {
     defer al.free(a);
     const b = try fixtures.dominant(al, lcheck.big_n, 6);
     defer al.free(b);
-    try relapack.potrf(al, check.io, f64, .l, lcheck.big_n, b.ptr, lcheck.big_n, null);
+    try relapack.potrf(al, check.io, f64, .l, lcheck.big_n, b, lcheck.big_n);
     try lcheck.expectIoBits(f64, BigGst{ .a = a, .b = b }, BigGst.run, lcheck.big_n * lcheck.big_n, "sygst");
 }
 
@@ -458,7 +457,7 @@ test "relapack pbtrf: A = F Fᴴ in band storage, both triangles, every type" {
     inline for (test_types) |T| for ([_]bool{ true, false }) |upper| for (band_cases) |c| {
         var p = try Band(T).init(al, c[0], c[1], upper, c[0] * 3 + c[1]);
         defer p.deinit(al);
-        relapack.pbtrf(al, check.io, T, lcheck.uploOf(upper), @intCast(c[0]), @intCast(c[1]), p.ab.ptr, @intCast(p.ldab), null) catch |e| {
+        relapack.pbtrf(al, check.io, T, lcheck.uploOf(upper), c[0], c[1], p.ab, p.ldab) catch |e| {
             check.say("pbtrf {s} n={d} kd={d}\n", .{ @typeName(T), c[0], c[1] });
             return e;
         };
@@ -472,12 +471,12 @@ test "relapack pbtrf: a rest wider than the band past the block (ReLAPACK's dens
     inline for (.{ f64, types.Complex64 }) |T| for ([_]bool{ true, false }) |upper| for ([_][2]usize{ .{ 100, 50 }, .{ 100, 60 }, .{ 120, 30 } }) |c| {
         var p = try Band(T).init(al, c[0], c[1], upper, 11);
         defer p.deinit(al);
-        try relapack.pbtrf(al, check.io, T, lcheck.uploOf(upper), @intCast(c[0]), @intCast(c[1]), p.ab.ptr, @intCast(p.ldab), null);
+        try relapack.pbtrf(al, check.io, T, lcheck.uploOf(upper), c[0], c[1], p.ab, p.ldab);
         try p.expectFactor();
     };
 }
 
-test "relapack pbtrf: the first minor that is not positive definite, NaN too" {
+test "relapack pbtrf: the first pivot that is not positive, NaN too, is where it stops" {
     const al = testing.allocator;
     inline for (.{ f64, types.Complex32 }) |T| for ([_]bool{ true, false }) |upper| {
         var p = try Band(T).init(al, 60, 10, upper, 2);
@@ -485,20 +484,22 @@ test "relapack pbtrf: the first minor that is not positive definite, NaN too" {
         for ([_]usize{ 0, 23, 30, 59 }) |k| for ([_]f64{ -100, std.math.nan(f64) }) |x| {
             p.store();
             p.ab[p.place(k, k).?] = lcheck.fromF64(T, x);
-            var minor: usize = 0;
-            try testing.expectError(error.NotPositiveDefinite, relapack.pbtrf(al, check.io, T, lcheck.uploOf(upper), 60, 10, p.ab.ptr, @intCast(p.ldab), &minor));
-            try testing.expectEqual(k + 1, minor);
+            try testing.expectError(error.NotPositiveDefinite, relapack.pbtrf(al, check.io, T, lcheck.uploOf(upper), 60, 10, p.ab, p.ldab));
+            // the factor's diagonal positive before `k`, the failed pivot at it
+            for (0..k + 1) |i| {
+                const d = ops.re(T, p.ab[p.place(i, i).?]);
+                try testing.expectEqual(i < k, d > 0);
+            }
         };
     };
 }
 
-test "relapack pbtrf: the first bad argument, nothing read for n = 0" {
+test "relapack pbtrf: a reversed uplo, a short slice, a small leading dimension; nothing read for n = 0" {
     const al = testing.allocator;
     var ab: [6]f64 = @splat(lcheck.poisoned(f64));
-    try testing.expectError(error.InvalidUplo, relapack.pbtrf(al, check.io, f64, .v, 2, 1, &ab, 2, null));
-    try testing.expectError(error.InvalidN, relapack.pbtrf(al, check.io, f64, .u, -1, 1, &ab, 2, null));
-    try testing.expectError(error.InvalidKd, relapack.pbtrf(al, check.io, f64, .u, 2, -1, &ab, 2, null));
-    try testing.expectError(error.InvalidLdab, relapack.pbtrf(al, check.io, f64, .l, 2, 1, &ab, 1, null));
-    try relapack.pbtrf(al, check.io, f64, .l, 0, 1, &ab, 2, null);
+    try testing.expectError(error.UnsupportedUplo, relapack.pbtrf(al, check.io, f64, .v, 2, 1, &ab, 2));
+    try testing.expectError(error.LeadingDimensionTooSmall, relapack.pbtrf(al, check.io, f64, .l, 2, 1, &ab, 1));
+    try testing.expectError(error.SliceTooShort, relapack.pbtrf(al, check.io, f64, .l, 4, 1, &ab, 2));
+    try relapack.pbtrf(al, check.io, f64, .l, 0, 1, &ab, 2);
     for (ab) |x| try testing.expect(std.math.isNan(x));
 }

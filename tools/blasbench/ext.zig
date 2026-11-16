@@ -297,8 +297,8 @@ fn Work(comptime p: Prec) type {
         /// rstd's pivots, 0-based (issue #398)
         rpiv: []usize,
         rpiv0: []usize,
-        /// `sytrf`'s, signed and 1-based until Z13 (#314)
-        spiv: []isize,
+        /// `sytrf`'s, 0-based with their block of `D` (issue #314)
+        spiv: []lapack.Pivot,
         iwork: []c_int,
         info: c_int = 0,
 
@@ -322,7 +322,7 @@ fn Work(comptime p: Prec) type {
             w.ipiv0 = try gpa.alloc(c_int, n);
             w.rpiv = try gpa.alloc(usize, n);
             w.rpiv0 = try gpa.alloc(usize, n);
-            w.spiv = try gpa.alloc(isize, n);
+            w.spiv = try gpa.alloc(lapack.Pivot, n);
             return w;
         }
 
@@ -970,7 +970,8 @@ const Potrf = struct {
     pub const Sig = SigUplo;
     pub const lib = libUplo;
     pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
-        try lapack.potrf(rstd_alloc, libs.rstd_io, Num(p), .u, w.in(), cast(p, w.a.ptr), w.in(), null);
+        const n = w.in();
+        try lapack.potrf(rstd_alloc, libs.rstd_io, Num(p), .u, w.n, libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), w.n);
     }
     /// `Uᴴ U` against `A`, upper triangle.
     pub fn residual(comptime p: Prec, w: *const Work(p), i: usize, j: usize) ?[2]f64 {
@@ -1129,7 +1130,8 @@ const Potri = struct {
     pub const Sig = SigUplo;
     pub const lib = libUplo;
     pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
-        try lapack.potri(rstd_alloc, libs.rstd_io, Num(p), .u, w.in(), cast(p, w.a.ptr), w.in(), null);
+        const n = w.in();
+        try lapack.potri(rstd_alloc, libs.rstd_io, Num(p), .u, w.n, libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), w.n);
     }
     /// `A X` against `I`, `X` Hermitian from its upper triangle.
     pub fn residual(comptime p: Prec, w: *const Work(p), i: usize, j: usize) ?[2]f64 {
@@ -1311,7 +1313,8 @@ const Sytrf = struct {
     }
     pub const has_rstd = @hasDecl(lapack, "sytrf");
     pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
-        try lapack.sytrf(rstd_alloc, libs.rstd_io, Num(p), .u, w.in(), cast(p, w.a.ptr), w.in(), w.spiv.ptr, null);
+        const n = w.in();
+        _ = try lapack.sytrf(rstd_alloc, libs.rstd_io, Num(p), .u, w.n, libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), w.n, w.spiv);
     }
 };
 

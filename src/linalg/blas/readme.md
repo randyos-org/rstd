@@ -40,9 +40,10 @@ How the code is structured, and why, is in [`design.md`](../design.md).
   (`gemvHalf`), `sbgemm`, `bgemm`, `shgemm` (`gemmHalf`) and `sbgemmt` (`gemmtHalf`).
 - **Extensions:** `geadd`, `omatcopy` and `imatcopy` (column-major), LAPACK's `laswp`, and the
   batched gemms (`gemmBatch`, `gemmBatchStrided`, and `gemmHalfBatch`, `gemmHalfBatchStrided`).
-- **LAPACK** (`rstd.linalg.lapack`): `potrs`, and `potrf` and `potf2`, which return
+- **LAPACK** (`rstd.linalg.lapack`): `potrs`, and `potrf`, `potf2` and `pbtrf`, which return
   `error.NotPositiveDefinite` for a leading minor that is not positive definite, a NaN pivot
-  included, and write its order to their last argument; `getrs`; `getrf` and `gbtrf`, which
+  included; `sytrf`, `hetrf` and their rook forms, which return the first row of an exactly zero
+  block of `D` (0-based), or null; `getrs`; `getrf` and `gbtrf`, which
   complete the factorization and return the first `i` (0-based) of an exactly zero `U(i, i)`,
   or null; `gesv`, `getri`, `potri`, `trtri` and `trtrs`, which return `error.Singular` for a
   zero pivot or a zero on the diagonal; `trti2`, `lauum` and `lauu2`. Ported from faer:
