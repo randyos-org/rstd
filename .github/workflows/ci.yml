@@ -8,10 +8,11 @@ name: CI
 # releases it (to main); start the workflow by hand on dev to check it in
 # between. A pull request that only changes the files listed in no-ci.txt
 # (documentation, editor settings) skips the checks; the "CI" job, the check
-# the rulesets require, passes then too. The tier 3 and 4 legs (test-tier34)
-# run on pull requests into main, pushes to main and runs started by hand; a
-# pull request into dev runs those its labels ask for: `ci: <leg name>` (e.g.
-# `ci: arm-linux`) or `ci: tier 3-4` for all. The labels are read when the run
+# the rulesets require, passes then too. The tier 3 and 4 legs (test-tier34,
+# and rig-tier34's tier 3 rigs, named `<rig> rig`) run on pull requests into
+# main, pushes to main and runs started by hand; a pull request into dev runs
+# those its labels ask for: `ci: <leg name>` (e.g. `ci: arm-linux`,
+# `ci: i386 rig`) or `ci: tier 3-4` for all. The labels are read when the run
 # starts, so after labeling an open pull request, re-run its CI (issue #301).
 #
 # Versions: build.zig.zon holds the version the next release will have. When
@@ -57,6 +58,8 @@ jobs:
       ci: ${{ steps.ver.outputs.ci }}
       tier34: ${{ steps.tier34.outputs.legs }}
       tier34-any: ${{ steps.tier34.outputs.any }}
+      rigs34: ${{ steps.tier34.outputs.rigs }}
+      rigs34-any: ${{ steps.tier34.outputs.rigs-any }}
     # the pull request's labels pick the tier 3 and 4 legs
     permissions:
       contents: read
@@ -188,14 +191,33 @@ jobs:
             full=false
             labels=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/labels" --jq '[.[].name]')
           fi
-          legs=$(jq -c --argjson labels "$labels" --arg full "$full" '
-            if $full == "true" or ($labels | any(. == "ci: tier 3-4")) then .
-            else map(select(.name as $n | $labels | any(. == "ci: " + $n))) end' <<< "$all")
+          # the tier 3 QEMU rigs (build/qemu), legs named `<rig> rig` (rig-tier34);
+          # sparc64 stays out while its images outgrow OpenBIOS's window (T39)
+          rigs=$(jq -cn '[
+            "i386", "i386-max", "i386-safe", "i386-max-safe",
+            "riscv64", "riscv64-vlen128", "riscv64-vlen256",
+            "powerpc64le", "powerpc64le-power10", "powerpc64", "powerpc", "powerpc-pseries", "powerpc-power9",
+            "mips64r2el", "mips64r2", "mips64r6el", "mips64r6", "mips32r2el", "mips32r2", "mips32r5el", "mips32r5",
+            "loongarch64", "s390x"
+          ] | map({ name: "\(.) rig", rig: . })')
+          pick() {
+            jq -c --argjson labels "$labels" --arg full "$full" '
+              if $full == "true" or ($labels | any(. == "ci: tier 3-4")) then .
+              else map(select(.name as $n | $labels | any(. == "ci: " + $n))) end' <<< "$1"
+          }
+          legs=$(pick "$all")
+          rig_legs=$(pick "$rigs")
           any=true
           [ "$legs" = '[]' ] && any=false
-          echo "legs=$legs" >> "$GITHUB_OUTPUT"
-          echo "any=$any" >> "$GITHUB_OUTPUT"
-          echo "tier 3 and 4 legs: $(jq -r 'map(.name) | join(", ") | if . == "" then "none" else . end' <<< "$legs")" | tee -a "$GITHUB_STEP_SUMMARY"
+          rigs_any=true
+          [ "$rig_legs" = '[]' ] && rigs_any=false
+          {
+            echo "legs=$legs"
+            echo "any=$any"
+            echo "rigs=$(jq -c 'map(.rig)' <<< "$rig_legs")"
+            echo "rigs-any=$rigs_any"
+          } >> "$GITHUB_OUTPUT"
+          echo "tier 3 and 4 legs: $(jq -rs 'add | map(.name) | join(", ") | if . == "" then "none" else . end' <<< "$legs $rig_legs")" | tee -a "$GITHUB_STEP_SUMMARY"
 
   version-check:
     name: Version is unreleased
@@ -400,8 +422,8 @@ jobs:
   # latest Zig only, as RandyOS builds with it: the x86_64 ones under KVM, which
   # GitHub's Linux runners offer (issues #343, #344), and the aarch64 ones on its
   # arm64 runners, under KVM where they offer it (#345, #346). QEMU and its firmware come
-  # from tools/nix's flake, as on the Macs' rigs. The other rigs join as their
-  # issues land (#347 to #349).
+  # from tools/nix's flake, as on the Macs' rigs; the 32-bit Arm and PowerPC 750
+  # ones under TCG (#347, #348). The tier 3 rigs are rig-tier34's.
   rig:
     name: Rig (${{ matrix.rig }})
     needs: version
@@ -426,7 +448,7 @@ jobs:
           # PowerPC 750 on OpenBIOS: TCG
           - { rig: powerpc-750, runner: ubuntu-24.04 }
           - { rig: powerpc-750-hf, runner: ubuntu-24.04 }
-    steps:
+    steps: &rig-steps
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.version.outputs.sha }}
@@ -480,9 +502,25 @@ jobs:
           RIG: ${{ matrix.rig }}
         run: tail -c 300000 ".zig-cache/qemu-test-$RIG.log" || true
 
+  # The tier 3 rigs (support.md), picked as the tier 3 and 4 legs are (see the
+  # top; a leg is `<rig> rig`), on the rig job's steps; their failures only
+  # report, as test-tier34's do (issue #349)
+  rig-tier34:
+    name: Rig (${{ matrix.rig }})
+    needs: version
+    if: ${{ needs.version.outputs.ci == 'true' && needs.version.outputs.rigs34-any == 'true' }}
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        rig: ${{ fromJSON(needs.version.outputs.rigs34) }}
+    steps: *rig-steps
+
   ci-result:
     name: CI
-    needs: [version, version-check, check, test, test-tier34, rig]
+    needs: [version, version-check, check, test, test-tier34, rig, rig-tier34]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     steps:
@@ -491,9 +529,9 @@ jobs:
           RESULTS: ${{ toJSON(needs) }}
         run: |
           echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"' | tee -a "$GITHUB_STEP_SUMMARY"
-          # test-tier34 only reports: continue-on-error passes its failed legs,
-          # but not one cancelled at the job time limit
-          bad=$(echo "$RESULTS" | jq -r '[to_entries[] | select(.key != "test-tier34") | select(.value.result == "failure" or .value.result == "cancelled") | .key] | join(", ")')
+          # test-tier34 and rig-tier34 only report: continue-on-error passes their
+          # failed legs, but not one cancelled at the job time limit
+          bad=$(echo "$RESULTS" | jq -r '[to_entries[] | select(.key != "test-tier34" and .key != "rig-tier34") | select(.value.result == "failure" or .value.result == "cancelled") | .key] | join(", ")')
           if [ -n "$bad" ]; then
             echo "::error::failed or cancelled: $bad"
             exit 1
@@ -501,7 +539,7 @@ jobs:
 
   release:
     name: Release v${{ needs.version.outputs.version }}
-    needs: [version, check, test, test-tier34, rig]
+    needs: [version, check, test, test-tier34, rig, rig-tier34]
     if: >-
       ${{ !cancelled() && needs.version.outputs.release == 'true'
       && needs.check.result == 'success' && needs.test.result == 'success'
