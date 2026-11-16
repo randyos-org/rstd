@@ -67,8 +67,6 @@ How the code is structured, and why, is in [`design.md`](../design.md).
   and `lahqr`); `trevc3`/`trevc` (every `SIDE` and `HOWMNY`); `gees` (`dgees.f`'s sort, by
   `trsen`); `laset` and `lapy2`.
 
-Not yet: threading in levels 1 and 2 ([`threading.md`](threading.md)).
-
 ### Targets
 
 Every target compiles, with the portable kernels at least. Per-core kernels exist for these
@@ -120,9 +118,11 @@ or `(io, T, ...)` when it needs no scratch space beyond a small stack buffer. Ro
 thread run their workers on `io` ([`threading.md`](threading.md)). `rotg`,
 `zrotg`, `rotmg` and `cabs1` work on scalars only and take neither.
 
+Level 1 takes vectors as strided views, `blas.Strided(T)` and `blas.ConstStrided(T)`: a slice, a count and a stride, from `.of(slice)` or `.init(slice, n, stride)`, which refuses a zero stride or a slice too short. Two vectors' counts must agree (`error.LengthMismatch`). A negative stride reads the vector backward in every routine, `scal`, `asum`, `sum` and the extremes too, where the reference does nothing. `index` is 0-based and, like `extreme`, null for an empty vector. Levels 2 and 3 take pointers and sizes until Z9 and Z10 ([#310](https://github.com/randyos-org/rstd/issues/310), [#311](https://github.com/randyos-org/rstd/issues/311)).
+
 | Level | Shape | Errors |
 | --- | --- | --- |
-| 1 | `axpy(io, T, n, alpha, x, incx, y, incy)` | `Level1Error` |
+| 1 | `axpy(io, T, alpha, x: ConstStrided(T), y: Strided(T))` | per routine; `Level1Error` for two vectors that may thread |
 | 2 | `gemv(allocator, io, T, trans, m, n, alpha, a, lda, x, incx, beta, y, incy)` | `Level2Error` |
 | 3 | `gemm(allocator, io, T, transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc)` | `Level3Error` |
 | extensions | `omatcopy(io, T, trans, rows, cols, alpha, a, lda, b, ldb)` | `ExtError` |
@@ -170,7 +170,7 @@ back to the portable kernels, and the next call selects again; no kernel call ma
   `A`, and copy its bits for `alpha` 1, complex too, where upstream's complex kernels multiply
   and turn an infinite part's partner into NaN; in place or through a buffer, `imatcopy` gives
   `omatcopy`'s bits. `geadd`'s zero `alpha` and `beta` read nothing, as `axpby`'s.
-- **Zero strides.** Level 1 keeps the reference's sequential meaning: a zero input stride repeats
+- **Zero strides.** Level 1's core (`blas1/interface.zig`, under the public views, which refuse zero strides) keeps the reference's sequential meaning: a zero input stride repeats
   `x(1)`, a zero output stride applies `n` updates to one element in turn. `axpy` with both
   strides zero is OpenBLAS's closed form, `y(1) += n*alpha*x(1)`. Level 2 rejects
   a zero stride.
@@ -293,7 +293,8 @@ runs the closest linked core's kernels, or the portable ones.
 | `LD_HWCAP_MASK` | s390x: masks the hardware capabilities before detection |
 
 `OMP_NUM_THREADS`, `OMP_ADAPTIVE`, `OPENBLAS_THREAD_TIMEOUT`, `GOTO_DEBUG` and
-`OPENBLAS_MAIN_FREE`/`GOTOBLAS_MAIN_FREE` are read and have no effect. Values longer than 64
+`OPENBLAS_MAIN_FREE`/`GOTOBLAS_MAIN_FREE` are not read: rstd has no OpenMP, thread pool, debug
+prints or NUMA buffers. Values longer than 64
 bytes are ignored. Details are in [`design.md`](../design.md#configuration).
 
 ## Tests

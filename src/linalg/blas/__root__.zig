@@ -8,6 +8,10 @@ const apple_accel = @import("apple_accel.zig");
 pub const types = @import("types.zig");
 pub const cpu = @import("cpu/__root__.zig");
 pub const Vtable = @import("Vtable.zig");
+/// Strided vector views and the shared error pieces (`strided.zig`).
+pub const strided = @import("strided.zig");
+pub const Strided = strided.Strided;
+pub const ConstStrided = strided.ConstStrided;
 pub const Config = @import("Config.zig");
 /// The `@Vector` kernels some cores install; `tools/blasbench` races them.
 pub const vector = @import("vector.zig");
@@ -15,19 +19,19 @@ const blas1 = @import("blas1/__root__.zig");
 const blas2 = @import("blas2/__root__.zig");
 const blas3 = @import("blas3/__root__.zig");
 const ext = @import("ext/__root__.zig");
-const l1 = blas1.interface;
+const l1 = blas1.api;
 const l2 = blas2.interface;
 const tri = blas2.triangular;
 const band = blas2.banded;
 const rank = blas2.rank;
 const l3 = blas3.interface;
-// pub const util = @import("util.zig");
 const util = @import("util.zig");
 
 // ---- the BLAS routines ---------------------------------------------------------
 //
-// Fortran argument order, column-major, sizes and strides `isize`, the element
-// type explicit. Each takes `io` after its allocator, or first without one
+// Level 1 on strided views (`blas1/api.zig`); levels 2 and 3 in Fortran
+// argument order, column-major, sizes and strides `isize`. The element type
+// explicit. Each takes `io` after its allocator, or first without one
 // (`threading.md`); bad arguments return named errors in `xerbla`'s order.
 
 pub const Trans = types.Trans;
@@ -38,8 +42,8 @@ pub const Extreme = l1.Extreme;
 pub const HalfGemv = l2.HalfGemv;
 pub const HalfGemm = blas3.half.HalfGemm;
 
-/// Level 1: a stride past the address space, or `error.Canceled`.
-pub const Level1Error = l1.Error;
+/// Level 1, two vectors: counts that disagree, or `error.Canceled`.
+pub const Level1Error = l1.PairError;
 /// Level 2: bad arguments, `error.OutOfMemory` or `error.Canceled`.
 pub const Level2Error = l2.Error;
 /// `gemvHalf`, which allocates nothing: `Level2Error` less `OutOfMemory`.
@@ -456,7 +460,7 @@ test "no core puts a kernel of its own in a q or x slot" {
     }
 }
 
-// the Linux rigs match this line against the core they expect (T40); only
+// the Linux rigs match this line against the core they expect; only
 // there, as `zig build` reports a passing test's stderr as a failed command
 // (issue #276)
 test "the core in use" {
@@ -480,6 +484,7 @@ test {
     // hosted only: the rigs' `linalg.blas._test.` filter would take it
     if (comptime test_io.hosted) _ = @import("_test/apple_accel.zig");
     _ = @import("threading.zig");
+    _ = @import("strided.zig");
     _ = @import("_test/__root__.zig");
     zigstd.testRefAllDecls(@This());
 }

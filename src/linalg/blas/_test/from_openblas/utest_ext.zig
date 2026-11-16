@@ -5,6 +5,7 @@
 const std = @import("std");
 const ob = @import("__root__.zig");
 const blas = @import("../../__root__.zig");
+const l1 = @import("../../blas1/interface.zig");
 const check = @import("../check.zig");
 const apple_accel = @import("../../apple_accel.zig");
 
@@ -38,10 +39,10 @@ fn vecCases(comptime T: type, comptime what: Reduce, cases: []const VecCase) !vo
         for (buf[0..c.x.len], c.x) |*b, v| b.* = @floatCast(v);
         const x: [*]T = @ptrCast(&buf);
         const got: f64 = switch (what) {
-            .amin => try blas.extreme(ob.io, T, .amin, c.n, x, c.inc),
-            .amax => try blas.extreme(ob.io, T, .amax, c.n, x, c.inc),
-            .sum => try blas.sum(ob.io, T, c.n, x, c.inc),
-            .iamin => @floatFromInt(try blas.index(ob.io, T, .amin, c.n, x, c.inc)),
+            .amin => try l1.extreme(ob.io, T, .amin, c.n, x, c.inc),
+            .amax => try l1.extreme(ob.io, T, .amax, c.n, x, c.inc),
+            .sum => try l1.sum(ob.io, T, c.n, x, c.inc),
+            .iamin => @floatFromInt(try l1.index(ob.io, T, .amin, c.n, x, c.inc)),
         };
         const t: f64 = if (what == .iamin) 0 else tol(T, single_eps, double_eps);
         if (@abs(got - c.want) <= t) continue;
@@ -202,9 +203,9 @@ fn axpby() !void {
             const yv = try al.dupe(T, y);
             defer al.free(yv);
             // scal takes only positive strides
-            try blas.scal(ob.io, T, c.n, val(T, c.beta), yv.ptr, @intCast(@abs(c.incy)));
-            try blas.axpy(ob.io, T, c.n, val(T, c.alpha), x.ptr, c.incx, yv.ptr, c.incy);
-            try blas.axpby(ob.io, T, c.n, val(T, c.alpha), x.ptr, c.incx, val(T, c.beta), y.ptr, c.incy);
+            try l1.scal(ob.io, T, c.n, val(T, c.beta), yv.ptr, @intCast(@abs(c.incy)));
+            try l1.axpy(ob.io, T, c.n, val(T, c.alpha), x.ptr, c.incx, yv.ptr, c.incy);
+            try l1.axpby(ob.io, T, c.n, val(T, c.alpha), x.ptr, c.incx, val(T, c.beta), y.ptr, c.incy);
             try expectNorm(c.name, T, diffNorm(T, c.n, y, yv, c.incy), tol(T, single_eps, double_eps));
         }
     }
@@ -229,8 +230,8 @@ fn axpyc() !void {
         const yv = try al.dupe(T, y);
         defer al.free(yv);
         conjugate(T, xv);
-        try blas.axpy(ob.io, T, c.n, val(T, c.alpha), xv.ptr, c.incx, yv.ptr, c.incy);
-        try blas.axpyc(ob.io, T, c.n, val(T, c.alpha), x.ptr, c.incx, y.ptr, c.incy);
+        try l1.axpy(ob.io, T, c.n, val(T, c.alpha), xv.ptr, c.incx, yv.ptr, c.incy);
+        try l1.axpyc(ob.io, T, c.n, val(T, c.alpha), x.ptr, c.incx, y.ptr, c.incy);
         try expectNorm(c.name, T, diffNorm(T, c.n, y, yv, c.incy), tol(T, single_eps, double_eps));
     };
 }
@@ -254,9 +255,9 @@ fn complexRot() !void {
         const yv = try al.dupe(T, y);
         defer al.free(yv);
         // c*x + s*y, then -conj(s)*x + c*y
-        try blas.axpby(ob.io, T, c.n, val(T, c.s), y.ptr, c.inc_y, val(T, c.c), xv.ptr, c.inc_x);
-        try blas.axpby(ob.io, T, c.n, val(T, .{ -c.s[0], c.s[1] }), x.ptr, c.inc_x, val(T, c.c), yv.ptr, c.inc_y);
-        try blas.rot(ob.io, T, c.n, x.ptr, c.inc_x, y.ptr, c.inc_y, @floatCast(c.c[0]), @floatCast(c.s[0]));
+        try l1.axpby(ob.io, T, c.n, val(T, c.s), y.ptr, c.inc_y, val(T, c.c), xv.ptr, c.inc_x);
+        try l1.axpby(ob.io, T, c.n, val(T, .{ -c.s[0], c.s[1] }), x.ptr, c.inc_x, val(T, c.c), yv.ptr, c.inc_y);
+        try l1.rot(ob.io, T, c.n, x.ptr, c.inc_x, y.ptr, c.inc_y, @floatCast(c.c[0]), @floatCast(c.s[0]));
         const norm = (diffNorm(T, c.n, x, xv, c.inc_x) + diffNorm(T, c.n, y, yv, c.inc_y)) / 2;
         try expectNorm(c.name, T, norm, tol(T, single_eps, double_eps));
     };
@@ -277,7 +278,7 @@ fn complexScal() !void {
         defer al.free(xv);
         const a = val(T, c.alpha);
         for (0..@intCast(c.N)) |i| xv[i * @as(usize, @intCast(c.inc))] = a.mul(xv[i * @as(usize, @intCast(c.inc))]);
-        try blas.scal(ob.io, T, c.N, a, x.ptr, c.inc);
+        try l1.scal(ob.io, T, c.N, a, x.ptr, c.inc);
         try expectNorm(c.name, T, diffNorm(T, c.N, x, xv, c.inc), tol(T, single_eps, double_eps));
     };
 }

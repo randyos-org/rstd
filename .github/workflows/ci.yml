@@ -39,9 +39,6 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-env:
-  ZIG_VERSION: 0.17.1
-
 defaults:
   run:
     shell: bash
@@ -255,30 +252,44 @@ jobs:
       matrix:
         include:
           - name: zfls's targets
+            zig: 0.17.1
             run: zig build rstd-check-zig017 -Dtest-host-off
           - name: zig fmt
+            zig: 0.17.1
             run: zig fmt --check build build.zig build.zig.zon src tools test
+          # every core's kernels as Mach-O on the latest Zig; zfls's targets
+          # above build them on 0.17 (issue #358)
+          - name: Mach-O
+            zig: latest
+            run: zig build rstd-check-macho -Dtest-host-off
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.version.outputs.sha }}
           submodules: recursive
 
-      - uses: randyos-org/setup-zig@node24  # v2.2.1 on Node.js 24, until upstream releases it
+      - if: ${{ matrix.zig != 'latest' }}
+        uses: randyos-org/setup-zig@node24  # v2.2.1 on Node.js 24, until upstream releases it
         with:
-          version: ${{ env.ZIG_VERSION }}
+          version: ${{ matrix.zig }}
+
+      - if: ${{ matrix.zig == 'latest' }}
+        uses: randyos-org/zig-toolchain/setup@main
 
       # Downloads (lazy ones too) are retried: a dropped connection to a
-      # package host should not fail the run
+      # package host should not fail the run; 0.17 spells it `--fetch=all`,
+      # the latest `--fetch`
       - name: Fetch dependencies
         if: ${{ matrix.name != 'zig fmt' }}
+        env:
+          FETCH: ${{ matrix.zig == 'latest' && '--fetch' || '--fetch=all' }}
         run: |
           for wait in 15 30 60 120; do
-            zig build --fetch=all && exit 0
+            zig build "$FETCH" && exit 0
             echo "::warning::fetching dependencies failed; retrying in ${wait}s"
             sleep "$wait"
           done
-          zig build --fetch=all
+          zig build "$FETCH"
 
       - name: ${{ matrix.name }}
         run: ${{ matrix.run }}
@@ -396,9 +407,43 @@ jobs:
         platform: ${{ fromJSON(needs.version.outputs.tier34) }}
     steps: *test-steps
 
+  # rgl's shaders and shaderlib's probes compiled for spirv32-vulkan (tier 1,
+  # support.md) and validated by spirv-val, on the latest Zig, as RandyOS
+  # builds with it (issue #353)
+  shaders:
+    name: Shaders
+    needs: version
+    if: ${{ needs.version.outputs.ci == 'true' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.version.outputs.sha }}
+          submodules: recursive
+
+      - uses: randyos-org/zig-toolchain/setup@main
+
+      - name: spirv-tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq spirv-tools
+          spirv-val --version
+
+      - name: Fetch dependencies
+        run: |
+          for wait in 15 30 60 120; do
+            zig build --fetch && exit 0
+            echo "::warning::fetching dependencies failed; retrying in ${wait}s"
+            sleep "$wait"
+          done
+          zig build --fetch
+
+      - name: Validate
+        run: zig build shader-check -Dvulkan -Dtest-host-off --summary line
+
   ci-result:
     name: CI
-    needs: [version, version-check, check, test, test-tier34]
+    needs: [version, version-check, check, test, test-tier34, shaders]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     steps:
@@ -417,10 +462,11 @@ jobs:
 
   release:
     name: Release v${{ needs.version.outputs.version }}
-    needs: [version, check, test, test-tier34]
+    needs: [version, check, test, test-tier34, shaders]
     if: >-
       ${{ !cancelled() && needs.version.outputs.release == 'true'
-      && needs.check.result == 'success' && needs.test.result == 'success' }}
+      && needs.check.result == 'success' && needs.test.result == 'success'
+      && needs.shaders.result == 'success' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write

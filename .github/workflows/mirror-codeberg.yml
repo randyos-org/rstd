@@ -1,6 +1,6 @@
 # Mirrors rstd's branches and tags from GitHub, the canonical repo, to
 # Codeberg, which dependents (zfls) still fetch from; retire it with the
-# Codeberg copy (todo.md, T163). Needs the CODEBERG_MIRROR_KEY secret: the
+# Codeberg copy (issue #97). Needs the CODEBERG_MIRROR_KEY secret: the
 # private half of a deploy key with write access on codeberg.org/randyos/rstd.
 name: Mirror to Codeberg
 

@@ -6,6 +6,7 @@
 
 const std = @import("std");
 const blas = @import("../blas/__root__.zig");
+const l1 = @import("../blas/blas1/interface.zig");
 const types = @import("../blas/types.zig");
 const driver = @import("../blas/blas3/driver.zig");
 const threaded = @import("../blas/blas3/threaded.zig");
@@ -112,35 +113,35 @@ pub fn ger(al: Allocator, io: Io, comptime T: type, alpha: T, x: [*]T, incx: usi
     blas.ger(al, io, T, @intCast(a.rows), @intCast(a.cols), alpha, x, @intCast(incx), y, @intCast(incy), a.ptr, @intCast(a.ld)) catch |e| return narrow(Error, e);
 }
 
-/// `‖x‖₂` (`blas.nrm2`).
+/// `‖x‖₂` (`l1.nrm2`).
 pub fn nrm2(io: Io, comptime T: type, n: usize, x: [*]T, inc: usize) Float(T) {
     if (n == 0) return 0;
-    return blas.nrm2(io, T, @intCast(n), x, @intCast(inc)) catch unreachable;
+    return l1.nrm2(io, T, @intCast(n), x, @intCast(inc)) catch unreachable;
 }
 
 /// `?SCAL` (`?DSCAL` for complex) by a real `s`.
 pub fn scal(io: Io, comptime T: type, n: usize, s: Float(T), x: [*]T, inc: usize) Error!void {
     if (n == 0) return;
-    const r = if (comptime isComplex(T)) blas.scalReal(io, T, @intCast(n), s, x, @intCast(inc)) else blas.scal(io, T, @intCast(n), s, x, @intCast(inc));
+    const r = if (comptime isComplex(T)) l1.scalReal(io, T, @intCast(n), s, x, @intCast(inc)) else l1.scal(io, T, @intCast(n), s, x, @intCast(inc));
     r catch |e| return narrow(Error, e);
 }
 
 /// `?SCAL` by a complex `s`.
 pub fn scalComplex(io: Io, comptime T: type, n: usize, s: T, x: [*]T, inc: usize) Error!void {
     if (n == 0) return;
-    blas.scal(io, T, @intCast(n), s, x, @intCast(inc)) catch |e| return narrow(Error, e);
+    l1.scal(io, T, @intCast(n), s, x, @intCast(inc)) catch |e| return narrow(Error, e);
 }
 
 /// `?AXPY`.
 pub fn axpy(io: Io, comptime T: type, n: usize, alpha: T, x: [*]const T, incx: usize, y: [*]T, incy: usize) Error!void {
     if (n == 0) return;
-    blas.axpy(io, T, @intCast(n), alpha, @constCast(x), @intCast(incx), y, @intCast(incy)) catch |e| return narrow(Error, e);
+    l1.axpy(io, T, @intCast(n), alpha, @constCast(x), @intCast(incx), y, @intCast(incy)) catch |e| return narrow(Error, e);
 }
 
 /// `?DOT`, `?DOTU`, or with `conj_` `?DOTC` (`conj(x)ᵀ y`).
 pub fn dot(io: Io, comptime T: type, conj_: bool, n: usize, x: [*]const T, incx: usize, y: [*]const T, incy: usize) Error!T {
     if (n == 0) return zero(T);
-    const r = if (comptime isComplex(T)) (if (conj_) blas.dotc(io, T, @intCast(n), @constCast(x), @intCast(incx), @constCast(y), @intCast(incy)) else blas.dot(io, T, @intCast(n), @constCast(x), @intCast(incx), @constCast(y), @intCast(incy))) else blas.dot(io, T, @intCast(n), @constCast(x), @intCast(incx), @constCast(y), @intCast(incy));
+    const r = if (comptime isComplex(T)) (if (conj_) l1.dotc(io, T, @intCast(n), @constCast(x), @intCast(incx), @constCast(y), @intCast(incy)) else l1.dot(io, T, @intCast(n), @constCast(x), @intCast(incx), @constCast(y), @intCast(incy))) else l1.dot(io, T, @intCast(n), @constCast(x), @intCast(incx), @constCast(y), @intCast(incy));
     return r catch |e| return narrow(Error, e);
 }
 
@@ -161,13 +162,13 @@ pub fn iamax(comptime T: type, n: usize, x: [*]const T, inc: usize) usize {
 /// `?SWAP` through rstd's BLAS.
 pub fn swap(io: Io, comptime T: type, n: usize, x: [*]T, incx: usize, y: [*]T, incy: usize) Error!void {
     if (n == 0) return;
-    blas.swap(io, T, @intCast(n), x, @intCast(incx), y, @intCast(incy)) catch |e| return narrow(Error, e);
+    l1.swap(io, T, @intCast(n), x, @intCast(incx), y, @intCast(incy)) catch |e| return narrow(Error, e);
 }
 
 /// `DROT` through rstd's BLAS.
 pub fn rot(io: Io, comptime F: type, n: usize, x: [*]F, incx: usize, y: [*]F, incy: usize, c: F, s: F) Error!void {
     if (n == 0) return;
-    blas.rot(io, F, @intCast(n), x, @intCast(incx), y, @intCast(incy), c, s) catch |e| return narrow(Error, e);
+    l1.rot(io, F, @intCast(n), x, @intCast(incx), y, @intCast(incy), c, s) catch |e| return narrow(Error, e);
 }
 
 /// `ZROT` (`zrot.f`): `x := c x + s y`, `y := c y - conj(s) x`, `c` real.

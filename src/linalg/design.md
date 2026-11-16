@@ -137,8 +137,10 @@ Conventions shared by every interface:
 - **Errors.** Each file has an `ArgError` set named after the reference's `xerbla` arguments
   (`InvalidTrans`, `InvalidLda`, `InvalidIncx`, ...), checked in the reference's order, so the
   first bad argument wins. Each level's `Error` adds `Allocator.Error` where it allocates and
-  `Io.Cancelable` everywhere; the root exports them as `Level1Error` to `Level3Error`, and
-  the extensions' as `ExtError`.
+  `Io.Cancelable` everywhere; the root exports them as `Level2Error` and `Level3Error`, and
+  the extensions' as `ExtError`. Level 1's public routines (`blas1/api.zig`, Z8) take strided
+  views over this core and return exact sets: `error.LengthMismatch` for two vectors, and
+  `error.Canceled` where they thread.
   A vector or matrix that could not fit the address space (`util.fits`, `util.fitsMatrix`)
   returns its stride's or leading dimension's error, so no index computation overflows.
 - **Letters.** Transposes, triangles, sides and diagonals are one set of letter enums for every
@@ -168,11 +170,16 @@ and `vector` for `tools/blasbench`. The interface files stay where they are.
 
 Decided (2026-10-26), not yet implemented; the interface above is the reference's shape, which
 users are not assumed to know. Part of the codebase-wide pass to make rstd more Zig-idiomatic.
+For the BLAS and LAPACK alike, one group of routines at a time (user, 2026-11-15): each group's
+signatures take every change below at once, so none changes twice. [Z7](https://github.com/randyos-org/rstd/issues/308) adds the views and the shared error pieces; Z8 to Z18 ([#309](https://github.com/randyos-org/rstd/issues/309) to [#319](https://github.com/randyos-org/rstd/issues/319)) move the groups: levels 1, 2 and 3 (with batched and half), the extensions, then LAPACK by family.
 
-- **Slices.** Vectors and matrices are slices (`[]const T`, `[]T`), not many-pointers, so a
-  short buffer is caught instead of overrun. A size the slice already carries is not a separate
-  argument; strides and leading dimensions remain only where they describe a layout inside the
-  slice. Each routine checks that its slices cover what its sizes and strides need.
+- **Slices.** Matrices are slices (`[]const T`, `[]T`), not many-pointers, so a short buffer is
+  caught instead of overrun, with their sizes and leading dimension. Vectors are views,
+  `blas.Strided(T)` and `blas.ConstStrided(T)` (`blas/strided.zig`, user, 2026-11-13): the
+  slice, the element count and the stride, from `of(slice)` (contiguous, the slice's length)
+  or `init(slice, n, stride)`, which refuses a zero stride or a slice too short. The count is
+  never inferred from the slice, so spare elements cannot change it. Each routine checks that
+  its slices cover what its sizes and strides need.
 - **Errors, not panics, for bad input.** A wrong length, size or stride, or a letter the routine
   does not take, is an input error the caller can fix and retry: it returns an error.
 - **Panics only when unrecoverable.** A broken invariant found mid-calculation, or a state
@@ -408,8 +415,7 @@ cpu.Arch(family): vtableFromCoreType(core)
   (the LLVM model of the CPU a core is named for, or of the weakest part it covers, plus what
   `runnable` requires), apart from the spec. `excess` is what an object uses beyond that and
   beyond the target; the build stops on any (`checkIsa` in `build/blaskern.zig`), and a test
-  tries every architecture with its baselines and each core's own CPU as targets. `undecided`
-  lists spec features waiting on a decision; keep it empty. The check sees
+  tries every architecture with its baselines and each core's own CPU as targets. The check sees
   compiler-chosen instructions only: x86 inline assembly is not held to the target's features.
 - **Groups.** `build/blaskern.zig` takes `corespec.kernelCores(arch)` (the cores with kernels,
   derived from the registries and checked by a test in `cpu/__root__.zig`), keeps those whose
@@ -1691,14 +1697,14 @@ Initialization also caches the CPU count in `cpu_count` (1 without threads).
 | `OPENBLAS_L2_SIZE` | `l2_size_override` | replaces the detected L2 size (KiB) in the blocking rules |
 | `OPENBLAS_NUM_THREADS`, else `OPENBLAS_DEFAULT_NUM_THREADS` | `num_threads` | LA464's blocking set; the thread ceiling of [`threading.md`](blas/threading.md) |
 | `GOTO_NUM_THREADS` | `goto_num_threads` | the fallback ceiling of [`threading.md`](blas/threading.md) |
-| `OMP_NUM_THREADS`, `OMP_ADAPTIVE`, `OPENBLAS_THREAD_TIMEOUT` | `omp_num_threads`, `omp_adaptive`, `thread_timeout` | parsed, no effect |
-| `GOTO_DEBUG` | `goto_debug` | parsed, no effect |
-| `OPENBLAS_MAIN_FREE`, `GOTOBLAS_MAIN_FREE` | `main_free` | parsed, no effect |
 | `LD_HWCAP_MASK` | `ld_hwcap_mask` | s390x only: ANDed with `AT_HWCAP` before detection (`cpuid_zarch.h:35`) |
 | `RSTD_BLAS_ACCELERATE` (rstd's own) | `accelerate` | macOS: 0 keeps the routines off Accelerate ([above](#apple-accelerate)) |
 
 Integers parse with Zig's base-0 rules after trimming whitespace; negative values clamp to 0
-except `GOTO_DEBUG`, `OPENBLAS_L2_SIZE` and `LD_HWCAP_MASK`. A bare leading zero is decimal, not
+except `OPENBLAS_L2_SIZE` and `LD_HWCAP_MASK`. OpenBLAS's variables for OpenMP (`OMP_NUM_THREADS`,
+`OMP_ADAPTIVE`), its thread pool (`OPENBLAS_THREAD_TIMEOUT`), debug prints (`GOTO_DEBUG`) and NUMA
+buffers (`OPENBLAS_MAIN_FREE`) are not read: rstd has none of those
+([#88](https://github.com/randyos-org/rstd/issues/88)). A bare leading zero is decimal, not
 octal as with `strtoul` (`0o` is octal). Diagnostics print as `OpenBLAS: ...` through
 `std.debug.print`, never on freestanding targets.
 
@@ -2107,7 +2113,7 @@ Questions decided once, with the reason, so they are not reopened without new ev
   only on size and target, not on the type holding the data, so a call gives the same bits every
   time ("Planned: the public `rstd.linalg` layer", above). The BLAS keeps its slice and stride routines for `linalg` to
   call. `rstd.simd` is gone: its element-wise helpers (`mix`, `mulAdd`) moved to
-  `linalg.vector`, and slice reductions become BLAS routines ([#52](https://github.com/randyos-org/rstd/issues/52)). Under SPIR-V each operation is
+  `linalg.vector`, and slice reductions became BLAS routines ([#52](https://github.com/randyos-org/rstd/issues/52)). Under SPIR-V each operation is
   SPIR-V's own instruction where one exists (`OpDot`, GLSL.std.450 `Length`, `Fma`: GLSL.std.450
   1.00 revision 17, <https://registry.khronos.org/SPIR-V/specs/unified1/GLSL.std.450.html>), used as is,
   not rebuilt or tuned: the goal is one API, not GPU speed.
@@ -2298,7 +2304,7 @@ to the same expectations. Where a core's converted kernels did otherwise, they a
   in `_test/from_openblas/__root__.zig`: `xerbla` and bad letters (only the letters a type
   rejects remain), checks that scalars come back unchanged, row-major CBLAS, `test_fork.c`,
   `test_post_fork*.c`, and the `ARMV8` `sdot`/`ddot` cases that preload a vector register.
-- **Pending.** `blat3` runs every level-3 routine through the flat API, and `test_potrs.c`
+- **More ports.** `blat3` runs every level-3 routine through the flat API, and `test_potrs.c`
   and `test_kernel_regress.c`'s `dgesvd` run through `rstd.linalg.lapack`, the latter's
   matrix from glibc's `rand` as on OpenBLAS's Linux CI. `compare.zig` ports `test/compare_sgemv_*.c` and
   `compare_sgemm_*.c`: the half routines against `sgemv` and `sgemm` and a plain loop, to order
@@ -2440,8 +2446,8 @@ Rig mechanics:
 
 ## Implementation plan
 
-1. **Threading** of levels 1 and 2 ([`threading.md`](blas/threading.md)'s plan); level 3 threads.
-2. **Zig-idiomatic interface.** Slices, exact error sets with plain names, and documented
+1. **Threading.** Landed: levels 1, 2 and 3 thread ([`threading.md`](blas/threading.md)).
+2. **Zig-idiomatic interface** (Z7 to Z18, [#308](https://github.com/randyos-org/rstd/issues/308) to [#319](https://github.com/randyos-org/rstd/issues/319)). Slices, exact error sets with plain names, and documented
    panics ([above](#planned-a-zig-idiomatic-interface)), with the codebase-wide pass.
 3. **Remaining level 3.** Landed: 3M, the small-matrix path, and bfloat16 and half-precision
    level 3 (`blas3/half.zig`); Cooper Lake's `sbgemm` small-matrix kernels, in the portable bits.
