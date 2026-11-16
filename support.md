@@ -27,7 +27,7 @@ after it. Rig names are `zig build` steps: `qemu-test-<rig>` unless named in ful
 | `arm-freestanding-eabi` | 2 | RandyOS: Raspberry Pi 3, 32-bit | `arm-softfp` (soft-float ABI, A15's VFP), `arm` (`eabihf`); both in CI under TCG |
 | `powerpc-freestanding-eabi` | 2 | RandyOS: iBook G3, PowerPC 750FX | `powerpc-750` (soft float: portable kernels only), `powerpc-750-hf`; both in CI under TCG |
 | `x86_64-uefi-msvc` | 2 | RandyOS's loader | `x86_64-uefi` (OVMF; HVF on the Intel Mac, or KVM in CI), `rstd-check-uefi` (CI too) |
-| `aarch64-uefi-msvc` | 2 | RandyOS's loader (pftf) | `aarch64-uefi` (AAVMF; HVF on the M6, or arm64 runners in CI), `rstd-check-uefi` |
+| `aarch64-uefi-msvc` | 2 | RandyOS's loader (pftf) | `aarch64-uefi` (AAVMF; HVF on the M6, or arm64 runners in CI), `aarch64-uefi-sve` (TCG `max`: the SVE and SME cores; CI too), `rstd-check-uefi` |
 | `x86_64-linux-musl` | 2 | zfls (release, conda, Alpine) | `linux-x86_64` (TCG `max`, HVF on the Intel Mac, or KVM in CI; 4 CPUs), `rstd-check-zig017` |
 | `aarch64-linux-musl` | 2 | zfls (release, conda, Alpine) | `linux-aarch64` (HVF on the M6, or TCG `max`; in CI on arm64 runners, with `linux-aarch64-sve`), `rstd-check-zig017` |
 | `x86_64-linux-gnu`, `aarch64-linux-gnu` | 2 | zfls | the Linux rigs above with `-Drstd-tsan` only (glibc from Nix) |
@@ -96,7 +96,6 @@ Compiled and symbol-checked, never run:
 | `bulldozer`, `piledriver`, `steamroller`, `excavator` | every x86_64 one | FMA4 and XOP: the host lacks them; TCG has none | T43 |
 | `a64fx`, `armv8sve`, `neoversev1`, `neoversen2`, `neoversev2`, `cortexa510`, `cortexa710`, `cortexx2` | `aarch64-linux` | the rig's baseline build links no SVE core | T40 |
 | `armv9sme`, `vortexm4` | `aarch64-linux` | the Debian 6.12 kernel has no SME, so no hwcap | T40 |
-| every SVE and SME core | `aarch64-uefi-msvc` | the UEFI rig has no SVE (`cortex-a72`, or the M6 under HVF) | |
 | every aarch64 core | `aarch64-windows` | no Windows arm64 machine; zfls's CI runs zfls, not rstd's tests; detection is tested with recorded inputs | T47 |
 
 ### x86_64 (tier 1)
