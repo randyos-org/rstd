@@ -63,7 +63,12 @@ pub const Eig = eigen.Eig;
 pub const EigError = eigen.EigError;
 pub const eig = eigen.eig;
 
+const subspace = @import("subspace.zig");
+pub const orth = subspace.orth;
+pub const nullSpace = subspace.nullSpace;
+
 test {
+    _ = @import("subspace.zig");
     _ = @import("reductions.zig");
     _ = @import("products.zig");
     _ = @import("inverse.zig");
