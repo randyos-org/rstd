@@ -6,7 +6,7 @@ on `@Vector`. One build carries kernels for every core the target can run and pi
 time, as OpenBLAS's `DYNAMIC_ARCH` builds do.
 
 It is a Zig library, not a replacement `libopenblas`: there are no CBLAS (`cblas_*`) or
-Fortran-named (`dgemv_`) entry points, no row-major mapping layer and no `xerbla` callback. The
+Fortran-named (`dgemv_`) entry points, no row-major mapping layer and no global error handler. The
 routines are Zig functions over column-major data in the Fortran argument order; bad arguments
 return named errors.
 
@@ -28,7 +28,7 @@ How the code is structured, and why, is in [`design.md`](../design.md).
 
 - **Level 1:** `copy`, `swap`, `scal`, `dot`, `dotc`, `dsdot`, `sdsdot`, `nrm2`, `asum`, `sum`,
   the index and value extremes (`i?amax`, `i?amin`, `i?max`, `i?min`, `?amax`, `?amin`, `?max`,
-  `?min`), `rot`, `rotm`, `rotg`, `zrotg`, `rotmg`, `axpy`, `axpyc`, `axpby`, `cabs1`.
+  `?min`), `rot`, `rotm`, `rotg`, `zrotg`, `rotmg`, `axpy`, `axpyc`, `axpby`, `cabs1`. `sumWith`, `asumWith`, `dotWith` and `dotcWith` take a `Summation`: `.plain`, as the kernels sum, or `.compensated` (Neumaier's, portable, still one worker's bits at any worker count; `blas1/compensated.zig`). The plain forms stay the default until the benchmarks T138 asks for choose.
 - **Level 2:** `gemv`, `ger`, `gerc`, `symv`, `hemv`, `trmv`, `trsv`, `tbmv`, `tbsv`, `tpmv`,
   `tpsv`, `gbmv`, `sbmv`, `hbmv`, `spmv`, `hpmv`, `spr`, `spr2`, `syr`, `syr2`, `hpr`, `hpr2`,
   `her`, `her2`, including OpenBLAS's complex symmetric forms and `hemv`'s and `hbmv`'s
@@ -40,34 +40,33 @@ How the code is structured, and why, is in [`design.md`](../design.md).
   (`gemvHalf`), `sbgemm`, `bgemm`, `shgemm` (`gemmHalf`) and `sbgemmt` (`gemmtHalf`).
 - **Extensions:** `geadd`, `omatcopy` and `imatcopy` (column-major), LAPACK's `laswp`, and the
   batched gemms (`gemmBatch`, `gemmBatchStrided`, and `gemmHalfBatch`, `gemmHalfBatchStrided`).
-- **LAPACK** (`rstd.linalg.lapack`): `potrs`, and `potrf` and `potf2`, which return
+- **LAPACK** (`rstd.linalg.lapack`): `potrs`, and `potrf`, `potf2` and `pbtrf`, which return
   `error.NotPositiveDefinite` for a leading minor that is not positive definite, a NaN pivot
-  included, and write its order to their last argument; `getrs`, and `getrf` and `gesv`, which
-  complete the factorization, then return `error.Singular` for an exactly zero `U(i, i)` and
-  write the first `i` to their last argument; `potri`, `trtri` and `trtrs`, which return
-  `error.Singular` for a zero on the diagonal; `trti2`, `lauum` and `lauu2`. Ported from faer:
+  included; `sytrf`, `hetrf` and their rook forms, which return the first row of an exactly zero
+  block of `D` (0-based), or null; `getrs`; `getrf` and `gbtrf`, which
+  complete the factorization and return the first `i` (0-based) of an exactly zero `U(i, i)`,
+  or null; `gesv`, `getri`, `potri`, `trtri` and `trtrs`, which return `error.Singular` for a
+  zero pivot or a zero on the diagonal; `trti2`, `lauum` and `lauu2`. Ported from faer:
   `geqrf`, `orgqr` (`ungqr`), `ormqr` (`unmqr`), `gels` (`error.Singular` for a rank-deficient
-  `A`), `gesvd`, `gesdd`, `syevd`, `heevd`, `syev`, `heev` and `geev`, which return
+  `A`), `geqp3` (its `jpvt` 0-based on exit), `gesvd`, `gesdd`, `syevd`, `heevd`, `syev`, `heev` and `geev`, which return
   `error.NoConvergence` for the reference's `INFO > 0` (`gesvd` and `geev` write that `INFO` to
   their last argument: the unconverged superdiagonals, or the eigenvalues not found). `geev`'s
   eigenvectors come from Reference-LAPACK's `xTREVC3`, which scales against overflow. Past
   upstream's size thresholds they thread with the same bits; on macOS `potrf` goes to
   Accelerate.
   From ReLAPACK's recursive algorithms: `sygst`, `hegst`, `pbtrf`, `trsyl` and `tgsyl` (with
-  its `dif` estimates); `sytrf`,
+  its `dif` estimates; both return `scale` and whether close eigenvalues were perturbed); `sytrf`,
   `hetrf`, `sytrfRook`, `hetrfRook` and `gbtrf` with Reference-LAPACK's loops where ReLAPACK's
   are wrong ([#242](https://github.com/randyos-org/rstd/issues/242), [#243](https://github.com/randyos-org/rstd/issues/243), [#244](https://github.com/randyos-org/rstd/issues/244)); and with `-Drelapack`, `potrf`, `getrf`, `trtri` and
   `lauum` in place of OpenBLAS's.
   From Reference-LAPACK, where no other source has its own: `lange`, `gecon` (which returns
-  `error.EstimateFailed` for the reference's `INFO = 1`), `gebal`, `gebak`, `trexc` and `trsen`
+  `error.EstimateFailed` for the reference's `INFO = 1`), `gebal` (which returns its block `lo..hi`, 0-based, `hi` past the end, as `gebak`, `gehrd`, `orghr` and `hseqr` take it), `gebak`, `trexc` (`ifst`, `ilst` 0-based) and `trsen`
   (`error.SwapRejected` for a swap too ill-conditioned to make) and `gelsy` over faer's `geqp3`;
   and `gelqf`, `orglq`, `ormlq` by libflame's method over faer's reflections.
-  And for the matlab port's `inv`, `hess` and `schur` (T123): `getri` (faer's LU inverse);
+  And for `inv`, `hess` and `schur` (T123, for the matlab port then, the public layer since M33): `getri` (faer's LU inverse);
   `gehrd`, `orghr`/`unghr` and `hseqr` (LAPACK's interfaces over faer's Hessenberg reduction
   and `lahqr`); `trevc3`/`trevc` (every `SIDE` and `HOWMNY`); `gees` (`dgees.f`'s sort, by
-  `trsen`); `laset` and `lapy2`.
-
-Not yet: threading in levels 1 and 2 ([`threading.md`](threading.md)).
+  `trsen`; it returns `sdim`); `laset` and `lapy2`.
 
 ### Targets
 
@@ -120,12 +119,14 @@ or `(io, T, ...)` when it needs no scratch space beyond a small stack buffer. Ro
 thread run their workers on `io` ([`threading.md`](threading.md)). `rotg`,
 `zrotg`, `rotmg` and `cabs1` work on scalars only and take neither.
 
+Level 1 takes vectors as strided views, `blas.Strided(T)` and `blas.ConstStrided(T)`: a slice, a count and a stride, from `.of(slice)` or `.init(slice, n, stride)`, which refuses a zero stride or a slice too short. Two vectors' counts must agree (`error.LengthMismatch`). A negative stride reads the vector backward in every routine, `scal`, `asum`, `sum` and the extremes too, where the reference does nothing. `index` is 0-based and, like `extreme`, null for an empty vector. Level 2 takes each matrix as a slice and its leading dimension, column-major, and its vectors as views; the sizes come from the views (`gemv`'s `m` and `n` from `y` and `x` by `trans`, the square routines' order from `x`), and a slice too short for its matrix or a leading dimension below its rows is `error.SliceTooShort` or `error.LeadingDimensionTooSmall`. Level 3 takes its matrices the same way, with `m`, `n` and `k` as `usize`, as a slice cannot carry them; a batched group whose lists of `A`, `B` and `C` differ in length is `error.LengthMismatch`. The extensions take their matrices the same way (`omatcopy` refuses `A` and `B` that share memory, `error.Overlap`; a letter one does not take is `error.UnsupportedTranspose`); `laswp` takes its pivots as a view of 0-based row indices (`ConstStrided(usize)`, a backward view undoing the swaps), and a row or pivot outside the matrix is `error.PivotOutOfRange`.
+
 | Level | Shape | Errors |
 | --- | --- | --- |
-| 1 | `axpy(io, T, n, alpha, x, incx, y, incy)` | `Level1Error` |
-| 2 | `gemv(allocator, io, T, trans, m, n, alpha, a, lda, x, incx, beta, y, incy)` | `Level2Error` |
-| 3 | `gemm(allocator, io, T, transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc)` | `Level3Error` |
-| extensions | `omatcopy(io, T, trans, rows, cols, alpha, a, lda, b, ldb)` | `ExtError` |
+| 1 | `axpy(io, T, alpha, x: ConstStrided(T), y: Strided(T))` | per routine; `Level1Error` for two vectors that may thread |
+| 2 | `gemv(allocator, io, T, trans, alpha, a: []const T, lda, x: ConstStrided(T), beta, y: Strided(T))` | `Level2Error` |
+| 3 | `gemm(allocator, io, T, transa, transb, m, n, k, alpha, a: []const T, lda, b: []const T, ldb, beta, c: []T, ldc)` | `Level3Error`; `BatchError` for the batched |
+| extensions | `omatcopy(io, T, trans, rows, cols, alpha, a: []const T, lda, b: []T, ldb)` | per routine: `GeaddError`, `OmatcopyError`, `ImatcopyError`, `LaswpError` |
 
 Transposes, triangles, diagonals and sides are the letter enums `blas.Trans`, `Uplo`, `Diag` and
 `Side`, shared by every level.
@@ -134,20 +135,18 @@ Transposes, triangles, diagonals and sides are the letter enums `blas.Trans`, `U
 const blas = rstd.linalg.blas;
 
 // C := A * B, all f64, column-major
-try blas.gemm(allocator, io, f64, .n, .n, m, n, k, 1.0, a.ptr, lda, b.ptr, ldb, 0.0, c.ptr, ldc);
+try blas.gemm(allocator, io, f64, .n, .n, m, n, k, 1.0, a, lda, b, ldb, 0.0, c, ldc);
 ```
+
+A matrix is a column-major slice and its leading dimension (`lda`, `ldb`, `ldc`): the distance from one column's start to the next, at least the row count, larger when the matrix is a block of a bigger one. A vector's stride is likewise the distance between its elements.
 
 `blas.kernel(.daxpy_k)` reaches a kernel directly, with the reference's kernel arguments.
 
 ### Errors
 
-Bad arguments return an error named after the reference's `xerbla` argument (`InvalidTrans`,
-`InvalidM`, `InvalidLda`, `InvalidIncx`, ...), checked in the reference's order, so the first bad
-argument wins. A vector or matrix too large for the address space returns its stride's or
-leading dimension's error. Routines that allocate also return `error.OutOfMemory`, and every
-routine that takes `io` may return `error.Canceled`. Nothing panics on bad
-input. `laswp` has no `xerbla` checks upstream; rstd checks that its rows and pivots lie in `A`
-before it swaps.
+Bad arguments return plain, exact errors: `SliceTooShort` (a slice shorter than its shape needs), `LeadingDimensionTooSmall` (a leading dimension below the row count), `LengthMismatch` (two vectors of different lengths) and `ZeroStride` (from `Strided.init`). Each routine's error set holds only what it can return. Routines that allocate also return `error.OutOfMemory`, and every routine that takes `io` may return `error.Canceled`. Nothing panics on bad input. `laswp` checks that its rows and pivots lie in `A` before it swaps.
+
+`blas.kernel(...)` and the per-level `interface` files keep the reference's argument checks, with its names (`InvalidTrans`, `InvalidLda`, ...), for code ported from it.
 
 ### Initialization
 
@@ -170,7 +169,7 @@ back to the portable kernels, and the next call selects again; no kernel call ma
   `A`, and copy its bits for `alpha` 1, complex too, where upstream's complex kernels multiply
   and turn an infinite part's partner into NaN; in place or through a buffer, `imatcopy` gives
   `omatcopy`'s bits. `geadd`'s zero `alpha` and `beta` read nothing, as `axpby`'s.
-- **Zero strides.** Level 1 keeps the reference's sequential meaning: a zero input stride repeats
+- **Zero strides.** Level 1's core (`blas1/interface.zig`, under the public views, which refuse zero strides) keeps the reference's sequential meaning: a zero input stride repeats
   `x(1)`, a zero output stride applies `n` updates to one element in turn. `axpy` with both
   strides zero is OpenBLAS's closed form, `y(1) += n*alpha*x(1)`. Level 2 rejects
   a zero stride.
@@ -293,7 +292,8 @@ runs the closest linked core's kernels, or the portable ones.
 | `LD_HWCAP_MASK` | s390x: masks the hardware capabilities before detection |
 
 `OMP_NUM_THREADS`, `OMP_ADAPTIVE`, `OPENBLAS_THREAD_TIMEOUT`, `GOTO_DEBUG` and
-`OPENBLAS_MAIN_FREE`/`GOTOBLAS_MAIN_FREE` are read and have no effect. Values longer than 64
+`OPENBLAS_MAIN_FREE`/`GOTOBLAS_MAIN_FREE` are not read: rstd has no OpenMP, thread pool, debug
+prints or NUMA buffers. Values longer than 64
 bytes are ignored. Details are in [`design.md`](../design.md#configuration).
 
 ## Tests

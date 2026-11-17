@@ -1,5 +1,5 @@
-//! Everything the reference reads from the environment at init, in one
-//! place. Defaults match the reference's "unset" behavior (0 / absent).
+//! What rstd takes from the reference's environment variables at init, in
+//! one place. Defaults match the reference's "unset" behavior (0 / absent).
 
 const Self = @This();
 
@@ -11,18 +11,12 @@ const zigstd = @import("../../zigstd.zig");
 verbose: i32 = 0,
 /// `OPENBLAS_BLOCK_FACTOR`; scales the GEMM blocking parameters.
 block_factor: i32 = 0,
-/// `OPENBLAS_THREAD_TIMEOUT`; thread-pool spin timeout, log2 ticks.
-thread_timeout: u32 = 0,
 /// `OPENBLAS_NUM_THREADS`, falling back to
 /// `OPENBLAS_DEFAULT_NUM_THREADS`. The reference lets the former win
 /// unless it is unset and the latter is not.
 num_threads: i32 = 0,
 /// `GOTO_NUM_THREADS`; legacy GotoBLAS spelling.
 goto_num_threads: i32 = 0,
-/// `OMP_NUM_THREADS`; consulted only in OpenMP builds.
-omp_num_threads: i32 = 0,
-/// `OMP_ADAPTIVE`.
-omp_adaptive: i32 = 0,
 /// `OPENBLAS_CORETYPE`; forces a core type by name, bypassing detection
 /// (every `dynamic_*.c`). A copy, as the environment may change (`coreType`).
 core_type_buf: [value_max]u8 = @splat(0),
@@ -31,16 +25,6 @@ core_type_len: u8 = 0,
 /// `GET_OPENBLAS_CORETYPE` (`dynamic_power.c` only): set at all, even
 /// empty, the selected core name also goes to stderr.
 get_openblas_coretype: bool = false,
-
-/// `GOTO_DEBUG`; legacy per-call debug print, gating the
-/// `PRINT_DEBUG_CNAME`/`PRINT_DEBUG_NAME` macros (`common.h`).
-/// Does *not* clamp negative values to 0.
-goto_debug: i32 = 0,
-
-/// `OPENBLAS_MAIN_FREE`; whether the main thread's NUMA
-/// shared-memory buffer gets freed (`driver/others/init.c`).
-/// Checks `"OPENBLAS_MAIN_FREE" || "GOTOBLAS_MAIN_FREE"`, collapsed to one bool.
-main_free: bool = false,
 
 /// `OPENBLAS_L2_SIZE`; overrides the detected L2 cache size used by
 /// `kernel/setparam-ref.c`'s tuning heuristics. Negatives are not clamped;
@@ -111,15 +95,12 @@ pub fn fromEnv(env: Env) Self {
     var c: Self = .{};
     c.verbose = readInt(env, "OPENBLAS_VERBOSE");
     c.block_factor = readInt(env, "OPENBLAS_BLOCK_FACTOR");
-    c.thread_timeout = @intCast(readInt(env, "OPENBLAS_THREAD_TIMEOUT"));
 
     const default_threads = readInt(env, "OPENBLAS_DEFAULT_NUM_THREADS");
     const threads = readInt(env, "OPENBLAS_NUM_THREADS");
     c.num_threads = if (threads != 0 or default_threads == 0) threads else default_threads;
 
     c.goto_num_threads = readInt(env, "GOTO_NUM_THREADS");
-    c.omp_num_threads = readInt(env, "OMP_NUM_THREADS");
-    c.omp_adaptive = readInt(env, "OMP_ADAPTIVE");
     var buf: [value_max]u8 = undefined;
     if (readValue(env, "OPENBLAS_CORETYPE", &buf)) |name| {
         @memcpy(c.core_type_buf[0..name.len], name);
@@ -127,9 +108,6 @@ pub fn fromEnv(env: Env) Self {
     }
 
     c.get_openblas_coretype = isSet(env, "GET_OPENBLAS_CORETYPE");
-    c.goto_debug = readIntRaw(i32, env, "GOTO_DEBUG", 0) orelse 0;
-    c.main_free = (readIntRaw(i32, env, "OPENBLAS_MAIN_FREE", 0) orelse 0) != 0 or
-        (readIntRaw(i32, env, "GOTOBLAS_MAIN_FREE", 0) orelse 0) != 0;
     c.l2_size_override = readIntRaw(i32, env, "OPENBLAS_L2_SIZE", 0) orelse 0;
     c.ld_hwcap_mask = readIntRaw(u64, env, "LD_HWCAP_MASK", null);
     c.accelerate = (readIntRaw(i32, env, "RSTD_BLAS_ACCELERATE", 1) orelse 1) != 0;
@@ -206,14 +184,14 @@ test "readInt clamps a negative value to 0" {
 }
 
 test "readIntRaw does not clamp negatives, unlike readInt" {
-    var env = testEnv(&.{.{ "GOTO_DEBUG", "-5" }});
+    var env = testEnv(&.{.{ "OPENBLAS_L2_SIZE", "-5" }});
     defer env.deinit();
 
-    try zigstd.testExpectEqual(@as(?i32, -5), readIntRaw(i32, &env, "GOTO_DEBUG", 0));
-    try zigstd.testExpectEqual(@as(i32, 0), readInt(&env, "GOTO_DEBUG"));
+    try zigstd.testExpectEqual(@as(?i32, -5), readIntRaw(i32, &env, "OPENBLAS_L2_SIZE", 0));
+    try zigstd.testExpectEqual(@as(i32, 0), readInt(&env, "OPENBLAS_L2_SIZE"));
 
     const c = Self.init(&env);
-    try zigstd.testExpectEqual(@as(i32, -5), c.goto_debug);
+    try zigstd.testExpectEqual(@as(i32, -5), c.l2_size_override);
 }
 
 test "a malformed value falls back to the default instead of erroring" {
@@ -266,24 +244,6 @@ test "GET_OPENBLAS_CORETYPE is a bare-presence check, even set to empty" {
     var buf: [value_max]u8 = undefined;
     try zigstd.testExpectTrue(readValue(&env, "GET_OPENBLAS_CORETYPE", &buf) == null);
     try zigstd.testExpectTrue(Self.init(&env).get_openblas_coretype);
-}
-
-test "OPENBLAS_MAIN_FREE and GOTOBLAS_MAIN_FREE are either-or" {
-    {
-        var env = testEnv(&.{.{ "OPENBLAS_MAIN_FREE", "1" }});
-        defer env.deinit();
-        try zigstd.testExpectTrue(Self.init(&env).main_free);
-    }
-    {
-        var env = testEnv(&.{.{ "GOTOBLAS_MAIN_FREE", "1" }});
-        defer env.deinit();
-        try zigstd.testExpectTrue(Self.init(&env).main_free);
-    }
-    {
-        var env = testEnv(&.{});
-        defer env.deinit();
-        try zigstd.testExpectTrue(!Self.init(&env).main_free);
-    }
 }
 
 test "LD_HWCAP_MASK base-0 parsing: matches strtoul for hex, diverges for bare-leading-zero octal" {

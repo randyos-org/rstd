@@ -121,8 +121,8 @@ w = min(cpu_count, ceiling, size_max)
 
 workers, where `ceiling` is `OPENBLAS_NUM_THREADS`, else `GOTO_NUM_THREADS`, else unbounded,
 and `size_max` is the most workers the routine's threshold justifies for the problem size.
-`OMP_NUM_THREADS`, `OMP_ADAPTIVE` and `thread_timeout` remain parsed in `Config` but have no
-effect, since there is no spinning server. The calling thread is worker 0.
+`OMP_NUM_THREADS`, `OMP_ADAPTIVE` and `OPENBLAS_THREAD_TIMEOUT` are not read, since there is
+no spinning server. The calling thread is worker 0.
 
 The worker count affects only speed. Targets that report one CPU (freestanding builds, the
 single-core qemu rigs through their `Thread` override) run serially without special cases. When the `Io`
@@ -585,8 +585,9 @@ calls:
 2000). Both scaled alike past 4 workers, so the limit there is shared (blocking, kernels,
 memory), not the protocol.
 
-`blas3/threaded.zig` as shipped, the same machine and bench (`l3thread bench`, built with
-`zig test -O fast`, since `rstd-test` builds the tests `debug` whatever `-Doptimize` says),
+`blas3/threaded.zig` as shipped, the same machine and bench (then the test `l3thread bench`, built with
+`zig test -O fast`, since `rstd-test` builds the tests `debug` whatever `-Doptimize` says; now
+[`tools/blasbench`](../../../tools/blasbench/readme.md)'s `l3thread` section, where a count is a ceiling),
 2026-10-29; medians of four quiet runs, each a median of 9 to 25 interleaved calls:
 
 | Type | n | serial | 2 | 4 | 8 | 16 |

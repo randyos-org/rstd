@@ -7,6 +7,7 @@ const check = @import("../../blas/_test/check.zig");
 const reference = @import("../../blas/_test/reference.zig");
 const ops = @import("../ops.zig");
 const lcheck = @import("check.zig");
+const indefinite = @import("../indefinite.zig");
 
 const Allocator = std.mem.Allocator;
 const Float = types.Float;
@@ -15,32 +16,28 @@ const W = lcheck.W;
 const toT = lcheck.toT;
 const poisoned = lcheck.poisoned;
 const isNanT = lcheck.isNanT;
+const Pivot = indefinite.Pivot;
 
 /// `sytrf`'s factor in `a` (`n x n`, `lda`) and `ipiv` multiplied out in
 /// `W(T)`: `L D Lᵀ` or `U D Uᵀ` (`ᴴ` with `herm`), as LAPACK's `xLAVSY` and
 /// `xLAVHE` read the format, applied to the identity; `mag` gets the same
 /// products in magnitude (`|L| |D| |L|ᵀ`, permuted).
-pub fn ldlProduct(comptime T: type, comptime herm: bool, comptime rook: bool, al: Allocator, upper: bool, n: usize, a: []const T, lda: usize, ipiv: []const isize, out: []W(T), mag: []f128) !void {
+pub fn ldlProduct(comptime T: type, comptime herm: bool, comptime rook: bool, al: Allocator, upper: bool, n: usize, a: []const T, lda: usize, ipiv: []const Pivot, out: []W(T), mag: []f128) !void {
     // `P = S(p1) S(p2)` per step, in the order the factorization took them
     const Step = struct { b: usize, s: usize, p1: [2]usize, p2: ?[2]usize };
     var steps: std.ArrayList(Step) = .empty;
     defer steps.deinit(al);
-    const at = struct {
-        fn neg(v: isize) usize {
-            return @intCast(-v - 1);
-        }
-    };
     if (!upper) {
         var k: usize = 0;
         while (k < n) {
-            if (ipiv[k] > 0) {
-                try steps.append(al, .{ .b = k, .s = 1, .p1 = .{ k, @intCast(ipiv[k] - 1) }, .p2 = null });
+            if (ipiv[k].block == .one) {
+                try steps.append(al, .{ .b = k, .s = 1, .p1 = .{ k, ipiv[k].row }, .p2 = null });
                 k += 1;
             } else {
                 try steps.append(al, if (rook)
-                    .{ .b = k, .s = 2, .p1 = .{ k, at.neg(ipiv[k]) }, .p2 = .{ k + 1, at.neg(ipiv[k + 1]) } }
+                    .{ .b = k, .s = 2, .p1 = .{ k, ipiv[k].row }, .p2 = .{ k + 1, ipiv[k + 1].row } }
                 else
-                    .{ .b = k, .s = 2, .p1 = .{ k + 1, at.neg(ipiv[k]) }, .p2 = null });
+                    .{ .b = k, .s = 2, .p1 = .{ k + 1, ipiv[k].row }, .p2 = null });
                 k += 2;
             }
         }
@@ -48,14 +45,14 @@ pub fn ldlProduct(comptime T: type, comptime herm: bool, comptime rook: bool, al
         var k: usize = n;
         while (k > 0) {
             const j = k - 1;
-            if (ipiv[j] > 0) {
-                try steps.append(al, .{ .b = j, .s = 1, .p1 = .{ j, @intCast(ipiv[j] - 1) }, .p2 = null });
+            if (ipiv[j].block == .one) {
+                try steps.append(al, .{ .b = j, .s = 1, .p1 = .{ j, ipiv[j].row }, .p2 = null });
                 k -= 1;
             } else {
                 try steps.append(al, if (rook)
-                    .{ .b = j - 1, .s = 2, .p1 = .{ j, at.neg(ipiv[j]) }, .p2 = .{ j - 1, at.neg(ipiv[j - 1]) } }
+                    .{ .b = j - 1, .s = 2, .p1 = .{ j, ipiv[j].row }, .p2 = .{ j - 1, ipiv[j - 1].row } }
                 else
-                    .{ .b = j - 1, .s = 2, .p1 = .{ j - 1, at.neg(ipiv[j]) }, .p2 = null });
+                    .{ .b = j - 1, .s = 2, .p1 = .{ j - 1, ipiv[j].row }, .p2 = null });
                 k -= 2;
             }
         }
@@ -164,7 +161,7 @@ pub fn Indefinite(comptime T: type, comptime herm: bool) type {
         upper: bool,
         a: []T,
         w: []W(T),
-        ipiv: []isize,
+        ipiv: []Pivot,
 
         const Self = @This();
 
@@ -183,7 +180,7 @@ pub fn Indefinite(comptime T: type, comptime herm: bool) type {
             };
             const a = try al.alloc(T, @max(1, lda * n));
             errdefer al.free(a);
-            const ipiv = try al.alloc(isize, @max(1, n));
+            const ipiv = try al.alloc(Pivot, @max(1, n));
             var self: Self = .{ .n = n, .lda = lda, .upper = upper, .a = a, .w = w, .ipiv = ipiv };
             self.store();
             return self;
@@ -199,7 +196,7 @@ pub fn Indefinite(comptime T: type, comptime herm: bool) type {
                 };
                 self.a[i + j * self.lda] = x;
             };
-            @memset(self.ipiv, 0);
+            @memset(self.ipiv, .of(0, .one));
         }
 
         pub fn deinit(self: *Self, al: Allocator) void {

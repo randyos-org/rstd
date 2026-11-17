@@ -173,7 +173,7 @@ pub const HalfGemv = enum {
     bgemv,
     shgemv,
 
-    fn In(comptime k: HalfGemv) type {
+    pub fn In(comptime k: HalfGemv) type {
         return if (k == .shgemv) types.HF16 else types.BF16;
     }
 
@@ -187,7 +187,7 @@ pub const HalfGemv = enum {
     }
 
     /// The type of `y`, `alpha` and `beta`.
-    fn Out(comptime k: HalfGemv) type {
+    pub fn Out(comptime k: HalfGemv) type {
         return if (k == .bgemv) types.BF16 else f32;
     }
 };

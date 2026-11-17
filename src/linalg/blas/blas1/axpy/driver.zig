@@ -106,7 +106,7 @@ pub fn Asm(comptime slot: Slot, comptime f: anytype) type {
 }
 
 /// A real block on `@Vector`s: `y += alpha * x` over `lanes`-wide vectors,
-/// `unroll` of them a step, `n1` a multiple of a step; fused as `fma.fuse`
+/// `unroll` of them a step, `n1` a multiple of a step (asserted); fused as `fma.fuse`
 /// says. The portable kernels', x86_64's AVX-512 and POWER's `saxpy.c`.
 pub fn VectorBlock(comptime T: type, comptime lanes: comptime_int, comptime unroll: comptime_int) type {
     const V = @Vector(lanes, T);

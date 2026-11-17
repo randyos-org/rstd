@@ -334,8 +334,7 @@ fn installRule(vt: *Vtable, comptime family: Family, comptime core: CoreOf(famil
     // arm64, LoongArch, POWER and zarch set only `b` and `sb` (`:981-1015,
     // 1181-1186, 1307, 1316-1335, 1348-1367`), riscv64 also `sh`
     // (`:1381-1410`), mips64 none; the static families' are the header's
-    // (`common_param.h:1441-1465`). Nothing reads these until their level 3 is
-    // ported.
+    // (`common_param.h:1441-1465`).
     inline for (.{ "sh", "b", "sb" }) |name| {
         const set = comptime switch (family) {
             .mips64 => false,

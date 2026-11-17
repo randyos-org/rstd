@@ -5,6 +5,9 @@
 const std = @import("std");
 const ob = @import("__root__.zig");
 const blas = @import("../../__root__.zig");
+const l3 = @import("../../blas3/core.zig");
+const l2 = @import("../../blas2/core.zig");
+const l1 = @import("../../blas1/interface.zig");
 const lapack = @import("../../../lapack/__root__.zig");
 
 const C32 = std.math.Complex(f32);
@@ -81,13 +84,13 @@ pub fn lapackAll() !void {
 fn amaxAmin() !void {
     inline for (.{ f32, f64 }) |F| {
         var x = arr(F, 9, .{ -1.1, 2.2, -3.3, 4.4, -5.5, 6.6, -7.7, 8.8, -9.9 });
-        try near(3.3, try blas.extreme(ob.io, F, .amax, 3, &x, 1), eps(F), "amax");
-        try near(1.1, try blas.extreme(ob.io, F, .amin, 3, &x, 1), eps(F), "amin");
+        try near(3.3, try l1.extreme(ob.io, F, .amax, 3, &x, 1), eps(F), "amax");
+        try near(1.1, try l1.extreme(ob.io, F, .amin, 3, &x, 1), eps(F), "amin");
     }
     inline for (.{ C32, C64 }) |C| {
         var x = carr(C, 9, .{ -1.1, 2.2, -3.3, 4.4, -5.5, 6.6, -7.7, 8.8, -9.9, 10.10, -1.1, 2.2, -3.3, 4.4, -5.5, 6.6, -7.7, 8.8 });
-        try near(20.0, try blas.extreme(ob.io, C, .amax, 9, &x, 1), eps(ob.Float(C)), "camax");
-        try near(3.3, try blas.extreme(ob.io, C, .amin, 9, &x, 1), eps(ob.Float(C)), "camin");
+        try near(20.0, try l1.extreme(ob.io, C, .amax, 9, &x, 1), eps(ob.Float(C)), "camax");
+        try near(3.3, try l1.extreme(ob.io, C, .amin, 9, &x, 1), eps(ob.Float(C)), "camin");
     }
 }
 
@@ -102,11 +105,11 @@ fn minMax() !void {
     inline for (.{ f32, f64 }) |F| {
         for (mins) |c| {
             var x = arr(F, 3, c[1]);
-            try near(c[2], try blas.extreme(ob.io, F, .min, 3, &x, 1), eps(F), c[0]);
+            try near(c[2], try l1.extreme(ob.io, F, .min, 3, &x, 1), eps(F), c[0]);
         }
         for (maxs) |c| {
             var x = arr(F, 3, c[1]);
-            try near(c[2], try blas.extreme(ob.io, F, .max, 3, &x, 1), eps(F), c[0]);
+            try near(c[2], try l1.extreme(ob.io, F, .max, 3, &x, 1), eps(F), c[0]);
         }
     }
 }
@@ -121,16 +124,16 @@ fn isminIsmax() !void {
     var x: [n * inc]f32 = undefined;
     for (&x, 0..) |*v, i| v.* = @floatFromInt(i + 1000);
     x[8 * inc] = 0;
-    try ob.expect(try blas.index(ob.io, f32, .min, n, &x, inc) == 9, "ismin positive_step_2");
+    try ob.expect(try l1.index(ob.io, f32, .min, n, &x, inc) == 9, "ismin positive_step_2");
     for (&x, 0..) |*v, i| v.* = -@as(f32, @floatFromInt(i)) - 1000;
     x[8 * inc] = -123456.0;
-    try ob.expect(try blas.index(ob.io, f32, .min, n, &x, inc) == 9, "ismin negative_step_2");
+    try ob.expect(try l1.index(ob.io, f32, .min, n, &x, inc) == 9, "ismin negative_step_2");
     for (&x, 0..) |*v, i| v.* = @floatFromInt(i + 1000);
     x[8 * inc] = 123456.0;
-    try ob.expect(try blas.index(ob.io, f32, .max, n, &x, inc) == 9, "ismax positive_step_2");
+    try ob.expect(try l1.index(ob.io, f32, .max, n, &x, inc) == 9, "ismax positive_step_2");
     for (&x, 0..) |*v, i| v.* = -@as(f32, @floatFromInt(i)) - 1000;
     x[8 * inc] = 0;
-    try ob.expect(try blas.index(ob.io, f32, .max, n, &x, inc) == 9, "ismax negative_step_2");
+    try ob.expect(try l1.index(ob.io, f32, .max, n, &x, inc) == 9, "ismax negative_step_2");
 }
 
 test "utest: ismin, ismax at stride 2" {
@@ -147,19 +150,19 @@ fn axpyWithZeroStrides() !void {
     inline for (.{ f32, f64 }) |F| {
         var x = arr(F, 8, xs);
         var y = arr(F, 8, ys);
-        try blas.axpy(ob.io, F, 8, 0.25, &x, 0, &y, 0);
+        try l1.axpy(ob.io, F, 8, 0.25, &x, 0, &y, 0);
         try nears(F, &xs, &x, double_eps, "axpy_inc_0 x");
         try nears(F, &.{ 4.0, 4.0, 6.0, 8.0, 2.0, 4.0, 6.0, 8.0 }, &y, double_eps, "axpy_inc_0 y");
     }
     inline for (.{ C32, C64 }) |C| {
         var x = carr(C, 4, xs);
         var y = carr(C, 4, ys);
-        try blas.axpy(ob.io, C, 4, .init(0.25, 0.5), &x, 0, &y, 0);
+        try l1.axpy(ob.io, C, 4, .init(0.25, 0.5), &x, 0, &y, 0);
         try nears(ob.Float(C), &xs, flat(C, &x), double_eps, "zaxpy_inc_0 x");
         try nears(ob.Float(C), &.{ -3.0, 9.0, 6.0, 8.0, 2.0, 4.0, 6.0, 8.0 }, flat(C, &y), double_eps, "zaxpy_inc_0 y");
         x = carr(C, 4, xs);
         y = carr(C, 4, ys);
-        try blas.axpy(ob.io, C, 4, .init(0.25, 0.5), &x, 0, &y, 1);
+        try l1.axpy(ob.io, C, 4, .init(0.25, 0.5), &x, 0, &y, 1);
         try nears(ob.Float(C), &xs, flat(C, &x), double_eps, "zaxpy_incx_0 x");
         try nears(ob.Float(C), &.{ 0.75, 5.25, 4.75, 9.25, 0.75, 5.25, 4.75, 9.25 }, flat(C, &y), double_eps, "zaxpy_incx_0 y");
     }
@@ -177,16 +180,16 @@ fn axpbyStrides() !void {
         const e = eps(F);
         var x = arr(F, 9, bx);
         var y = arr(F, 9, by);
-        try blas.axpby(ob.io, F, 9, 1.0, &x, 0, 2.0, &y, 0);
+        try l1.axpby(ob.io, F, 9, 1.0, &x, 0, 2.0, &y, 0);
         try nears(F, &bx, &x, e, "axpby_inc_0 x");
         try nears(F, &.{ 1535.0, 4.0, 6.0, 8.0, 2.0, 4.0, 6.0, 8.0, 10.0 }, &y, e, "axpby_inc_0 y");
         x = arr(F, 9, bx);
         y = arr(F, 9, by);
-        try blas.axpby(ob.io, F, 9, 0.25, &x, 1, 0.75, &y, 1);
+        try l1.axpby(ob.io, F, 9, 0.25, &x, 1, 0.75, &y, 1);
         try nears(F, &.{ 1.75, 3.75, 5.75, 7.75, 1.75, 3.75, 5.75, 7.75, 9.75 }, &y, e, "axpby_inc_1 y");
         var x2 = arr(F, 18, bx ++ bx);
         var y2 = arr(F, 18, by ++ by);
-        try blas.axpby(ob.io, F, 9, 0.25, &x2, 2, 0.75, &y2, 2);
+        try l1.axpby(ob.io, F, 9, 0.25, &x2, 2, 0.75, &y2, 2);
         try nears(F, &(bx ++ bx), &x2, e, "axpby_inc_2 x");
         try nears(F, &.{ 1.75, 4.00, 5.75, 8.00, 1.75, 4.00, 5.75, 8.00, 9.75, 2.00, 3.75, 6.00, 7.75, 2.00, 3.75, 6.00, 7.75, 10.00 }, &y2, e, "axpby_inc_2 y");
     }
@@ -195,16 +198,16 @@ fn axpbyStrides() !void {
         const e = eps(F);
         var x = carr(C, 9, bx ++ bx);
         var y = carr(C, 9, by ++ by);
-        try blas.axpby(ob.io, C, 9, .init(1.0, 2.0), &x, 0, .init(2.0, 1.0), &y, 0);
+        try l1.axpby(ob.io, C, 9, .init(1.0, 2.0), &x, 0, .init(2.0, 1.0), &y, 0);
         try nears(F, &(bx ++ bx), flat(C, &x), e, "zaxpby_inc_0 x");
         try nears(F, &.{ 9355.0, -8865.0, 6.0, 8.0, 2.0, 4.0, 6.0, 8.0, 10.0, 2.0, 4.0, 6.0, 8.0, 2.0, 4.0, 6.0, 8.0, 10.0 }, flat(C, &y), e, "zaxpby_inc_0 y");
         x = carr(C, 9, bx ++ bx);
         y = carr(C, 9, by ++ by);
-        try blas.axpby(ob.io, C, 9, .init(0.25, 0.25), &x, 1, .init(0.75, 0.75), &y, 1);
+        try l1.axpby(ob.io, C, 9, .init(0.25, 0.25), &x, 1, .init(0.75, 0.75), &y, 1);
         try nears(F, &.{ -2.0, 5.5, -2.0, 13.5, -2.0, 5.5, -2.0, 13.5, 8.0, 11.5, -2.0, 9.5, 6.0, 9.5, -2.0, 9.5, -2.0, 17.5 }, flat(C, &y), e, "zaxpby_inc_1 y");
         var x2 = carr(C, 18, bx ++ bx ++ bx ++ bx);
         var y2 = carr(C, 18, by ++ by ++ by ++ by);
-        try blas.axpby(ob.io, C, 9, .init(0.25, 0.25), &x2, 2, .init(0.75, 0.75), &y2, 2);
+        try l1.axpby(ob.io, C, 9, .init(0.25, 0.25), &x2, 2, .init(0.75, 0.75), &y2, 2);
         try nears(F, &(bx ++ bx ++ bx ++ bx), flat(C, &x2), e, "zaxpby_inc_2 x");
         try nears(F, &.{
             -2.0, 5.5,  6.0,  8.0,  -2.0, 5.5,  6.0,  8.0,  8.0,
@@ -223,14 +226,14 @@ fn swapWithZeroStrides() !void {
     inline for (.{ f32, f64 }) |F| {
         var x = arr(F, 4, xs[0..4].*);
         var y = arr(F, 4, ys[0..4].*);
-        try blas.swap(ob.io, F, 4, &x, 0, &y, 0);
+        try l1.swap(ob.io, F, 4, &x, 0, &y, 0);
         try nears(F, xs[0..4], &x, eps(F), "swap_inc_0 x");
         try nears(F, ys[0..4], &y, eps(F), "swap_inc_0 y");
     }
     inline for (.{ C32, C64 }) |C| {
         var x = carr(C, 4, xs);
         var y = carr(C, 4, ys);
-        try blas.swap(ob.io, C, 4, &x, 0, &y, 0);
+        try l1.swap(ob.io, C, 4, &x, 0, &y, 0);
         try nears(ob.Float(C), &xs, flat(C, &x), eps(ob.Float(C)), "zswap_inc_0 x");
         try nears(ob.Float(C), &ys, flat(C, &y), eps(ob.Float(C)), "zswap_inc_0 y");
     }
@@ -245,26 +248,26 @@ fn rotAndRotm() !void {
         const e = eps(F);
         var x = arr(F, 4, xs[0..4].*);
         var y = arr(F, 4, ys[0..4].*);
-        try blas.rot(ob.io, F, 4, &x, 0, &y, 0, 0.25, 0.5);
+        try l1.rot(ob.io, F, 4, &x, 0, &y, 0, 0.25, 0.5);
         try nears(F, &.{ -0.21484375000000, 3.0, 5.0, 7.0 }, &x, e, "rot_inc_0 x");
         try nears(F, &.{ 0.03906250000000, 4.0, 6.0, 8.0 }, &y, e, "rot_inc_0 y");
         x = arr(F, 4, xs[0..4].*);
         y = arr(F, 4, ys[0..4].*);
-        try blas.rot(ob.io, F, 4, &x, 1, &y, 1, 1.0, 1.0);
+        try l1.rot(ob.io, F, 4, &x, 1, &y, 1, 1.0, 1.0);
         try nears(F, &.{ 3.0, 7.0, 11.0, 15.0 }, &x, e, "rot_inc_1 x");
         try nears(F, &.{ 1.0, 1.0, 1.0, 1.0 }, &y, e, "rot_inc_1 y");
         const twelve = [12]f64{ 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0 };
         var mx = arr(F, 12, twelve);
         var my = arr(F, 12, twelve);
         const param = arr(F, 5, .{ 1.0, 2.0, 3.0, 4.0, 5.0 });
-        try blas.rotm(ob.io, F, 12, &mx, 1, &my, 1, &param);
+        try l1.rotm(ob.io, F, 12, &mx, 1, &my, 1, &param);
         try nears(F, &.{ 3.0, 6.0, 9.0, 12.0, 15.0, 18.0, 21.0, 24.0, 27.0, 30.0, 33.0, 36.0 }, &mx, e, "rotm_inc_1 x");
         try nears(F, &.{ 4.0, 8.0, 12.0, 16.0, 20.0, 24.0, 28.0, 32.0, 36.0, 40.0, 44.0, 48.0 }, &my, e, "rotm_inc_1 y");
     }
     inline for (.{ C32, C64 }) |C| {
         var x = carr(C, 4, xs);
         var y = carr(C, 4, ys);
-        try blas.rot(ob.io, C, 4, &x, 0, &y, 0, 0.25, 0.5);
+        try l1.rot(ob.io, C, 4, &x, 0, &y, 0, 0.25, 0.5);
         try nears(ob.Float(C), &.{ -0.21484375000000, -0.45703125000000, 5.0, 7.0, 1.0, 3.0, 5.0, 7.0 }, flat(C, &x), eps(ob.Float(C)), "zdrot_inc_0 x");
         try nears(ob.Float(C), &.{ 0.03906250000000, 0.17187500000000, 6.0, 8.0, 2.0, 4.0, 6.0, 8.0 }, flat(C, &y), eps(ob.Float(C)), "zdrot_inc_0 y");
     }
@@ -305,11 +308,11 @@ test "utest: drotmg" {
 fn dnrm2Cases() !void {
     var x: [29]f64 = @splat(0);
     x[10] = -inf;
-    try near(inf, try blas.nrm2(ob.io, f64, 28, &x, 1), double_eps, "dnrm2_inf");
+    try near(inf, try l1.nrm2(ob.io, f64, 28, &x, 1), double_eps, "dnrm2_inf");
     @memset(&x, 7.457008414e-310);
-    try near(0, try blas.nrm2(ob.io, f64, 28, &x, 1), double_eps, "dnrm2_tiny");
+    try near(0, try l1.nrm2(ob.io, f64, 28, &x, 1), double_eps, "dnrm2_tiny");
     var y: [5]f64 = @splat(10.0);
-    try near(@sqrt(500.0), try blas.nrm2(ob.io, f64, 5, &y, -1), double_eps, "dnrm2_neg_incx");
+    try near(@sqrt(500.0), try l1.nrm2(ob.io, f64, 5, &y, -1), double_eps, "dnrm2_neg_incx");
 }
 
 test "utest: dnrm2 of infinity, of denormals, and at a negative stride" {
@@ -319,18 +322,18 @@ test "utest: dnrm2 of infinity, of denormals, and at a negative stride" {
 fn zdotuDsdot() !void {
     var x1 = [_]C64{.init(1.0, 1.0)};
     var y1 = [_]C64{.init(1.0, 2.0)};
-    const d1 = try blas.dot(ob.io, C64, 1, &x1, 1, &y1, 1);
+    const d1 = try l1.dot(ob.io, C64, 1, &x1, 1, &y1, 1);
     try nears(f64, &.{ -1.0, 3.0 }, &.{ d1.re, d1.im }, double_eps, "zdotu_n_1");
     // one double past the start: (2, 3) and (6, 7)
     var x2 = [_]f64{ 1.0, 2.0, 3.0, 4.0 };
     var y2 = [_]f64{ 5.0, 6.0, 7.0, 8.0 };
     const px: [*]C64 = @ptrCast(&x2[1]);
     const py: [*]C64 = @ptrCast(&y2[1]);
-    const d2 = try blas.dot(ob.io, C64, 1, px, 1, py, 1);
+    const d2 = try l1.dot(ob.io, C64, 1, px, 1, py, 1);
     try nears(f64, &.{ -9.0, 32.0 }, &.{ d2.re, d2.im }, double_eps, "zdotu_offset_1");
     var sx = [_]f32{0.172555164};
     var sy = [_]f32{-0.0138700781};
-    try near(-0.00239335360107, try blas.dsdot(ob.io, 1, &sx, 1, &sy, 1), double_eps, "dsdot_n_1");
+    try near(-0.00239335360107, try l1.dsdot(ob.io, 1, &sx, 1, &sy, 1), double_eps, "dsdot_n_1");
 }
 
 test "utest: zdotu, dsdot" {
@@ -343,7 +346,7 @@ fn strmvLower() !void {
     // row-major lower, not transposed: column-major upper, transposed
     var lower = [9]f32{ 2.0, 0.0, 0.0, 3.0, 4.0, 0.0, 5.0, 6.0, 7.0 };
     var v = [3]f32{ 11.0, 13.0, 17.0 };
-    try blas.trmv(std.testing.allocator, ob.io, f32, .u, .t, .n, 3, &lower, 3, &v, 1);
+    try l2.trmv(std.testing.allocator, ob.io, f32, .u, .t, .n, 3, &lower, 3, &v, 1);
     try nears(f32, &.{ 22.0, 85.0, 252.0 }, &v, single_eps, "strmv");
 }
 
@@ -368,7 +371,7 @@ fn scalNanInf() !void {
     const real = [_][2]f64{ .{ 0, nan }, .{ nan, 0 }, .{ 0, inf }, .{ inf, 0 }, .{ nan, inf }, .{ inf, nan } };
     inline for (.{ f32, f64 }) |F| for (real) |c| for ([_]isize{ 1, 2 }) |inc| {
         var x: [20]F = @splat(@floatCast(c[1]));
-        try blas.scal(ob.io, F, 9, @floatCast(c[0]), &x, inc);
+        try l1.scal(ob.io, F, 9, @floatCast(c[0]), &x, inc);
         try ob.expect(std.math.isNan(x[0]) and std.math.isNan(x[8]), "sscal");
     };
     // alpha, x's elements, and what raw floats 0, 1, 16, 17 become
@@ -385,7 +388,7 @@ fn scalNanInf() !void {
     inline for (.{ C32, C64 }) |C| for (cases) |c| for ([_]isize{ 1, 2 }) |inc| {
         const v = if (inc == 1) c.x else c.x2;
         var x: [18]C = @splat(.init(@floatCast(v[0]), @floatCast(v[1])));
-        try blas.scal(ob.io, C, 9, .init(@floatCast(c.alpha[0]), @floatCast(c.alpha[1])), &x, inc);
+        try l1.scal(ob.io, C, 9, .init(@floatCast(c.alpha[0]), @floatCast(c.alpha[1])), &x, inc);
         const f = flat(C, &x);
         try ob.expect(is(c.want[0], f[0]) and is(c.want[1], f[1]) and is(c.want[0], f[16]) and is(c.want[1], f[17]), c.name);
     };
@@ -406,7 +409,7 @@ fn gemvNanInf() !void {
         var y: [2 * n - 1]F = @splat(0);
         const ny: usize = if (inc == 1) n else 2 * n - 1;
         for (0..n) |i| y[i * @as(usize, @intCast(inc))] = if (i % 2 == 0) std.math.nan(F) else std.math.inf(F);
-        try blas.gemv(al, ob.io, F, .n, n, n, 0, &a, n, &x, 1, 0, &y, inc);
+        try l2.gemv(al, ob.io, F, .n, n, n, 0, &a, n, &x, 1, 0, &y, inc);
         for (y[0..ny]) |v| try ob.expect(v == 0, "sgemv 0_nan_inf");
     };
 }
@@ -435,7 +438,7 @@ fn cgemvNanInf() !void {
             var y: [2 * n]C = @splat(.init(0, 0));
             const s: usize = @intCast(inc);
             for (0..n) |i| y[i * s] = if (i % 2 == 0) c.even else c.odd;
-            try blas.gemv(al, ob.io, C, .n, n, n, .init(0, 0), &a, n, &x, 1, c.beta, &y, inc);
+            try l2.gemv(al, ob.io, C, .n, n, n, .init(0, 0), &a, n, &x, 1, c.beta, &y, inc);
             for (y[0 .. n * s], 0..) |v, k| {
                 if (k % s != 0) {
                     try ob.expect(v.re == 0 and v.im == 0, c.name);
@@ -460,12 +463,12 @@ test "utest: cgemv, zgemv, NaN and infinity through beta 0, 2i and 2" {
 fn potrfBug695() !void {
     const al = std.testing.allocator;
     var a1 = carr(C32, 100, potrf_a1);
-    try lapack.potrf(al, ob.io, C32, .u, 10, &a1, 10, null);
+    try lapack.potrf(al, ob.io, C32, .u, 10, &a1, 10);
     var a2 = carr(C64, 100, potrs_a2);
     var b = carr(C64, 20, potrs_b);
     try lapack.potrs(al, ob.io, C64, .l, 10, 2, &a2, 10, &b, 10);
     var a3 = carr(C32, 100, potrf_a1);
-    try lapack.potrf(al, ob.io, C32, .u, 10, &a3, 10, null);
+    try lapack.potrf(al, ob.io, C32, .u, 10, &a3, 10);
     try ob.expect(!std.math.isNan(a3[91].re) and !std.math.isNan(a3[91].im), "cpotrf bug 695: NaN in A3[91]");
 }
 
@@ -481,7 +484,7 @@ fn potrfSmoke() !void {
         const complex = comptime ob.isComplex(T);
         const a1: [4]T = if (complex) carr(T, 4, .{ 2, 0, 0.3, 0.1, 0.3, -0.1, 3, 0 }) else arr(T, 4, .{ 2, 0.3, 0.3, 3 });
         var a = a1;
-        try lapack.potrf(al, ob.io, T, uplo, 2, &a, 2, null);
+        try lapack.potrf(al, ob.io, T, uplo, 2, &a, 2);
         // the other triangle
         a[if (uplo == .l) 2 else 1] = if (complex) .init(0, 0) else 0;
         var b: [4]T = undefined;
@@ -489,7 +492,7 @@ fn potrfSmoke() !void {
         const zero: T = if (complex) .init(0, 0) else 0;
         const t1: blas.Trans = if (uplo == .l) .n else .c;
         const t2: blas.Trans = if (uplo == .l) .c else .n;
-        try blas.gemm(al, ob.io, T, t1, t2, 2, 2, 2, one, &a, 2, &a, 2, zero, &b, 2);
+        try l3.gemm(al, ob.io, T, t1, t2, 2, 2, 2, one, &a, 2, &a, 2, zero, &b, 2);
         const tol: f64 = if (ob.Float(T) == f32) 1e-5 else 1e-12;
         for (a1, b) |w, g| {
             const err: f64 = if (complex) std.math.hypot(@as(f64, w.re - g.re), @as(f64, w.im - g.im)) else @abs(@as(f64, w - g));
@@ -564,13 +567,13 @@ fn kernelRegress() !void {
         a.* = (@as(f64, @floatFromInt(g.next())) + 0.0) / 2147483647.0 * 10;
         t.* = a.*;
     }
-    try lapack.gesvd(al, ob.io, f64, .a, .a, n, n, m.ptr, n, &s, u.ptr, n, vt.ptr, n, null);
+    try lapack.gesvd(al, ob.io, f64, .a, .a, n, n, m, n, &s, u, n, vt, n, null);
     for (0..n) |j| for (0..n) |i| {
         u[i + j * n] *= s[j];
     };
-    try blas.gemm(al, ob.io, f64, .n, .n, n, n, n, 1, u.ptr, n, vt.ptr, n, 0, x.ptr, n);
+    try l3.gemm(al, ob.io, f64, .n, .n, n, n, n, 1, u.ptr, n, vt.ptr, n, 0, x.ptr, n);
     for (x, tmp) |*a, t| a.* -= t;
-    const norm = try blas.nrm2(ob.io, f64, n * n, x.ptr, 1);
+    const norm = try l1.nrm2(ob.io, f64, n * n, x.ptr, 1);
     try near(0, norm, 1e-10, "kernel_regress skx_avx: |U S Vt - A|");
 }
 

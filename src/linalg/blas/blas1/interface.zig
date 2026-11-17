@@ -406,11 +406,11 @@ pub fn extreme(io: Io, comptime T: type, comptime which: Extreme, n: isize, x: [
 /// kernel call over all of `x` finds them (`extremum.zig`). Where complex
 /// keys overflow, a chunk's kernel has picked by `|re|/4 + |im|/4`, and so
 /// does the fold between two such chunks.
-fn Best(comptime T: type, comptime which: Extreme) type {
+pub fn Best(comptime T: type, comptime which: Extreme) type {
     const F = Float(T);
     return struct {
         /// An element's index from 0, its key and its quarter key.
-        const Pick = struct { at: isize, key: F, q: F };
+        pub const Pick = struct { at: isize, key: F, q: F };
 
         fn better(k: F, best: F) bool {
             return switch (which) {
@@ -425,13 +425,13 @@ fn Best(comptime T: type, comptime which: Extreme) type {
             return if (better(b, a)) b else a;
         }
 
-        fn of(v: T, at: isize) Pick {
+        pub fn of(v: T, at: isize) Pick {
             if (comptime isComplex(T)) return .{ .at = at, .key = util.abs(v.re) + util.abs(v.im), .q = util.abs(v.re) / 4 + util.abs(v.im) / 4 };
             const k = if (which == .amax or which == .amin) @abs(v) else v;
             return .{ .at = at, .key = k, .q = k };
         }
 
-        fn pick(a: Pick, b: Pick) Pick {
+        pub fn pick(a: Pick, b: Pick) Pick {
             if (a.key != a.key) return a;
             if (b.key != b.key) return b;
             if (std.math.isInf(a.key) and std.math.isInf(b.key)) return if (better(b.q, a.q)) b else a;

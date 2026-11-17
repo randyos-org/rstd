@@ -9,6 +9,7 @@ const bench_options = @import("bench_options");
 const bench = @import("bench.zig");
 const merge = @import("merge.zig");
 const kernels = @import("kernels.zig");
+const l3thread = @import("l3thread.zig");
 const libs = @import("libs.zig");
 const ext = @import("ext.zig");
 
@@ -170,6 +171,7 @@ pub fn main(init: std.process.Init) !void {
     }
     // only when named: it times rstd alone, which the flyoff's runs don't want
     if (!alone and want(sections.items, "kern3")) try ownLevel3(io, gpa);
+    if (!alone and want(sections.items, "l3thread")) try l3thread.run(gpa);
     const lib_sections = want(sections.items, "lib1") or want(sections.items, "lib2") or want(sections.items, "lib3") or want(sections.items, "lapack");
     if (lib_sections or (all and (opts.paths.get(.openblas) != null or alone))) {
         try loadLibs(opts);

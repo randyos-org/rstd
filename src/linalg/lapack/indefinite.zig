@@ -49,30 +49,50 @@ pub fn View(comptime T: type) type {
     };
 }
 
-/// `ipiv` of `n` pivots, as `View` reads the matrix: 1-based signed values of
-/// the read order, stored as the matrix's.
+/// One entry of `sytrf`'s pivots (issue #314): the row (0-based) swapped
+/// with this one, and whether this row belongs to a 1 x 1 or a 2 x 2 block
+/// of `D`. As small as a `usize`.
+pub const Pivot = packed struct(usize) {
+    row: Row,
+    block: Block,
+
+    pub const Block = enum(u1) { one, two };
+
+    /// A row: one bit short of a `usize`.
+    pub const Row = switch (@bitSizeOf(usize)) {
+        64 => u63,
+        32 => u31,
+        16 => u15,
+        else => @compileError("Pivot: an unexpected usize"),
+    };
+
+    pub fn of(row: usize, block: Block) Pivot {
+        return .{ .row = @intCast(row), .block = block };
+    }
+};
+
+/// `ipiv` of `n` pivots, as `View` reads the matrix: rows of the read
+/// order, stored as the matrix's.
 pub const Piv = struct {
-    p: [*]isize,
+    p: [*]Pivot,
     n: usize,
     flip: bool,
 
-    fn map(pv: Piv, v: isize) isize {
-        if (!pv.flip) return v;
-        const m: isize = @intCast(pv.n + 1);
-        return if (v < 0) -(m + v) else m - v;
+    fn map(pv: Piv, v: Pivot) Pivot {
+        return if (pv.flip) .of(pv.n - 1 - v.row, v.block) else v;
     }
 
-    pub fn get(pv: Piv, k: usize) isize {
-        return pv.map(pv.p[if (pv.flip) pv.n - 1 - k else k]);
+    pub fn get(pv: Piv, k: usize) Pivot {
+        return pv.map(pv.p[pv.index(k)]);
     }
 
-    pub fn set(pv: Piv, k: usize, v: isize) void {
-        pv.p[if (pv.flip) pv.n - 1 - k else k] = pv.map(v);
+    pub fn set(pv: Piv, k: usize, v: Pivot) void {
+        pv.p[pv.index(k)] = pv.map(v);
     }
 
-    /// `k` (0-based, read order) as the reference's `INFO`.
-    pub fn info(pv: Piv, k: usize) usize {
-        return if (pv.flip) pv.n - k else k + 1;
+    /// `k` (read order) as stored.
+    pub fn index(pv: Piv, k: usize) usize {
+        return if (pv.flip) pv.n - 1 - k else k;
     }
 };
 
@@ -174,16 +194,16 @@ fn alphaOf(comptime F: type) F {
 // ---- tf2 --------------------------------------------------------------------------
 
 /// `xSYTF2`, `xHETF2` (`herm`) or their `_ROOK` forms on `uplo`'s triangle
-/// of `n x n` `a`, `ipiv` its `n` pivots: the reference's `INFO`, the first
-/// exactly zero (or NaN, outside `rook`) `D(k, k)`, or 0.
-pub fn tf2(comptime T: type, comptime herm: bool, comptime rook: bool, upper: bool, n: usize, a_: [*]T, lda: usize, ipiv: [*]isize) usize {
+/// of `n x n` `a`, `ipiv` its `n` pivots: the first exactly zero (or NaN,
+/// outside `rook`) `D(k, k)` (0-based, as stored), or null.
+pub fn tf2(comptime T: type, comptime herm: bool, comptime rook: bool, upper: bool, n: usize, a_: [*]T, lda: usize, ipiv: [*]Pivot) ?usize {
     const E = El(T, herm);
     const F = Float(T);
     const a: View(T) = .{ .p = a_, .ld = lda, .rows = n, .cols = n, .flip = upper };
     const pv: Piv = .{ .p = ipiv, .n = n, .flip = upper };
     const alpha = alphaOf(F);
     const sfmin = std.math.floatMin(F);
-    var info: usize = 0;
+    var info: ?usize = null;
     var k: usize = 0;
     while (k < n) {
         var kstep: usize = 1;
@@ -197,7 +217,7 @@ pub fn tf2(comptime T: type, comptime herm: bool, comptime rook: bool, upper: bo
             colmax = ops.abs1(T, a.get(imax, k));
         }
         if (@max(absakk, colmax) == 0 or (!rook and std.math.isNan(absakk))) {
-            if (info == 0) info = pv.info(k);
+            if (info == null) info = pv.index(k);
             if (comptime E.herm) a.set(k, k, E.real(a.get(k, k)));
         } else {
             if (!rook) {
@@ -264,10 +284,10 @@ pub fn tf2(comptime T: type, comptime herm: bool, comptime rook: bool, upper: bo
             }
         }
         if (kstep == 1) {
-            pv.set(k, @intCast(kp + 1));
+            pv.set(k, .of(kp, .one));
         } else {
-            pv.set(k, -@as(isize, @intCast((if (rook) p else kp) + 1)));
-            pv.set(k + 1, -@as(isize, @intCast(kp + 1)));
+            pv.set(k, .of(if (rook) p else kp, .two));
+            pv.set(k + 1, .of(kp, .two));
         }
         k += kstep;
     }
@@ -343,7 +363,7 @@ fn twoByTwo(comptime T: type, comptime herm: bool, comptime rook: bool, a: View(
 // ---- panel ------------------------------------------------------------------------
 
 /// What `panel` returns: the columns it factored and the reference's `INFO`.
-pub const Panel = struct { kb: usize, info: usize };
+pub const Panel = struct { kb: usize, info: ?usize };
 
 /// `RELAPACK_?sytrf_rec2` and the rest on `upper`'s side of the `n x n` `a`:
 /// up to `nb` columns (lower: the first; upper: the last), one fewer where a
@@ -351,7 +371,7 @@ pub const Panel = struct { kb: usize, info: usize };
 /// takes `W = L D` (Hermitian: its conjugate) for the caller's update of the
 /// rest, `A -= L Wᵀ`; the factored columns hold every interchange of the
 /// panel until the caller's `undo`, which follows that update.
-pub fn panel(comptime T: type, comptime herm: bool, comptime rook: bool, upper: bool, n: usize, nb: usize, a_: [*]T, lda: usize, ipiv: [*]isize, w_: [*]T, ldw: usize) Panel {
+pub fn panel(comptime T: type, comptime herm: bool, comptime rook: bool, upper: bool, n: usize, nb: usize, a_: [*]T, lda: usize, ipiv: [*]Pivot, w_: [*]T, ldw: usize) Panel {
     const E = El(T, herm);
     const F = Float(T);
     const a: View(T) = .{ .p = a_, .ld = lda, .rows = n, .cols = n, .flip = upper };
@@ -359,7 +379,7 @@ pub fn panel(comptime T: type, comptime herm: bool, comptime rook: bool, upper: 
     const pv: Piv = .{ .p = ipiv, .n = n, .flip = upper };
     const alpha = alphaOf(F);
     const sfmin = std.math.floatMin(F);
-    var info: usize = 0;
+    var info: ?usize = null;
     var k: usize = 0;
     while (!((k + 1 >= nb and nb < n) or k >= n)) {
         var kstep: usize = 1;
@@ -378,7 +398,7 @@ pub fn panel(comptime T: type, comptime herm: bool, comptime rook: bool, upper: 
             colmax = ops.abs1(T, w.get(imax, k));
         }
         if (@max(absakk, colmax) == 0) {
-            if (info == 0) info = pv.info(k);
+            if (info == null) info = pv.index(k);
             if (rook) {
                 a.set(k, k, E.real(w.get(k, k)));
                 for (k + 1..n) |i| a.set(i, k, w.get(i, k));
@@ -467,10 +487,10 @@ pub fn panel(comptime T: type, comptime herm: bool, comptime rook: bool, upper: 
             }
         }
         if (kstep == 1) {
-            pv.set(k, @intCast(kp + 1));
+            pv.set(k, .of(kp, .one));
         } else {
-            pv.set(k, -@as(isize, @intCast((if (rook) p else kp) + 1)));
-            pv.set(k + 1, -@as(isize, @intCast(kp + 1)));
+            pv.set(k, .of(if (rook) p else kp, .two));
+            pv.set(k + 1, .of(kp, .two));
         }
         k += kstep;
     }
@@ -481,7 +501,7 @@ pub fn panel(comptime T: type, comptime herm: bool, comptime rook: bool, upper: 
 /// columns left of it (upper: right), last step first, the panel's `kb`
 /// columns of the `n x n` `a` having been factored, so each column of `L`
 /// holds only its own and earlier interchanges (LAPACK's form).
-pub fn undoPanel(comptime T: type, comptime rook: bool, upper: bool, n: usize, a: [*]T, lda: usize, ipiv: [*]isize, kb: usize) void {
+pub fn undoPanel(comptime T: type, comptime rook: bool, upper: bool, n: usize, a: [*]T, lda: usize, ipiv: [*]Pivot, kb: usize) void {
     const v: View(T) = .{ .p = a, .ld = lda, .rows = n, .cols = n, .flip = upper };
     undo(T, rook, v, .{ .p = ipiv, .n = n, .flip = upper }, kb);
 }
@@ -536,23 +556,21 @@ fn panel2(comptime T: type, comptime herm: bool, comptime rook: bool, a: View(T)
 /// `undoPanel` on a view.
 fn undo(comptime T: type, comptime rook: bool, a: View(T), pv: Piv, k: usize) void {
     if (k == 0) return;
-    // 1-based, as the reference's loop
-    var j: isize = @intCast(k);
+    // `j` 1-based, as the reference's loop
+    var j = k;
     while (true) {
         var jj = j;
-        var jp1: isize = 1;
-        var two = false;
-        var jp2 = pv.get(@intCast(j - 1));
-        if (jp2 < 0) {
-            jp2 = -jp2;
+        const p2 = pv.get(j - 1);
+        const two = p2.block == .two;
+        var r1: usize = 0;
+        if (two) {
             j -= 1;
-            jp1 = -pv.get(@intCast(j - 1));
-            two = true;
+            r1 = pv.get(j - 1).row;
         }
         j -= 1;
-        if (jp2 != jj and j >= 1) a.swapRows(@intCast(jp2 - 1), @intCast(jj - 1), @intCast(j));
+        if (p2.row != jj - 1 and j >= 1) a.swapRows(p2.row, jj - 1, j);
         jj -= 1;
-        if (rook and two and jp1 != jj and j >= 1) a.swapRows(@intCast(jp1 - 1), @intCast(jj - 1), @intCast(j));
+        if (rook and two and r1 != jj - 1 and j >= 1) a.swapRows(r1, jj - 1, j);
         if (j <= 1) return;
     }
 }

@@ -11,6 +11,7 @@ const auxiliary = @import("auxiliary.zig");
 const hh = @import("householder.zig");
 const qr = @import("qr.zig");
 const util = @import("../blas/util.zig");
+const interface = @import("interface.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -115,39 +116,36 @@ fn fused(comptime T: type, a: Mat(T), lout: [*]T, rout: [*]T, x: [*]const T, u: 
 
 // ---- gehrd, orghr ------------------------------------------------------------------
 
-/// What `gehrd` and `orghr` return: `InvalidIlo` unless `1 <= ilo <= max(1,
-/// n)`, `InvalidIhi` unless `min(ilo, n) <= ihi <= n`, as the reference.
-pub const GehrdError = error{ InvalidN, InvalidIlo, InvalidIhi, InvalidLda } || Allocator.Error || Io.Cancelable;
+/// What `gehrd` and `orghr` return: `BlockOutOfRange` unless
+/// `lo <= hi <= n`, a slice too short (`a`, or `tau` under `n - 1`) or a
+/// leading dimension too small, and the allocator's and cancellation.
+pub const GehrdError = interface.BlockError || interface.ShapeError || Allocator.Error || Io.Cancelable;
 pub const OrghrError = GehrdError;
 
-/// The checks `gehrd` and `orghr` share; the block's 0-based bounds.
-fn block(comptime T: type, n: isize, ilo: isize, ihi: isize, lda: isize) GehrdError!?[2]usize {
-    if (n < 0) return error.InvalidN;
-    if (ilo < 1 or ilo > @max(1, n)) return error.InvalidIlo;
-    if (ihi < @min(ilo, n) or ihi > n) return error.InvalidIhi;
-    if (lda < @max(1, n)) return error.InvalidLda;
-    if (n == 0) return null;
-    if (!util.fitsMatrix(n, n, lda, @sizeOf(T))) return error.InvalidLda;
-    return .{ @intCast(ilo - 1), @intCast(ihi) };
+/// The checks `gehrd` and `orghr` share.
+fn block(n: usize, lo: usize, hi: usize, a_len: usize, lda: usize, tau_len: usize) GehrdError!void {
+    try interface.blockIn(lo, hi, n);
+    try util.holds(a_len, n, n, lda);
+    if (tau_len < n -| 1) return error.SliceTooShort;
 }
 
 /// `?GEHRD` (`dgehrd.f`, `zgehrd.f`): `A := Qᴴ A Q`, upper Hessenberg, for
 /// the `n x n` `A`, by faer's reduction (above) of rows and columns
-/// `ilo..ihi` (1-based; outside them `A` is upper triangular already, as
-/// `gebal` leaves it), `Q` then applied to the rest of those rows and
-/// columns. `Q = H(ilo) ... H(ihi - 1)`, each `H = I - tau v vᴴ` (the
-/// reference's `tau`, faer's reciprocal) with `v` below the subdiagonal and
-/// its `tau` in `tau` (`n - 1`, 0 outside `ilo..ihi - 1`).
-pub fn gehrd(allocator: Allocator, io: Io, comptime T: type, n: isize, ilo: isize, ihi: isize, a: [*]T, lda: isize, tau: [*]T) GehrdError!void {
+/// `lo..hi` (0-based, `hi` past the end; outside them `A` is upper
+/// triangular already, as `gebal` leaves it), `Q` then applied to the rest
+/// of those rows and columns. `Q = H(lo) ... H(hi - 2)`, each
+/// `H = I - tau v vᴴ` (the reference's `tau`, faer's reciprocal) with `v`
+/// below the subdiagonal and its `tau` in `tau` (`n - 1`, 0 outside
+/// `lo..hi - 1`).
+pub fn gehrd(allocator: Allocator, io: Io, comptime T: type, n: usize, lo: usize, hi: usize, a: []T, lda: usize, tau: []T) GehrdError!void {
     comptime ops.requireFloat(T, "gehrd");
-    const b = try block(T, n, ilo, ihi, lda) orelse return;
-    const un: usize = @intCast(n);
+    try block(n, lo, hi, a.len, lda, tau.len);
+    if (n == 0) return;
+    const un = n;
     @memset(tau[0 .. un - 1], ops.zero(T));
-    const lo = b[0];
-    const hi = b[1];
     const nh = hi - lo;
     if (nh <= 1) return;
-    const am: Mat(T) = .{ .ptr = a, .rows = un, .cols = un, .ld = @intCast(lda) };
+    const am: Mat(T) = .{ .ptr = a.ptr, .rows = un, .cols = un, .ld = lda };
     const bs = qr.blockSize(nh - 1, nh - 1);
     const h = try ops.alloc(T, allocator, bs, nh - 1);
     defer ops.free(T, allocator, h);
@@ -163,14 +161,13 @@ pub fn gehrd(allocator: Allocator, io: Io, comptime T: type, n: isize, ilo: isiz
 
 /// `?ORGHR`, `?UNGHR` (`dorghr.f`, `zunghr.f`): `gehrd`'s `Q` (`n x n`) in
 /// place of its reflections, from them and their `tau`s: shifted one column
-/// right, the identity outside `ilo + 1..ihi`, then `orgqr`'s generation.
-pub fn orghr(allocator: Allocator, io: Io, comptime T: type, n: isize, ilo: isize, ihi: isize, a: [*]T, lda: isize, tau: [*]const T) OrghrError!void {
+/// right, the identity outside `lo + 1..hi`, then `orgqr`'s generation.
+pub fn orghr(allocator: Allocator, io: Io, comptime T: type, n: usize, lo: usize, hi: usize, a: []T, lda: usize, tau: []const T) OrghrError!void {
     comptime ops.requireFloat(T, "orghr");
-    const b = try block(T, n, ilo, ihi, lda) orelse return;
-    const un: usize = @intCast(n);
-    const lo = b[0];
-    const hi = b[1];
-    const am: Mat(T) = .{ .ptr = a, .rows = un, .cols = un, .ld = @intCast(lda) };
+    try block(n, lo, hi, a.len, lda, tau.len);
+    if (n == 0) return;
+    const un = n;
+    const am: Mat(T) = .{ .ptr = a.ptr, .rows = un, .cols = un, .ld = lda };
     var j = hi;
     while (j > lo + 1) {
         j -= 1;
@@ -184,8 +181,10 @@ pub fn orghr(allocator: Allocator, io: Io, comptime T: type, n: isize, ilo: isiz
         @memset(c[0..un], ops.zero(T));
         c[k] = ops.one(T);
     };
-    const nq = hi - lo - 1;
-    if (nq > 0) try qr.generate(allocator, io, T, am.sub(lo + 1, lo + 1, nq, nq), nq, tau + lo);
+    if (hi > lo + 1) {
+        const nq = hi - lo - 1;
+        try qr.generate(allocator, io, T, am.sub(lo + 1, lo + 1, nq, nq), nq, tau.ptr + lo);
+    }
 }
 
 // ---- tests -----------------------------------------------------------------------
@@ -230,13 +229,14 @@ test "faer hessenberg: Qᴴ A Q = H, real and complex" {
     }
 }
 
-test "gehrd, orghr: Qᴴ A Q = H on the ilo..ihi block, Q unitary, real and complex" {
+test "gehrd, orghr: Qᴴ A Q = H on the lo..hi block, Q unitary, real and complex" {
     const al = testing.allocator;
     inline for (.{ f64, types.Complex64, f32, types.Complex32 }) |T| {
         const F = Float(T);
-        for ([_][3]usize{ .{ 1, 1, 1 }, .{ 2, 1, 2 }, .{ 5, 1, 5 }, .{ 9, 3, 7 }, .{ 9, 1, 4 }, .{ 9, 6, 9 }, .{ 40, 5, 33 } }) |c| {
+        // n, lo, hi; an empty block leaves Q = I
+        for ([_][3]usize{ .{ 1, 0, 1 }, .{ 2, 0, 2 }, .{ 5, 0, 5 }, .{ 9, 2, 7 }, .{ 9, 0, 4 }, .{ 9, 5, 9 }, .{ 40, 4, 33 }, .{ 5, 2, 2 } }) |c| {
             const n = c[0];
-            const lo = c[1] - 1;
+            const lo = c[1];
             const hi = c[2];
             // upper triangular outside rows and columns lo..hi, as gebal leaves it
             const a0 = try al.alloc(T, n * n);
@@ -249,10 +249,10 @@ test "gehrd, orghr: Qᴴ A Q = H on the ilo..ihi block, Q unitary, real and comp
             defer al.free(hm);
             const tau = try al.alloc(T, @max(n, 2) - 1);
             defer al.free(tau);
-            try gehrd(al, check.io, T, @intCast(n), @intCast(lo + 1), @intCast(hi), hm.ptr, @intCast(n), tau.ptr);
+            try gehrd(al, check.io, T, n, lo, hi, hm, n, tau);
             const q = try al.dupe(T, hm);
             defer al.free(q);
-            try orghr(al, check.io, T, @intCast(n), @intCast(lo + 1), @intCast(hi), q.ptr, @intCast(n), tau.ptr);
+            try orghr(al, check.io, T, n, lo, hi, q, n, tau);
             const nrm = @max(auxiliary.normMax(T, .{ .ptr = a0.ptr, .rows = n, .cols = n, .ld = n }), 1);
             const tol = 64 * std.math.floatEps(F) * @as(F, @floatFromInt(n + 1)) * nrm;
             for (0..n) |j| for (0..n) |i| {
@@ -268,7 +268,7 @@ test "gehrd, orghr: Qᴴ A Q = H on the ilo..ihi block, Q unitary, real and comp
                 for (0..n) |k| g = ops.add(T, g, ops.mul(T, ops.conj(T, q[k + i * n]), q[k + j * n]));
                 const gerr = ops.abs(T, ops.sub(T, g, if (i == j) ops.one(T) else ops.zero(T)));
                 if (!(err <= tol) or !(gerr <= tol / nrm)) {
-                    check.say("gehrd {s} n={d} ilo={d} ihi={d}: ({d},{d}) H off by {e}, QᴴQ by {e}\n", .{ @typeName(T), n, lo + 1, hi, i, j, err, gerr });
+                    check.say("gehrd {s} n={d} lo={d} hi={d}: ({d},{d}) H off by {e}, QᴴQ by {e}\n", .{ @typeName(T), n, lo, hi, i, j, err, gerr });
                     return error.TestUnexpectedResult;
                 }
             };
@@ -276,9 +276,10 @@ test "gehrd, orghr: Qᴴ A Q = H on the ilo..ihi block, Q unitary, real and comp
     }
     var a: [4]f64 = @splat(0);
     var tau: [1]f64 = undefined;
-    try testing.expectError(error.InvalidN, gehrd(al, check.io, f64, -1, 1, 1, &a, 1, &tau));
-    try testing.expectError(error.InvalidIlo, gehrd(al, check.io, f64, 2, 0, 2, &a, 2, &tau));
-    try testing.expectError(error.InvalidIhi, gehrd(al, check.io, f64, 2, 2, 1, &a, 2, &tau));
-    try testing.expectError(error.InvalidLda, orghr(al, check.io, f64, 2, 1, 2, &a, 1, &tau));
-    try gehrd(al, check.io, f64, 0, 1, 0, &a, 1, &tau);
+    try testing.expectError(error.BlockOutOfRange, gehrd(al, check.io, f64, 2, 0, 3, &a, 2, &tau));
+    try testing.expectError(error.BlockOutOfRange, gehrd(al, check.io, f64, 2, 2, 1, &a, 2, &tau));
+    try testing.expectError(error.LeadingDimensionTooSmall, orghr(al, check.io, f64, 2, 0, 2, &a, 1, &tau));
+    try testing.expectError(error.SliceTooShort, orghr(al, check.io, f64, 2, 0, 2, a[0..3], 2, &tau));
+    try testing.expectError(error.SliceTooShort, gehrd(al, check.io, f64, 2, 0, 2, &a, 2, tau[0..0]));
+    try gehrd(al, check.io, f64, 0, 0, 0, &a, 1, &tau);
 }
