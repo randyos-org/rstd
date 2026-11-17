@@ -1,11 +1,14 @@
-//! Descriptive statistics over slices (rstd's design.md, "Statistics"). Stubs
-//! for now: bodies return `error.NotImplemented`, which leaves each error set
-//! when its body lands, and their tests skip until then. `Running` is real.
+//! Descriptive statistics over slices (rstd's design.md, "Statistics"). The
+//! moments and `Running` are done; the rest are stubs whose bodies return
+//! `error.NotImplemented`, which leaves each error set when its body lands,
+//! and their tests skip until then.
 //!
 //! NaN propagates, as in MATLAB. `cov` and `corrcoef` come with the public
 //! layer's views, the forms along a dimension with N-d arrays.
 
 const std = @import("std");
+const blas = @import("linalg/blas/__root__.zig");
+const blas_types = @import("linalg/blas/types.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -14,27 +17,84 @@ const Io = std.Io;
 /// one has variance 0 either way, as MATLAB's `var`.
 pub const Normalize = enum { sample, population };
 
-pub const MomentError = error{ EmptyInput, Canceled, NotImplemented };
+pub const MomentError = error{ EmptyInput, Canceled };
+
+/// How the sums are taken: as the BLAS's kernels do, or compensated
+/// (Neumaier's, `blas.Summation`).
+pub const Summation = blas.Summation;
 
 /// The mean, through the BLAS `sum`.
 pub fn mean(io: Io, comptime F: type, xs: []const F) MomentError!F {
+    return meanWith(io, F, xs, .plain);
+}
+
+/// `mean`, summed as `s` says.
+pub fn meanWith(io: Io, comptime F: type, xs: []const F, s: Summation) MomentError!F {
     comptime checkFloat(F);
-    _ = io;
     if (xs.len == 0) return error.EmptyInput;
-    return error.NotImplemented;
+    return try total(io, F, xs, s) / @as(F, @floatFromInt(xs.len));
 }
 
 /// Two passes: the mean, then the squared deviations.
 pub fn variance(io: Io, comptime F: type, xs: []const F, normalize: Normalize) MomentError!F {
-    comptime checkFloat(F);
-    _ = io;
-    _ = normalize;
-    if (xs.len == 0) return error.EmptyInput;
-    return error.NotImplemented;
+    return varianceWith(io, F, xs, normalize, .plain);
+}
+
+/// `variance`, both passes summed as `s` says; the deviations' squares
+/// summed in order, in `f64` or wider.
+pub fn varianceWith(io: Io, comptime F: type, xs: []const F, normalize: Normalize, s: Summation) MomentError!F {
+    const m = try meanWith(io, F, xs, s);
+    const W = Wide(F);
+    var acc: Acc(W) = .{};
+    for (xs) |x| {
+        const d: W = @as(W, x) - @as(W, m);
+        acc.add(d * d, s);
+    }
+    const n = xs.len;
+    // a sample of one: 0, or NaN from a NaN or an infinity
+    const d = if (normalize == .sample and n > 1) n - 1 else n;
+    return @floatCast(acc.value() / @as(W, @floatFromInt(d)));
 }
 
 pub fn stdDev(io: Io, comptime F: type, xs: []const F, normalize: Normalize) MomentError!F {
     return @sqrt(try variance(io, F, xs, normalize));
+}
+
+/// `stdDev`, summed as `s` says.
+pub fn stdDevWith(io: Io, comptime F: type, xs: []const F, normalize: Normalize, s: Summation) MomentError!F {
+    return @sqrt(try varianceWith(io, F, xs, normalize, s));
+}
+
+/// The sum of `xs`: the BLAS's for its types, else in order here.
+fn total(io: Io, comptime F: type, xs: []const F, s: Summation) error{Canceled}!F {
+    if (comptime F == f32 or F == f64 or F == blas_types.XDouble) return blas.sumWith(io, F, .of(xs), s);
+    var acc: Acc(Wide(F)) = .{};
+    for (xs) |x| acc.add(x, s);
+    return @floatCast(acc.value());
+}
+
+fn Wide(comptime F: type) type {
+    return if (@bitSizeOf(F) < 64) f64 else F;
+}
+
+/// A running sum, plain or with Neumaier's compensation.
+fn Acc(comptime W: type) type {
+    return struct {
+        sum: W = 0,
+        c: W = 0,
+
+        fn add(a: *@This(), x: W, s: Summation) void {
+            const t = a.sum + x;
+            if (s == .compensated) {
+                if (@abs(a.sum) >= @abs(x)) a.c += (a.sum - t) + x else a.c += (x - t) + a.sum;
+            }
+            a.sum = t;
+        }
+
+        fn value(a: @This()) W {
+            return a.sum + a.c;
+        }
+    };
 }
 
 /// Streaming mean and variance (Welford's update). Its bits differ from
@@ -196,6 +256,22 @@ test "mean, variance, stdDev" {
     try testing.expectEqual(2, try stdDev(testing.io, f64, &sample, .population));
     try testing.expectEqual(0, try variance(testing.io, f64, sample[0..1], .sample));
     try testing.expectError(error.EmptyInput, mean(testing.io, f64, &.{}));
+}
+
+test "moments: compensated sums, the types the BLAS lacks, NaN" {
+    const io = testing.io;
+    const hard = [_]f64{ 1e16, 1, -1e16, 1 };
+    try testing.expectEqual(0.5, try meanWith(io, f64, &hard, .compensated));
+    try testing.expectEqual(try mean(io, f64, &hard), try meanWith(io, f64, &hard, .plain));
+    const h = [_]f16{ 1, 2, 3, 4 };
+    try testing.expectEqual(2.5, try mean(io, f16, &h));
+    try testing.expectEqual(1.25, try variance(io, f16, &h, .population));
+    const f = [_]f32{ 2, 4, 4, 4, 5, 5, 7, 9 };
+    try testing.expectEqual(2, try stdDevWith(io, f32, &f, .population, .compensated));
+    const nan = [_]f64{ 1, std.math.nan(f64), 3 };
+    try testing.expect(std.math.isNan(try mean(io, f64, &nan)));
+    try testing.expect(std.math.isNan(try variance(io, f64, &nan, .sample)));
+    try testing.expect(std.math.isNan(try variance(io, f64, nan[1..2], .sample)));
 }
 
 test "Running" {
