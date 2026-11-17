@@ -48,11 +48,11 @@ fn isHermitian(a: CxMat) bool {
 }
 
 /// An eigen routine's result, its arguments taken from a square `CxMat`:
-/// `InvalidA` (a NaN) is `NoConvergence`.
-pub fn converged(r: anytype) EigError!void {
-    r catch |e| {
+/// `NanInA` is `NoConvergence`.
+pub fn converged(r: anytype) EigError!@typeInfo(@TypeOf(r)).error_union.payload {
+    return r catch |e| {
         const x: anyerror = e;
-        if (x == error.InvalidA) return error.NoConvergence;
+        if (x == error.NanInA) return error.NoConvergence;
         return ops.narrow(EigError, x);
     };
 }
@@ -61,8 +61,7 @@ pub fn converged(r: anytype) EigError!void {
 /// mutated): `syevd` (nondecreasing) for Hermitian `a`, else `geev`.
 pub fn eig(allocator: Allocator, io: Io, a: CxMat, want_vectors: bool) EigError!EigResult {
     const n = a.n;
-    const ni: isize = @intCast(n);
-    const ld: isize = @intCast(@max(1, n));
+    const ld = @max(1, n);
     const values_r = try allocator.alloc(f64, n);
     errdefer allocator.free(values_r);
     const values_i = try allocator.alloc(f64, n);
@@ -82,20 +81,20 @@ pub fn eig(allocator: Allocator, io: Io, a: CxMat, want_vectors: bool) EigError!
             const x = try a.toPacked(T, allocator);
             defer allocator.free(x);
             if (isHermitian(a)) {
-                try converged(lapack.syevd(allocator, io, T, jobz, .u, ni, x.ptr, ld, values_r.ptr));
+                try converged(lapack.syevd(allocator, io, T, jobz, .u, n, x, ld, values_r));
                 if (vectors) |v| v.fromPacked(T, x);
             } else {
                 var none: [1]T = undefined;
                 const vr = if (want_vectors) try allocator.alloc(T, n * n) else &none;
                 defer if (want_vectors) allocator.free(vr);
-                const ldvr: isize = if (want_vectors) ld else 1;
+                const ldvr: usize = if (want_vectors) ld else 1;
                 if (real) {
-                    try converged(lapack.geev(allocator, io, T, .n, jobz, ni, x.ptr, ld, .{ .re = values_r.ptr, .im = values_i.ptr }, &none, 1, vr.ptr, ldvr, null));
+                    try converged(lapack.geev(allocator, io, T, .n, jobz, n, x, ld, .{ .re = values_r, .im = values_i }, &none, 1, vr, ldvr, null));
                     if (vectors) |v| unpackPairs(v, values_i, vr);
                 } else {
                     const w = try allocator.alloc(Cx, n);
                     defer allocator.free(w);
-                    try converged(lapack.geev(allocator, io, T, .n, jobz, ni, x.ptr, ld, w.ptr, &none, 1, vr.ptr, ldvr, null));
+                    try converged(lapack.geev(allocator, io, T, .n, jobz, n, x, ld, w, &none, 1, vr, ldvr, null));
                     for (w, values_r, values_i) |e, *re, *im| {
                         re.* = e.re;
                         im.* = e.im;

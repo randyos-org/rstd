@@ -60,13 +60,13 @@ How the code is structured, and why, is in [`design.md`](../design.md).
   are wrong ([#242](https://github.com/randyos-org/rstd/issues/242), [#243](https://github.com/randyos-org/rstd/issues/243), [#244](https://github.com/randyos-org/rstd/issues/244)); and with `-Drelapack`, `potrf`, `getrf`, `trtri` and
   `lauum` in place of OpenBLAS's.
   From Reference-LAPACK, where no other source has its own: `lange`, `gecon` (which returns
-  `error.EstimateFailed` for the reference's `INFO = 1`), `gebal`, `gebak`, `trexc` and `trsen`
+  `error.EstimateFailed` for the reference's `INFO = 1`), `gebal` (which returns its block `lo..hi`, 0-based, `hi` past the end, as `gebak`, `gehrd`, `orghr` and `hseqr` take it), `gebak`, `trexc` (`ifst`, `ilst` 0-based) and `trsen`
   (`error.SwapRejected` for a swap too ill-conditioned to make) and `gelsy` over faer's `geqp3`;
   and `gelqf`, `orglq`, `ormlq` by libflame's method over faer's reflections.
   And for the matlab port's `inv`, `hess` and `schur` (T123): `getri` (faer's LU inverse);
   `gehrd`, `orghr`/`unghr` and `hseqr` (LAPACK's interfaces over faer's Hessenberg reduction
   and `lahqr`); `trevc3`/`trevc` (every `SIDE` and `HOWMNY`); `gees` (`dgees.f`'s sort, by
-  `trsen`); `laset` and `lapy2`.
+  `trsen`; it returns `sdim`); `laset` and `lapy2`.
 
 ### Targets
 

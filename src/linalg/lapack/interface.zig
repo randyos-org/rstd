@@ -67,6 +67,17 @@ pub fn takesAdjoint(comptime T: type, trans: types.Trans) TransError!void {
     }
 }
 
+/// A NaN in `A`.
+pub const NanError = error{NanInA};
+
+/// A block `lo..hi` of rows and columns that is reversed or past `n`.
+pub const BlockError = error{BlockOutOfRange};
+
+/// `lo..hi` (0-based, `hi` past its end) lies within the order `n` matrix.
+pub fn blockIn(lo: usize, hi: usize, n: usize) BlockError!void {
+    if (lo > hi or hi > n) return error.BlockOutOfRange;
+}
+
 /// `ipiv` holds `n` pivots, each a row of the order `n` matrix.
 pub fn pivotsIn(ipiv: []const usize, n: usize) (strided.SliceError || PivotError)!void {
     if (ipiv.len < n) return error.SliceTooShort;

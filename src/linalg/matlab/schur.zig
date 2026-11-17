@@ -42,8 +42,7 @@ pub fn hess(allocator: Allocator, io: Io, a: CxMat) HessError!HessResult {
     errdefer h.deinit(allocator);
     const p = try a.clone(allocator);
     errdefer p.deinit(allocator);
-    const ni: isize = @intCast(n);
-    const ld: isize = @intCast(@max(1, n));
+    const ld = @max(1, n);
     switch (a.isReal()) {
         inline else => |real| {
             const T = if (real) f64 else Cx;
@@ -52,9 +51,9 @@ pub fn hess(allocator: Allocator, io: Io, a: CxMat) HessError!HessResult {
             const tau = try allocator.alloc(T, n -| 1);
             defer allocator.free(tau);
             // the arguments come from `a`
-            lapack.gehrd(allocator, io, T, ni, 1, ni, x.ptr, ld, tau.ptr) catch |e| return ops.narrow(HessError, e);
+            lapack.gehrd(allocator, io, T, n, 0, n, x, ld, tau) catch |e| return ops.narrow(HessError, e);
             h.fromPacked(T, x);
-            lapack.orghr(allocator, io, T, ni, 1, ni, x.ptr, ld, tau.ptr) catch |e| return ops.narrow(HessError, e);
+            lapack.orghr(allocator, io, T, n, 0, n, x, ld, tau) catch |e| return ops.narrow(HessError, e);
             p.fromPacked(T, x);
         },
     }
@@ -90,16 +89,14 @@ pub fn schur(allocator: Allocator, io: Io, a: CxMat) SchurError!SchurResult {
     errdefer t.deinit(allocator);
     const u = try a.clone(allocator);
     errdefer u.deinit(allocator);
-    const ni: isize = @intCast(n);
-    const ld: isize = @intCast(@max(1, n));
+    const ld = @max(1, n);
     const x = try a.toPacked(Cx, allocator);
     defer allocator.free(x);
     const vs = try allocator.alloc(Cx, n * n);
     defer allocator.free(vs);
     const w = try allocator.alloc(Cx, n);
     defer allocator.free(w);
-    var sdim: isize = 0;
-    try converged(lapack.gees(allocator, io, Cx, .v, null, ni, x.ptr, ld, &sdim, w.ptr, vs.ptr, ld, null));
+    _ = try converged(lapack.gees(allocator, io, Cx, .v, null, n, x, ld, w, vs, ld, null));
     t.fromPacked(Cx, x);
     u.fromPacked(Cx, vs);
     // `zgees` leaves `T` triangular; zero what it does not write

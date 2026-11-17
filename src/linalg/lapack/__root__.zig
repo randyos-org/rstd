@@ -44,8 +44,8 @@ pub const Diag = types.Diag;
 pub const Side = types.Side;
 
 // Each `...Error` is its routine's bad arguments (the LU, triangular,
-// Cholesky and symmetric-indefinite routines' by plain names, issues #313
-// and #314; the rest in the reference's `xerbla` order, until their own issues), `error.OutOfMemory` and `error.Canceled`
+// Cholesky, symmetric-indefinite, QR and eigenvalue routines' by plain
+// names, issues #313 to #316; the rest in the reference's `xerbla` order, until their own issues), `error.OutOfMemory` and `error.Canceled`
 // where it can meet them, and the failures its doc names.
 /// `potrf`: `error.NotPositiveDefinite`.
 pub const PotrfError = cholesky.PotrfError;
@@ -142,27 +142,34 @@ pub const heevd = evd.syevd;
 pub const syev = evd.syev;
 pub const heev = evd.syev;
 
-/// `geev`: a NaN in `A` is `error.InvalidA`; `error.NoConvergence` (also for
+/// `geev`: a NaN in `A` is `error.NanInA`; `error.NoConvergence` (also for
 /// an infinity in `A`), the count of eigenvalues not found in the last
 /// argument.
 pub const GeevError = evd.GeevError;
 /// `geev`'s eigenvalues: `.{ .re = wr, .im = wi }` real, `w` complex.
 pub const Eigenvalues = evd.Eigenvalues;
-/// `hseqr`: `error.NoConvergence`.
+/// `hseqr`: its block `lo..hi` 0-based, `hi` past the end, as `gebal`
+/// returns it; `error.NoConvergence`.
 pub const HseqrError = evd.HseqrError;
 pub const HseqrJob = evd.HseqrJob;
 pub const Compz = evd.Compz;
-/// `gees`: a NaN in `A` is `error.InvalidA`; `error.NoConvergence`,
-/// `error.SelectChanged`, `error.SwapRejected`.
+/// `gees`: returns `sdim`; a NaN in `A` is `error.NanInA`;
+/// `error.NoConvergence`, `error.SelectChanged`, `error.SwapRejected`.
 pub const GeesError = evd.GeesError;
 pub const GeesSelect = evd.GeesSelect;
+/// `trevc3`: returns the columns used (the reference's `m`).
 pub const Trevc3Error = trevc_vectors.Trevc3Error;
 pub const TrevcSide = trevc_vectors.Side;
 pub const Howmny = trevc_vectors.Howmny;
 /// `gebal`'s and `gebak`'s `JOB`.
 pub const BalanceJob = balance.BalanceJob;
-/// `gebal`: a NaN in `A` is `error.InvalidA`.
+/// `gebal`'s result: the block `lo..hi` (0-based, `hi` past the end)
+/// outside which `A` is triangular.
+pub const BalanceBlock = balance.Block;
+/// `gebal`: returns its block; a NaN in `A` is `error.NanInA`. `scale`'s
+/// swapped rows are 0-based.
 pub const GebalError = balance.GebalError;
+/// `gebak`: a swapped row in `scale` past `V`'s is `error.PivotOutOfRange`.
 pub const GebakError = balance.GebakError;
 /// `gehrd`, `orghr`.
 pub const GehrdError = hessenberg.GehrdError;
@@ -171,11 +178,13 @@ pub const OrghrError = hessenberg.OrghrError;
 pub const Compq = schur.Compq;
 /// `trsen`'s `JOB`.
 pub const TrsenJob = schur.TrsenJob;
-/// `trexc`: `error.SwapRejected`, real only: a swap too ill-conditioned to
-/// make.
+/// `trexc`: `ifst` and `ilst` 0-based; `error.SwapRejected`, real only: a
+/// swap too ill-conditioned to make.
 pub const TrexcError = schur.TrexcError;
-/// `trsen`: `error.SwapRejected`.
+/// `trsen`: returns `Reordered`; `error.SwapRejected`.
 pub const TrsenError = schur.TrsenError;
+/// `trsen`'s result: the cluster's size, and `s` and `sep` as `job` asks.
+pub const Reordered = schur.Reordered;
 /// `trsyl`: `error.Perturbed` for close eigenvalues, `C` and `scale` written.
 pub const TrsylError = trsyl_solve.TrsylError;
 /// `tgsyl`: `error.Perturbed` for close eigenvalues, `C`, `F`, `scale` and
