@@ -160,3 +160,6 @@ pub fn workers(size_max: u64) u32 {
     const w = threading.workers(&blas.config, std.math.cast(u32, size_max) orelse std.math.maxInt(u32));
     return @min(w, threading.chunks_max);
 }
+
+/// `JOBZ`, `JOBVL`, `JOBVR`, `JOBVS`: vectors (`v`) or not (`n`).
+pub const Jobz = enum { n, v };

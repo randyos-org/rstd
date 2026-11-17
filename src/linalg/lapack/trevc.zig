@@ -482,7 +482,7 @@ fn pairAt(comptime T: type, t: Mat(T), j: usize) bool {
 const testing = std.testing;
 const check = @import("../blas/_test/check.zig");
 const types = @import("../blas/types.zig");
-const evd = @import("evd.zig");
+const schur = @import("schur.zig");
 const hessenberg = @import("hessenberg.zig");
 
 /// `‖A v - λ v‖` (right) or `‖vᴴ A - λ vᴴ‖` (left) for column `j` of `v`
@@ -533,8 +533,8 @@ test "trevc3: A's eigenvectors after gehrd, orghr and hseqr, back-transformed an
             defer al.free(ev);
             const cw = try al.alloc(T, n);
             defer al.free(cw);
-            const w: evd.Eigenvalues(T) = if (comptime types.isComplex(T)) cw else .{ .re = ev[0..n], .im = ev[n..] };
-            try evd.hseqr(check.io, T, .s, .v, n, 0, n, t, n, w, z, n, null);
+            const w: schur.Eigenvalues(T) = if (comptime types.isComplex(T)) cw else .{ .re = ev[0..n], .im = ev[n..] };
+            try schur.hseqr(check.io, T, .s, .v, n, 0, n, t, n, w, z, n, null);
             const vl = try al.dupe(T, z);
             defer al.free(vl);
             const vr = try al.dupe(T, z);
