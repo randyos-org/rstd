@@ -740,7 +740,7 @@ fn geconCase(comptime T: type, al: Allocator, n: usize, grade: Float(T), seed: u
         const s: F = @floatCast(std.math.pow(f64, @floatCast(grade), @floatFromInt(i)));
         for (0..n) |j| a[i + j * n] = ops.mulReal(T, a[i + j * n], s);
     }
-    const ipiv = try al.alloc(isize, n);
+    const ipiv = try al.alloc(usize, n);
     defer al.free(ipiv);
     const inv = try al.alloc(T, n * n);
     defer al.free(inv);

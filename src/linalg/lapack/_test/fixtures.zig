@@ -148,7 +148,7 @@ pub fn LuProblem(comptime T: type) type {
         lda: usize,
         a: []T,
         aw: []W(T),
-        ipiv: []isize,
+        ipiv: []usize,
 
         const Self = @This();
 
@@ -158,7 +158,7 @@ pub fn LuProblem(comptime T: type) type {
             errdefer al.free(a);
             const aw = try al.alloc(W(T), m * n);
             errdefer al.free(aw);
-            const ipiv = try al.alloc(isize, @max(1, @min(m, n)));
+            const ipiv = try al.alloc(usize, @max(1, @min(m, n)));
             const v = try al.alloc(T, m * n);
             defer al.free(v);
             check.fill(T, v, seed);
@@ -174,7 +174,7 @@ pub fn LuProblem(comptime T: type) type {
             for (0..self.n) |j| for (0..self.m) |i| {
                 self.a[i + j * self.lda] = toT(T, self.aw[i + j * self.m]);
             };
-            @memset(self.ipiv, -1);
+            @memset(self.ipiv, std.math.maxInt(usize));
         }
 
         pub fn deinit(self: *Self, al: Allocator) void {
@@ -199,7 +199,7 @@ pub fn LuProblem(comptime T: type) type {
         pub fn permuted(self: *const Self, al: Allocator) ![]W(T) {
             const pa = try al.dupe(W(T), self.aw);
             for (0..@min(self.m, self.n)) |k| {
-                const p: usize = @intCast(self.ipiv[k] - 1);
+                const p = self.ipiv[k];
                 for (0..self.n) |j| std.mem.swap(W(T), &pa[k + j * self.m], &pa[p + j * self.m]);
             }
             return pa;
@@ -214,7 +214,7 @@ pub fn LuProblem(comptime T: type) type {
             const mn = @min(m, n);
             const F = Float(T);
             const eps: f128 = std.math.floatEps(F);
-            for (self.ipiv[0..mn], 0..) |p, k| if (p < k + 1 or p > m) {
+            for (self.ipiv[0..mn], 0..) |p, k| if (p < k or p >= m) {
                 check.say("getrf {d}x{d}: ipiv[{d}] = {d}\n", .{ m, n, k, p });
                 return error.TestUnexpectedResult;
             };

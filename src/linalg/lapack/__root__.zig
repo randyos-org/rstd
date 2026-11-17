@@ -62,7 +62,7 @@ pub const pbtrf = relapack.pbtrf;
 
 /// `getrf`: `error.Singular`.
 pub const GetrfError = lu.GetrfError;
-/// `getrs`: a pivot outside `1..n` is `error.InvalidIpiv`.
+/// `getrs`: a pivot outside `0..n - 1` (0-based) is `error.InvalidIpiv`.
 pub const GetrsError = lu.GetrsError;
 /// `gesv`: `error.Singular`.
 pub const GesvError = lu.GesvError;
@@ -292,8 +292,9 @@ test "lapack: ReLAPACK's routines through their public names, 2 x 2 smoke tests"
     try near(&.{ 2, 1, 2 }, &.{ ab[1], ab[2], ab[3] });
     // gbtrf: [1 2; 3 4] (kl = ku = 1, ldab 4) swaps its rows: U = [3 4; 0 2/3]
     var gb = [_]f64{ 0, 0, 1, 3, 0, 2, 4, 0 };
-    try gbtrf(al, io, f64, 2, 2, 1, 1, &gb, 4, &ipiv, null);
-    try testing.expectEqualSlices(isize, &.{ 2, 2 }, &ipiv);
+    var gpiv: [2]usize = undefined;
+    try gbtrf(al, io, f64, 2, 2, 1, 1, &gb, 4, &gpiv, null);
+    try testing.expectEqualSlices(usize, &.{ 1, 1 }, &gpiv);
     try near(&.{ 3, 1.0 / 3.0, 4, 2.0 / 3.0 }, &.{ gb[2], gb[3], gb[5], gb[6] });
     // trsyl: 2 x + x 3 = 10
     var scale: f64 = 0;

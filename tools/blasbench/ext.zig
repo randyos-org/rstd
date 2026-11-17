@@ -294,8 +294,11 @@ fn Work(comptime p: Prec) type {
         rwork: []align(64) F,
         ipiv: []c_int,
         ipiv0: []c_int,
-        rpiv: []isize,
-        rpiv0: []isize,
+        /// rstd's pivots, 0-based (issue #398)
+        rpiv: []usize,
+        rpiv0: []usize,
+        /// `sytrf`'s, signed and 1-based until Z13 (#314)
+        spiv: []isize,
         iwork: []c_int,
         info: c_int = 0,
 
@@ -317,13 +320,14 @@ fn Work(comptime p: Prec) type {
             w.iwork = try gpa.alloc(c_int, if (big) liwork(n) else 0);
             w.ipiv = try gpa.alloc(c_int, n);
             w.ipiv0 = try gpa.alloc(c_int, n);
-            w.rpiv = try gpa.alloc(isize, n);
-            w.rpiv0 = try gpa.alloc(isize, n);
+            w.rpiv = try gpa.alloc(usize, n);
+            w.rpiv0 = try gpa.alloc(usize, n);
+            w.spiv = try gpa.alloc(isize, n);
             return w;
         }
 
         fn deinit(w: *W, gpa: std.mem.Allocator) void {
-            inline for (.{ "a", "a0", "orig", "b", "b0", "c", "c0", "s", "u", "vt", "work", "rwork", "iwork", "ipiv", "ipiv0", "rpiv", "rpiv0" }) |f| gpa.free(@field(w, f));
+            inline for (.{ "a", "a0", "orig", "b", "b0", "c", "c0", "s", "u", "vt", "work", "rwork", "iwork", "ipiv", "ipiv0", "rpiv", "rpiv0", "spiv" }) |f| gpa.free(@field(w, f));
         }
 
         /// Workspace for every routine's blocked path: past each one's
@@ -423,9 +427,9 @@ fn Work(comptime p: Prec) type {
                 for (0..n) |i| w.orig[(i + i * n) * cs] += two_n;
             }
             @memcpy(w.a0[0..la], w.orig[0..la]);
-            for (w.ipiv0[0..n], w.rpiv0[0..n], 1..) |*d, *e, k| {
-                d.* = @intCast(k);
-                e.* = @intCast(k);
+            for (w.ipiv0[0..n], w.rpiv0[0..n], 0..) |*d, *e, k| {
+                d.* = @intCast(k + 1);
+                e.* = k;
             }
             const prep = comptime decl(E, "prep", Prep.none);
             if (prep != .none) try prepare(gpa, p, w, prep);
@@ -1002,7 +1006,8 @@ const Getrf = struct {
     }
     pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
         try lapack.getrf(rstd_alloc, libs.rstd_io, Num(p), w.in(), w.in(), cast(p, w.a.ptr), w.in(), w.rpiv.ptr, null);
-        for (w.ipiv[0..w.n], w.rpiv[0..w.n]) |*d, s| d.* = @intCast(s);
+        // the libraries' 1-based form, which `residual` reads
+        for (w.ipiv[0..w.n], w.rpiv[0..w.n]) |*d, s| d.* = @intCast(s + 1);
     }
     /// `L U` against `P A`.
     pub fn residual(comptime p: Prec, w: *const Work(p), i: usize, j: usize) ?[2]f64 {
@@ -1304,7 +1309,7 @@ const Sytrf = struct {
     }
     pub const has_rstd = @hasDecl(lapack, "sytrf");
     pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
-        try lapack.sytrf(rstd_alloc, libs.rstd_io, Num(p), .u, w.in(), cast(p, w.a.ptr), w.in(), w.rpiv.ptr, null);
+        try lapack.sytrf(rstd_alloc, libs.rstd_io, Num(p), .u, w.in(), cast(p, w.a.ptr), w.in(), w.spiv.ptr, null);
     }
 };
 

@@ -142,7 +142,7 @@ test "relapack trtri: a zero first diagonal element is singular at 1, nothing wr
 test "relapack potrf, getrf, trtri, lauum: the first bad argument, nothing read when empty" {
     const al = testing.allocator;
     var a: [4]f64 = @splat(lcheck.poisoned(f64));
-    var ipiv: [2]isize = @splat(-1);
+    var ipiv: [2]usize = @splat(std.math.maxInt(usize));
     try testing.expectError(error.InvalidUplo, relapack.potrf(al, check.io, f64, .v, 2, &a, 2, null));
     try testing.expectError(error.InvalidN, relapack.potrf(al, check.io, f64, .u, -1, &a, 2, null));
     try testing.expectError(error.InvalidLda, relapack.potrf(al, check.io, f64, .u, 2, &a, 1, null));
@@ -156,7 +156,7 @@ test "relapack potrf, getrf, trtri, lauum: the first bad argument, nothing read 
     try relapack.trtri(al, check.io, f64, .l, .n, 0, &a, 1, null);
     try relapack.lauum(al, check.io, f64, .l, 0, &a, 1);
     for (a) |x| try testing.expect(std.math.isNan(x));
-    try testing.expectEqual(-1, ipiv[0]);
+    try testing.expectEqual(std.math.maxInt(usize), ipiv[0]);
 }
 
 test "with -Drelapack, ReLAPACK's potrf, getrf, trtri and lauum agree with OpenBLAS's" {
@@ -192,11 +192,11 @@ test "with -Drelapack, ReLAPACK's potrf, getrf, trtri and lauum agree with OpenB
         defer g.deinit(al);
         const y = try al.dupe(T, g.a);
         defer al.free(y);
-        const ip = try al.alloc(isize, n);
+        const ip = try al.alloc(usize, n);
         defer al.free(ip);
         try root.getrf(al, io, T, n, n, y.ptr, @intCast(g.lda), ip.ptr, null);
         try lu.getrf(al, io, T, n, n, g.a.ptr, @intCast(g.lda), g.ipiv.ptr, null);
-        try testing.expectEqualSlices(isize, g.ipiv, ip);
+        try testing.expectEqualSlices(usize, g.ipiv, ip);
         try fixtures.expectAgree(T, "getrf", n, y, g.a);
     };
 }
@@ -211,7 +211,7 @@ const Big = struct {
 
     fn getrfRun(self: Big, io: Io, out: []f64) anyerror!void {
         @memcpy(out, self.a);
-        var ipiv: [lcheck.big_n]isize = undefined;
+        var ipiv: [lcheck.big_n]usize = undefined;
         try relapack.getrf(testing.allocator, io, f64, lcheck.big_n, lcheck.big_n, out.ptr, lcheck.big_n, &ipiv, null);
     }
 };

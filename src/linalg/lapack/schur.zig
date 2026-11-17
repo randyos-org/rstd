@@ -821,7 +821,7 @@ test "lapack trsen: the selected cluster leads, s against the Kronecker solve, s
             const kf = try al.alloc(T, nn * nn);
             defer al.free(kf);
             @memcpy(kf, kk);
-            const ipiv = try al.alloc(isize, nn);
+            const ipiv = try al.alloc(usize, nn);
             defer al.free(ipiv);
             const nni: isize = @intCast(nn);
             try lu.gesv(al, check.io, T, nni, 1, kf.ptr, nni, ipiv.ptr, x.ptr, nni, null);

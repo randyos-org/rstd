@@ -32,7 +32,7 @@ pub const GbtrfError = error{ InvalidM, InvalidN, InvalidKl, InvalidKu, InvalidL
 /// recursion gives a wrong factor, as upstream's full recursion does on most
 /// shapes (issue #244); so `gbtrf` is `gbtf2` throughout. `allocator` and
 /// `io` are unused, kept for the blocked form to come.
-pub fn gbtrf(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize, kl: isize, ku: isize, ab: [*]T, ldab: isize, ipiv: [*]isize, pivot: ?*usize) GbtrfError!void {
+pub fn gbtrf(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize, kl: isize, ku: isize, ab: [*]T, ldab: isize, ipiv: [*]usize, pivot: ?*usize) GbtrfError!void {
     comptime ops.requireFloat(T, "gbtrf");
     _ = allocator;
     _ = io;
@@ -53,7 +53,7 @@ pub fn gbtrf(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize,
 /// columns the step reaches (`JU`), the multipliers times the pivot's
 /// reciprocal, and `xGER` (`xGERU`) in the reference's order, skipping a
 /// zero `y(j)`. The first zero pivot (1-based), or 0.
-fn gbtf2(comptime T: type, m: usize, n: usize, kl: usize, ku: usize, ab: [*]T, ldab: usize, ipiv: [*]isize) usize {
+fn gbtf2(comptime T: type, m: usize, n: usize, kl: usize, ku: usize, ab: [*]T, ldab: usize, ipiv: [*]usize) usize {
     const F = Float(T);
     const kv = ku + kl;
     const zero = scalar(T, 0);
@@ -95,7 +95,7 @@ fn gbtf2(comptime T: type, m: usize, n: usize, kl: usize, ku: usize, ab: [*]T, l
                 jp = i;
             }
         }
-        ipiv[j] = @intCast(jp + j + 1);
+        ipiv[j] = jp + j;
         const piv = at(ab, ldab, kv + jp, j).*;
         if (ops.isZero(T, piv)) {
             if (info == 0) info = j + 1;
@@ -160,7 +160,7 @@ fn gbCase(comptime T: type, al: Allocator, m: usize, n: usize, kl: usize, ku: us
     for (0..n) |j| for (0..kl) |r| {
         ab[r + j * ldab] = lcheck.poisoned(T);
     };
-    const ipiv = try al.alloc(isize, @max(1, @min(m, n)));
+    const ipiv = try al.alloc(usize, @max(1, @min(m, n)));
     defer al.free(ipiv);
     var piv: usize = 0;
     gbtrf(al, check.io, T, @intCast(m), @intCast(n), @intCast(kl), @intCast(ku), ab.ptr, @intCast(ldab), ipiv.ptr, &piv) catch |e| {
@@ -195,7 +195,7 @@ fn gbCase(comptime T: type, al: Allocator, m: usize, n: usize, kl: usize, ku: us
                 g[s + r + j * m] += reference.abs1(l) * g[s + j * m];
             }
         }
-        const p: usize = @intCast(ipiv[s] - 1);
+        const p = ipiv[s];
         if (p != s) for (0..n) |j| {
             std.mem.swap(W(T), &x[s + j * m], &x[p + j * m]);
             std.mem.swap(f128, &g[s + j * m], &g[p + j * m]);
@@ -240,7 +240,7 @@ test "gbtrf: a zero column is singular there, the factorization completed" {
 test "gbtrf: the first bad argument, nothing read when empty" {
     const al = testing.allocator;
     var ab: [8]f64 = @splat(lcheck.poisoned(f64));
-    var ipiv: [2]isize = @splat(-1);
+    var ipiv: [2]usize = @splat(std.math.maxInt(usize));
     try testing.expectError(error.InvalidM, gbtrf(al, check.io, f64, -1, 2, 0, 0, &ab, 1, &ipiv, null));
     try testing.expectError(error.InvalidN, gbtrf(al, check.io, f64, 2, -1, 0, 0, &ab, 1, &ipiv, null));
     try testing.expectError(error.InvalidKl, gbtrf(al, check.io, f64, 2, 2, -1, 0, &ab, 1, &ipiv, null));
@@ -248,5 +248,5 @@ test "gbtrf: the first bad argument, nothing read when empty" {
     try testing.expectError(error.InvalidLdab, gbtrf(al, check.io, f64, 2, 2, 1, 1, &ab, 3, &ipiv, null));
     try gbtrf(al, check.io, f64, 0, 2, 1, 1, &ab, 4, &ipiv, null);
     for (ab) |x| try testing.expect(std.math.isNan(x));
-    try testing.expectEqual(-1, ipiv[0]);
+    try testing.expectEqual(std.math.maxInt(usize), ipiv[0]);
 }
