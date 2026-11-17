@@ -1,7 +1,6 @@
-//! Descriptive statistics over slices (rstd's design.md, "Statistics"). The
-//! moments and `Running` are done; the rest are stubs whose bodies return
-//! `error.NotImplemented`, which leaves each error set when its body lands,
-//! and their tests skip until then.
+//! Descriptive statistics over slices (rstd's design.md, "Statistics"): the
+//! moments through the BLAS, `Running`, the median and quantiles, and
+//! histograms.
 //!
 //! NaN propagates, as in MATLAB. `cov` and `corrcoef` come with the public
 //! layer's views, the forms along a dimension with N-d arrays.
@@ -287,31 +286,75 @@ pub fn Histogram(comptime F: type) type {
     };
 }
 
-pub const HistogramError = error{ EmptyInput, OutOfMemory, ZeroBins, EdgesNotSorted, NotImplemented };
-pub const HistogramIntoError = error{ ZeroBins, EdgesNotSorted, SliceTooShort, NotImplemented };
+pub const HistogramError = error{ EmptyInput, OutOfMemory, ZeroBins, EdgesNotSorted };
+pub const HistogramIntoError = error{ ZeroBins, EdgesNotSorted, SliceTooShort };
 
-/// `.count` bins need a nonempty `xs` for their range.
+/// `.count` bins need a value in `xs` that is not NaN, for their range: its
+/// least to its greatest, widened by 0.5 each way when they are equal, as
+/// NumPy's.
 pub fn histogram(allocator: Allocator, comptime F: type, xs: []const F, bins: Bins(F)) HistogramError!Histogram(F) {
     comptime checkFloat(F);
-    _ = allocator;
-    switch (bins) {
-        .count => |n| {
+    const edges: []F = switch (bins) {
+        .count => |n| blk: {
             if (n == 0) return error.ZeroBins;
-            if (xs.len == 0) return error.EmptyInput;
+            var lo = std.math.inf(F);
+            var hi = -std.math.inf(F);
+            for (xs) |x| if (!std.math.isNan(x)) {
+                lo = @min(lo, x);
+                hi = @max(hi, x);
+            };
+            if (lo > hi) return error.EmptyInput;
+            if (lo == hi) {
+                lo -= 0.5;
+                hi += 0.5;
+            }
+            const e = try allocator.alloc(F, n + 1);
+            // NumPy's `linspace`: `lo + i step`, the last edge `hi` exactly
+            const step = (hi - lo) / @as(F, @floatFromInt(n));
+            for (e[0..n], 0..) |*v, i| v.* = lo + @as(F, @floatFromInt(i)) * step;
+            e[n] = hi;
+            break :blk e;
         },
-        .edges => |e| if (e.len < 2) return error.ZeroBins,
-    }
-    return error.NotImplemented;
+        .edges => |given| blk: {
+            if (given.len < 2) return error.ZeroBins;
+            try sortedEdges(F, given);
+            break :blk try allocator.dupe(F, given);
+        },
+    };
+    errdefer allocator.free(edges);
+    const counts = try allocator.alloc(u64, edges.len - 1);
+    @memset(counts, 0);
+    histogramInto(F, counts, xs, edges) catch |e| switch (e) {
+        // checked above
+        error.ZeroBins, error.EdgesNotSorted, error.SliceTooShort => unreachable,
+    };
+    return .{ .counts = counts, .edges = edges };
 }
 
 /// Adds to `counts[0 .. edges.len - 1]`; values outside the edges, and NaNs,
 /// are not counted.
 pub fn histogramInto(comptime F: type, counts: []u64, xs: []const F, edges: []const F) HistogramIntoError!void {
     comptime checkFloat(F);
-    _ = xs;
     if (edges.len < 2) return error.ZeroBins;
     if (counts.len < edges.len - 1) return error.SliceTooShort;
-    return error.NotImplemented;
+    try sortedEdges(F, edges);
+    const last = edges.len - 1;
+    for (xs) |x| {
+        if (!(x >= edges[0] and x <= edges[last])) continue;
+        // the last `k` with `edges[k] <= x`, the right edge in the last bin
+        var lo: usize = 0;
+        var hi: usize = last;
+        while (hi - lo > 1) {
+            const mid = lo + (hi - lo) / 2;
+            if (edges[mid] <= x) lo = mid else hi = mid;
+        }
+        counts[lo] += 1;
+    }
+}
+
+/// Edges ascend (equal neighbors allowed, as NumPy's), and none is NaN.
+fn sortedEdges(comptime F: type, edges: []const F) error{EdgesNotSorted}!void {
+    for (edges[0 .. edges.len - 1], edges[1..]) |a, b| if (!(a <= b)) return error.EdgesNotSorted;
 }
 
 fn checkFloat(comptime F: type) void {
@@ -322,15 +365,10 @@ fn checkFloat(comptime F: type) void {
 
 const testing = std.testing;
 
-/// A stub's tests skip until its body lands.
-fn skip(err: anyerror) anyerror {
-    return if (err == error.NotImplemented) error.SkipZigTest else err;
-}
-
 const sample = [_]f64{ 2, 4, 4, 4, 5, 5, 7, 9 };
 
 test "mean, variance, stdDev" {
-    const m = mean(testing.io, f64, &sample) catch |e| return skip(e);
+    const m = try mean(testing.io, f64, &sample);
     try testing.expectEqual(5, m);
     try testing.expectEqual(4, try variance(testing.io, f64, &sample, .population));
     try testing.expectApproxEqRel(32.0 / 7.0, try variance(testing.io, f64, &sample, .sample), 1e-15);
@@ -369,7 +407,7 @@ test "Running" {
 }
 
 test "median" {
-    const odd = median(testing.allocator, f64, &.{ 3, 1, 2 }) catch |e| return skip(e);
+    const odd = try median(testing.allocator, f64, &.{ 3, 1, 2 });
     try testing.expectEqual(2, odd);
     try testing.expectEqual(2.5, try median(testing.allocator, f64, &.{ 4, 1, 3, 2 }));
     try testing.expect(std.math.isNan(try median(testing.allocator, f64, &.{ 1, std.math.nan(f64), 2 })));
@@ -380,7 +418,7 @@ test "quantile methods" {
     const xs = [_]f64{ 4, 2, 1, 3 };
     const p = [_]f64{0.25};
     var out: [1]f64 = undefined;
-    quantileInto(testing.allocator, f64, &out, &xs, &p, .{}) catch |e| return skip(e);
+    try quantileInto(testing.allocator, f64, &out, &xs, &p, .{});
     try testing.expectApproxEqAbs(1.75, out[0], 1e-15);
     try quantileInto(testing.allocator, f64, &out, &xs, &p, .{ .method = .hazen });
     try testing.expectApproxEqAbs(1.5, out[0], 1e-15);
@@ -422,7 +460,7 @@ test "quantile: all nine methods on [1, 2, 3, 4], NumPy's values" {
 test "histogram" {
     const xs = [_]f64{ 0, 0.5, 1, 1.5, 2 };
     var counts: [2]u64 = @splat(0);
-    histogramInto(f64, &counts, &xs, &.{ 0, 1, 2 }) catch |e| return skip(e);
+    try histogramInto(f64, &counts, &xs, &.{ 0, 1, 2 });
     try testing.expectEqualSlices(u64, &.{ 2, 3 }, &counts); // 2 falls in the last bin
 
     var h = try histogram(testing.allocator, f64, &xs, .{ .count = 4 });
@@ -430,4 +468,18 @@ test "histogram" {
     try testing.expectEqualSlices(u64, &.{ 1, 1, 1, 2 }, h.counts);
     try testing.expectEqualSlices(f64, &.{ 0, 0.5, 1, 1.5, 2 }, h.edges);
     try testing.expectError(error.EdgesNotSorted, histogramInto(f64, &counts, &xs, &.{ 1, 0, 2 }));
+}
+
+test "histogram: equal values, NaN and out-of-range values, edges given" {
+    const al = testing.allocator;
+    var one = try histogram(al, f64, &.{ 3, 3, std.math.nan(f64) }, .{ .count = 2 });
+    defer one.deinit(al);
+    try testing.expectEqualSlices(f64, &.{ 2.5, 3, 3.5 }, one.edges);
+    try testing.expectEqualSlices(u64, &.{ 0, 2 }, one.counts);
+    var given = try histogram(al, f32, &.{ -1, 0, 0.5, 1, 9 }, .{ .edges = &.{ 0, 1 } });
+    defer given.deinit(al);
+    try testing.expectEqualSlices(u64, &.{3}, given.counts);
+    try testing.expectError(error.EmptyInput, histogram(al, f64, &.{std.math.nan(f64)}, .{ .count = 3 }));
+    try testing.expectError(error.ZeroBins, histogram(al, f64, &.{1}, .{ .count = 0 }));
+    try testing.expectError(error.EdgesNotSorted, histogram(al, f64, &.{1}, .{ .edges = &.{ 0, std.math.nan(f64) } }));
 }
