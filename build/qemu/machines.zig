@@ -773,7 +773,7 @@ const base_machines = [_]Machine{
         // kernels and their debug info, is about 700 MB, and `/` (where tests
         // write files) gets half the memory
         .memory = "3G",
-        .tsan_memory = "8G",
+        .tsan_memory = "12G",
         .boot = .{ .linux = .{ .dep = "debian_netboot_amd64", .kernel = "debian-installer/amd64/linux", .console = "ttyS0" } },
     },
     .{
