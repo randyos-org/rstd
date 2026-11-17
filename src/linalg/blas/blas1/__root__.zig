@@ -19,8 +19,11 @@ pub const scal = @import("scal/__root__.zig");
 pub const sum = @import("sum/__root__.zig");
 pub const swap = @import("swap/__root__.zig");
 
-/// The BLAS calls themselves (`copy`, `dot`, `nrm2`, ...), over the kernels.
+/// The reference-shaped core of the BLAS calls (`copy`, `dot`, `nrm2`, ...),
+/// over the kernels.
 pub const interface = @import("interface.zig");
+/// The public routines, on strided views, over `interface`.
+pub const api = @import("api.zig");
 
 /// The bfloat16 conversions live with the extensions; `sbdot` uses them.
 const bf16 = @import("../ext/bf16/__root__.zig");

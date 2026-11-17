@@ -397,6 +397,25 @@ pub fn covers(comptime T: type) bool {
     return available and (T == f32 or T == f64 or T == Complex32 or T == Complex64);
 }
 
+/// Whether this x86_64 process runs under Rosetta 2 on an Apple Silicon Mac,
+/// read once by `start` (`sysctl.proc_translated`): its quirks (design.md)
+/// keep `sdot`, `dsdot`, `snrm2`, `scnrm2` and `gemm` with a non-finite `A`
+/// on rstd's kernels, which native x86_64 sends to Accelerate (issue #388).
+var translated = false;
+
+/// Whether Rosetta's quirks apply: an x86_64 build under Rosetta 2.
+pub fn rosetta() bool {
+    return x86_64 and translated;
+}
+
+fn readTranslated() bool {
+    if (comptime !x86_64) return false;
+    var v: c_int = 0;
+    var len: usize = @sizeOf(c_int);
+    if (std.c.sysctlbyname("sysctl.proc_translated", &v, &len, null, 0) != 0) return false;
+    return v == 1;
+}
+
 /// The framework, loaded once by `start` and never unloaded.
 pub var loaded: ?AppleAccelerate = null;
 var tried = false;
@@ -415,6 +434,7 @@ pub fn start(enable: bool) void {
     if (comptime !available) return;
     if (enable and !tried) {
         tried = true;
+        translated = readTranslated();
         loaded = load(.{});
     }
     on.store(enable and loaded != null, .release);
@@ -810,7 +830,8 @@ pub inline fn scal(io: Io, comptime T: type, n: isize, alpha: T, x: [*]T, incx: 
     if (comptime !covers(T)) return false else {
         if (!sent(.scal, T, incx == 1)) return false;
         const b = use(T) orelse return false;
-        if (zeroPart(T, alpha)) return false;
+        // arm64 skips a zero part's products; x86_64 zeroes `x` for a zero `alpha`
+        if (zeroPart(T, alpha) and (!x86_64 or isZero(T, alpha))) return false;
         const e: Elementwise(T, .scal) = .{ .b = b, .n = n, .x = x, .incx = incx, .alpha = alpha };
         return e.run(io);
     }
@@ -870,7 +891,7 @@ pub inline fn dot(io: Io, comptime T: type, comptime conj: bool, n: isize, x: [*
     if (comptime !covers(T)) return null else {
         if (!sent(if (conj) .dotc else .dot, T, incx == 1 and incy == 1)) return null;
         const b = use(T) orelse return null;
-        if (comptime T == f32 and x86_64) return null;
+        if (T == f32 and rosetta()) return null;
         const e: Reduction(T, if (conj) .dotc else .dot) = .{ .b = b, .n = n, .x = x, .incx = incx, .y = y, .incy = incy };
         return rounded(T, try e.run(io) orelse return null);
     }
@@ -879,7 +900,7 @@ pub inline fn dot(io: Io, comptime T: type, comptime conj: bool, n: isize, x: [*
 pub inline fn dsdot(io: Io, n: isize, x: [*]f32, incx: isize, y: [*]f32, incy: isize) Io.Cancelable!?f64 {
     if (!sent(.dsdot, f32, incx == 1 and incy == 1)) return null;
     const b = use(f32) orelse return null;
-    if (comptime x86_64) return null;
+    if (rosetta()) return null;
     const e: Reduction(f32, .dsdot) = .{ .b = b, .n = n, .x = x, .incx = incx, .y = y, .incy = incy };
     return e.run(io);
 }
@@ -891,9 +912,10 @@ pub inline fn nrm2(comptime T: type, n: isize, x: [*]T, incx: isize) ?Float(T) {
     if (comptime !covers(T)) return null else {
         if (!sent(.nrm2, T, incx == 1)) return null;
         const b = use(T) orelse return null;
+        if (incx <= 0) return null;
         const f: [*]Float(T) = @ptrCast(x);
         if (comptime Float(T) == f32) {
-            if (comptime x86_64) return null;
+            if (rosetta()) return null;
             const sq = if (comptime !isComplex(T))
                 call("cblas_dsdot", b, &.{span(n, incx)}, .{ n, f, incx, f, incx }) orelse return null
             else if (incx == 1)
@@ -905,7 +927,6 @@ pub inline fn nrm2(comptime T: type, n: isize, x: [*]T, incx: isize) ?Float(T) {
             };
             return @floatCast(@sqrt(sq));
         }
-        if (incx <= 0) return null;
         return call(if (comptime isComplex(T)) "cblas_dznrm2" else "cblas_dnrm2", b, &.{span(n, incx)}, .{ n, x, incx });
     }
 }
@@ -943,7 +964,8 @@ pub inline fn axpy(io: Io, comptime T: type, n: isize, alpha: T, x: [*]T, incx: 
     if (comptime !covers(T)) return false else {
         if (!sent(.axpy, T, incx == 1 and incy == 1)) return false;
         const b = use(T) orelse return false;
-        if (zeroPart(T, alpha)) return false;
+        // arm64 only
+        if (!x86_64 and zeroPart(T, alpha)) return false;
         const e: Elementwise(T, .axpy) = .{ .b = b, .n = n, .x = x, .incx = incx, .y = y, .incy = incy, .alpha = alpha };
         return e.run(io);
     }
@@ -953,8 +975,9 @@ pub inline fn axpby(comptime T: type, n: isize, alpha: T, x: [*]T, incx: isize, 
     if (comptime !covers(T)) return false else {
         if (!sent(.axpby, T, incx == 1 and incy == 1)) return false;
         const b = use(T) orelse return false;
-        if (zeroPart(T, alpha) or zeroPart(T, beta)) return false;
-        if (comptime !isComplex(T)) if (alpha == 0) return false;
+        if (isZero(T, alpha)) return false;
+        // arm64 only
+        if (!x86_64 and (zeroPart(T, alpha) or zeroPart(T, beta))) return false;
         if (incy == 0) return false;
         return call("catlas_" ++ portable.letter(T).? ++ "axpby", b, &.{ span(n, incx), span(n, incy) }, .{ n, scalar(T, &alpha), x, incx, scalar(T, &beta), y, incy }) != null;
     }
@@ -999,7 +1022,8 @@ pub inline fn gemv(io: Io, comptime T: type, trans: types.Trans, m: isize, n: is
         const t = transpose(T, trans) orelse return false;
         const lenx = if (trans.transposed()) m else n;
         const leny = if (trans.transposed()) n else m;
-        if (zeroPart(T, beta) and !isZero(T, beta) and nonFinite(T, leny, y, incy)) return false;
+        // arm64 only
+        if (!x86_64 and zeroPart(T, beta) and !isZero(T, beta) and nonFinite(T, leny, y, incy)) return false;
         const G = Gemv(T);
         if (!fits(G.name, b, &.{ m, n, lda, mag(incx), mag(incy), mat(m, n, lda), span(lenx, incx), span(leny, incy) })) return false;
         const g: G = .{ .b = b, .t = t, .m = m, .n = n, .alpha = alpha, .a = a, .lda = lda, .x = x, .incx = incx, .beta = beta, .y = y, .incy = incy };
@@ -1085,7 +1109,8 @@ pub inline fn tri(comptime T: type, comptime kind: TriKind, ul: types.Uplo, tran
         const b = use(T) orelse return false;
         const u = uplo(ul) orelse return false;
         const t = transpose(T, trans) orelse return false;
-        if (nonFinite(T, n, x, incx)) return false;
+        // real `trmv`'s shows on arm64 only
+        if (!(x86_64 and kind == .trmv and !isComplex(T)) and nonFinite(T, n, x, incx)) return false;
         const name = comptime "cblas_" ++ portable.letter(T).? ++ @tagName(kind);
         return switch (kind) {
             .trmv, .trsv => call(name, b, &.{ mat(n, n, lda), span(n, incx) }, .{ col, u, t, diag(dg), n, a, lda, x, incx }),
@@ -1178,7 +1203,7 @@ pub inline fn gemm(io: Io, comptime T: type, transa: types.Trans, transb: types.
         const b = use(T) orelse return false;
         const ta = transpose(T, transa) orelse return false;
         const tb = transpose(T, transb) orelse return false;
-        if (x86_64 and (if (transa.transposed()) nonFiniteMat(T, k, m, a, lda) else nonFiniteMat(T, m, k, a, lda))) return false;
+        if (rosetta() and (if (transa.transposed()) nonFiniteMat(T, k, m, a, lda) else nonFiniteMat(T, m, k, a, lda))) return false;
         const ea = if (transa.transposed()) mat(k, m, lda) else mat(m, k, lda);
         const eb = if (transb.transposed()) mat(n, k, ldb) else mat(k, n, ldb);
         const G = Gemm(T);

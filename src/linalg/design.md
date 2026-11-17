@@ -137,8 +137,10 @@ Conventions shared by every interface:
 - **Errors.** Each file has an `ArgError` set named after the reference's `xerbla` arguments
   (`InvalidTrans`, `InvalidLda`, `InvalidIncx`, ...), checked in the reference's order, so the
   first bad argument wins. Each level's `Error` adds `Allocator.Error` where it allocates and
-  `Io.Cancelable` everywhere; the root exports them as `Level1Error` to `Level3Error`, and
-  the extensions' as `ExtError`.
+  `Io.Cancelable` everywhere; the root exports them as `Level2Error` and `Level3Error`, and
+  the extensions' as `ExtError`. Level 1's public routines (`blas1/api.zig`, Z8) take strided
+  views over this core and return exact sets: `error.LengthMismatch` for two vectors, and
+  `error.Canceled` where they thread.
   A vector or matrix that could not fit the address space (`util.fits`, `util.fitsMatrix`)
   returns its stride's or leading dimension's error, so no index computation overflows.
 - **Letters.** Transposes, triangles, sides and diagonals are one set of letter enums for every
@@ -168,11 +170,16 @@ and `vector` for `tools/blasbench`. The interface files stay where they are.
 
 Decided (2026-10-26), not yet implemented; the interface above is the reference's shape, which
 users are not assumed to know. Part of the codebase-wide pass to make rstd more Zig-idiomatic.
+For the BLAS and LAPACK alike, one group of routines at a time (user, 2026-11-15): each group's
+signatures take every change below at once, so none changes twice. [Z7](https://github.com/randyos-org/rstd/issues/308) adds the views and the shared error pieces; Z8 to Z18 ([#309](https://github.com/randyos-org/rstd/issues/309) to [#319](https://github.com/randyos-org/rstd/issues/319)) move the groups: levels 1, 2 and 3 (with batched and half), the extensions, then LAPACK by family.
 
-- **Slices.** Vectors and matrices are slices (`[]const T`, `[]T`), not many-pointers, so a
-  short buffer is caught instead of overrun. A size the slice already carries is not a separate
-  argument; strides and leading dimensions remain only where they describe a layout inside the
-  slice. Each routine checks that its slices cover what its sizes and strides need.
+- **Slices.** Matrices are slices (`[]const T`, `[]T`), not many-pointers, so a short buffer is
+  caught instead of overrun, with their sizes and leading dimension. Vectors are views,
+  `blas.Strided(T)` and `blas.ConstStrided(T)` (`blas/strided.zig`, user, 2026-11-13): the
+  slice, the element count and the stride, from `of(slice)` (contiguous, the slice's length)
+  or `init(slice, n, stride)`, which refuses a zero stride or a slice too short. The count is
+  never inferred from the slice, so spare elements cannot change it. Each routine checks that
+  its slices cover what its sizes and strides need.
 - **Errors, not panics, for bad input.** A wrong length, size or stride, or a letter the routine
   does not take, is an input error the caller can fix and retry: it returns an error.
 - **Panics only when unrecoverable.** A broken invariant found mid-calculation, or a state
@@ -1552,28 +1559,31 @@ routine and matches the reference; `apple_accel.zig` binds it and routes to it.
 - **Quirks.** Where Accelerate's results differ from the reference's (macOS 27, M6), the call
   runs rstd's kernels. The Accelerate special-value tests (`_test/apple_accel.zig`,
   `_test/blas2/edge.zig`, `blas3/interface.zig`) found each, against rstd's kernels or the wide
-  reference.
+  reference. Rechecked 2026-11-15 natively on both Macs (the Intel Mac on macOS 15.8.3, the M6
+  on 27.2) by `tools/probe/accel_quirks.zig`, through all three symbol sets ([#355](https://github.com/randyos-org/rstd/issues/355)); each item
+  says where it showed, and the call runs rstd's there only; elsewhere it goes to Accelerate ([#388](https://github.com/randyos-org/rstd/issues/388), rechecked 2026-11-16 by the special-value tests on the Intel Mac, the M6 and Rosetta 2).
   - Complex `scal`, `axpy`, `axpby` with a scalar that has a zero part: Accelerate skips that
-    part's products, so `(1.5, 0) * (inf, 1)` keeps a finite imaginary part.
-  - `axpby` with a zero `alpha`: it reads `x`.
-  - A zero stride on a vector the routine writes (`swap`, `axpby`): Accelerate rejects it as an invalid parameter and exits (x86_64; arm64 untested). Zero strides on read vectors go to Accelerate.
-  - Complex `gemv` with a `beta` that has a zero part and NaN or an infinity in `y`: it skips that part's products, as for `scal`.
+    part's products, so `(1.5, 0) * (inf, 1)` keeps a finite imaginary part. Shows for `scal`
+    and `axpy` on arm64, in the `$NEWLAPACK` sets only, and for `axpby` on arm64 (the tests; the probe missed it); not on x86_64.
+  - Complex `scal` with a zero `alpha`: it zeroes `x`, where the reference keeps NaN. x86_64 (on arm64 the zero-part quirk covers it).
+  - `axpby` with a zero `alpha`: it reads `x`. Both, real and complex.
+  - A zero stride on a vector the routine writes (`swap`, `axpby`): Accelerate rejects it as an invalid parameter and exits. Both. Zero strides on read vectors go to Accelerate.
+  - Complex `gemv` with a `beta` that has a zero part and NaN or an infinity in `y`: it skips that part's products, as for `scal`. arm64, the `$NEWLAPACK` sets only.
   - The triangular level 2 with NaN or an infinity in `x`, and `trmm` with one in `B`: past
-    small orders it multiplies them by the triangle's zeros.
-  - `ger`, `gerc` with one in `x`: it does not pass over a zero `y`.
+    small orders it multiplies them by the triangle's zeros. Real `trmv`: arm64 only; complex `trmv` (orders 33 and 130 in the tests): both.
+  - `ger`, `gerc` with one in `x`: it does not pass over a zero `y`. Both.
   - `syr`, `spr`, `her`, `hpr` with one in `x` and a zero `x(j)`, and `syr2`, `spr2`, `her2`,
     `hpr2` with one in `x` or `y` and a `j` where both are zero: it does not pass over that
-    column, in either triangle.
+    column, in either triangle. `syr` and `syr2`: both.
   - `herk`, `her2k` with one in `C`'s triangle and a nonzero `beta`: past small orders it scales
-    `C` by the real `beta` as a complex product.
+    `C` by the real `beta` as a complex product. `herk` at order 64: x86_64 only.
   - The Hermitian rank updates leave the diagonal's imaginary parts as `beta` times theirs, or
     NaN where an infinity meets them; the reference sets them to zero. They are zeroed after the
     call; `herk` and `her2k` with `beta` 1 and nothing added, which leave `C` as it was, run
-    rstd's.
-  - x86_64 (under Rosetta 2; no Intel Mac was at hand): `cblas_dsdot` is off by `f32`'s epsilon,
-    so `dsdot`, `sdot`, `snrm2` and `scnrm2` run rstd's; `gemm` with NaN or an infinity in `A`,
-    which gives NaN at an edge of `m`.
-  - x86_64: complex `potrf`, always: `cpotrf_` and `zpotrf_` report a well conditioned `L Lᴴ` as not positive definite from order 2 (arm64's are right). `trsm` with a diagonal entry too small to invert (a subnormal; arm64 untested): it multiplies by the reciprocal, which overflows, where the reference divides. `trsm` with NaN or an infinity in `B` (complex, left, upper, order 19 seen in CI): it spreads to entries that do not depend on it, so `trsm` falls back as `trmm` does.
+    rstd's. `herk`: both (the tests; the probe saw arm64's only).
+  - Under Rosetta 2 only, which `start` reads from `sysctl.proc_translated`: `cblas_dsdot` off by `f32`'s epsilon (so `dsdot`, `sdot`, `snrm2` and `scnrm2` run rstd's there), and `gemm` with NaN or an infinity in `A` giving NaN at an edge of `m`.
+  - Complex `potrf` (`cpotrf_`, `zpotrf_`) reporting a well conditioned `L Lᴴ` as not positive definite: x86_64, natively too (the `potrf` test; the probe missed it).
+  - `trsm` with a diagonal entry too small to invert (a subnormal): it multiplies by the reciprocal, which overflows, where the reference divides. Both. `trsm` with NaN or an infinity in `B` (complex, left, upper, order 19 seen in CI): it spreads to entries that do not depend on it, so `trsm` falls back as `trmm` does.
 
 ### Core detection and selection
 

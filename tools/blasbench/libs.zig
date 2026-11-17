@@ -286,6 +286,13 @@ pub fn cast(comptime p: Prec, x: [*]p.F) [*]Num(p) {
     return @ptrCast(x);
 }
 
+/// rstd's view of the `n` elements `inc` apart that the bench passes from `x`.
+fn view(comptime T: type, x: [*]T, n: isize, inc: isize) blas.Strided(T) {
+    const count: usize = @intCast(@max(n, 0));
+    const span = if (count == 0) 0 else (count - 1) * @abs(inc) + 1;
+    return blas.Strided(T).init(x[0..span], count, inc) catch unreachable;
+}
+
 /// cblas's `CBLAS_ORDER` and `CBLAS_TRANSPOSE`.
 const col_major: c_int = 102;
 const no_trans: c_int = 111;
@@ -312,7 +319,7 @@ fn L1Via(comptime src: Src, comptime r: L1, comptime p: Prec) type {
             const Sig = fn (c_int, F, [*]F, c_int, [*]F, c_int) callconv(.c) void;
             var f: *const Sig = undefined;
             fn k(n: I, _: I, _: I, a: F, x: [*]F, ix: I, y: [*]F, iy: I, _: [*]F, _: I) callconv(.c) i32 {
-                if (lib) f(@intCast(n), a, x, @intCast(ix), y, @intCast(iy)) else blas.axpy(rstd_io, T, n, a, x, ix, y, iy) catch |e| fail(e);
+                if (lib) f(@intCast(n), a, x, @intCast(ix), y, @intCast(iy)) else blas.axpy(rstd_io, T, a, view(T, x, n, ix).toConst(), view(T, y, n, iy)) catch |e| fail(e);
                 return 0;
             }
         } else struct {
@@ -321,7 +328,7 @@ fn L1Via(comptime src: Src, comptime r: L1, comptime p: Prec) type {
             const Sig = fn (c_int, *const [2]F, [*]F, c_int, [*]F, c_int) callconv(.c) void;
             var f: *const Sig = undefined;
             fn k(n: I, _: I, _: I, ar: F, ai: F, x: [*]F, ix: I, y: [*]F, iy: I, _: [*]F, _: I) callconv(.c) i32 {
-                if (lib) f(@intCast(n), &.{ ar, ai }, x, @intCast(ix), y, @intCast(iy)) else blas.axpy(rstd_io, T, n, .init(ar, ai), cast(p, x), ix, cast(p, y), iy) catch |e| fail(e);
+                if (lib) f(@intCast(n), &.{ ar, ai }, x, @intCast(ix), y, @intCast(iy)) else blas.axpy(rstd_io, T, .init(ar, ai), view(T, cast(p, x), n, ix).toConst(), view(T, cast(p, y), n, iy)) catch |e| fail(e);
                 return 0;
             }
         },
@@ -332,7 +339,7 @@ fn L1Via(comptime src: Src, comptime r: L1, comptime p: Prec) type {
             var f: *const Sig = undefined;
             fn k(n: I, x: [*]F, ix: I, y: [*]F, iy: I) callconv(.c) F {
                 if (lib) return f(@intCast(n), x, @intCast(ix), y, @intCast(iy));
-                return blas.dot(rstd_io, T, n, x, ix, y, iy) catch |e| {
+                return blas.dot(rstd_io, T, view(T, x, n, ix).toConst(), view(T, y, n, iy).toConst()) catch |e| {
                     fail(e);
                     return 0;
                 };
@@ -348,7 +355,7 @@ fn L1Via(comptime src: Src, comptime r: L1, comptime p: Prec) type {
                     f(@intCast(n), x, @intCast(ix), y, @intCast(iy), &o);
                     return .{ .re = o[0], .im = o[1] };
                 }
-                const v = blas.dot(rstd_io, T, n, cast(p, x), ix, cast(p, y), iy) catch |e| {
+                const v = blas.dot(rstd_io, T, view(T, cast(p, x), n, ix).toConst(), view(T, cast(p, y), n, iy).toConst()) catch |e| {
                     fail(e);
                     return .{ .re = 0, .im = 0 };
                 };
@@ -361,7 +368,7 @@ fn L1Via(comptime src: Src, comptime r: L1, comptime p: Prec) type {
             const Sig = fn (c_int, F, [*]F, c_int) callconv(.c) void;
             var f: *const Sig = undefined;
             fn k(n: I, _: I, _: I, a: F, x: [*]F, ix: I, _: [*]F, _: I, _: [*]F, _: I) callconv(.c) i32 {
-                if (lib) f(@intCast(n), a, x, @intCast(ix)) else blas.scal(rstd_io, T, n, a, x, ix) catch |e| fail(e);
+                if (lib) f(@intCast(n), a, x, @intCast(ix)) else blas.scal(rstd_io, T, a, view(T, x, n, ix)) catch |e| fail(e);
                 return 0;
             }
         } else struct {
@@ -370,7 +377,7 @@ fn L1Via(comptime src: Src, comptime r: L1, comptime p: Prec) type {
             const Sig = fn (c_int, *const [2]F, [*]F, c_int) callconv(.c) void;
             var f: *const Sig = undefined;
             fn k(n: I, _: I, _: I, ar: F, ai: F, x: [*]F, ix: I, _: [*]F, _: I, _: [*]F, _: I) callconv(.c) i32 {
-                if (lib) f(@intCast(n), &.{ ar, ai }, x, @intCast(ix)) else blas.scal(rstd_io, T, n, .init(ar, ai), cast(p, x), ix) catch |e| fail(e);
+                if (lib) f(@intCast(n), &.{ ar, ai }, x, @intCast(ix)) else blas.scal(rstd_io, T, .init(ar, ai), view(T, cast(p, x), n, ix)) catch |e| fail(e);
                 return 0;
             }
         },
@@ -381,7 +388,9 @@ fn L1Via(comptime src: Src, comptime r: L1, comptime p: Prec) type {
             var f: *const Sig = undefined;
             fn k(n: I, x: [*]F, ix: I) callconv(.c) F {
                 if (lib) return f(@intCast(n), x, @intCast(ix));
-                return @field(blas, @tagName(r))(rstd_io, T, n, cast(p, x), ix) catch |e| {
+                const xv = view(T, cast(p, x), n, ix).toConst();
+                if (comptime r == .nrm2) return blas.nrm2(rstd_io, T, xv);
+                return blas.asum(rstd_io, T, xv) catch |e| {
                     fail(e);
                     return 0;
                 };
@@ -395,10 +404,12 @@ fn L1Via(comptime src: Src, comptime r: L1, comptime p: Prec) type {
             var f: *const Sig = undefined;
             fn k(n: I, x: [*]F, ix: I) callconv(.c) I {
                 if (lib) return @as(I, f(@intCast(n), x, @intCast(ix))) + 1;
-                return blas.index(rstd_io, T, .amax, n, cast(p, x), ix) catch |e| {
+                const i = blas.index(rstd_io, T, .amax, view(T, cast(p, x), n, ix).toConst()) catch |e| {
                     fail(e);
                     return 0;
                 };
+                // 1-based, as the libraries' results are made above
+                return if (i) |j| @as(I, @intCast(j)) + 1 else 0;
             }
         },
         .copy => struct {
@@ -407,7 +418,7 @@ fn L1Via(comptime src: Src, comptime r: L1, comptime p: Prec) type {
             const Sig = fn (c_int, [*]F, c_int, [*]F, c_int) callconv(.c) void;
             var f: *const Sig = undefined;
             fn k(n: I, x: [*]F, ix: I, y: [*]F, iy: I) callconv(.c) i32 {
-                if (lib) f(@intCast(n), x, @intCast(ix), y, @intCast(iy)) else blas.copy(rstd_io, T, n, cast(p, x), ix, cast(p, y), iy) catch |e| fail(e);
+                if (lib) f(@intCast(n), x, @intCast(ix), y, @intCast(iy)) else blas.copy(rstd_io, T, view(T, cast(p, x), n, ix).toConst(), view(T, cast(p, y), n, iy)) catch |e| fail(e);
                 return 0;
             }
         },
@@ -417,7 +428,7 @@ fn L1Via(comptime src: Src, comptime r: L1, comptime p: Prec) type {
             const Sig = fn (c_int, [*]F, c_int, [*]F, c_int) callconv(.c) void;
             var f: *const Sig = undefined;
             fn k(n: I, _: I, _: I, _: F, x: [*]F, ix: I, y: [*]F, iy: I, _: [*]F, _: I) callconv(.c) i32 {
-                if (lib) f(@intCast(n), x, @intCast(ix), y, @intCast(iy)) else blas.swap(rstd_io, T, n, x, ix, y, iy) catch |e| fail(e);
+                if (lib) f(@intCast(n), x, @intCast(ix), y, @intCast(iy)) else blas.swap(rstd_io, T, view(T, x, n, ix), view(T, y, n, iy)) catch |e| fail(e);
                 return 0;
             }
         } else struct {
@@ -426,7 +437,7 @@ fn L1Via(comptime src: Src, comptime r: L1, comptime p: Prec) type {
             const Sig = fn (c_int, [*]F, c_int, [*]F, c_int) callconv(.c) void;
             var f: *const Sig = undefined;
             fn k(n: I, _: I, _: I, _: F, _: F, x: [*]F, ix: I, y: [*]F, iy: I, _: [*]F, _: I) callconv(.c) i32 {
-                if (lib) f(@intCast(n), x, @intCast(ix), y, @intCast(iy)) else blas.swap(rstd_io, T, n, cast(p, x), ix, cast(p, y), iy) catch |e| fail(e);
+                if (lib) f(@intCast(n), x, @intCast(ix), y, @intCast(iy)) else blas.swap(rstd_io, T, view(T, cast(p, x), n, ix), view(T, cast(p, y), n, iy)) catch |e| fail(e);
                 return 0;
             }
         },
@@ -436,7 +447,7 @@ fn L1Via(comptime src: Src, comptime r: L1, comptime p: Prec) type {
             const Sig = fn (c_int, [*]F, c_int, [*]F, c_int, F, F) callconv(.c) void;
             var f: *const Sig = undefined;
             fn k(n: I, x: [*]F, ix: I, y: [*]F, iy: I, c: F, sn: F) callconv(.c) i32 {
-                if (lib) f(@intCast(n), x, @intCast(ix), y, @intCast(iy), c, sn) else blas.rot(rstd_io, T, n, cast(p, x), ix, cast(p, y), iy, c, sn) catch |e| fail(e);
+                if (lib) f(@intCast(n), x, @intCast(ix), y, @intCast(iy), c, sn) else blas.rot(rstd_io, T, view(T, cast(p, x), n, ix), view(T, cast(p, y), n, iy), c, sn) catch |e| fail(e);
                 return 0;
             }
         },

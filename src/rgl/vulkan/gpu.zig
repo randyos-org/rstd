@@ -83,6 +83,14 @@ const premultiplied_blend: vk.PipelineColorBlendAttachmentState = .{
 /// single combined-image-sampler descriptor set (glyph/image; rect needs
 /// none). Caller owns `render_pass` and destroys the returned `Pipeline`
 /// via `.deinit()` before destroying the device.
+/// `createPipelineWith`'s choices beyond the shaders and their inputs.
+pub const PipelineOptions = struct {
+    /// Premultiplied-alpha "over"; off, a fragment's output is stored as is
+    /// (the shader probes' float results, rgl/vulkan/_test).
+    blend: bool = true,
+};
+
+/// `createPipelineWith` with every option at its default.
 pub fn createPipeline(
     dev: vk.DeviceProxy,
     render_pass: vk.RenderPass,
@@ -91,6 +99,19 @@ pub fn createPipeline(
     attrs: []const vk.VertexInputAttributeDescription,
     stride: u32,
     needs_sampler: bool,
+) !Pipeline {
+    return createPipelineWith(dev, render_pass, vert_spv, frag_spv, attrs, stride, needs_sampler, .{});
+}
+
+pub fn createPipelineWith(
+    dev: vk.DeviceProxy,
+    render_pass: vk.RenderPass,
+    vert_spv: []const u8,
+    frag_spv: []const u8,
+    attrs: []const vk.VertexInputAttributeDescription,
+    stride: u32,
+    needs_sampler: bool,
+    options: PipelineOptions,
 ) !Pipeline {
     var descriptor_set_layout: vk.DescriptorSetLayout = .null;
     if (needs_sampler) {
@@ -177,7 +198,9 @@ pub fn createPipeline(
         .alpha_to_one_enable = .false,
     };
 
-    const blend_attachments: [1]vk.PipelineColorBlendAttachmentState = .{premultiplied_blend};
+    var blend = premultiplied_blend;
+    if (!options.blend) blend.blend_enable = .false;
+    const blend_attachments: [1]vk.PipelineColorBlendAttachmentState = .{blend};
     const color_blend: vk.PipelineColorBlendStateCreateInfo = .{
         .logic_op_enable = .false,
         .logic_op = .copy,
@@ -238,7 +261,8 @@ pub const Pipelines = struct {
     }
 };
 
-fn findMemoryType(mem_props: vk.PhysicalDeviceMemoryProperties, reqs: vk.MemoryRequirements, flags: vk.MemoryPropertyFlags) ?u32 {
+/// The first memory type of `mem_props` that `reqs` allows and has `flags`.
+pub fn findMemoryType(mem_props: vk.PhysicalDeviceMemoryProperties, reqs: vk.MemoryRequirements, flags: vk.MemoryPropertyFlags) ?u32 {
     for (mem_props.memory_types[0..mem_props.memory_type_count], 0..) |mem_type, i| {
         const bit: u32 = @as(u32, 1) << @truncate(i);
         if (reqs.memory_type_bits & bit != 0 and mem_type.property_flags.contains(flags)) return @truncate(i);
@@ -340,7 +364,7 @@ pub fn recordBatch(
 }
 
 // TODO: glyph batches need a live atlas texture and its descriptor set
-// (shader_smoke_test.zig's buildStringAtlasViaSfnt and glyph_tex_* show how);
+// (tools/shader_run/draws.zig builds one for the VGA font);
 // then: recordBatch(dev, mem_props, cmd, pipelines.glyph, &resources.glyph,
 //   surface.batch(rglvk.glyph_pipeline_id), globals, atlas_descriptor_set).
 
