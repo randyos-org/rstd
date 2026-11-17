@@ -5,6 +5,9 @@ pub const blas = @import("blas/__root__.zig");
 pub const lapack = @import("lapack/__root__.zig");
 pub const gallery = @import("gallery.zig");
 pub const poly = @import("poly.zig");
+const rref_ = @import("rref.zig");
+pub const Rref = rref_.Rref;
+pub const rref = rref_.rref;
 
 // the public layer (design.md, "Planned: the public `rstd.linalg` layer"):
 // its types, and `dense.zig`'s run-time-shape functions, flat
