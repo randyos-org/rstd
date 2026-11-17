@@ -70,8 +70,9 @@ fn run(init: std.process.Init) !u8 {
     // each argument single-quoted for the remote shell
     var command: std.ArrayList(u8) = .empty;
     const nix = names.items[0];
-    // a Mac sleeps through an ssh session without a tty: `caffeinate -i` there
-    const awake = if (std.mem.startsWith(u8, kind, "Darwin ")) "caffeinate -i " else "";
+    // a Mac sleeps through an ssh session without a tty, and in a dark wake only
+    // `-s` holds it: `caffeinate -is` there
+    const awake = if (std.mem.startsWith(u8, kind, "Darwin ")) "caffeinate -is " else "";
     try command.print(arena, "cd '{0s}' && exec {3s}nix shell ./{1s}#qemu ./{1s}#flock -c bash {1s}/run.sh '{2s}'", .{ dir, nix, jobs, awake });
     for (qemu_argv.items) |a| {
         if (std.mem.findScalar(u8, a, '\'') != null) return error.QuoteInArgument;

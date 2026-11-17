@@ -234,7 +234,7 @@ m6)
     rm -rf "$D/runs"
     "${ssh[@]}" 'rm -rf rstd-flyoff' || exit 1
     scp -q -r "$D" "$mac:rstd-flyoff" || exit 1
-    "${ssh[@]}" 'cd rstd-flyoff && chmod +x blas_bench && (nohup caffeinate -i bash flyoff.sh mac-run . > run.log 2>&1 < /dev/null &)' || exit 1
+    "${ssh[@]}" 'cd rstd-flyoff && chmod +x blas_bench && (nohup caffeinate -is bash flyoff.sh mac-run . > run.log 2>&1 < /dev/null &)' || exit 1
     echo "flyoff: started on $mac in ~/rstd-flyoff; waiting for DONE (Ctrl-C leaves it running; collect with flyoff.sh m6 --collect)"
     until "${ssh[@]}" 'test -e rstd-flyoff/DONE' 2> /dev/null; do sleep 300; done
   fi
