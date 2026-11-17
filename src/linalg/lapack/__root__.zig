@@ -44,8 +44,8 @@ pub const Diag = types.Diag;
 pub const Side = types.Side;
 
 // Each `...Error` is its routine's bad arguments (the LU, triangular,
-// Cholesky, symmetric-indefinite, QR, eigenvalue and SVD routines' by plain
-// names, issues #313 to #317; the rest in the reference's `xerbla` order, until their own issues), `error.OutOfMemory` and `error.Canceled`
+// Cholesky, symmetric-indefinite, QR, eigenvalue, SVD and Sylvester
+// routines' by plain names, issues #313 to #318; the rest in the reference's `xerbla` order, until their own issues), `error.OutOfMemory` and `error.Canceled`
 // where it can meet them, and the failures its doc names.
 /// `potrf`: `error.NotPositiveDefinite`.
 pub const PotrfError = cholesky.PotrfError;
@@ -185,11 +185,15 @@ pub const TrexcError = schur.TrexcError;
 pub const TrsenError = schur.TrsenError;
 /// `trsen`'s result: the cluster's size, and `s` and `sep` as `job` asks.
 pub const Reordered = schur.Reordered;
-/// `trsyl`: `error.Perturbed` for close eigenvalues, `C` and `scale` written.
+/// `trsyl`: returns `Solved`, `scale` and `perturbed` for close eigenvalues.
 pub const TrsylError = trsyl_solve.TrsylError;
-/// `tgsyl`: `error.Perturbed` for close eigenvalues, `C`, `F`, `scale` and
-/// `dif` written.
+/// `trsyl`'s result.
+pub const Solved = trsyl_solve.Solved;
+/// `tgsyl`: returns `SolvedWithDif`, `scale`, `dif` as `ijob` asks and
+/// `perturbed` for close eigenvalues.
 pub const TgsylError = tgsyl_solve.TgsylError;
+/// `tgsyl`'s result.
+pub const SolvedWithDif = tgsyl_solve.SolvedWithDif;
 pub const geev = evd.geev;
 pub const hseqr = evd.hseqr;
 pub const gees = evd.gees;
@@ -312,14 +316,12 @@ test "lapack: ReLAPACK's routines through their public names, 2 x 2 smoke tests"
     try testing.expectEqualSlices(usize, &.{ 1, 1 }, &gpiv);
     try near(&.{ 3, 1.0 / 3.0, 4, 2.0 / 3.0 }, &.{ gb[2], gb[3], gb[5], gb[6] });
     // trsyl: 2 x + x 3 = 10
-    var scale: f64 = 0;
     var x = [_]f64{10};
-    try trsyl(al, io, f64, .n, .n, 1, 1, 1, &[_]f64{2}, 1, &[_]f64{3}, 1, &x, 1, &scale);
-    try near(&.{ 1, 2 }, &.{ scale, x[0] });
+    const ts = try trsyl(al, io, f64, .n, .n, 1, 1, 1, &[_]f64{2}, 1, &[_]f64{3}, 1, &x, 1);
+    try near(&.{ 1, 2 }, &.{ ts.scale, x[0] });
     // tgsyl: 2 r + l = 3, r - l = 0 (B = -1, E = 1)
     var c = [_]f64{3};
     var f = [_]f64{0};
-    var dif: f64 = 0;
-    try tgsyl(al, io, f64, .n, 0, 1, 1, &[_]f64{2}, 1, &[_]f64{-1}, 1, &c, 1, &[_]f64{1}, 1, &[_]f64{1}, 1, &f, 1, &scale, &dif);
-    try near(&.{ 1, 1, 1 }, &.{ scale, c[0], f[0] });
+    const gs = try tgsyl(al, io, f64, .n, 0, 1, 1, &[_]f64{2}, 1, &[_]f64{-1}, 1, &c, 1, &[_]f64{1}, 1, &[_]f64{1}, 1, &f, 1);
+    try near(&.{ 1, 1, 1 }, &.{ gs.scale, c[0], f[0] });
 }

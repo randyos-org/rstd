@@ -975,9 +975,8 @@ allows.
   and their `_rook` forms run the reference's blocked `xSYTRF` loop over ReLAPACK's `rec2`
   panels (`indefinite.zig`); `gbtrf` is `xGBTF2`; `tgsyl`'s transposed updates read `F` and
   `E` at their own leading dimensions, and its `dif` counts every base case's block pairs.
-  `tgsyl` takes `trans` `t` (real) or `c` (complex) only and rejects `m` or `n` below 1, as
-  `dtgsyl.f` and `ztgsyl.f` do; `dif` is `ijob`'s estimate of `Dif[(A, D), (B, E)]` (1 and 3
-  by look-ahead, 2 and 4 by `xGECON`'s null vectors), unwritten for `ijob` 0 or `trans`.
+  `tgsyl` takes `trans` `t` (real) or `c` (complex) only, as `dtgsyl.f` and `ztgsyl.f` do, and solves nothing for an empty `m` or `n`, which they refuse; `dif` is `ijob`'s estimate of `Dif[(A, D), (B, E)]` (1 and 3
+  by look-ahead, 2 and 4 by `xGECON`'s null vectors), null for `ijob` 0 or `trans`. Both return their `scale` with `perturbed` for close or common eigenvalues (the reference's `INFO > 0`, [Z17](https://github.com/randyos-org/rstd/issues/318)): the solve completes either way, so by Z12's rule it is a result, not an error; `isgn` (1 or -1) and `ijob` (0 to 4) keep the reference's numbers.
 - **`geqrf`, `orgqr`, `ormqr`** (`qr.zig`; `ungqr`, `unmqr` the same functions):
   `dgeqrf.f`'s, `dorgqr.f`'s and `dormqr.f`'s arguments and `xerbla` order over faer's
   staircase QR. `tau` is LAPACK's (`H = I - tau v vᴴ`), the reciprocal of faer's, so an
