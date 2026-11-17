@@ -40,14 +40,13 @@ pub fn run(gpa: std.mem.Allocator) !void {
         bb.fillRandom(T, b, prng.random());
         @memset(c, 0);
         const reps: usize = if (n >= 2000) 9 else if (n >= 1000) 15 else 25;
-        const ni: isize = @intCast(n);
         // serial, then each count, interleaved; the first round warms up
         var times: [1 + counts.len][25]f64 = undefined;
         for (0..reps + 1) |round| for (0..times.len) |x| {
             fba.reset();
             blas.config.num_threads = if (x == 0) 1 else @intCast(counts[x - 1]);
             const t0 = Io.Clock.awake.now(io).toNanoseconds();
-            try blas.gemm(fba.allocator(), io, T, .n, .n, ni, ni, ni, 1, a.ptr, ni, b.ptr, ni, 0, c.ptr, ni);
+            try blas.gemm(fba.allocator(), io, T, .n, .n, n, n, n, 1, a, n, b, n, 0, c, n);
             if (round > 0) times[x][round - 1] = @floatFromInt(Io.Clock.awake.now(io).toNanoseconds() - t0);
         };
         const flops = 2.0 * @as(f64, @floatFromInt(n * n * n));
