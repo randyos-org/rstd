@@ -76,7 +76,26 @@ pub const VectorNorm = vector_norm.VectorNorm;
 pub const VectorNormError = vector_norm.VectorNormError;
 pub const vectorNorm = vector_norm.vectorNorm;
 
+const elementwise = @import("elementwise.zig");
+pub const ElementwiseError = elementwise.ElementwiseError;
+pub const ElementwiseIntoError = elementwise.ElementwiseIntoError;
+pub const add = elementwise.add;
+pub const sub = elementwise.sub;
+pub const times = elementwise.times;
+pub const rdivide = elementwise.rdivide;
+pub const addInto = elementwise.addInto;
+pub const subInto = elementwise.subInto;
+pub const timesInto = elementwise.timesInto;
+pub const rdivideInto = elementwise.rdivideInto;
+pub const prod = elementwise.prod;
+pub const map = elementwise.map;
+pub const mapInto = elementwise.mapInto;
+pub const realPart = elementwise.realPart;
+pub const imagPart = elementwise.imagPart;
+pub const conj = elementwise.conj;
+
 test {
+    _ = @import("elementwise.zig");
     _ = @import("vector_norm.zig");
     _ = @import("condition.zig");
     _ = @import("subspace.zig");
