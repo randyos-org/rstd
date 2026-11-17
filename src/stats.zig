@@ -22,32 +22,58 @@ pub const MomentError = error{ EmptyInput, Canceled };
 /// (Neumaier's, `blas.Summation`).
 pub const Summation = blas.Summation;
 
-/// The mean, through the BLAS `sum`.
-pub fn mean(io: Io, comptime F: type, xs: []const F) MomentError!F {
-    return meanWith(io, F, xs, .plain);
+/// The mean of `xs` (a slice or array of integers, floats or `Complex`), as
+/// `R`: a float for real elements, a `Complex` for complex ones. Floats of
+/// `R`'s own type sum through the BLAS `sum`.
+pub fn mean(io: Io, comptime R: type, xs: anytype) MomentError!R {
+    return meanWith(io, R, xs, .plain);
 }
 
 /// `mean`, summed as `s` says.
-pub fn meanWith(io: Io, comptime F: type, xs: []const F, s: Summation) MomentError!F {
-    comptime checkFloat(F);
+pub fn meanWith(io: Io, comptime R: type, xs: anytype, s: Summation) MomentError!R {
+    const E = Elem(@TypeOf(xs));
+    comptime checkPair(R, E);
     if (xs.len == 0) return error.EmptyInput;
-    return try total(io, F, xs, s) / @as(F, @floatFromInt(xs.len));
+    const n: Real(R) = @floatFromInt(xs.len);
+    if (comptime isComplex(E)) {
+        const W = Wide(Real(R));
+        var re: Acc(W) = .{};
+        var im: Acc(W) = .{};
+        for (xs) |x| {
+            re.add(to(W, x.re), s);
+            im.add(to(W, x.im), s);
+        }
+        return .{ .re = @as(Real(R), @floatCast(re.value())) / n, .im = @as(Real(R), @floatCast(im.value())) / n };
+    }
+    return try total(io, R, xs, s) / n;
 }
 
-/// Two passes: the mean, then the squared deviations.
-pub fn variance(io: Io, comptime F: type, xs: []const F, normalize: Normalize) MomentError!F {
-    return varianceWith(io, F, xs, normalize, .plain);
+/// Two passes: the mean, then the squared deviations (`|x - mean|²` for
+/// complex `xs`). `R` is a float.
+pub fn variance(io: Io, comptime R: type, xs: anytype, normalize: Normalize) MomentError!R {
+    return varianceWith(io, R, xs, normalize, .plain);
 }
 
 /// `variance`, both passes summed as `s` says; the deviations' squares
 /// summed in order, in `f64` or wider.
-pub fn varianceWith(io: Io, comptime F: type, xs: []const F, normalize: Normalize, s: Summation) MomentError!F {
-    const m = try meanWith(io, F, xs, s);
-    const W = Wide(F);
+pub fn varianceWith(io: Io, comptime R: type, xs: anytype, normalize: Normalize, s: Summation) MomentError!R {
+    const E = Elem(@TypeOf(xs));
+    comptime checkFloat(R);
+    const W = Wide(R);
     var acc: Acc(W) = .{};
-    for (xs) |x| {
-        const d: W = @as(W, x) - @as(W, m);
-        acc.add(d * d, s);
+    if (comptime isComplex(E)) {
+        const m = try meanWith(io, std.math.Complex(R), xs, s);
+        for (xs) |x| {
+            const dr = to(W, x.re) - @as(W, m.re);
+            const di = to(W, x.im) - @as(W, m.im);
+            acc.add(dr * dr + di * di, s);
+        }
+    } else {
+        const m = try meanWith(io, R, xs, s);
+        for (xs) |x| {
+            const d = to(W, x) - @as(W, m);
+            acc.add(d * d, s);
+        }
     }
     const n = xs.len;
     // a sample of one: 0, or NaN from a NaN or an infinity
@@ -55,25 +81,73 @@ pub fn varianceWith(io: Io, comptime F: type, xs: []const F, normalize: Normaliz
     return @floatCast(acc.value() / @as(W, @floatFromInt(d)));
 }
 
-pub fn stdDev(io: Io, comptime F: type, xs: []const F, normalize: Normalize) MomentError!F {
-    return @sqrt(try variance(io, F, xs, normalize));
+pub fn stdDev(io: Io, comptime R: type, xs: anytype, normalize: Normalize) MomentError!R {
+    return @sqrt(try variance(io, R, xs, normalize));
 }
 
 /// `stdDev`, summed as `s` says.
-pub fn stdDevWith(io: Io, comptime F: type, xs: []const F, normalize: Normalize, s: Summation) MomentError!F {
-    return @sqrt(try varianceWith(io, F, xs, normalize, s));
+pub fn stdDevWith(io: Io, comptime R: type, xs: anytype, normalize: Normalize, s: Summation) MomentError!R {
+    return @sqrt(try varianceWith(io, R, xs, normalize, s));
 }
 
-/// The sum of `xs`: the BLAS's for its types, else in order here.
-fn total(io: Io, comptime F: type, xs: []const F, s: Summation) error{Canceled}!F {
-    if (comptime F == f32 or F == f64 or F == blas_types.XDouble) return blas.sumWith(io, F, .of(xs), s);
-    var acc: Acc(Wide(F)) = .{};
-    for (xs) |x| acc.add(x, s);
+/// The sum of real `xs` as `R`: the BLAS's where the elements are `R` and
+/// it has a `sum` for them, else in order here.
+fn total(io: Io, comptime R: type, xs: anytype, s: Summation) error{Canceled}!R {
+    const E = Elem(@TypeOf(xs));
+    if (comptime E == R and (R == f32 or R == f64 or R == blas_types.XDouble)) {
+        const sl: []const R = xs;
+        return blas.sumWith(io, R, .of(sl), s);
+    }
+    const W = Wide(R);
+    var acc: Acc(W) = .{};
+    for (xs) |x| acc.add(to(W, x), s);
     return @floatCast(acc.value());
 }
 
 fn Wide(comptime F: type) type {
     return if (@bitSizeOf(F) < 64) f64 else F;
+}
+
+/// The element type of a slice, array or pointer to one.
+fn Elem(comptime S: type) type {
+    return std.meta.Elem(S);
+}
+
+/// `std.math.Complex` and other `re`, `im` structs.
+fn isComplex(comptime T: type) bool {
+    return @typeInfo(T) == .@"struct" and @hasField(T, "re") and @hasField(T, "im");
+}
+
+fn Real(comptime R: type) type {
+    return if (isComplex(R)) @FieldType(R, "re") else R;
+}
+
+/// A real element as the float `W`.
+inline fn to(comptime W: type, x: anytype) W {
+    return switch (@typeInfo(@TypeOf(x))) {
+        .int, .comptime_int => @floatFromInt(x),
+        .float, .comptime_float => @floatCast(x),
+        else => @compileError("rstd.stats: " ++ @typeName(@TypeOf(x)) ++ " is not a real number type"),
+    };
+}
+
+/// `R` a float for real `E` (an integer or a float), a `Complex` of a float
+/// for complex `E`.
+fn checkPair(comptime R: type, comptime E: type) void {
+    if (isComplex(E)) {
+        if (!isComplex(R)) @compileError("rstd.stats: complex " ++ @typeName(E) ++ " needs a Complex result, not " ++ @typeName(R));
+        checkFloat(Real(R));
+    } else {
+        checkReal(E);
+        checkFloat(R);
+    }
+}
+
+fn checkReal(comptime E: type) void {
+    switch (@typeInfo(E)) {
+        .int, .float => {},
+        else => @compileError("rstd.stats: " ++ @typeName(E) ++ " is not an integer or float type"),
+    }
 }
 
 /// A running sum, plain or with Neumaier's compensation.
@@ -133,16 +207,19 @@ pub fn Running(comptime F: type) type {
 
 pub const MedianError = error{ EmptyInput, OutOfMemory };
 
-/// Sorts a copy; `xs` is untouched. NaN if `xs` holds one, as MATLAB's.
-pub fn median(allocator: Allocator, comptime F: type, xs: []const F) MedianError!F {
-    comptime checkFloat(F);
+/// The median of real `xs` as the float `R`. Sorts a copy; `xs` is
+/// untouched. NaN if `xs` holds one, as MATLAB's.
+pub fn median(allocator: Allocator, comptime R: type, xs: anytype) MedianError!R {
+    const E = Elem(@TypeOf(xs));
+    comptime checkOrdered(E);
+    comptime checkFloat(R);
     if (xs.len == 0) return error.EmptyInput;
-    const s = try sortedCopy(allocator, F, xs);
+    const s = try sortedCopy(allocator, E, xs);
     defer allocator.free(s);
     const n = s.len;
-    if (std.math.isNan(s[n - 1])) return s[n - 1];
-    if (n % 2 == 1) return s[n / 2];
-    return lerp(F, s[n / 2 - 1], s[n / 2], @as(Wide(F), 0.5));
+    if (comptime @typeInfo(E) == .float) if (std.math.isNan(s[n - 1])) return to(R, s[n - 1]);
+    if (n % 2 == 1) return to(R, s[n / 2]);
+    return lerp(R, to(R, s[n / 2 - 1]), to(R, s[n / 2]), @as(Wide(R), 0.5));
 }
 
 /// Hyndman and Fan's nine (The American Statistician 50(4), 1996), in their
@@ -166,37 +243,39 @@ pub const QuantileError = error{ EmptyInput, OutOfMemory, ProbabilityOutOfRange 
 pub const QuantileIntoError = QuantileError || error{SliceTooShort};
 
 /// One quantile of `xs` per `p`, each in [0, 1]; owned by the caller.
-pub fn quantile(allocator: Allocator, comptime F: type, xs: []const F, p: []const F, options: QuantileOptions) QuantileError![]F {
-    const out = try allocator.alloc(F, p.len);
+pub fn quantile(allocator: Allocator, comptime R: type, xs: anytype, p: []const R, options: QuantileOptions) QuantileError![]R {
+    const out = try allocator.alloc(R, p.len);
     errdefer allocator.free(out);
-    try quantiles(allocator, F, out, xs, p, options);
+    try quantiles(allocator, R, out, xs, p, options);
     return out;
 }
 
 /// `quantile` into `out[0..p.len]`; the allocator holds the sorted copy.
-pub fn quantileInto(allocator: Allocator, comptime F: type, out: []F, xs: []const F, p: []const F, options: QuantileOptions) QuantileIntoError!void {
+pub fn quantileInto(allocator: Allocator, comptime R: type, out: []R, xs: anytype, p: []const R, options: QuantileOptions) QuantileIntoError!void {
     if (out.len < p.len) return error.SliceTooShort;
-    return quantiles(allocator, F, out, xs, p, options);
+    return quantiles(allocator, R, out, xs, p, options);
 }
 
-fn quantiles(allocator: Allocator, comptime F: type, out: []F, xs: []const F, p: []const F, options: QuantileOptions) QuantileError!void {
-    comptime checkFloat(F);
+fn quantiles(allocator: Allocator, comptime R: type, out: []R, xs: anytype, p: []const R, options: QuantileOptions) QuantileError!void {
+    const E = Elem(@TypeOf(xs));
+    comptime checkOrdered(E);
+    comptime checkFloat(R);
     if (xs.len == 0) return error.EmptyInput;
     for (p) |q| if (!(q >= 0 and q <= 1)) return error.ProbabilityOutOfRange;
-    const s = try sortedCopy(allocator, F, xs);
+    const s = try sortedCopy(allocator, E, xs);
     defer allocator.free(s);
     // a NaN, sorted last, makes every quantile NaN, as NumPy's
-    if (std.math.isNan(s[s.len - 1])) {
-        @memset(out[0..p.len], s[s.len - 1]);
+    if (comptime @typeInfo(E) == .float) if (std.math.isNan(s[s.len - 1])) {
+        @memset(out[0..p.len], to(R, s[s.len - 1]));
         return;
-    }
-    for (out[0..p.len], p) |*o, q| o.* = quantileOf(F, s, q, options.method);
+    };
+    for (out[0..p.len], p) |*o, q| o.* = quantileOf(R, E, s, q, options.method);
 }
 
 /// NumPy's `_quantile` on the sorted `s` (numpy/lib/_function_base_impl.py,
 /// v2.1): the method's virtual index, then the two neighbors and `gamma`.
-fn quantileOf(comptime F: type, s: []const F, p: F, method: QuantileMethod) F {
-    const W = if (@bitSizeOf(F) < 64) f64 else F;
+fn quantileOf(comptime R: type, comptime E: type, s: []const E, p: R, method: QuantileMethod) R {
+    const W = Wide(R);
     const n: W = @floatFromInt(s.len);
     const q: W = p;
     const last = s.len - 1;
@@ -208,13 +287,13 @@ fn quantileOf(comptime F: type, s: []const F, p: F, method: QuantileMethod) F {
             const exact = vi == prev;
             const take_prev = if (method == .inverted_cdf) exact else exact and @mod(prev, 2) == 0;
             const k = if (take_prev) prev else prev + 1;
-            return s[index(W, k, last)];
+            return to(R, s[index(W, k, last)]);
         },
         .averaged_inverted_cdf => {
             const vi = n * q - 1;
             const prev = @floor(vi);
             const gamma: W = if (vi == prev) 0.5 else 1;
-            return lerp(F, s[index(W, prev, last)], s[index(W, prev + 1, last)], gamma);
+            return lerp(R, to(R, s[index(W, prev, last)]), to(R, s[index(W, prev + 1, last)]), gamma);
         },
         else => {
             const ab: [2]W = switch (method) {
@@ -228,10 +307,10 @@ fn quantileOf(comptime F: type, s: []const F, p: F, method: QuantileMethod) F {
             };
             const vi = n * q + (ab[0] + q * (1 - ab[0] - ab[1])) - 1;
             // `_get_indexes`: past either end, that end
-            if (vi < 0) return s[0];
-            if (vi >= @as(W, @floatFromInt(last))) return s[last];
+            if (vi < 0) return to(R, s[0]);
+            if (vi >= @as(W, @floatFromInt(last))) return to(R, s[last]);
             const prev = @floor(vi);
-            return lerp(F, s[index(W, prev, last)], s[index(W, prev + 1, last)], vi - prev);
+            return lerp(R, to(R, s[index(W, prev, last)]), to(R, s[index(W, prev + 1, last)]), vi - prev);
         },
     }
 }
@@ -254,12 +333,15 @@ fn lerp(comptime F: type, a: F, b: F, t: anytype) F {
 }
 
 /// `xs` sorted ascending, NaN last, owned by the caller.
-fn sortedCopy(allocator: Allocator, comptime F: type, xs: []const F) Allocator.Error![]F {
-    const s = try allocator.dupe(F, xs);
-    std.mem.sort(F, s, {}, struct {
-        fn lt(_: void, a: F, b: F) bool {
-            if (std.math.isNan(a)) return false;
-            if (std.math.isNan(b)) return true;
+fn sortedCopy(allocator: Allocator, comptime E: type, xs: anytype) Allocator.Error![]E {
+    const s = try allocator.alloc(E, xs.len);
+    for (s, xs) |*d, x| d.* = x;
+    std.mem.sort(E, s, {}, struct {
+        fn lt(_: void, a: E, b: E) bool {
+            if (comptime @typeInfo(E) == .float) {
+                if (std.math.isNan(a)) return false;
+                if (std.math.isNan(b)) return true;
+            }
             return a < b;
         }
     }.lt);
@@ -292,17 +374,20 @@ pub const HistogramIntoError = error{ ZeroBins, EdgesNotSorted, SliceTooShort };
 /// `.count` bins need a value in `xs` that is not NaN, for their range: its
 /// least to its greatest, widened by 0.5 each way when they are equal, as
 /// NumPy's.
-pub fn histogram(allocator: Allocator, comptime F: type, xs: []const F, bins: Bins(F)) HistogramError!Histogram(F) {
+pub fn histogram(allocator: Allocator, comptime F: type, xs: anytype, bins: Bins(F)) HistogramError!Histogram(F) {
     comptime checkFloat(F);
+    comptime checkReal(Elem(@TypeOf(xs)));
     const edges: []F = switch (bins) {
         .count => |n| blk: {
             if (n == 0) return error.ZeroBins;
             var lo = std.math.inf(F);
             var hi = -std.math.inf(F);
-            for (xs) |x| if (!std.math.isNan(x)) {
+            for (xs) |x0| {
+                const x = to(F, x0);
+                if (std.math.isNan(x)) continue;
                 lo = @min(lo, x);
                 hi = @max(hi, x);
-            };
+            }
             if (lo > hi) return error.EmptyInput;
             if (lo == hi) {
                 lo -= 0.5;
@@ -333,13 +418,15 @@ pub fn histogram(allocator: Allocator, comptime F: type, xs: []const F, bins: Bi
 
 /// Adds to `counts[0 .. edges.len - 1]`; values outside the edges, and NaNs,
 /// are not counted.
-pub fn histogramInto(comptime F: type, counts: []u64, xs: []const F, edges: []const F) HistogramIntoError!void {
+pub fn histogramInto(comptime F: type, counts: []u64, xs: anytype, edges: []const F) HistogramIntoError!void {
     comptime checkFloat(F);
+    comptime checkReal(Elem(@TypeOf(xs)));
     if (edges.len < 2) return error.ZeroBins;
     if (counts.len < edges.len - 1) return error.SliceTooShort;
     try sortedEdges(F, edges);
     const last = edges.len - 1;
-    for (xs) |x| {
+    for (xs) |x0| {
+        const x = to(F, x0);
         if (!(x >= edges[0] and x <= edges[last])) continue;
         // the last `k` with `edges[k] <= x`, the right edge in the last bin
         var lo: usize = 0;
@@ -355,6 +442,12 @@ pub fn histogramInto(comptime F: type, counts: []u64, xs: []const F, edges: []co
 /// Edges ascend (equal neighbors allowed, as NumPy's), and none is NaN.
 fn sortedEdges(comptime F: type, edges: []const F) error{EdgesNotSorted}!void {
     for (edges[0 .. edges.len - 1], edges[1..]) |a, b| if (!(a <= b)) return error.EdgesNotSorted;
+}
+
+/// Sortable: integers and floats; `Complex` waits for its order (N32, #76).
+fn checkOrdered(comptime E: type) void {
+    if (isComplex(E)) @compileError("rstd.stats: ordering " ++ @typeName(E) ++ " needs MATLAB's complex order (N32, #76)");
+    checkReal(E);
 }
 
 fn checkFloat(comptime F: type) void {
@@ -374,7 +467,7 @@ test "mean, variance, stdDev" {
     try testing.expectApproxEqRel(32.0 / 7.0, try variance(testing.io, f64, &sample, .sample), 1e-15);
     try testing.expectEqual(2, try stdDev(testing.io, f64, &sample, .population));
     try testing.expectEqual(0, try variance(testing.io, f64, sample[0..1], .sample));
-    try testing.expectError(error.EmptyInput, mean(testing.io, f64, &.{}));
+    try testing.expectError(error.EmptyInput, mean(testing.io, f64, &[_]f64{}));
 }
 
 test "moments: compensated sums, the types the BLAS lacks, NaN" {
@@ -407,10 +500,10 @@ test "Running" {
 }
 
 test "median" {
-    const odd = try median(testing.allocator, f64, &.{ 3, 1, 2 });
+    const odd = try median(testing.allocator, f64, &[_]f64{ 3, 1, 2 });
     try testing.expectEqual(2, odd);
-    try testing.expectEqual(2.5, try median(testing.allocator, f64, &.{ 4, 1, 3, 2 }));
-    try testing.expect(std.math.isNan(try median(testing.allocator, f64, &.{ 1, std.math.nan(f64), 2 })));
+    try testing.expectEqual(2.5, try median(testing.allocator, f64, &[_]f64{ 4, 1, 3, 2 }));
+    try testing.expect(std.math.isNan(try median(testing.allocator, f64, &[_]f64{ 1, std.math.nan(f64), 2 })));
 }
 
 test "quantile methods" {
@@ -452,9 +545,9 @@ test "quantile: all nine methods on [1, 2, 3, 4], NumPy's values" {
         try testing.expectApproxEqAbs(w[1], out[1], 1e-15);
     }
     var out: [1]f64 = undefined;
-    try quantileInto(al, f64, &out, &.{ 1, std.math.nan(f64) }, &.{0.5}, .{});
+    try quantileInto(al, f64, &out, &[_]f64{ 1, std.math.nan(f64) }, &.{0.5}, .{});
     try testing.expect(std.math.isNan(out[0]));
-    try testing.expectEqual(5, try median(al, f16, &.{ 9, 5, 1 }));
+    try testing.expectEqual(5, try median(al, f16, &[_]f16{ 9, 5, 1 }));
 }
 
 test "histogram" {
@@ -472,14 +565,36 @@ test "histogram" {
 
 test "histogram: equal values, NaN and out-of-range values, edges given" {
     const al = testing.allocator;
-    var one = try histogram(al, f64, &.{ 3, 3, std.math.nan(f64) }, .{ .count = 2 });
+    var one = try histogram(al, f64, &[_]f64{ 3, 3, std.math.nan(f64) }, .{ .count = 2 });
     defer one.deinit(al);
     try testing.expectEqualSlices(f64, &.{ 2.5, 3, 3.5 }, one.edges);
     try testing.expectEqualSlices(u64, &.{ 0, 2 }, one.counts);
-    var given = try histogram(al, f32, &.{ -1, 0, 0.5, 1, 9 }, .{ .edges = &.{ 0, 1 } });
+    var given = try histogram(al, f32, &[_]f32{ -1, 0, 0.5, 1, 9 }, .{ .edges = &.{ 0, 1 } });
     defer given.deinit(al);
     try testing.expectEqualSlices(u64, &.{3}, given.counts);
-    try testing.expectError(error.EmptyInput, histogram(al, f64, &.{std.math.nan(f64)}, .{ .count = 3 }));
-    try testing.expectError(error.ZeroBins, histogram(al, f64, &.{1}, .{ .count = 0 }));
-    try testing.expectError(error.EdgesNotSorted, histogram(al, f64, &.{1}, .{ .edges = &.{ 0, std.math.nan(f64) } }));
+    try testing.expectError(error.EmptyInput, histogram(al, f64, &[_]f64{std.math.nan(f64)}, .{ .count = 3 }));
+    try testing.expectError(error.ZeroBins, histogram(al, f64, &[_]f64{1}, .{ .count = 0 }));
+    try testing.expectError(error.EdgesNotSorted, histogram(al, f64, &[_]f64{1}, .{ .edges = &.{ 0, std.math.nan(f64) } }));
+}
+
+test "type-agnostic: integers and Complex in, the caller's result type out" {
+    const io = testing.io;
+    const al = testing.allocator;
+    const ints = [_]i32{ 2, 4, 4, 4, 5, 5, 7, 9 };
+    try testing.expectEqual(5, try mean(io, f64, &ints));
+    try testing.expectEqual(2, try stdDev(io, f32, &ints, .population));
+    try testing.expectEqual(4.5, try median(al, f64, &ints));
+    var q: [1]f64 = undefined;
+    try quantileInto(al, f64, &q, &[_]u8{ 1, 2, 3, 4 }, &.{0.25}, .{});
+    try testing.expectEqual(1.75, q[0]);
+    var h = try histogram(al, f64, &[_]i64{ 0, 1, 1, 2 }, .{ .count = 2 });
+    defer h.deinit(al);
+    try testing.expectEqualSlices(u64, &.{ 1, 3 }, h.counts);
+    const C = std.math.Complex(f64);
+    const cs = [_]C{ .init(1, 2), .init(3, -2) };
+    const m = try mean(io, C, &cs);
+    try testing.expectEqual(2, m.re);
+    try testing.expectEqual(0, m.im);
+    // |x - mean|²: (1 + 4) and (1 + 4)
+    try testing.expectEqual(5, try variance(io, f64, &cs, .population));
 }
