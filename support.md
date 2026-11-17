@@ -10,7 +10,7 @@ after it. Rig names are `zig build` steps: `qemu-test-<rig>` unless named in ful
 
 - **Tier 1: required first.** Everything implemented works and is tested. Bugs block the MVP and every release, and go in the current milestone (the open `dev` to `main` pull request's list of issues). Every kernel object the platform links runs the per-core tests, or is listed below as untested with its item.
 - **Tier 2: required, after tier 1.** RandyOS's and zfls's other platforms. Bugs are required fixes, also for the MVP, and go in the current milestone too. Tested on a rig or machine where one exists; untested cores and paths are listed with their items.
-- **Tier 3: best effort.** Every other platform with a rig. The rigs run in each sweep for the record, and CI runs the tier 3 and 4 legs on the release pull request, or on one into `dev` labeled for them (`.github/workflows/ci.yml`); failures go to issues labeled `backlog`, as do tier 4's, tuning, optional and Blocked work. Choices no rig can check follow OpenBLAS and BLIS where they agree
+- **Tier 3: best effort.** Every other platform with a rig. The rigs run in each sweep for the record, and CI runs the tier 3 and 4 legs, the tier 3 rigs among them, on the release pull request, or on one into `dev` labeled for them (`.github/workflows/ci.yml`); failures go to issues labeled `backlog`, as do tier 4's, tuning, optional and Blocked work. Choices no rig can check follow OpenBLAS and BLIS where they agree
   ([`design.md`](src/linalg/design.md#settled-decisions), "Target platforms come first").
 - **Tier 4: unsupported or blocked.** No rig, blocked upstream, or not worth its upkeep. Every
   target compiles with the portable kernels at least; nothing more is promised. Each entry cites
@@ -23,13 +23,13 @@ after it. Rig names are `zig build` steps: `qemu-test-<rig>` unless named in ful
 | `x86_64-windows` | 1 | zfls | native `rstd-test` on the Zen 3 host, with `-Dblas-cores=all`; `x86_64-whpx` (the host CPU); `rstd-check-zig017`; zfls's CI |
 | `spirv32-vulkan` | 1 | rgl, shaderlib | `-Dvulkan` compiles rgl's shaders (`vulkan_v1_2`); `shader-check` validates them with `spirv-val`; `shader-run` draws with them and runs shaderlib's probes on a Vulkan device against the CPU (`tools/shader_run`); both in CI, on Mesa's lavapipe |
 | `x86_64-freestanding-none` | 2 | RandyOS: PC, Intel Mac | `x86_64` and `x86_64-smp` (TCG `max`, HVF on the Intel Mac, or KVM in CI), `x86_64-whpx` |
-| `aarch64-freestanding-none` | 2 | RandyOS: Raspberry Pi 3 to 5, Apple Silicon | `aarch64` (HVF on the M6, or `cortex-a72`), `aarch64-sve` (TCG `max`) |
-| `arm-freestanding-eabi` | 2 | RandyOS: Raspberry Pi 3, 32-bit | `arm-softfp` (soft-float ABI, A15's VFP), `arm` (`eabihf`) |
-| `powerpc-freestanding-eabi` | 2 | RandyOS: iBook G3, PowerPC 750FX | `powerpc-750` (soft float: portable kernels only), `powerpc-750-hf` |
-| `x86_64-uefi-msvc` | 2 | RandyOS's loader | `x86_64-uefi` (OVMF; HVF on the Intel Mac), `rstd-check-uefi` |
-| `aarch64-uefi-msvc` | 2 | RandyOS's loader (pftf) | `aarch64-uefi` (AAVMF; HVF on the M6), `rstd-check-uefi` |
-| `x86_64-linux-musl` | 2 | zfls (release, conda, Alpine) | `linux-x86_64` (TCG `max`, or HVF on the Intel Mac; 4 CPUs), CI's native `x86_64-linux-musl` legs, `rstd-check-zig017` |
-| `aarch64-linux-musl` | 2 | zfls (release, conda, Alpine) | `linux-aarch64` (HVF on the M6, or TCG `max`), `linux-aarch64-sve` (TCG `max`: the SVE and SME cores), CI's native `aarch64-linux-musl` legs, `rstd-check-zig017` |
+| `aarch64-freestanding-none` | 2 | RandyOS: Raspberry Pi 3 to 5, Apple Silicon | `aarch64` (HVF on the M6, or `cortex-a72`), `aarch64-smp`, `aarch64-sve` (TCG `max`); in CI on arm64 runners |
+| `arm-freestanding-eabi` | 2 | RandyOS: Raspberry Pi 3, 32-bit | `arm-softfp` (soft-float ABI, A15's VFP), `arm` (`eabihf`); both in CI under TCG |
+| `powerpc-freestanding-eabi` | 2 | RandyOS: iBook G3, PowerPC 750FX | `powerpc-750` (soft float: portable kernels only), `powerpc-750-hf`; both in CI under TCG |
+| `x86_64-uefi-msvc` | 2 | RandyOS's loader | `x86_64-uefi` (OVMF; HVF on the Intel Mac, or KVM in CI), `rstd-check-uefi` (CI too) |
+| `aarch64-uefi-msvc` | 2 | RandyOS's loader (pftf) | `aarch64-uefi` (AAVMF; HVF on the M6, or arm64 runners in CI), `rstd-check-uefi` |
+| `x86_64-linux-musl` | 2 | zfls (release, conda, Alpine) | `linux-x86_64` (TCG `max`, HVF on the Intel Mac, or KVM in CI; 4 CPUs), CI's native `x86_64-linux-musl` legs, `rstd-check-zig017` |
+| `aarch64-linux-musl` | 2 | zfls (release, conda, Alpine) | `linux-aarch64` (HVF on the M6, or TCG `max`), `linux-aarch64-sve` (TCG `max`: the SVE and SME cores), both in CI on arm64 runners; CI's native `aarch64-linux-musl` legs, `rstd-check-zig017` |
 | `x86_64-linux-gnu`, `aarch64-linux-gnu` | 2 | zfls | CI's native legs (`ubuntu-24.04`, `ubuntu-24.04-arm`); the Linux rigs above with `-Drstd-tsan` (glibc from Nix) |
 | `aarch64-windows` | 2 | zfls | CI's native legs (`windows-11-arm`), `rstd-check-zig017` |
 | `x86_64-macos` 11.0+ | 2 | zfls | `ssh-test-x86_64-macos` (Intel Mac, i5-8500B, macOS 15.8), CI's native legs (`macos-15-intel`), `ssh-test-x86_64-macos-rosetta` (Rosetta 2 on the M6, for comparison), `rstd-check-macho`, `rstd-check-zig017` |

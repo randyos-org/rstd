@@ -152,6 +152,7 @@ const base_machines = [_]Machine{
         .args = &.{ "-M", "virt", "-cpu", "cortex-a72" },
         // no semihosting: the boot code falls back to the PL011 and PSCI
         .hvf = &.{ "-accel", "hvf", "-M", "virt", "-cpu", "host" },
+        .kvm = &.{ "-accel", "kvm", "-M", "virt,gic-version=host", "-cpu", "host" },
         .boot = .{ .kernel = .{
             .linker_script = "test/qemu/aarch64.ld",
         } },
@@ -163,6 +164,7 @@ const base_machines = [_]Machine{
         .qemu = "qemu-system-aarch64",
         .args = &.{ "-M", "virt", "-cpu", "cortex-a72" },
         .hvf = &.{ "-accel", "hvf", "-M", "virt", "-cpu", "host" },
+        .kvm = &.{ "-accel", "kvm", "-M", "virt,gic-version=host", "-cpu", "host" },
         .boot = .{ .kernel = .{
             .linker_script = "test/qemu/aarch64.ld",
         } },
@@ -714,6 +716,7 @@ const base_machines = [_]Machine{
         .qemu = "qemu-system-x86_64",
         .args = &.{ "-M", "q35", "-cpu", "max" },
         .hvf = &.{ "-accel", "hvf", "-M", "q35", "-cpu", "host" },
+        .kvm = &.{ "-accel", "kvm", "-M", "q35", "-cpu", "host" },
         .memory = "1G",
         .boot = .{ .kernel = .{
             .linker_script = "",
@@ -727,6 +730,7 @@ const base_machines = [_]Machine{
         .qemu = "qemu-system-aarch64",
         .args = &.{ "-M", "virt", "-cpu", "cortex-a72" },
         .hvf = &.{ "-accel", "hvf", "-M", "virt", "-cpu", "host" },
+        .kvm = &.{ "-accel", "kvm", "-M", "virt,gic-version=host", "-cpu", "host" },
         .memory = "1G",
         .boot = .{ .kernel = .{
             .linker_script = "",
@@ -760,6 +764,7 @@ const base_machines = [_]Machine{
         .qemu = "qemu-system-x86_64",
         .args = &.{ "-M", "pc", "-cpu", "max", "-smp", "4" },
         .hvf = &.{ "-accel", "hvf", "-M", "pc", "-cpu", "host", "-smp", "4" },
+        .kvm = &.{ "-accel", "kvm", "-M", "pc", "-cpu", "host", "-smp", "4" },
         // the initramfs and its unpacked copy: the test, with every core's
         // kernels and their debug info, is about 700 MB, and `/` (where tests
         // write files) gets half the memory

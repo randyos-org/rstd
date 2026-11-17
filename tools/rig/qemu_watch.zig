@@ -41,8 +41,9 @@ fn run(init: std.process.Init) !u8 {
     const fail_fast = dashes > 2 and std.mem.eql(u8, args[2], "--fail-fast");
     const halts = args[@as(usize, if (fail_fast) 3 else 2)..dashes];
 
+    const argv = try withData(io, init.arena.allocator(), init.environ_map, args[dashes + 1 ..]);
     // stdin reaches the monitor muxed on the console (`dumpCpus`)
-    var qemu = try std.process.spawn(io, .{ .argv = args[dashes + 1 ..], .stdin = .pipe, .stdout = .pipe, .stderr = .pipe });
+    var qemu = try std.process.spawn(io, .{ .argv = argv, .stdin = .pipe, .stdout = .pipe, .stderr = .pipe });
     var state: State = .{ .last = .init(now(io)) };
     // both: test runners report on stderr
     var out = try io.concurrent(passThrough, .{ io, qemu.stdout.?, Io.File.stdout(), halts, fail_fast, &state });
@@ -72,6 +73,40 @@ fn run(init: std.process.Init) !u8 {
         .exited => |code| code,
         else => 1,
     };
+}
+
+/// `argv` with `@qemu-data@` replaced by QEMU's data directory (its firmware),
+/// found beside the QEMU binary on `PATH`, as `tools/nix/run.sh` does on a test
+/// host: `<prefix>/share/qemu` (Linux, Nix), else `<bindir>/share` (Windows).
+/// Left as it is for the test host's tool, whose `run.sh` fills it in.
+fn withData(io: Io, arena: std.mem.Allocator, env: *std.process.Environ.Map, argv: []const []const u8) ![]const []const u8 {
+    const tag = "@qemu-data@";
+    const tagged = for (argv) |a| {
+        if (std.mem.find(u8, a, tag) != null) break true;
+    } else false;
+    if (!tagged or !std.mem.startsWith(u8, std.fs.path.basename(argv[0]), "qemu-system")) return argv;
+    const bin = try onPath(io, arena, env, argv[0]) orelse return error.QemuNotOnPath;
+    const bin_dir = std.fs.path.dirname(bin) orelse ".";
+    const prefix_share = try std.fs.path.join(arena, &.{ std.fs.path.dirname(bin_dir) orelse ".", "share", "qemu" });
+    const data = if (Io.Dir.accessAbsolute(io, prefix_share, .{})) |_| prefix_share else |_| try std.fs.path.join(arena, &.{ bin_dir, "share" });
+    const out = try arena.alloc([]const u8, argv.len);
+    for (argv, out) |a, *o| o.* = try std.mem.replaceOwned(u8, arena, a, tag, data);
+    return out;
+}
+
+/// `name`'s full path on `PATH`, `.exe` tried too.
+fn onPath(io: Io, arena: std.mem.Allocator, env: *std.process.Environ.Map, name: []const u8) !?[]const u8 {
+    if (std.fs.path.isAbsolute(name)) return name;
+    const path = env.get("PATH") orelse env.get("Path") orelse return null;
+    var dirs = std.mem.tokenizeScalar(u8, path, std.fs.path.delimiter);
+    while (dirs.next()) |dir| {
+        for ([_][]const u8{ "", ".exe" }) |ext| {
+            const full = try std.fmt.allocPrint(arena, "{s}{c}{s}{s}", .{ dir, std.fs.path.sep, name, ext });
+            Io.Dir.accessAbsolute(io, full, .{}) catch continue;
+            return full;
+        }
+    }
+    return null;
 }
 
 /// A hung guest's state before it is ended: every vCPU's registers from the
