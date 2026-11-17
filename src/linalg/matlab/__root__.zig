@@ -4,7 +4,6 @@
 const scalar = @import("scalar.zig");
 const elementary = @import("elementary.zig");
 const generators = @import("generators.zig");
-const rat_mod = @import("rat.zig");
 const base_mod = @import("base.zig");
 const random = @import("random.zig");
 const matrixfun = @import("matrixfun.zig");
@@ -21,9 +20,6 @@ pub const magic = generators.magic;
 
 /// BASE: REPL name for `base.base`.
 pub const base = base_mod.base;
-
-/// RAT: REPL name for `rat.rat`.
-pub const rat = rat_mod.rat;
 
 /// POLY/ROOTS and the elementwise elementary functions: see
 /// `matrixfun.zig`.
@@ -80,7 +76,7 @@ const matmul = @import("matmul.zig");
 const elementwise = @import("elementwise.zig");
 
 test {
-    inline for (.{ CxMat, scalar, elementary, lu, divide, cholesky, generators, rat_mod, base_mod, random, eig, schur, svd, matrixfun, matmul, elementwise, norm }) |m| zigstd.testRefAllDecls(m);
+    inline for (.{ CxMat, scalar, elementary, lu, divide, cholesky, generators, base_mod, random, eig, schur, svd, matrixfun, matmul, elementwise, norm }) |m| zigstd.testRefAllDecls(m);
 }
 
 test "sum and prod match hand computation" {

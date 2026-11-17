@@ -22,7 +22,7 @@ const matlab = @import("matlab/__root__.zig");
 ## Two surfaces
 
 - **`matlab.CxMat`** - bundles a complex matrix's storage (`r`/`i`), leading dimension (`lda`), and shape (`m`/`n`) into one value, and carries every REPL command that operates on one matrix as its primary subject as a method: `mat.det(allocator, io)`, `mat.eye()`, `mat.chol(allocator, io, null)`, `CxMat.eig(allocator, io, mat, true)`, and so on. Use this for anything self-shaped. See its own doc comment for `lda`/striding details and `init`/`initPacked`/`clone`.
-- **`matlab.<name>`** (top-level) - the REPL commands that *aren't* self-shaped: a real-only generator with no `CxMat` shape to bundle (`hilb`, `magic`), a flat-array/vector operation (`sum`, `prod`, `poly`, `roots`, vector `norm`, the elementwise `sin`/`cos`/... family), or a standalone command (`base`, `rat`, `Rand`). `roots` takes a `std.mem.Allocator` because it needs scratch space sized at runtime; the rest work directly on caller-supplied buffers, same as `CxMat`'s methods.
+- **`matlab.<name>`** (top-level) - the REPL commands that *aren't* self-shaped: a real-only generator with no `CxMat` shape to bundle (`hilb`, `magic`), a flat-array/vector operation (`sum`, `prod`, `poly`, `roots`, vector `norm`, the elementwise `sin`/`cos`/... family), or a standalone command (`base`, `Rand`; `rat` moved to `rstd.math.rationalApprox`). `roots` takes a `std.mem.Allocator` because it needs scratch space sized at runtime; the rest work directly on caller-supplied buffers, same as `CxMat`'s methods.
 
 Everything else in this directory (`lu`, `cholesky`, `svd`, `scalar`, `generators`, ...) - the low-level kernels, named after their original Fortran routines (lowercased; Fortran is case-insensitive, so this renames nothing about the source) - is an internal implementation detail behind those two surfaces, not part of the public API. Every matrix-level (not vector-level BLAS1) kernel among these takes its primary matrix as a `CxMat` first parameter, so `CxMat`'s methods are exactly these calls with dot-call sugar, not a second implementation - `mat.det(allocator, io)` *is* `lu.det(mat, allocator, io)`. See "Internal kernels" below if you need to read the source for one of these.
 
@@ -113,7 +113,6 @@ Most of this port doesn't allocate - functions read/write caller-supplied buffer
 | `hilb` | `(a, lda, n) void` | Exact inverse Hilbert matrix (real only - no `CxMat`, see its own doc comment). Alias of `generators.hilber`. |
 | `magic` | `(io, a, lda, n) !void` | Magic square generator (real only). Alias of `generators.magic`. |
 | `base` | `(allocator, x, b, eps) ![]u8` | Format `x` in base `b` as an ASCII string. Alias of `base.base`. |
-| `rat` | `(x, max_term, d) Fraction` | Continued-fraction rational approximation. Alias of `rat.rat`. |
 | `poly` | `(rootsr, rootsi, n, cr, ci) void` | Characteristic polynomial from `n` roots. |
 | `roots` | `(allocator, io, coeffr, coeffi, wr, wi) !usize` | Roots of a polynomial, via its companion matrix's eigenvalues (`geev`, balanced). |
 | `sum` / `prod` | `(ar, ai) Cx` | Sum/product of all entries (any shape). |
@@ -135,7 +134,6 @@ These modules aren't reachable as `matlab.<module>` - they're implementation det
 | `scalar` | `level1` | `WNRM2`, `WASUM`, `IWAMAX`, `WSCAL`, `WAXPY`, `WSWAP`, `RSWAP` | rstd's BLAS level 1 since M2; `level1` drops its stride errors. |
 | `scalar` | `ix` | *(new)* | 1-based `(i, j)` → 0-based flat column-major offset. |
 | `elementary` | `wpow` | `MATFN2`'s power body | `x^y` (principal branch). `SIN`/`COS`/`EXP`/`SQRT` are `std.math.complex` calls directly - no wrapper. `ROUND` is `@round` directly. |
-| `rat` | `rat` | `RAT` | Continued-fraction rational approximation. |
 | `base` | `base` | `BASE` | Format a number in an arbitrary base (ASCII output; see the module doc comment). |
 | `lu` | `Lu`, `lange1`, `rcond` | `WGEFA`, `WGESL`, `WGECO` | LAPACK's `getrf`, `getrs`, `lange` and `gecon` at the split-layout boundary (M2). |
 | `lu` | `det`, `inv` | `WGEDI` | `WGEDI`'s scaled determinant over `getrf`'s factors; the inverse by `getri`. |
