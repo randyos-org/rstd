@@ -1085,6 +1085,8 @@ pub inline fn symv(comptime T: type, comptime herm: bool, ul: types.Uplo, n: isi
         const name = comptime "cblas_" ++ portable.letter(T).? ++ if (herm) "hemv" else "symv";
         const b = use(T) orelse return false;
         const u = uplo(ul) orelse return false;
+        // real `symv`'s shows on arm64 only (issue #410)
+        if (!x86_64 and !isComplex(T) and nonFinite(T, n, x, incx)) return false;
         return call(name, b, &.{ mat(n, n, lda), span(n, incx), span(n, incy) }, .{ col, u, n, scalar(T, &alpha), a, lda, x, incx, scalar(T, &beta), y, incy }) != null;
     }
 }

@@ -57,6 +57,12 @@ fn Cases(comptime s: Set) type {
     const spot = 33;
     const big_dot = 100_000;
     return struct {
+        /// The last case's detail, printed under its row.
+        var note: []const u8 = "";
+        var note_buf: [256]u8 = undefined;
+        var first: []const u8 = "";
+        var first_buf: [160]u8 = undefined;
+
         const list = [_]struct { []const u8, *const fn () Seen }{
             .{ "complex scal n=67, alpha (1.5, 0) on (inf, 1): imaginary part stays finite", zscal },
             .{ "complex axpy n=67, alpha (1.5, 0) on x (inf, 1): imaginary part stays finite", zaxpy },
@@ -74,6 +80,8 @@ fn Cases(comptime s: Set) type {
             .{ "zpotrf: a well conditioned matrix reported not positive definite", zpotrf },
             .{ "cpotrf: a well conditioned matrix reported not positive definite", cpotrf },
             .{ "trsm, subnormal diagonal: multiplies by its reciprocal", dtrsm },
+            .{ "ssymv, inf in x, A nonzero: some y(i) NaN (issue #410)", ssymv },
+            .{ "dsymv, inf in x, A nonzero: some y(i) NaN (issue #410)", dsymv },
         };
 
         fn zscal() Seen {
@@ -243,6 +251,49 @@ fn Cases(comptime s: Set) type {
             return of(b[0] != 1);
         }
 
+        fn ssymv() Seen {
+            return symv(f32, "cblas_ssymv");
+        }
+
+        fn dsymv() Seen {
+            return symv(f64, "cblas_dsymv");
+        }
+
+        /// One infinity in `x` and no zero in `A`, so each `y(i)` is infinite;
+        /// over orders, triangles, strides, the infinity's place and sign, and
+        /// each buffer's offset (its alignment). `note` gets the failing count
+        /// and the first failure.
+        fn symv(comptime F: type, comptime name: []const u8) Seen {
+            const f = sym(s, fn (c_int, c_int, I, F, [*]const F, I, [*]const F, I, F, [*]F, I) callconv(.c) void, name) orelse return .absent;
+            const nmax = 130;
+            var a: [nmax * nmax + 4]F = undefined;
+            var x: [2 * nmax + 4]F = undefined;
+            var y: [nmax + 4]F = undefined;
+            var prng: std.Random.DefaultPrng = .init(11);
+            const r = prng.random();
+            for (&a) |*v| v.* = (r.float(F) + 0.5) * @as(F, if (r.boolean()) 1 else -1);
+            for (&x) |*v| v.* = r.float(F) * 2 - 1;
+            var bad: usize = 0;
+            var runs: usize = 0;
+            for ([_]usize{ 33, 130 }) |n| for ([_]c_int{ lower, upper }) |ul| for ([_]isize{ 1, -2 }) |incx| for ([_]usize{ 0, n / 2, n - 1 }) |p| for ([_]F{ std.math.inf(F), -std.math.inf(F) }) |v| for (0..4) |oa| for (0..4) |ox| for (0..4) |oy| {
+                const step: usize = @abs(incx);
+                const at = ox + step * (if (incx > 0) p else n - 1 - p);
+                const keep = x[at];
+                x[at] = v;
+                @memset(&y, 0);
+                f(col, ul, @intCast(n), 1, a[oa..].ptr, @intCast(n), x[ox..].ptr, @intCast(incx), 0, y[oy..].ptr, 1);
+                x[at] = keep;
+                runs += 1;
+                const nan_at = for (y[oy..][0..n], 0..) |e, i| {
+                    if (std.math.isNan(e)) break i;
+                } else continue;
+                if (bad == 0) first = std.fmt.bufPrint(&first_buf, "n={d} {s} incx={d} inf at {d}, NaN at y({d}), offsets a {d} x {d} y {d}", .{ n, if (ul == lower) "lower" else "upper", incx, p, nan_at, oa, ox, oy }) catch "";
+                bad += 1;
+            };
+            if (bad > 0) note = std.fmt.bufPrint(&note_buf, "{d} of {d}; first {s}", .{ bad, runs, first }) catch first;
+            return of(bad > 0);
+        }
+
         /// The child's case: a zero stride on the vector `dswap` writes.
         fn zeroStride() void {
             const f = sym(s, fn (I, [*]f64, I, [*]f64, I) callconv(.c) void, "cblas_dswap") orelse std.process.exit(3);
@@ -267,6 +318,10 @@ pub fn main(init: std.process.Init) !void {
         std.debug.print("  ", .{});
         inline for (sets) |s| std.debug.print("{t:<6} ", .{Cases(s).list[i][1]()});
         std.debug.print("{s}\n", .{Cases(sets[0]).list[i][0]});
+        inline for (sets) |s| if (Cases(s).note.len > 0) {
+            std.debug.print("    {s}: {s}\n", .{ s.name, Cases(s).note });
+            Cases(s).note = "";
+        };
     }
     std.debug.print("  ", .{});
     inline for (sets) |s| {

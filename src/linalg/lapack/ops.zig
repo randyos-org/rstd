@@ -55,6 +55,12 @@ pub fn Mat(comptime T: type) type {
             return m.ptr + j * m.ld;
         }
 
+        /// From the first element to the last, as the slice-taking routines
+        /// want it with `ld`.
+        pub fn slice(m: Self) []T {
+            return m.ptr[0..if (m.rows == 0 or m.cols == 0) 0 else (m.cols - 1) * m.ld + m.rows];
+        }
+
         pub fn fill(m: Self, v: T) void {
             for (0..m.cols) |j| @memset(m.col(j)[0..m.rows], v);
         }

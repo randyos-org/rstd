@@ -7,25 +7,41 @@ const std = @import("std");
 const blas = @import("../blas/__root__.zig");
 const types = @import("../blas/types.zig");
 const util = @import("../blas/util.zig");
+const interface = @import("interface.zig");
 const ops = @import("ops.zig");
 const blas_calls = @import("blas_calls.zig");
 const auxiliary = @import("auxiliary.zig");
 const norm = @import("norm.zig");
 const sylvester = @import("sylvester.zig");
 const trsyl = @import("trsyl.zig");
-const evd = @import("evd.zig");
+const hessenberg = @import("hessenberg.zig");
+const real_schur = @import("real_schur.zig");
+const complex_schur = @import("complex_schur.zig");
+const balance = @import("balance.zig");
+const strided = @import("../blas/strided.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
 const Float = types.Float;
 const isComplex = types.isComplex;
 const Error = ops.Error;
+const Mat = ops.Mat;
+const Jobz = interface.Jobz;
 
 /// `COMPQ`: update `Q` (`v`) or not (`n`).
 pub const Compq = enum { n, v };
 
-/// `trsen`'s eigenvalues, as `geev`'s: real `wr` and `wi`, complex `w`.
-pub const Eigenvalues = evd.Eigenvalues;
+/// `geev`'s eigenvalues: real `wr` and `wi` (`dgeev`'s), complex `w`
+/// (`zgeev`'s).
+pub fn Eigenvalues(comptime T: type) type {
+    return if (isComplex(T)) []T else struct { re: []T, im: []T };
+}
+
+/// `w` holds `n` eigenvalues.
+pub fn eigenvaluesHold(comptime T: type, w: Eigenvalues(T), n: usize) strided.SliceError!void {
+    const short = if (comptime isComplex(T)) w.len < n else w.re.len < n or w.im.len < n;
+    if (short) return error.SliceTooShort;
+}
 
 // ---- small real kernels ------------------------------------------------------------
 
@@ -202,7 +218,7 @@ fn laexc(io: Io, comptime F: type, n: usize, t: [*]F, ldt: usize, q: ?[*]F, ldq:
     if (n1 == 1) {
         // n1 = 1, n2 = 2
         var u = [3]F{ scale, x11, x12 };
-        const tau = try auxiliary.larfg(io, F, 3, &u[2], &u, 1);
+        const tau = try auxiliary.larfg(io, F, &u[2], .of(u[0..2]));
         u[2] = 1;
         const t11 = El.at(t, ldt, j1, j1).*;
         larfx(F, true, 3, 3, u, tau, &d, ldd);
@@ -217,7 +233,7 @@ fn laexc(io: Io, comptime F: type, n: usize, t: [*]F, ldt: usize, q: ?[*]F, ldq:
     } else if (n2 == 1) {
         // n1 = 2, n2 = 1
         var u = [3]F{ -x11, -x21, scale };
-        const tau = try auxiliary.larfg(io, F, 3, &u[0], u[1..].ptr, 1);
+        const tau = try auxiliary.larfg(io, F, &u[0], .of(u[1..]));
         u[0] = 1;
         const t33 = El.at(t, ldt, j3, j3).*;
         larfx(F, true, 3, 3, u, tau, &d, ldd);
@@ -232,11 +248,11 @@ fn laexc(io: Io, comptime F: type, n: usize, t: [*]F, ldt: usize, q: ?[*]F, ldq:
     } else {
         // n1 = n2 = 2
         var r1 = [3]F{ -x11, -x21, scale };
-        const tau1 = try auxiliary.larfg(io, F, 3, &r1[0], r1[1..].ptr, 1);
+        const tau1 = try auxiliary.larfg(io, F, &r1[0], .of(r1[1..]));
         r1[0] = 1;
         const temp = -tau1 * (x12 + r1[1] * x22);
         var r2 = [3]F{ -temp * r1[1] - x22, -temp * r1[2], scale };
-        const tau2 = try auxiliary.larfg(io, F, 3, &r2[0], r2[1..].ptr, 1);
+        const tau2 = try auxiliary.larfg(io, F, &r2[0], .of(r2[1..]));
         r2[0] = 1;
         larfx(F, true, 3, 4, r1, tau1, &d, ldd);
         larfx(F, false, 4, 3, r1, tau1, &d, ldd);
@@ -274,42 +290,39 @@ fn standardize(io: Io, comptime F: type, n: usize, t: [*]F, ldt: usize, q: ?[*]F
 
 // ---- xTREXC ------------------------------------------------------------------------
 
-/// What `trexc` returns: `SwapRejected` for the reference's `INFO = 1`
+/// What `trexc` returns: a slice too short or a leading dimension too small
+/// (`q` checked only with `compq` `v`), `RowOutOfRange` for an `ifst` or
+/// `ilst` past `T`'s rows, `SwapRejected` for the reference's `INFO = 1`
 /// (real only): two adjacent blocks were too close to swap stably, `T`
 /// part reordered and `ilst` the moving block's current row.
-pub const TrexcError = error{ InvalidN, InvalidLdt, InvalidLdq, InvalidIfst, InvalidIlst, SwapRejected } || Io.Cancelable;
+pub const TrexcError = interface.ShapeError || error{ RowOutOfRange, SwapRejected } || Io.Cancelable;
 
 /// `?TREXC` (`dtrexc.f`, `ztrexc.f`): moves the diagonal block of the
-/// `n x n` Schur form `T` at row `ifst` (1-based) to row `ilst` by
+/// `n x n` Schur form `T` at row `ifst` (0-based) to row `ilst` by
 /// orthogonal (unitary) similarity, `T := Zᴴ T Z`, and with `compq` `v`
 /// `Q := Q Z`. Real: `T` is quasi-triangular with standardized 2 x 2
 /// blocks; `ifst` moves to its block's first row and `ilst` to the moved
 /// block's final first row, as the reference's. Complex: both unchanged.
-pub fn trexc(allocator: Allocator, io: Io, comptime T: type, compq: Compq, n: isize, t: [*]T, ldt: isize, q: [*]T, ldq: isize, ifst: *isize, ilst: *isize) TrexcError!void {
+pub fn trexc(io: Io, comptime T: type, compq: Compq, n: usize, t: []T, ldt: usize, q: []T, ldq: usize, ifst: *usize, ilst: *usize) TrexcError!void {
     comptime ops.requireFloat(T, "trexc");
-    _ = allocator;
     const wantq = compq == .v;
-    if (n < 0) return error.InvalidN;
-    if (ldt < @max(1, n)) return error.InvalidLdt;
-    if (ldq < 1 or (wantq and ldq < @max(1, n))) return error.InvalidLdq;
-    if ((ifst.* < 1 or ifst.* > n) and n > 0) return error.InvalidIfst;
-    if ((ilst.* < 1 or ilst.* > n) and n > 0) return error.InvalidIlst;
+    try util.holds(t.len, n, n, ldt);
+    if (wantq) try util.holds(q.len, n, n, ldq);
+    if (n > 0 and (ifst.* >= n or ilst.* >= n)) return error.RowOutOfRange;
     if (n <= 1) return;
-    if (!util.fitsMatrix(n, n, ldt, @sizeOf(T))) return error.InvalidLdt;
-    if (wantq and !util.fitsMatrix(n, n, ldq, @sizeOf(T))) return error.InvalidLdq;
-    const un: usize = @intCast(n);
-    const qq: ?[*]T = if (wantq) q else null;
+    const qq: ?[*]T = if (wantq) q.ptr else null;
     if (comptime isComplex(T)) {
-        moveComplex(T, un, t, @intCast(ldt), qq, @intCast(ldq), @intCast(ifst.*), @intCast(ilst.*));
+        moveComplex(T, n, t.ptr, ldt, qq, ldq, ifst.* + 1, ilst.* + 1);
         return;
     }
-    var f: usize = @intCast(ifst.*);
-    var l: usize = @intCast(ilst.*);
+    // the reference's 1-based rows
+    var f = ifst.* + 1;
+    var l = ilst.* + 1;
     defer {
-        ifst.* = @intCast(f);
-        ilst.* = @intCast(l);
+        ifst.* = f - 1;
+        ilst.* = l - 1;
     }
-    const done = moveReal(io, T, un, t, @intCast(ldt), qq, @intCast(ldq), &f, &l) catch |e| switch (e) {
+    const done = moveReal(io, T, n, t.ptr, ldt, qq, ldq, &f, &l) catch |e| switch (e) {
         error.OutOfMemory => unreachable,
         error.Canceled => return error.Canceled,
     };
@@ -458,30 +471,37 @@ fn moveReal(io: Io, comptime F: type, n: usize, t: [*]F, ldt: usize, q: ?[*]F, l
 /// invariant subspace's (`v`, `sep`), or both (`b`).
 pub const TrsenJob = enum { n, e, v, b };
 
-/// What `trsen` returns: `SwapRejected` for the reference's `INFO = 1`
-/// (real only): a swap was rejected, `T` part reordered, `s` and `sep`
-/// zero, the eigenvalues written.
-pub const TrsenError = error{ InvalidN, InvalidLdt, InvalidLdq, SwapRejected } || Allocator.Error || Io.Cancelable;
+/// What `trsen` returns: a slice too short (`t`, `select` or `w` under
+/// `n`, `q` with `compq` `v`) or a leading dimension too small,
+/// `SwapRejected` for the reference's `INFO = 1` (real only): a swap was
+/// rejected, `T` part reordered, the eigenvalues written.
+pub const TrsenError = interface.ShapeError || error{SwapRejected} || Allocator.Error || Io.Cancelable;
+
+/// What `trsen` found: the reordered cluster's size (the reference's `m`)
+/// and, as `job` asks, the reciprocal condition numbers of the cluster
+/// (`s`) and of the invariant subspace (`sep`, an estimate), else null.
+pub fn Reordered(comptime T: type) type {
+    return struct { m: usize, s: ?Float(T) = null, sep: ?Float(T) = null };
+}
 
 /// `?TRSEN` (`dtrsen.f`, `ztrsen.f`): reorders the `n x n` Schur form `T`
 /// so the eigenvalues `select` picks (`n`; real: either of a pair picks
 /// both) lead it, `T := Zᴴ T Z`, `Q := Q Z` with `compq` `v`. Writes the
-/// reordered eigenvalues to `w`, their count to `m`, and as `job` asks the
-/// reciprocal condition numbers of the cluster (`s`) and of the invariant
-/// subspace (`sep`, an estimate).
-pub fn trsen(allocator: Allocator, io: Io, comptime T: type, job: TrsenJob, compq: Compq, select: [*]const bool, n: isize, t: [*]T, ldt: isize, q: [*]T, ldq: isize, w: Eigenvalues(T), m: *isize, s: *Float(T), sep: *Float(T)) TrsenError!void {
+/// reordered eigenvalues to `w` and returns their count with the condition
+/// numbers `job` asks for.
+pub fn trsen(allocator: Allocator, io: Io, comptime T: type, job: TrsenJob, compq: Compq, select: []const bool, n: usize, t_in: []T, ldt: usize, q: []T, ldq: usize, w: Eigenvalues(T)) TrsenError!Reordered(T) {
     comptime ops.requireFloat(T, "trsen");
     const wants = job == .e or job == .b;
     const wantsp = job == .v or job == .b;
     const wantq = compq == .v;
-    if (n < 0) return error.InvalidN;
-    if (ldt < @max(1, n)) return error.InvalidLdt;
-    if (ldq < 1 or (wantq and ldq < n)) return error.InvalidLdq;
-    if (!util.fitsMatrix(n, n, ldt, @sizeOf(T))) return error.InvalidLdt;
-    if (wantq and !util.fitsMatrix(n, n, ldq, @sizeOf(T))) return error.InvalidLdq;
-    const un: usize = @intCast(n);
-    const lt: usize = @intCast(ldt);
-    const qq: ?[*]T = if (wantq) q else null;
+    try util.holds(t_in.len, n, n, ldt);
+    if (wantq) try util.holds(q.len, n, n, ldq);
+    if (select.len < n) return error.SliceTooShort;
+    try eigenvaluesHold(T, w, n);
+    const un = n;
+    const lt = ldt;
+    const t = t_in.ptr;
+    const qq: ?[*]T = if (wantq) q.ptr else null;
     // the cluster's size, a real pair counted whole
     var cnt: usize = 0;
     {
@@ -493,12 +513,12 @@ pub fn trsen(allocator: Allocator, io: Io, comptime T: type, job: TrsenJob, comp
             } else if (select[k]) cnt += 1;
         }
     }
-    m.* = @intCast(cnt);
+    var r: Reordered(T) = .{ .m = cnt };
     defer eigenvalues(T, un, t, lt, w);
     if (cnt == un or cnt == 0) {
-        if (wants) s.* = 1;
-        if (wantsp) sep.* = try norm.matNorm(allocator, T, .o, un, un, t, lt);
-        return;
+        if (wants) r.s = 1;
+        if (wantsp) r.sep = try norm.matNorm(allocator, T, .o, un, un, t, lt);
+        return r;
     }
     // move the selected blocks up, in order
     var ks: usize = 0;
@@ -510,14 +530,10 @@ pub fn trsen(allocator: Allocator, io: Io, comptime T: type, job: TrsenJob, comp
             ks += 1;
             if (k + 1 != ks) {
                 if (comptime isComplex(T)) {
-                    moveComplex(T, un, t, lt, qq, @intCast(ldq), k + 1, ks);
+                    moveComplex(T, un, t, lt, qq, ldq, k + 1, ks);
                 } else {
                     var kk = k + 1;
-                    if (!try moveReal(io, T, un, t, lt, qq, @intCast(ldq), &kk, &ks)) {
-                        if (wants) s.* = 0;
-                        if (wantsp) sep.* = 0;
-                        return error.SwapRejected;
-                    }
+                    if (!try moveReal(io, T, un, t, lt, qq, ldq, &kk, &ks)) return error.SwapRejected;
                 }
             }
             if (pair) ks += 1;
@@ -527,7 +543,7 @@ pub fn trsen(allocator: Allocator, io: Io, comptime T: type, job: TrsenJob, comp
     const n1 = cnt;
     const n2 = un - cnt;
     const nn = n1 * n2;
-    if (!wants and !wantsp) return;
+    if (!wants and !wantsp) return r;
     const work = try allocator.alloc(T, 2 * nn);
     defer allocator.free(work);
     const ctx: Sep(T) = .{ .al = allocator, .io = io, .n1 = n1, .n2 = n2, .t = t, .ldt = lt, .x = work.ptr };
@@ -536,13 +552,14 @@ pub fn trsen(allocator: Allocator, io: Io, comptime T: type, job: TrsenJob, comp
         for (0..n2) |j| @memcpy(work[j * n1 ..][0..n1], t[(n1 + j) * lt ..][0..n1]);
         const scale = try ctx.solve(false, work.ptr);
         const rnorm = try norm.matNorm(allocator, T, .f, n1, n2, work.ptr, n1);
-        s.* = if (rnorm == 0) 1 else scale / (@sqrt(scale * scale / rnorm + rnorm) * @sqrt(rnorm));
+        r.s = if (rnorm == 0) 1 else scale / (@sqrt(scale * scale / rnorm + rnorm) * @sqrt(rnorm));
     }
     if (wantsp) {
         var last = Sep(T).Last{ .ctx = ctx };
-        const est = try norm.lacn2(allocator, T, Error, nn, work.ptr + nn, work.ptr, &last, Sep(T).Last.apply);
-        sep.* = last.scale / est;
+        const est = try norm.lacn2(allocator, T, Error, nn, work[nn..], work[0..nn], &last, Sep(T).Last.apply);
+        r.sep = last.scale / est;
     }
+    return r;
 }
 
 /// `trsen`'s Sylvester operator `X ↦ T11 X - X T22` on `n1 x n2` `X`.
@@ -562,18 +579,18 @@ fn Sep(comptime T: type) type {
         /// returning `scale`; a perturbed solve counts, as the reference
         /// ignores its `IERR`.
         fn solve(s: Self, adjoint: bool, x: [*]T) Error!Float(T) {
-            var scale: Float(T) = 1;
             const tr: types.Trans = if (adjoint) (if (comptime isComplex(T)) .c else .t) else .n;
-            const n1: isize = @intCast(s.n1);
-            const n2: isize = @intCast(s.n2);
-            const ld: isize = @intCast(s.ldt);
-            trsyl.trsyl(s.al, s.io, T, tr, tr, -1, n1, n2, s.t, ld, s.t + s.n1 + s.n1 * s.ldt, ld, x, n1, &scale) catch |e| switch (e) {
-                error.Perturbed => {},
+            const n1 = s.n1;
+            const n2 = s.n2;
+            const ld = s.ldt;
+            const t11 = s.t[0 .. (n1 - 1) * ld + n1];
+            const t22 = (s.t + n1 + n1 * ld)[0 .. (n2 - 1) * ld + n2];
+            const r = trsyl.trsyl(s.al, s.io, T, tr, tr, -1, n1, n2, t11, ld, t22, ld, x[0 .. n1 * n2], n1) catch |e| switch (e) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.Canceled => return error.Canceled,
                 else => unreachable,
             };
-            return scale;
+            return r.scale;
         }
 
         /// `lacn2`'s callback, keeping the last solve's `scale`.
@@ -603,6 +620,168 @@ fn eigenvalues(comptime T: type, n: usize, t: [*]const T, ldt: usize, w: Eigenva
         w.im[k] = @sqrt(@abs(t[k + (k + 1) * ldt])) * @sqrt(@abs(t[k + 1 + k * ldt]));
         w.im[k + 1] = -w.im[k];
     };
+}
+
+// ---- xHSEQR and xGEES (moved from evd.zig, issue #87) -----------------------------
+
+/// `hseqr`'s job: the eigenvalues alone (`e`), or the Schur form too (`s`).
+pub const HseqrJob = enum { e, s };
+/// `hseqr`'s `Z`: none (`n`), from the identity (`i`), or accumulated into
+/// the given one (`v`).
+pub const Compz = enum { n, i, v };
+
+/// What `hseqr` returns: `BlockOutOfRange` unless `lo <= hi <= n`, a slice
+/// too short or a leading dimension too small (`z` checked only with
+/// `compz` `i` or `v`), `NoConvergence` for the reference's `INFO > 0`.
+pub const HseqrError = interface.BlockError || interface.ShapeError || error{NoConvergence};
+
+/// `?HSEQR` (`dhseqr.f`, `zhseqr.f`): the eigenvalues of the upper
+/// Hessenberg `n x n` `H` into `w`, as `geev`'s, by faer's `lahqr`
+/// (`real_schur.zig`, `complex_schur.zig`; faer's multishift QR for large
+/// sizes is not ported yet) on rows and columns `lo..hi` (0-based, `hi`
+/// past the block's end, as `gebal` returns them; the rest triangular
+/// already, its eigenvalues read off the diagonal). With
+/// `job` `s`, `H` becomes the Schur form `T` (real: quasi-triangular, its
+/// 2 x 2 blocks standardized), else its contents are unspecified; entries
+/// below the subdiagonal are zeroed first, as the reference clears them
+/// after. With `compz` `i` or `v`, `Z` (`n x n`) is the identity or the
+/// caller's, times the Schur vectors. `NoConvergence` writes the
+/// reference's `INFO` to `unconverged`: `w[0..lo]` and `w[INFO..n]`
+/// converged.
+pub fn hseqr(io: Io, comptime T: type, job: HseqrJob, compz: Compz, n: usize, lo: usize, hi: usize, h: []T, ldh: usize, w: Eigenvalues(T), z: []T, ldz: usize, unconverged: ?*usize) HseqrError!void {
+    comptime ops.requireFloat(T, "hseqr");
+    try interface.blockIn(lo, hi, n);
+    try util.holds(h.len, n, n, ldh);
+    try eigenvaluesHold(T, w, n);
+    if (compz != .n) try util.holds(z.len, n, n, ldz);
+    if (n == 0) return;
+    const un = n;
+    const hm: Mat(T) = .{ .ptr = h.ptr, .rows = un, .cols = un, .ld = ldh };
+    const zm: ?Mat(T) = if (compz == .n) null else .{ .ptr = z.ptr, .rows = un, .cols = un, .ld = ldz };
+    if (compz == .i) zm.?.identity();
+    for (0..un) |j| for (@min(j + 2, un)..un) |i| {
+        hm.at(i, j).* = ops.zero(T);
+    };
+    // outside the block the matrix is triangular already
+    for (0..un) |i| if (i < lo or i >= hi) {
+        if (comptime isComplex(T)) w[i] = hm.get(i, i) else {
+            w.re[i] = hm.get(i, i);
+            w.im[i] = 0;
+        }
+    };
+    const want = job == .s;
+    const info = if (comptime isComplex(T))
+        complex_schur.lahqr(T, want, hm, zm, w[0..un], lo, hi)
+    else
+        real_schur.lahqr(io, T, want, hm, zm, w.re[0..un], w.im[0..un], lo, hi);
+    if (info != 0) {
+        if (unconverged) |u| u.* = info;
+        return error.NoConvergence;
+    }
+}
+
+/// `gees`'s sort: which eigenvalues go first; real `(re, im)`, complex `λ`.
+pub fn GeesSelect(comptime T: type) type {
+    return if (isComplex(T)) *const fn (T) bool else *const fn (Float(T), Float(T)) bool;
+}
+
+/// What `gees` returns: a slice too short or a leading dimension too small
+/// (`vs` checked only with `jobvs` `v`), `NanInA` for a NaN in `A`,
+/// `NoConvergence` for the reference's `INFO` 1 to `n`, `SelectChanged` for
+/// its `n + 1` (rounding in the reordering changed which eigenvalues
+/// `select` picks), `SwapRejected` for its `n + 2` (a swap too
+/// ill-conditioned to make).
+pub const GeesError = interface.ShapeError || interface.NanError || error{ NoConvergence, SelectChanged, SwapRejected } || Allocator.Error || Io.Cancelable;
+
+/// `?GEES` (`dgees.f`, `zgees.f`): the Schur factorization `A = Z T Zᴴ` of
+/// the `n x n` `A`: `T` in place of `A` (real: quasi-triangular, its 2 x 2
+/// blocks standardized), its eigenvalues in `w` (as `geev`'s), and with
+/// `jobvs` `v` the Schur vectors `Z` in `vs`. As the reference: scaled into
+/// `[SMLNUM, BIGNUM]`, balanced by permutation only (`gebal` job `p`),
+/// `gehrd`, `orghr`, `hseqr`; with `select`, `trsen` then moves the
+/// eigenvalues it picks to the top-left; `Z` takes `gebak` back. Returns
+/// the reference's `sdim`: the count `select` picked (a real pair counts 2,
+/// and moves if either is picked), 0 without `select`. `NoConvergence`
+/// writes the reference's `INFO` to `unconverged`.
+pub fn gees(allocator: Allocator, io: Io, comptime T: type, jobvs: Jobz, select: ?GeesSelect(T), n: usize, a: []T, lda: usize, w: Eigenvalues(T), vs: []T, ldvs: usize, unconverged: ?*usize) GeesError!usize {
+    comptime ops.requireFloat(T, "gees");
+    const F = Float(T);
+    try util.holds(a.len, n, n, lda);
+    try eigenvaluesHold(T, w, n);
+    if (jobvs == .v) try util.holds(vs.len, n, n, ldvs);
+    if (n == 0) return 0;
+    const un = n;
+    const am: Mat(T) = .{ .ptr = a.ptr, .rows = un, .cols = un, .ld = lda };
+    // `dgees.f`: NaN, then the scale into [SMLNUM, BIGNUM], as `geev`
+    const scaled = auxiliary.scaleIn(T, am) catch |e| switch (e) {
+        error.NanInA => return error.NanInA,
+        error.InfInA => {
+            if (unconverged) |c| c.* = un;
+            return error.NoConvergence;
+        },
+    };
+    const anrm = scaled.anrm;
+    const to = scaled.to;
+    const scale = try allocator.alloc(F, un);
+    defer allocator.free(scale);
+    const bal = balance.gebal(io, T, .p, n, a, lda, scale) catch |e| switch (e) {
+        error.Canceled => |x| return x,
+        // checked above: no NaN, and the arguments
+        else => unreachable,
+    };
+    const tau = try allocator.alloc(T, un);
+    defer allocator.free(tau);
+    hessenberg.gehrd(allocator, io, T, n, bal.lo, bal.hi, a, lda, tau) catch |e| return ops.narrow(ops.Error, e);
+    if (jobvs == .v) {
+        const vm: Mat(T) = .{ .ptr = vs.ptr, .rows = un, .cols = un, .ld = ldvs };
+        vm.copyFrom(am);
+        hessenberg.orghr(allocator, io, T, n, bal.lo, bal.hi, vs, ldvs, tau) catch |e| return ops.narrow(ops.Error, e);
+    }
+    const compz: Compz = if (jobvs == .v) .v else .n;
+    hseqr(io, T, .s, compz, n, bal.lo, bal.hi, a, lda, w, vs, ldvs, unconverged) catch |e| switch (e) {
+        error.NoConvergence => |x| return x,
+        else => unreachable,
+    };
+    var sdim: usize = 0;
+    if (select) |pick| {
+        const bwork = try allocator.alloc(bool, un);
+        defer allocator.free(bwork);
+        for (bwork, 0..) |*b, i| b.* = picked(T, pick, w, i);
+        const r = trsen(allocator, io, T, .n, if (jobvs == .v) .v else .n, bwork, n, a, lda, vs, ldvs, w) catch |e| switch (e) {
+            error.SwapRejected, error.OutOfMemory, error.Canceled => |x| return x,
+            else => unreachable,
+        };
+        sdim = r.m;
+        // `dgees.f`'s `INFO = N + 1`: the reordered eigenvalues, re-picked,
+        // a real pair picked if either is
+        const sm = r.m;
+        var i: usize = 0;
+        while (i < un) : (i += 1) {
+            const pair = !isComplex(T) and i + 1 < un and (if (comptime isComplex(T)) false else w.im[i] > 0);
+            const p = picked(T, pick, w, i) or (pair and picked(T, pick, w, i + 1));
+            if (p != (i < sm)) return error.SelectChanged;
+            if (pair) {
+                if (p != (i + 1 < sm)) return error.SelectChanged;
+                i += 1;
+            }
+        }
+    }
+    if (jobvs == .v) balance.gebak(io, T, .p, .r, n, bal.lo, bal.hi, scale, n, vs, ldvs) catch |e| switch (e) {
+        error.Canceled => |x| return x,
+        else => unreachable,
+    };
+    if (to) |t| {
+        auxiliary.lascl(T, false, t, anrm, am);
+        const ws = if (comptime isComplex(T)) [_][*]T{w.ptr} else [_][*]T{ w.re.ptr, w.im.ptr };
+        for (ws) |x| auxiliary.lascl(T, false, t, anrm, .{ .ptr = x, .rows = un, .cols = 1, .ld = un });
+    }
+    return sdim;
+}
+
+/// Whether `select` picks eigenvalue `i`, by its own `(re, im)` for real,
+/// as `dgees.f` asks each.
+fn picked(comptime T: type, pick: GeesSelect(T), w: Eigenvalues(T), i: usize) bool {
+    return if (comptime isComplex(T)) pick(w[i]) else pick(w.re[i], w.im[i]);
 }
 
 // ---- tests -----------------------------------------------------------------------
@@ -702,18 +881,17 @@ test "lapack trexc: moves every block to every place, Q T Q' = T0, Schur form ke
             defer al.free(t);
             const q = try al.alloc(T, n * n);
             defer al.free(q);
-            for (1..n + 1) |f| for (1..n + 1) |l| {
+            for (0..n) |f| for (0..n) |l| {
                 @memcpy(t, t0);
                 @memset(q, ops.zero(T));
                 for (0..n) |i| q[i * (n + 1)] = ops.one(T);
-                var ifst: isize = @intCast(f);
-                var ilst: isize = @intCast(l);
-                const ni: isize = @intCast(n);
-                try trexc(al, check.io, T, .v, ni, t.ptr, ni, q.ptr, ni, &ifst, &ilst);
+                var ifst = f;
+                var ilst = l;
+                try trexc(check.io, T, .v, n, t, n, q, n, &ifst, &ilst);
                 try expectSimilar(T, n, t0, t, q);
                 // the moved eigenvalue sits at ilst
-                const want = eigAt(T, n, t0, @intCast(ifst - 1));
-                const got = eigAt(T, n, t, @intCast(ilst - 1));
+                const want = eigAt(T, n, t0, ifst);
+                const got = eigAt(T, n, t, ilst);
                 const tol = 100 * @as(f64, @floatCast(std.math.floatEps(F))) * @as(f64, @floatFromInt(n));
                 try testing.expectApproxEqAbs(want[0], got[0], tol);
                 try testing.expectApproxEqAbs(@abs(want[1]), @abs(got[1]), tol);
@@ -723,30 +901,29 @@ test "lapack trexc: moves every block to every place, Q T Q' = T0, Schur form ke
 }
 
 test "lapack trexc: n = 0 and 1, compq n, bad arguments" {
-    const al = testing.allocator;
     inline for (test_types) |T| {
         var t = [_]T{ops.scalar(T, 3)};
         var q = [_]T{ops.scalar(T, 7)};
-        var f: isize = 1;
-        var l: isize = 1;
-        try trexc(al, check.io, T, .v, 1, &t, 1, &q, 1, &f, &l);
-        try trexc(al, check.io, T, .n, 0, &t, 1, &q, 1, &f, &l);
+        var f: usize = 0;
+        var l: usize = 0;
+        try trexc(check.io, T, .v, 1, &t, 1, &q, 1, &f, &l);
+        try trexc(check.io, T, .n, 0, &t, 1, &q, 1, &f, &l);
         try testing.expect(ops.re(T, t[0]) == 3 and ops.re(T, q[0]) == 7);
     }
     var t: [4]f64 = .{ 1, 0, 2, 3 };
     var q: [4]f64 = undefined;
-    var f: isize = 1;
-    var l: isize = 2;
-    try trexc(al, check.io, f64, .n, 2, &t, 2, &q, 1, &f, &l);
+    var f: usize = 0;
+    var l: usize = 1;
+    try trexc(check.io, f64, .n, 2, &t, 2, &q, 1, &f, &l);
     try testing.expect(t[0] == 3 and t[3] == 1 and @abs(t[2]) == 2 and t[1] == 0);
-    try testing.expectError(error.InvalidN, trexc(al, check.io, f64, .n, -1, &t, 1, &q, 1, &f, &l));
-    try testing.expectError(error.InvalidLdt, trexc(al, check.io, f64, .n, 2, &t, 1, &q, 1, &f, &l));
-    try testing.expectError(error.InvalidLdq, trexc(al, check.io, f64, .v, 2, &t, 2, &q, 1, &f, &l));
-    f = 3;
-    try testing.expectError(error.InvalidIfst, trexc(al, check.io, f64, .n, 2, &t, 2, &q, 1, &f, &l));
-    f = 1;
-    l = 0;
-    try testing.expectError(error.InvalidIlst, trexc(al, check.io, f64, .n, 2, &t, 2, &q, 1, &f, &l));
+    try testing.expectError(error.LeadingDimensionTooSmall, trexc(check.io, f64, .n, 2, &t, 1, &q, 1, &f, &l));
+    try testing.expectError(error.SliceTooShort, trexc(check.io, f64, .n, 2, t[0..3], 2, &q, 1, &f, &l));
+    try testing.expectError(error.LeadingDimensionTooSmall, trexc(check.io, f64, .v, 2, &t, 2, &q, 1, &f, &l));
+    f = 2;
+    try testing.expectError(error.RowOutOfRange, trexc(check.io, f64, .n, 2, &t, 2, &q, 1, &f, &l));
+    f = 0;
+    l = 2;
+    try testing.expectError(error.RowOutOfRange, trexc(check.io, f64, .n, 2, &t, 2, &q, 1, &f, &l));
 }
 
 /// `I ⊗ T11 - T22ᵀ ⊗ I`, the Sylvester operator `trsen` measures, on
@@ -782,14 +959,12 @@ test "lapack trsen: the selected cluster leads, s against the Kronecker solve, s
             var select: [8]bool = undefined;
             for (0..n) |i| select[i] = (sel >> @intCast(i)) & 1 != 0;
             var wbuf: [16]T = undefined;
-            const w: Eigenvalues(T) = if (comptime isComplex(T)) &wbuf else .{ .re = &wbuf, .im = wbuf[8..].ptr };
-            var m: isize = -1;
-            var s: F = -1;
-            var sep: F = -1;
-            const ni: isize = @intCast(n);
-            try trsen(al, check.io, T, .b, .v, &select, ni, t.ptr, ni, q.ptr, ni, w, &m, &s, &sep);
+            const w: Eigenvalues(T) = if (comptime isComplex(T)) &wbuf else .{ .re = wbuf[0..8], .im = wbuf[8..] };
+            const r = try trsen(al, check.io, T, .b, .v, select[0..n], n, t, n, q, n, w);
+            const s = r.s.?;
+            const sep = r.sep.?;
             try expectSimilar(T, n, t0, t, q);
-            const n1: usize = @intCast(m);
+            const n1 = r.m;
             // the selected eigenvalues, in their old order, lead
             var k: usize = 0;
             var got: usize = 0;
@@ -821,10 +996,9 @@ test "lapack trsen: the selected cluster leads, s against the Kronecker solve, s
             const kf = try al.alloc(T, nn * nn);
             defer al.free(kf);
             @memcpy(kf, kk);
-            const ipiv = try al.alloc(isize, nn);
+            const ipiv = try al.alloc(usize, nn);
             defer al.free(ipiv);
-            const nni: isize = @intCast(nn);
-            try lu.gesv(al, check.io, T, nni, 1, kf.ptr, nni, ipiv.ptr, x.ptr, nni, null);
+            try lu.gesv(al, check.io, T, nn, 1, kf, nn, ipiv, x, nn);
             var xf: F = 0;
             for (x) |v| xf += ops.abs2(T, v);
             const s_true = 1 / @sqrt(1 + xf);
@@ -833,8 +1007,7 @@ test "lapack trsen: the selected cluster leads, s against the Kronecker solve, s
             @memcpy(kf, kk);
             const sv = try al.alloc(F, nn);
             defer al.free(sv);
-            var dummy: [1]T = undefined;
-            try svd.gesvd(al, check.io, T, .n, .n, nni, nni, kf.ptr, nni, sv.ptr, &dummy, 1, &dummy, 1, null);
+            try svd.gesvd(al, check.io, T, .n, .n, nn, nn, kf, nn, sv, kf[0..0], 1, kf[0..0], 1, null);
             const smin = sv[nn - 1];
             const root = @sqrt(@as(F, @floatFromInt(nn)));
             if (!(sep >= smin / root * (1 - 1e3 * eps) and sep <= thresh * root * smin)) {
@@ -848,34 +1021,32 @@ test "lapack trsen: the selected cluster leads, s against the Kronecker solve, s
 test "lapack trsen: none or all selected, a block-diagonal T, n = 0, bad arguments" {
     const al = testing.allocator;
     inline for (test_types) |T| {
-        const F = Float(T);
         // diag(1, 4): s = 1 (T12 = 0), sep = |1 - 4| exactly
         var t = [_]T{ ops.scalar(T, 1), ops.zero(T), ops.zero(T), ops.scalar(T, 4) };
         var q: [4]T = undefined;
         var wbuf: [4]T = undefined;
-        const w: Eigenvalues(T) = if (comptime isComplex(T)) &wbuf else .{ .re = &wbuf, .im = wbuf[2..].ptr };
-        var m: isize = -1;
-        var s: F = -1;
-        var sep: F = -1;
-        try trsen(al, check.io, T, .b, .n, &[_]bool{ false, true }, 2, &t, 2, &q, 1, w, &m, &s, &sep);
-        try testing.expect(m == 1 and s == 1 and sep == 3);
+        const w: Eigenvalues(T) = if (comptime isComplex(T)) &wbuf else .{ .re = wbuf[0..2], .im = wbuf[2..] };
+        var r = try trsen(al, check.io, T, .b, .n, &.{ false, true }, 2, &t, 2, &q, 1, w);
+        try testing.expect(r.m == 1 and r.s.? == 1 and r.sep.? == 3);
         try testing.expect(ops.re(T, t[0]) == 4 and ops.re(T, t[3]) == 1);
-        try trsen(al, check.io, T, .b, .n, &[_]bool{ false, false }, 2, &t, 2, &q, 1, w, &m, &s, &sep);
-        try testing.expect(m == 0 and s == 1 and sep == 4);
-        try trsen(al, check.io, T, .v, .n, &[_]bool{ true, true }, 2, &t, 2, &q, 1, w, &m, &s, &sep);
-        try testing.expect(m == 2 and sep == 4);
-        try trsen(al, check.io, T, .b, .n, &[_]bool{}, 0, &t, 1, &q, 1, w, &m, &s, &sep);
-        try testing.expect(m == 0 and s == 1);
+        r = try trsen(al, check.io, T, .b, .n, &.{ false, false }, 2, &t, 2, &q, 1, w);
+        try testing.expect(r.m == 0 and r.s.? == 1 and r.sep.? == 4);
+        r = try trsen(al, check.io, T, .v, .n, &.{ true, true }, 2, &t, 2, &q, 1, w);
+        try testing.expect(r.m == 2 and r.s == null and r.sep.? == 4);
+        r = try trsen(al, check.io, T, .b, .n, &.{}, 0, &t, 1, &q, 1, w);
+        try testing.expect(r.m == 0 and r.s.? == 1);
+        r = try trsen(al, check.io, T, .n, .n, &.{ true, false }, 2, &t, 2, &q, 1, w);
+        try testing.expect(r.m == 1 and r.s == null and r.sep == null);
     }
     var t: [4]f64 = undefined;
     var q: [4]f64 = undefined;
     var wr: [2]f64 = undefined;
     var wi: [2]f64 = undefined;
-    var m: isize = 0;
-    var s: f64 = 0;
-    var sep: f64 = 0;
     const sel = [_]bool{ true, false };
-    try testing.expectError(error.InvalidN, trsen(al, check.io, f64, .n, .n, &sel, -1, &t, 1, &q, 1, .{ .re = &wr, .im = &wi }, &m, &s, &sep));
-    try testing.expectError(error.InvalidLdt, trsen(al, check.io, f64, .n, .n, &sel, 2, &t, 1, &q, 1, .{ .re = &wr, .im = &wi }, &m, &s, &sep));
-    try testing.expectError(error.InvalidLdq, trsen(al, check.io, f64, .n, .v, &sel, 2, &t, 2, &q, 1, .{ .re = &wr, .im = &wi }, &m, &s, &sep));
+    const w: Eigenvalues(f64) = .{ .re = &wr, .im = &wi };
+    try testing.expectError(error.LeadingDimensionTooSmall, trsen(al, check.io, f64, .n, .n, &sel, 2, &t, 1, &q, 1, w));
+    try testing.expectError(error.SliceTooShort, trsen(al, check.io, f64, .n, .n, &sel, 2, t[0..3], 2, &q, 1, w));
+    try testing.expectError(error.LeadingDimensionTooSmall, trsen(al, check.io, f64, .n, .v, &sel, 2, &t, 2, &q, 1, w));
+    try testing.expectError(error.SliceTooShort, trsen(al, check.io, f64, .n, .n, sel[0..1], 2, &t, 2, &q, 1, w));
+    try testing.expectError(error.SliceTooShort, trsen(al, check.io, f64, .n, .n, &sel, 2, &t, 2, &q, 1, .{ .re = &wr, .im = wi[0..1] }));
 }
