@@ -1,5 +1,5 @@
 //! `qemu_watch <idle minutes> [--fail-fast] <halt text>... -- <qemu argv>`: runs a rig's qemu, stdout and stderr passed through, and ends it on a
-//! firmware halt text, on silence that long, or with `--fail-fast` at the first failing test. Exits with qemu's status, or 1 after ending it.
+//! firmware halt text, on silence that long (after dumping every vCPU's registers), or with `--fail-fast` at the first failing test. Exits with qemu's status, or 1 after ending it.
 
 const std = @import("std");
 const Io = std.Io;
@@ -19,6 +19,8 @@ const fail_text = "FAIL ";
 
 /// Seconds a failure's trace gets to print before the run is ended.
 const fail_grace = 3;
+
+const silent = "no output for too long";
 
 pub fn main(init: std.process.Init) void {
     // exits rather than returns: returning would wait for a reader still blocked on qemu
@@ -40,7 +42,8 @@ fn run(init: std.process.Init) !u8 {
     const halts = args[@as(usize, if (fail_fast) 3 else 2)..dashes];
 
     const argv = try withData(io, init.arena.allocator(), init.environ_map, args[dashes + 1 ..]);
-    var qemu = try std.process.spawn(io, .{ .argv = argv, .stdin = .ignore, .stdout = .pipe, .stderr = .pipe });
+    // stdin reaches the monitor muxed on the console (`dumpCpus`)
+    var qemu = try std.process.spawn(io, .{ .argv = argv, .stdin = .pipe, .stdout = .pipe, .stderr = .pipe });
     var state: State = .{ .last = .init(now(io)) };
     // both: test runners report on stderr
     var out = try io.concurrent(passThrough, .{ io, qemu.stdout.?, Io.File.stdout(), halts, fail_fast, &state });
@@ -54,10 +57,11 @@ fn run(init: std.process.Init) !u8 {
         else if (failed != 0 and now(io) - failed >= fail_grace)
             "a test failed (-Dfail-fast)"
         else if (now(io) - state.last.load(.acquire) > idle)
-            "no output for too long"
+            silent
         else
             null;
         if (why) |w| {
+            if (std.mem.eql(u8, w, silent)) try dumpCpus(io, qemu.stdin.?);
             qemu.kill(io);
             std.debug.print("\nqemu_watch: ended qemu: {s}\n", .{w});
             return 1;
@@ -103,6 +107,17 @@ fn onPath(io: Io, arena: std.mem.Allocator, env: *std.process.Environ.Map, name:
         }
     }
     return null;
+}
+
+/// A hung guest's state before it is ended: every vCPU's registers from the
+/// monitor (`Ctrl-A c` switches the muxed console to it), so the log shows
+/// where each core waits (issue #411). Through `test_host` the keys go
+/// nowhere, harmlessly.
+fn dumpCpus(io: Io, stdin: Io.File) Io.Cancelable!void {
+    std.debug.print("\nqemu_watch: " ++ silent ++ "; every vCPU's registers:\n", .{});
+    stdin.writeStreamingAll(io, "\x01cinfo registers -a\n") catch return;
+    // the monitor's answer, which `passThrough` copies to the log
+    try io.sleep(.fromSeconds(5), .awake);
 }
 
 fn now(io: Io) i64 {

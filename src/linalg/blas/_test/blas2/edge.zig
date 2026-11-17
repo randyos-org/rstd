@@ -4,6 +4,7 @@
 
 const std = @import("std");
 const blas = @import("../../__root__.zig");
+const l2 = @import("../../blas2/core.zig");
 const Vtable = @import("../../Vtable.zig");
 const util = @import("../../util.zig");
 const check = @import("../check.zig");
@@ -327,14 +328,14 @@ fn mvRun(comptime T: type, comptime r: Routine, v: usize, alpha: T, beta: T, c: 
     const ix = c.inc[0];
     const iy = c.inc[1];
     switch (r) {
-        .gemv => try blas.gemv(pa, check.io, T, @fromBackingInt(@intCast(v)), m, n, alpha, a.buf.ptr, a.ld(), x.base(), ix, beta, y.base(), iy),
-        .gbmv => try blas.gbmv(pa, check.io, T, @fromBackingInt(@intCast(v)), m, n, @intCast(s.kl), @intCast(s.ku), alpha, a.buf.ptr, a.ld(), x.base(), ix, beta, y.base(), iy),
-        .symv => try blas.symv(pa, check.io, T, if (s.lower) .l else .u, n, alpha, a.buf.ptr, a.ld(), x.base(), ix, beta, y.base(), iy),
-        .hemv => if (comptime isComplex(T)) try blas.hemv(pa, check.io, T, @fromBackingInt(@intCast(v)), n, alpha, a.buf.ptr, a.ld(), x.base(), ix, beta, y.base(), iy),
-        .sbmv => try blas.sbmv(pa, check.io, T, if (s.lower) .l else .u, n, @intCast(s.kl + s.ku), alpha, a.buf.ptr, a.ld(), x.base(), ix, beta, y.base(), iy),
-        .hbmv => if (comptime isComplex(T)) try blas.hbmv(pa, check.io, T, @fromBackingInt(@intCast(v)), n, @intCast(s.kl + s.ku), alpha, a.buf.ptr, a.ld(), x.base(), ix, beta, y.base(), iy),
-        .spmv => try blas.spmv(pa, check.io, T, if (s.lower) .l else .u, n, alpha, a.buf.ptr, x.base(), ix, beta, y.base(), iy),
-        .hpmv => if (comptime isComplex(T)) try blas.hpmv(pa, check.io, T, @fromBackingInt(@intCast(v)), n, alpha, a.buf.ptr, x.base(), ix, beta, y.base(), iy),
+        .gemv => try l2.gemv(pa, check.io, T, @fromBackingInt(@intCast(v)), m, n, alpha, a.buf.ptr, a.ld(), x.base(), ix, beta, y.base(), iy),
+        .gbmv => try l2.gbmv(pa, check.io, T, @fromBackingInt(@intCast(v)), m, n, @intCast(s.kl), @intCast(s.ku), alpha, a.buf.ptr, a.ld(), x.base(), ix, beta, y.base(), iy),
+        .symv => try l2.symv(pa, check.io, T, if (s.lower) .l else .u, n, alpha, a.buf.ptr, a.ld(), x.base(), ix, beta, y.base(), iy),
+        .hemv => if (comptime isComplex(T)) try l2.hemv(pa, check.io, T, @fromBackingInt(@intCast(v)), n, alpha, a.buf.ptr, a.ld(), x.base(), ix, beta, y.base(), iy),
+        .sbmv => try l2.sbmv(pa, check.io, T, if (s.lower) .l else .u, n, @intCast(s.kl + s.ku), alpha, a.buf.ptr, a.ld(), x.base(), ix, beta, y.base(), iy),
+        .hbmv => if (comptime isComplex(T)) try l2.hbmv(pa, check.io, T, @fromBackingInt(@intCast(v)), n, @intCast(s.kl + s.ku), alpha, a.buf.ptr, a.ld(), x.base(), ix, beta, y.base(), iy),
+        .spmv => try l2.spmv(pa, check.io, T, if (s.lower) .l else .u, n, alpha, a.buf.ptr, x.base(), ix, beta, y.base(), iy),
+        .hpmv => if (comptime isComplex(T)) try l2.hpmv(pa, check.io, T, @fromBackingInt(@intCast(v)), n, alpha, a.buf.ptr, x.base(), ix, beta, y.base(), iy),
         else => unreachable,
     }
     try a.unchanged();
@@ -385,12 +386,12 @@ fn trRun(comptime T: type, comptime r: Routine, v: usize, c: Case) !void {
     const n: isize = @intCast(s.n);
     const k: isize = @intCast(s.kl + s.ku);
     switch (r) {
-        .trmv => try blas.trmv(pa, check.io, T, uplo, op, diag, n, a.buf.ptr, a.ld(), x.base(), c.inc[0]),
-        .tbmv => try blas.tbmv(pa, check.io, T, uplo, op, diag, n, k, a.buf.ptr, a.ld(), x.base(), c.inc[0]),
-        .tpmv => try blas.tpmv(pa, check.io, T, uplo, op, diag, n, a.buf.ptr, x.base(), c.inc[0]),
-        .trsv => try blas.trsv(pa, check.io, T, uplo, op, diag, n, a.buf.ptr, a.ld(), x.base(), c.inc[0]),
-        .tbsv => try blas.tbsv(pa, check.io, T, uplo, op, diag, n, k, a.buf.ptr, a.ld(), x.base(), c.inc[0]),
-        .tpsv => try blas.tpsv(pa, check.io, T, uplo, op, diag, n, a.buf.ptr, x.base(), c.inc[0]),
+        .trmv => try l2.trmv(pa, check.io, T, uplo, op, diag, n, a.buf.ptr, a.ld(), x.base(), c.inc[0]),
+        .tbmv => try l2.tbmv(pa, check.io, T, uplo, op, diag, n, k, a.buf.ptr, a.ld(), x.base(), c.inc[0]),
+        .tpmv => try l2.tpmv(pa, check.io, T, uplo, op, diag, n, a.buf.ptr, x.base(), c.inc[0]),
+        .trsv => try l2.trsv(pa, check.io, T, uplo, op, diag, n, a.buf.ptr, a.ld(), x.base(), c.inc[0]),
+        .tbsv => try l2.tbsv(pa, check.io, T, uplo, op, diag, n, k, a.buf.ptr, a.ld(), x.base(), c.inc[0]),
+        .tpsv => try l2.tpsv(pa, check.io, T, uplo, op, diag, n, a.buf.ptr, x.base(), c.inc[0]),
         else => unreachable,
     }
     try a.unchanged();
@@ -506,16 +507,16 @@ fn rankRun(comptime T: type, comptime r: Routine, v: usize, alpha: T, c: Case) !
     const ar = if (comptime isComplex(T)) alpha.re else alpha;
     const up: blas.Uplo = if (s.lower) .l else .u;
     switch (r) {
-        .ger => try blas.ger(pa, check.io, T, m, n, alpha, x.base(), ix, y.base(), iy, a.buf.ptr, a.ld()),
-        .gerc => if (comptime isComplex(T)) try blas.gerc(pa, check.io, T, m, n, alpha, x.base(), ix, y.base(), iy, a.buf.ptr, a.ld()),
-        .syr => try blas.syr(pa, check.io, T, up, n, alpha, x.base(), ix, a.buf.ptr, a.ld()),
-        .spr => try blas.spr(pa, check.io, T, up, n, alpha, x.base(), ix, a.buf.ptr),
-        .her => if (comptime isComplex(T)) try blas.her(pa, check.io, T, @fromBackingInt(@intCast(v)), n, ar, x.base(), ix, a.buf.ptr, a.ld()),
-        .hpr => if (comptime isComplex(T)) try blas.hpr(pa, check.io, T, @fromBackingInt(@intCast(v)), n, ar, x.base(), ix, a.buf.ptr),
-        .syr2 => try blas.syr2(pa, check.io, T, up, n, alpha, x.base(), ix, y.base(), iy, a.buf.ptr, a.ld()),
-        .spr2 => try blas.spr2(pa, check.io, T, up, n, alpha, x.base(), ix, y.base(), iy, a.buf.ptr),
-        .her2 => if (comptime isComplex(T)) try blas.her2(pa, check.io, T, @fromBackingInt(@intCast(v)), n, alpha, x.base(), ix, y.base(), iy, a.buf.ptr, a.ld()),
-        .hpr2 => if (comptime isComplex(T)) try blas.hpr2(pa, check.io, T, @fromBackingInt(@intCast(v)), n, alpha, x.base(), ix, y.base(), iy, a.buf.ptr),
+        .ger => try l2.ger(pa, check.io, T, m, n, alpha, x.base(), ix, y.base(), iy, a.buf.ptr, a.ld()),
+        .gerc => if (comptime isComplex(T)) try l2.gerc(pa, check.io, T, m, n, alpha, x.base(), ix, y.base(), iy, a.buf.ptr, a.ld()),
+        .syr => try l2.syr(pa, check.io, T, up, n, alpha, x.base(), ix, a.buf.ptr, a.ld()),
+        .spr => try l2.spr(pa, check.io, T, up, n, alpha, x.base(), ix, a.buf.ptr),
+        .her => if (comptime isComplex(T)) try l2.her(pa, check.io, T, @fromBackingInt(@intCast(v)), n, ar, x.base(), ix, a.buf.ptr, a.ld()),
+        .hpr => if (comptime isComplex(T)) try l2.hpr(pa, check.io, T, @fromBackingInt(@intCast(v)), n, ar, x.base(), ix, a.buf.ptr),
+        .syr2 => try l2.syr2(pa, check.io, T, up, n, alpha, x.base(), ix, y.base(), iy, a.buf.ptr, a.ld()),
+        .spr2 => try l2.spr2(pa, check.io, T, up, n, alpha, x.base(), ix, y.base(), iy, a.buf.ptr),
+        .her2 => if (comptime isComplex(T)) try l2.her2(pa, check.io, T, @fromBackingInt(@intCast(v)), n, alpha, x.base(), ix, y.base(), iy, a.buf.ptr, a.ld()),
+        .hpr2 => if (comptime isComplex(T)) try l2.hpr2(pa, check.io, T, @fromBackingInt(@intCast(v)), n, alpha, x.base(), ix, y.base(), iy, a.buf.ptr),
         else => unreachable,
     }
     try x.unchanged();

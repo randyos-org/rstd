@@ -102,24 +102,26 @@ test "every linked core's laswp_ncopy is the interchanges and its gemm_oncopy, w
     try check.eachCore(checkAll);
 }
 
-test "the interchanges follow dlaswp.f for either sign of incx, pivots repeated" {
+test "the interchanges follow dlaswp.f forward and in reverse, pivots repeated" {
     const al = std.testing.allocator;
     inline for (.{ f64, Complex32, f16 }) |T| {
-        for ([_]isize{ 1, 2, -1, -3 }) |incx| for ([_][2]isize{ .{ 1, 7 }, .{ 3, 5 }, .{ 4, 4 } }) |ks| {
+        for ([_]bool{ false, true }) |reverse| for ([_][2]isize{ .{ 1, 7 }, .{ 3, 5 }, .{ 4, 4 } }) |ks| {
             const m = 7;
             const n = 3;
             const lda = m + 1;
-            const step: usize = @abs(incx);
             var ipiv: [m * 3]isize = undefined;
-            pivots(&ipiv, m, step);
+            pivots(&ipiv, m, @intFromBool(reverse));
             const a = try al.alloc(T, lda * n);
             defer al.free(a);
             check.fill(T, a, 9);
             const want = try al.dupe(T, a);
             defer al.free(want);
-            laswpRef(T, n, want, lda, ks[0], ks[1], &ipiv, incx);
+            laswpRef(T, n, want, lda, ks[0], ks[1], &ipiv, if (reverse) -1 else 1);
+            // the kernel's pivots and rows are 0-based
+            var zero: [m * 3]usize = undefined;
+            for (&zero, ipiv) |*z, p| z.* = @intCast(p - 1);
             const k1: usize = @intCast(ks[0]);
-            kernel.swapRows(T, n, a.ptr, lda, k1, @intCast(ks[1]), ipiv[k1 - 1 ..].ptr, incx);
+            kernel.swapRows(T, n, a.ptr, lda, k1 - 1, @intCast(ks[1] - ks[0] + 1), zero[k1 - 1 ..].ptr, reverse);
             for (want, a) |w, g| try std.testing.expect(bitwise.same(T, w, g, true));
         };
     }

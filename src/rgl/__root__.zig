@@ -21,6 +21,8 @@ test {
     // layout has none),
     // vulkan.gpu (needs the vulkan-zig bindings, below) and renderdoc
     // (conditionally included).
+    // shaderlib's math has no @embedFile: its GLSL names are tested here
+    _ = @import("shaders/lib/math.zig");
     zigstd.testRefAllDecls(image);
     zigstd.testRefAllDecls(Surface);
     zigstd.testRefAllDecls(codecs);

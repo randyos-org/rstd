@@ -5,6 +5,7 @@ const std = @import("std");
 const types = @import("../blas/types.zig");
 const util = @import("../blas/util.zig");
 const driver = @import("../blas/blas3/driver.zig");
+const interface = @import("interface.zig");
 const ops = @import("ops.zig");
 const relapack = @import("relapack.zig");
 const sylvester = @import("sylvester.zig");
@@ -15,24 +16,28 @@ const Float = types.Float;
 const isComplex = types.isComplex;
 const Trans = types.Trans;
 const scalar = ops.scalar;
-const Solved = sylvester.Solved;
 const scaleBlock = sylvester.scaleBlock;
 const trsy2 = sylvester.trsy2;
 
 const Error = driver.Error;
 
-/// What `trsyl` returns: bad arguments in the reference's order;
-/// `Perturbed` (the reference's `INFO = 1`: `A` and `-isgn B` have close or
-/// common eigenvalues, so perturbed values were used), with `C` and `scale`
-/// written; `error.OutOfMemory` or `error.Canceled`.
-pub const TrsylError = error{ InvalidTrana, InvalidTranb, InvalidIsgn, InvalidM, InvalidN, InvalidLda, InvalidLdb, InvalidLdc, Perturbed } || Allocator.Error || Io.Cancelable;
+/// What `trsyl` returns: a `trana` or `tranb` it does not take,
+/// `UnsupportedSign` for an `isgn` other than 1 or -1, a slice too short or
+/// a leading dimension too small; `error.OutOfMemory` or `error.Canceled`.
+pub const TrsylError = interface.TransError || error{UnsupportedSign} || interface.ShapeError || Allocator.Error || Io.Cancelable;
+
+/// What `trsyl` found: `scale`, and `perturbed` for the reference's
+/// `INFO = 1` (`A` and `-isgn B` have close or common eigenvalues, so
+/// perturbed values were used); `C` is written either way.
+pub const Solved = sylvester.Solved;
 
 /// `?TRSYL` by ReLAPACK's recursion (`relapack/src/dtrsyl.c`, `ztrsyl.c`
 /// and the rest; OpenBLAS v0.3.34-317): `op(A) X + isgn X op(B) = scale C`
 /// for `X`, into `C` (`m x n`), `A` (`m x m`) and `B` (`n x n`) upper
 /// triangular, real ones in Schur form (2 x 2 diagonal blocks); `op` is `n`
 /// or the (conjugate) transpose, `t` or `c` for real `T` and `c` only for
-/// complex, as the reference. `scale <= 1` keeps `X` from overflowing.
+/// complex, as the reference. The returned `scale <= 1` keeps `X` from
+/// overflowing.
 ///
 /// The larger side splits in two (never inside a 2 x 2 block), the halves
 /// joined by `gemm`; the base case is `trsy2`, the reference's
@@ -41,24 +46,16 @@ pub const TrsylError = error{ InvalidTrana, InvalidTranb, InvalidIsgn, InvalidM,
 /// The reference wins where ReLAPACK, solving the top half first (`op(A)`
 /// transposed), rescales the bottom half by the second solve's `scale`; the
 /// top half, solved first, takes it here.
-pub fn trsyl(allocator: Allocator, io: Io, comptime T: type, trana: Trans, tranb: Trans, isgn: isize, m: isize, n: isize, a: [*]const T, lda: isize, b: [*]const T, ldb: isize, c: [*]T, ldc: isize, scale: *Float(T)) TrsylError!void {
+pub fn trsyl(allocator: Allocator, io: Io, comptime T: type, trana: Trans, tranb: Trans, isgn: isize, m: usize, n: usize, a: []const T, lda: usize, b: []const T, ldb: usize, c: []T, ldc: usize) TrsylError!Solved(Float(T)) {
     comptime ops.requireFloat(T, "trsyl");
-    const ta = sylTrans(T, trana) orelse return error.InvalidTrana;
-    const tb = sylTrans(T, tranb) orelse return error.InvalidTranb;
-    if (isgn != 1 and isgn != -1) return error.InvalidIsgn;
-    if (m < 0) return error.InvalidM;
-    if (n < 0) return error.InvalidN;
-    if (lda < @max(1, m)) return error.InvalidLda;
-    if (ldb < @max(1, n)) return error.InvalidLdb;
-    if (ldc < @max(1, m)) return error.InvalidLdc;
-    scale.* = 1;
-    if (m == 0 or n == 0) return;
-    if (!util.fitsMatrix(m, m, lda, @sizeOf(T))) return error.InvalidLda;
-    if (!util.fitsMatrix(n, n, ldb, @sizeOf(T))) return error.InvalidLdb;
-    if (!util.fitsMatrix(m, n, ldc, @sizeOf(T))) return error.InvalidLdc;
-    const r = try trsylRec(allocator, io, T, ta, tb, isgn, @intCast(m), @intCast(n), a, @intCast(lda), b, @intCast(ldb), c, @intCast(ldc));
-    scale.* = r.scale;
-    if (r.perturbed) return error.Perturbed;
+    const ta = sylTrans(T, trana) orelse return error.UnsupportedTranspose;
+    const tb = sylTrans(T, tranb) orelse return error.UnsupportedTranspose;
+    if (isgn != 1 and isgn != -1) return error.UnsupportedSign;
+    try util.holds(a.len, m, m, lda);
+    try util.holds(b.len, n, n, ldb);
+    try util.holds(c.len, m, n, ldc);
+    if (m == 0 or n == 0) return .{ .scale = 1, .perturbed = false };
+    return trsylRec(allocator, io, T, ta, tb, isgn, m, n, a.ptr, lda, b.ptr, ldb, c.ptr, ldc);
 }
 
 /// Whether `t` transposes `A` or `B` for `trsyl`, or null where the
@@ -156,9 +153,9 @@ fn trsylCase(comptime T: type, al: Allocator, ta: bool, tb: bool, isgn: isize, m
             return if (!t) .n else if (comptime isComplex(U)) .c else .t;
         }
     };
-    var scale: Float(T) = 0;
-    try trsyl(al, check.io, T, op.of(T, ta), op.of(T, tb), isgn, @intCast(m), @intCast(n), a.ptr, @intCast(m), b.ptr, @intCast(n), x.ptr, @intCast(m), &scale);
-    try testing.expect(scale > 0 and scale <= 1);
+    const solved = try trsyl(al, check.io, T, op.of(T, ta), op.of(T, tb), isgn, m, n, a, m, b, n, x, m);
+    const scale = solved.scale;
+    try testing.expect(!solved.perturbed and scale > 0 and scale <= 1);
     const eps: f128 = std.math.floatEps(Float(T));
     const ulps: f128 = @floatFromInt(32 * (m + n + 2));
     const sg: f128 = @floatFromInt(isgn);
@@ -200,27 +197,25 @@ test "relapack trsyl: op(A) X + isgn X op(B) = scale C, every op and sign, quasi
     };
 }
 
-test "relapack trsyl: common eigenvalues are perturbed, C and scale written; the first bad argument" {
+test "relapack trsyl: common eigenvalues are perturbed, C and scale written; bad arguments" {
     const al = testing.allocator;
     // A X - X A = C, A = 2 I: singular
     var a = [_]f64{ 2, 0, 0, 2 };
     var c = [_]f64{ 1, 2, 3, 4 };
-    var scale: f64 = 0;
-    try testing.expectError(error.Perturbed, trsyl(al, check.io, f64, .n, .n, -1, 2, 2, &a, 2, &a, 2, &c, 2, &scale));
-    try testing.expect(scale > 0 and scale <= 1 and std.math.isFinite(c[0]));
+    const r = try trsyl(al, check.io, f64, .n, .n, -1, 2, 2, &a, 2, &a, 2, &c, 2);
+    try testing.expect(r.perturbed and r.scale > 0 and r.scale <= 1 and std.math.isFinite(c[0]));
     const z: [4]types.Complex64 = @splat(lcheck.poisoned(types.Complex64));
     var zc = z;
-    try testing.expectError(error.InvalidTrana, trsyl(al, check.io, types.Complex64, .t, .n, 1, 2, 2, &z, 2, &z, 2, &zc, 2, &scale));
-    try testing.expectError(error.InvalidTranb, trsyl(al, check.io, f64, .n, .r, 1, 2, 2, &a, 2, &a, 2, &c, 2, &scale));
-    try testing.expectError(error.InvalidIsgn, trsyl(al, check.io, f64, .n, .n, 0, 2, 2, &a, 2, &a, 2, &c, 2, &scale));
-    try testing.expectError(error.InvalidM, trsyl(al, check.io, f64, .n, .n, 1, -1, 2, &a, 2, &a, 2, &c, 2, &scale));
-    try testing.expectError(error.InvalidN, trsyl(al, check.io, f64, .n, .n, 1, 2, -1, &a, 2, &a, 2, &c, 2, &scale));
-    try testing.expectError(error.InvalidLda, trsyl(al, check.io, f64, .n, .n, 1, 2, 2, &a, 1, &a, 2, &c, 2, &scale));
-    try testing.expectError(error.InvalidLdb, trsyl(al, check.io, f64, .n, .n, 1, 2, 2, &a, 2, &a, 1, &c, 2, &scale));
-    try testing.expectError(error.InvalidLdc, trsyl(al, check.io, f64, .n, .n, 1, 2, 2, &a, 2, &a, 2, &c, 1, &scale));
-    scale = 0;
-    try trsyl(al, check.io, types.Complex64, .c, .c, 1, 0, 2, &z, 1, &z, 2, &zc, 1, &scale);
-    try testing.expectEqual(1, scale);
+    try testing.expectError(error.UnsupportedTranspose, trsyl(al, check.io, types.Complex64, .t, .n, 1, 2, 2, &z, 2, &z, 2, &zc, 2));
+    try testing.expectError(error.UnsupportedTranspose, trsyl(al, check.io, f64, .n, .r, 1, 2, 2, &a, 2, &a, 2, &c, 2));
+    try testing.expectError(error.UnsupportedSign, trsyl(al, check.io, f64, .n, .n, 0, 2, 2, &a, 2, &a, 2, &c, 2));
+    try testing.expectError(error.LeadingDimensionTooSmall, trsyl(al, check.io, f64, .n, .n, 1, 2, 2, &a, 1, &a, 2, &c, 2));
+    try testing.expectError(error.LeadingDimensionTooSmall, trsyl(al, check.io, f64, .n, .n, 1, 2, 2, &a, 2, &a, 1, &c, 2));
+    try testing.expectError(error.LeadingDimensionTooSmall, trsyl(al, check.io, f64, .n, .n, 1, 2, 2, &a, 2, &a, 2, &c, 1));
+    try testing.expectError(error.SliceTooShort, trsyl(al, check.io, f64, .n, .n, 1, 2, 2, a[0..3], 2, &a, 2, &c, 2));
+    try testing.expectError(error.SliceTooShort, trsyl(al, check.io, f64, .n, .n, 1, 2, 2, &a, 2, &a, 2, c[0..3], 2));
+    const e = try trsyl(al, check.io, types.Complex64, .c, .c, 1, 0, 2, &z, 1, &z, 2, &zc, 1);
+    try testing.expect(e.scale == 1 and !e.perturbed);
     for (zc) |v| try testing.expect(lcheck.isNanT(types.Complex64, v));
 }
 
@@ -231,8 +226,7 @@ const BigSyl = struct {
 
     fn run(self: BigSyl, io: Io, out: []f64) anyerror!void {
         @memcpy(out, self.c);
-        var scale: f64 = 0;
-        try trsyl(testing.allocator, io, f64, .n, .t, 1, lcheck.big_n, lcheck.big_n, self.a.ptr, lcheck.big_n, self.b.ptr, lcheck.big_n, out.ptr, lcheck.big_n, &scale);
+        _ = try trsyl(testing.allocator, io, f64, .n, .t, 1, lcheck.big_n, lcheck.big_n, self.a, lcheck.big_n, self.b, lcheck.big_n, out, lcheck.big_n);
     }
 };
 

@@ -274,6 +274,7 @@ CONJG
 conjs
 connect
 conpty
+convergents
 copy_file_range
 corespotlightd
 cortexx

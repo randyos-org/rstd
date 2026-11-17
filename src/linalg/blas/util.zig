@@ -2,6 +2,7 @@ const std = @import("std");
 const sysinfo = @import("builtin");
 const Vtable = @import("Vtable.zig");
 const types = @import("types.zig");
+const strided = @import("strided.zig");
 
 const isComplex = types.isComplex;
 const Float = types.Float;
@@ -288,6 +289,23 @@ pub fn fits(n: isize, inc: isize, size: usize) bool {
     if (inc == std.math.minInt(isize)) return false;
     if (n <= 1) return true;
     return fitsMatrix(1, n, @intCast(@abs(inc)), size);
+}
+
+/// A slice of `len` holds a column-major `rows` by `cols` matrix at leading
+/// dimension `ld`, which must be at least `rows` (and 1); the public level-2
+/// and level-3 routines' check.
+pub fn holds(len: usize, rows: usize, cols: usize, ld: usize) (strided.SliceError || strided.LeadingDimensionError)!void {
+    if (ld < @max(rows, 1)) return error.LeadingDimensionTooSmall;
+    if (rows == 0 or cols == 0) return;
+    const span = std.math.mul(usize, cols - 1, ld) catch return error.SliceTooShort;
+    const need = std.math.add(usize, span, rows) catch return error.SliceTooShort;
+    if (need > len) return error.SliceTooShort;
+}
+
+/// A slice of `len` holds a packed triangle of order `n`, `n (n + 1) / 2`.
+pub fn holdsPacked(len: usize, n: usize) strided.SliceError!void {
+    const need = std.math.mul(usize, n, n + 1) catch return error.SliceTooShort;
+    if (need / 2 > len) return error.SliceTooShort;
 }
 
 /// Whether a column-major `rows` by `cols` matrix with leading dimension `ld`

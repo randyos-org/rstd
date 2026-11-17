@@ -1,9 +1,13 @@
 //! Fast Fourier transforms (rstd's design.md, "FFT"): PocketFFT's algorithms
-//! in Zig, pffft's SIMD. Stubs for now: bodies return `error.NotImplemented`,
-//! their tests skip. A plan depends only on `n`, the element type and the
-//! core; immutable, it serves every thread. Transforms allocate nothing.
+//! in Zig, pffft's SIMD (`pffft/`, f32 at its sizes). `Plan` and `RealPlan`
+//! are done (`plan.zig`, `real_plan.zig`); the rest are stubs whose
+//! bodies return `error.NotImplemented`, their tests skip. A plan depends only
+//! on `n`, the element type and the core; immutable, it serves every thread.
+//! Transforms allocate nothing.
 
 const std = @import("std");
+const complex_plan = @import("plan.zig");
+const real_plan = @import("real_plan.zig");
 
 const Allocator = std.mem.Allocator;
 const Complex = std.math.Complex;
@@ -31,145 +35,24 @@ pub const InitError = error{ OutOfMemory, ZeroLength, NotImplemented };
 pub const TransformError = error{ SliceTooShort, Canceled, NotImplemented };
 pub const TransformIntoError = TransformError || error{CountMismatch};
 
-/// One transform at a time, no `io`: audio frames and the unordered forms.
+/// One transform at a time, no `io`: audio frames.
 pub const FrameError = error{ SliceTooShort, NotImplemented };
 
-/// Complex, any `n`: PocketFFT's mixed radix (2, 3, 4, 5, 7, 11), Bluestein's
-/// for large prime factors.
-pub fn Plan(comptime T: type) type {
-    comptime checkFloat(T);
-    return struct {
-        n: usize,
-        scratch_len: usize,
+/// `RealPlan`'s unordered forms, pffft's: f32 only (`UnsupportedType`;
+/// f64 SIMD is later), at pffft's real sizes, `n = 32 2^a 3^b 5^c` up to
+/// `2^26` (`UnsupportedSize`).
+pub const UnorderedError = error{ SliceTooShort, UnsupportedSize, UnsupportedType };
 
-        const Self = @This();
-        const C = Complex(T);
-
-        pub fn init(allocator: Allocator, n: usize) InitError!Self {
-            _ = allocator;
-            if (n == 0) return error.ZeroLength;
-            return error.NotImplemented;
-        }
-
-        pub fn deinit(self: *Self, allocator: Allocator) void {
-            _ = allocator;
-            self.* = undefined;
-        }
-
-        /// Scratch per transform, any layout. A batch runs as many transforms
-        /// at once as the scratch holds, so the bits never depend on it.
-        pub fn scratchLen(self: Self) usize {
-            return self.scratch_len;
-        }
-
-        pub fn transform(self: *const Self, io: Io, data: []C, scratch: []C, direction: Direction, layout: Layout, options: Options) TransformError!void {
-            _ = self;
-            _ = io;
-            _ = data;
-            _ = scratch;
-            _ = direction;
-            _ = layout;
-            _ = options;
-            return error.NotImplemented;
-        }
-
-        /// `out` and `in` must not overlap.
-        pub fn transformInto(self: *const Self, io: Io, out: []C, in: []const C, scratch: []C, direction: Direction, layouts: Layouts, options: Options) TransformIntoError!void {
-            _ = self;
-            _ = io;
-            _ = out;
-            _ = in;
-            _ = scratch;
-            _ = direction;
-            _ = options;
-            if (layouts.in.count != layouts.out.count) return error.CountMismatch;
-            return error.NotImplemented;
-        }
-    };
-}
+/// Complex, any `n`: PocketFFT's mixed radix (2, 3, 4, 5, 7, 8, 11 and a
+/// generic pass), Bluestein's for large prime factors; f32 at pffft's
+/// sizes, `16 2^a 3^b 5^c`, pffft's SIMD (`plan.zig`).
+pub const Plan = complex_plan.Plan;
 
 /// Real input: `n` reals to the `n / 2 + 1` values of the half spectrum
-/// (NumPy's `rfft`), and back.
-pub fn RealPlan(comptime T: type) type {
-    comptime checkFloat(T);
-    return struct {
-        n: usize,
-        scratch_len: usize,
-
-        const Self = @This();
-        const C = Complex(T);
-
-        pub fn init(allocator: Allocator, n: usize) InitError!Self {
-            _ = allocator;
-            if (n == 0) return error.ZeroLength;
-            return error.NotImplemented;
-        }
-
-        pub fn deinit(self: *Self, allocator: Allocator) void {
-            _ = allocator;
-            self.* = undefined;
-        }
-
-        /// Scratch per transform, as `Plan`'s.
-        pub fn scratchLen(self: Self) usize {
-            return self.scratch_len;
-        }
-
-        pub fn forward(self: *const Self, io: Io, out: []C, in: []const T, scratch: []T, layouts: Layouts, options: Options) TransformIntoError!void {
-            _ = self;
-            _ = io;
-            _ = out;
-            _ = in;
-            _ = scratch;
-            _ = options;
-            if (layouts.in.count != layouts.out.count) return error.CountMismatch;
-            return error.NotImplemented;
-        }
-
-        /// Reads only the half spectrum; the imaginary parts at 0 (and at
-        /// `n / 2` for even `n`) are ignored, as NumPy's `irfft`.
-        pub fn backward(self: *const Self, io: Io, out: []T, in: []const C, scratch: []T, layouts: Layouts, options: Options) TransformIntoError!void {
-            _ = self;
-            _ = io;
-            _ = out;
-            _ = in;
-            _ = scratch;
-            _ = options;
-            if (layouts.in.count != layouts.out.count) return error.CountMismatch;
-            return error.NotImplemented;
-        }
-
-        /// The spectrum as `n` reals in the plan's own order (pffft's), for
-        /// fast convolution: no reordering either way. Unnormalized.
-        pub fn forwardUnordered(self: *const Self, out: []T, in: []const T, scratch: []T) FrameError!void {
-            _ = self;
-            _ = out;
-            _ = in;
-            _ = scratch;
-            return error.NotImplemented;
-        }
-
-        /// `acc += scale * a * b`, element-wise in the unordered spectrum.
-        /// `scale` 1 / n makes a round trip a circular convolution.
-        pub fn convolveAccumulate(self: *const Self, acc: []T, a: []const T, b: []const T, scale: T) FrameError!void {
-            _ = self;
-            _ = acc;
-            _ = a;
-            _ = b;
-            _ = scale;
-            return error.NotImplemented;
-        }
-
-        /// Unnormalized.
-        pub fn backwardUnordered(self: *const Self, out: []T, in: []const T, scratch: []T) FrameError!void {
-            _ = self;
-            _ = out;
-            _ = in;
-            _ = scratch;
-            return error.NotImplemented;
-        }
-    };
-}
+/// (NumPy's `rfft`), and back: PocketFFT's `rfftp`, or Bluestein's; f32 at
+/// pffft's sizes, `32 2^a 3^b 5^c`, pffft's SIMD, with its unordered forms
+/// for fast convolution (`real_plan.zig`).
+pub const RealPlan = real_plan.RealPlan;
 
 /// `Plan` for a comptime `n`: factors and twiddles at comptime, unrolled, no
 /// allocator; the same calls on a value `.{}`.
@@ -364,7 +247,7 @@ fn directDft(comptime T: type, out: []Complex(f64), in: []const Complex(T)) void
         for (in, 0..) |x, j| {
             const angle = -2 * std.math.pi * @as(f64, @floatFromInt((j * k) % n)) / @as(f64, @floatFromInt(n));
             const w: Complex(f64) = .init(@cos(angle), @sin(angle));
-            acc = acc.add(w.mul(.init(x.re, x.im)));
+            acc = acc.add(w.mul(.init(@floatCast(x.re), @floatCast(x.im))));
         }
         o.* = acc;
     }
@@ -504,7 +387,7 @@ test "RealPlan unordered: circular convolution" {
     var fb: [n]f32 = undefined;
     var acc: [n]f32 = @splat(0);
     var got: [n]f32 = undefined;
-    try plan.forwardUnordered(&fa, &a, scratch);
+    plan.forwardUnordered(&fa, &a, scratch) catch |e| return skip(e);
     try plan.forwardUnordered(&fb, &b, scratch);
     try plan.convolveAccumulate(&acc, &fa, &fb, 1.0 / @as(f32, n));
     try plan.backwardUnordered(&got, &acc, scratch);
@@ -524,7 +407,7 @@ test "StaticPlan matches Plan" {
     var want: [n]Complex(f64) = undefined;
     var got: [n]Complex(f64) = undefined;
     try plan.transformInto(testing.io, &want, &in, scratch, .forward, .{}, .{});
-    try static.transformInto(testing.io, &got, &in, scratch, .forward, .{}, .{});
+    static.transformInto(testing.io, &got, &in, scratch, .forward, .{}, .{}) catch |e| return skip(e);
     try testing.expectEqualSlices(Complex(f64), &want, &got); // dispatch by size alone: same bits
 }
 
@@ -571,4 +454,165 @@ test "Mdct: TDAC with a sine window" {
         for (frame, window, y[f * n ..][0 .. 2 * n]) |v, w, *o| o.* += w * v;
     }
     for (x[n .. 3 * n], y[n .. 3 * n]) |a, b| try testing.expectApproxEqAbs(a, b, 1e-12);
+}
+
+test "Plan matches a direct DFT at every float type, mixed radix, the generic pass and Bluestein's" {
+    const al = testing.allocator;
+    inline for (.{ f16, f32, f64, f80, f128 }) |T| {
+        const eps: f64 = @floatCast(std.math.floatEps(T));
+        const sizes: []const usize = if (T == f16) &.{ 1, 2, 3, 5, 8, 12, 13, 32 } else &.{ 1, 2, 3, 5, 7, 8, 11, 12, 13, 16, 30, 97, 128, 360, 1009 };
+        for (sizes) |n| {
+            var p = try Plan(T).init(al, n);
+            defer p.deinit(al);
+            const scratch = try al.alloc(Complex(T), p.scratchLen());
+            defer al.free(scratch);
+            const in = try al.alloc(Complex(T), n);
+            defer al.free(in);
+            const out = try al.alloc(Complex(T), n);
+            defer al.free(out);
+            const want = try al.alloc(Complex(f64), n);
+            defer al.free(want);
+            signal(T, in);
+            directDft(T, want, in);
+            try p.transformInto(testing.io, out, in, scratch, .forward, .{}, .{});
+            const nf: f64 = @floatFromInt(n);
+            // the f64 reference bounds the wider types
+            try expectNear(T, want, out, @max(8 * eps * nf, 1e-13 * nf));
+        }
+    }
+}
+
+test "Plan: 97 takes the generic pass, 1009 Bluestein's" {
+    var a = try Plan(f64).init(testing.allocator, 97);
+    defer a.deinit(testing.allocator);
+    try testing.expect(a.kind == .pack);
+    var b = try Plan(f64).init(testing.allocator, 1009);
+    defer b.deinit(testing.allocator);
+    try testing.expect(b.kind == .blue);
+}
+
+test "Plan: short scratch or data, and a count mismatch" {
+    const al = testing.allocator;
+    var p = try Plan(f64).init(al, 8);
+    defer p.deinit(al);
+    const scratch = try al.alloc(Complex(f64), p.scratchLen());
+    defer al.free(scratch);
+    var data: [16]Complex(f64) = @splat(.init(0, 0));
+    try testing.expectError(error.SliceTooShort, p.transform(testing.io, &data, scratch[1..], .forward, .{}, .{}));
+    try testing.expectError(error.SliceTooShort, p.transform(testing.io, data[0..7], scratch, .forward, .{}, .{}));
+    try testing.expectError(error.SliceTooShort, p.transform(testing.io, &data, scratch, .forward, .{ .count = 3 }, .{}));
+    try p.transform(testing.io, &data, scratch, .forward, .{ .count = 2 }, .{});
+    try p.transform(testing.io, &data, scratch, .forward, .{ .count = 0 }, .{});
+    try testing.expectError(error.CountMismatch, p.transformInto(testing.io, &data, &data, scratch, .forward, .{ .in = .{ .count = 2 } }, .{}));
+}
+
+test {
+    _ = @import("util.zig");
+    _ = @import("pffft/__root__.zig");
+    _ = @import("_test/pffft.zig");
+}
+
+test "RealPlan matches the direct DFT's half at every float type, radix 2 to 5, the general passes and Bluestein's" {
+    const al = testing.allocator;
+    inline for (.{ f16, f32, f64, f80, f128 }) |T| {
+        const eps: f64 = @floatCast(std.math.floatEps(T));
+        const sizes: []const usize = if (T == f16) &.{ 1, 2, 3, 4, 5, 6, 7, 9, 16, 30 } else &.{ 1, 2, 3, 4, 5, 6, 7, 9, 12, 13, 16, 30, 49, 97, 100, 360, 1009 };
+        for (sizes) |n| {
+            var p = try RealPlan(T).init(al, n);
+            defer p.deinit(al);
+            const scratch = try al.alloc(T, p.scratchLen());
+            defer al.free(scratch);
+            const full = try al.alloc(Complex(T), n);
+            defer al.free(full);
+            const re = try al.alloc(T, n);
+            defer al.free(re);
+            const want = try al.alloc(Complex(f64), n);
+            defer al.free(want);
+            const m = n / 2 + 1;
+            const half = try al.alloc(Complex(T), m);
+            defer al.free(half);
+            const back = try al.alloc(T, n);
+            defer al.free(back);
+            signal(T, full);
+            for (re, full) |*r, *c| {
+                r.* = c.re;
+                c.im = 0;
+            }
+            directDft(T, want, full);
+            try p.forward(testing.io, half, re, scratch, .{}, .{});
+            const nf: f64 = @floatFromInt(n);
+            const tol = @max(8 * eps * nf, 1e-13 * nf);
+            try expectNear(T, want[0..m], half, tol);
+            try p.backward(testing.io, back, half, scratch, .{}, .{});
+            for (re, back) |a, b| try testing.expectApproxEqAbs(@as(f64, @floatCast(a)), @as(f64, @floatCast(b)), tol);
+        }
+    }
+}
+
+test "RealPlan: 97 takes the general passes, 1009 Bluestein's; strided channels and ortho" {
+    const al = testing.allocator;
+    var a = try RealPlan(f64).init(al, 97);
+    defer a.deinit(al);
+    try testing.expect(a.kind == .pack);
+    var b = try RealPlan(f64).init(al, 1009);
+    defer b.deinit(al);
+    try testing.expect(b.kind == .blue);
+
+    // two interleaved real channels into two interleaved half spectra
+    const n = 30;
+    const m = n / 2 + 1;
+    var p = try RealPlan(f64).init(al, n);
+    defer p.deinit(al);
+    const scratch = try al.alloc(f64, p.scratchLen());
+    defer al.free(scratch);
+    var x: [2 * n]f64 = undefined;
+    for (&x, 0..) |*v, i| v.* = @sin(0.3 * @as(f64, @floatFromInt(i * i)));
+    var spec: [2 * m]Complex(f64) = undefined;
+    const lay: Layouts = .{ .in = .{ .count = 2, .stride = 2, .distance = 1 }, .out = .{ .count = 2, .stride = 2, .distance = 1 } };
+    try p.forward(testing.io, &spec, &x, scratch, lay, .{ .norm = .ortho });
+    for (0..2) |c| {
+        var one: [n]f64 = undefined;
+        for (&one, 0..) |*v, i| v.* = x[2 * i + c];
+        var want: [m]Complex(f64) = undefined;
+        try p.forward(testing.io, &want, &one, scratch, .{}, .{ .norm = .ortho });
+        for (0..m) |j| {
+            try testing.expectEqual(want[j].re, spec[2 * j + c].re);
+            try testing.expectEqual(want[j].im, spec[2 * j + c].im);
+        }
+    }
+    var y: [2 * n]f64 = undefined;
+    try p.backward(testing.io, &y, &spec, scratch, lay, .{ .norm = .ortho });
+    for (x, y) |u, v| try testing.expectApproxEqAbs(u, v, 1e-13);
+    try testing.expectError(error.SliceTooShort, p.forward(testing.io, spec[0..m], &x, scratch, lay, .{}));
+    try testing.expectError(error.CountMismatch, p.backward(testing.io, &y, &spec, scratch, .{ .in = .{ .count = 2 } }, .{}));
+}
+
+test "a batch runs as many at once as the scratch holds, with one slot's bits" {
+    const al = testing.allocator;
+    const n = 24;
+    const count = 7;
+    var p = try Plan(f64).init(al, n);
+    defer p.deinit(al);
+    var r = try RealPlan(f64).init(al, n);
+    defer r.deinit(al);
+    const slots = 4;
+    const scratch = try al.alloc(Complex(f64), slots * p.scratchLen());
+    defer al.free(scratch);
+    const rscratch = try al.alloc(f64, slots * r.scratchLen());
+    defer al.free(rscratch);
+    var x: [n * count]Complex(f64) = undefined;
+    signal(f64, &x);
+    var one = x;
+    var many = x;
+    try p.transform(testing.io, &one, scratch[0..p.scratchLen()], .forward, .{ .count = count }, .{});
+    try p.transform(testing.io, &many, scratch, .forward, .{ .count = count }, .{});
+    try testing.expectEqualSlices(Complex(f64), &one, &many);
+    var re: [n * count]f64 = undefined;
+    for (&re, x) |*v, c| v.* = c.re;
+    var h1: [(n / 2 + 1) * count]Complex(f64) = undefined;
+    var h2: [(n / 2 + 1) * count]Complex(f64) = undefined;
+    const lay: Layouts = .{ .in = .{ .count = count }, .out = .{ .count = count } };
+    try r.forward(testing.io, &h1, &re, rscratch[0..r.scratchLen()], lay, .{});
+    try r.forward(testing.io, &h2, &re, rscratch, lay, .{});
+    try testing.expectEqualSlices(Complex(f64), &h1, &h2);
 }

@@ -838,7 +838,7 @@ fn latdf(al: Allocator, io: Io, comptime T: type, ijob: u2, n: usize, z: *const 
             sr += ops.abs1(T, rhs[k]);
         }
         if (sp > sr) rhs.* = xp;
-        norm.lassq(T, n, rhs, 1, &dif.scale, &dif.sum);
+        norm.lassq(T, .of(rhs[0..n]), &dif.scale, &dif.sum);
         return;
     }
     for (0..n - 1) |i| std.mem.swap(T, &rhs[i], &rhs[ipiv[i]]);
@@ -884,7 +884,7 @@ fn latdf(al: Allocator, io: Io, comptime T: type, ijob: u2, n: usize, z: *const 
     }
     if (splus > sminu) rhs.* = work;
     unswap(T, n, rhs, jpiv);
-    norm.lassq(T, n, rhs, 1, &dif.scale, &dif.sum);
+    norm.lassq(T, .of(rhs[0..n]), &dif.scale, &dif.sum);
 }
 
 /// `xGECON('I', N, Z, LDZ, ONE, ...)` as `xLATDF` uses it: the vector
@@ -912,18 +912,18 @@ fn nullVector(al: Allocator, io: Io, comptime T: type, n: usize, z: *const [64]T
             var sl: F = undefined;
             var su: F = undefined;
             if (adjoint) {
-                sl = try norm.latrs(s.al, s.io, T, false, .n, true, s.normin, s.n, s.z, 8, x, lower);
-                su = try norm.latrs(s.al, s.io, T, true, .n, false, s.normin, s.n, s.z, 8, x, upper);
+                sl = try norm.scaledSolve(s.al, s.io, T, false, .n, true, s.normin, s.n, s.z, 8, x, lower);
+                su = try norm.scaledSolve(s.al, s.io, T, true, .n, false, s.normin, s.n, s.z, 8, x, upper);
             } else {
-                su = try norm.latrs(s.al, s.io, T, true, op, false, s.normin, s.n, s.z, 8, x, upper);
-                sl = try norm.latrs(s.al, s.io, T, false, op, true, s.normin, s.n, s.z, 8, x, lower);
+                su = try norm.scaledSolve(s.al, s.io, T, true, op, false, s.normin, s.n, s.z, 8, x, upper);
+                sl = try norm.scaledSolve(s.al, s.io, T, false, op, true, s.normin, s.n, s.z, 8, x, lower);
             }
             const scale = sl * su;
             s.normin = true;
             if (scale != 1) {
                 const ix = blas_calls.iamax(T, s.n, x, 1);
                 if (scale < ops.abs1(T, x[ix]) * std.math.floatMin(F) or scale == 0) return error.Overflow;
-                try norm.rscl(s.io, T, s.n, scale, x, 1);
+                try norm.rscl(s.io, T, scale, .of(x[0..s.n]));
             }
         }
     };
@@ -932,6 +932,8 @@ fn nullVector(al: Allocator, io: Io, comptime T: type, n: usize, z: *const [64]T
     _ = norm.lacn2(al, T, Inv.Stop, n, v, &x, &ctx, Inv.apply) catch |e| switch (e) {
         error.Overflow => {},
         error.OutOfMemory, error.Canceled => |y| return y,
+        // `n <= 8`
+        error.SliceTooShort => unreachable,
     };
 }
 

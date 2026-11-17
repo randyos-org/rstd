@@ -14,6 +14,8 @@ pub const matcopy = @import("matcopy.zig");
 /// The extension calls themselves (`geadd`, `omatcopy`, `imatcopy`,
 /// `laswp`), over the kernels.
 pub const interface = @import("interface.zig");
+/// The public routines, on slices, over `interface`.
+pub const api = @import("api.zig");
 
 const Vtable = @import("../Vtable.zig");
 

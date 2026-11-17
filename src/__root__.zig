@@ -38,6 +38,7 @@ pub const msoffice = @import("msoffice/__root__.zig");
 pub const sort = @import("sort.zig");
 pub const stats = @import("stats.zig");
 pub const rgl = @import("rgl/__root__.zig");
+pub const signal = @import("signal/__root__.zig");
 pub const windows = @import("_os/windows/__root__.zig");
 /// zigwin32 bindings, re-exported so consumers share rstd's pinned version
 /// without declaring it themselves. Only present when targeting Windows.

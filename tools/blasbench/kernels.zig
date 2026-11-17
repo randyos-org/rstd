@@ -893,9 +893,9 @@ fn OwnGemm(comptime p: Prec) type {
         c: [*]F,
 
         fn call(s: *const @This()) void {
-            const ni: isize = @intCast(s.n);
             const one: Num(p) = if (p.complex) .init(1, 0) else 1;
-            blas.gemm(rstd_alloc, .failing, Num(p), .n, .n, ni, ni, ni, one, cast(p, s.a), ni, cast(p, s.b), ni, one, cast(p, s.c), ni) catch |e| fail(e);
+            const sq = s.n * s.n;
+            blas.gemm(rstd_alloc, .failing, Num(p), .n, .n, s.n, s.n, s.n, one, cast(p, s.a)[0..sq], s.n, cast(p, s.b)[0..sq], s.n, one, cast(p, s.c)[0..sq], s.n) catch |e| fail(e);
         }
 
         pub fn run(o: *anyopaque) void {
