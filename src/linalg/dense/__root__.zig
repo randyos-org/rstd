@@ -71,7 +71,13 @@ const condition = @import("condition.zig");
 pub const RcondError = condition.RcondError;
 pub const rcond = condition.rcond;
 
+const vector_norm = @import("vector_norm.zig");
+pub const VectorNorm = vector_norm.VectorNorm;
+pub const VectorNormError = vector_norm.VectorNormError;
+pub const vectorNorm = vector_norm.vectorNorm;
+
 test {
+    _ = @import("vector_norm.zig");
     _ = @import("condition.zig");
     _ = @import("subspace.zig");
     _ = @import("reductions.zig");
