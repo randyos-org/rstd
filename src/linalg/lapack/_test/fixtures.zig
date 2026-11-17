@@ -92,8 +92,9 @@ pub fn CholProblem(comptime T: type) type {
             return if (comptime isComplex(T)) v.conjugate() else v;
         }
 
-        pub fn factorIt(self: *Self, al: Allocator, minor: ?*usize) chol.PotrfError!void {
-            return chol.potrf(al, check.io, T, if (self.upper) .u else .l, @intCast(self.n), self.a.ptr, @intCast(self.lda), minor);
+        /// `potrfChecked`: the first pivot that is not positive, or null.
+        pub fn factorIt(self: *Self, al: Allocator) chol.CheckedError!?usize {
+            return chol.potrfChecked(al, check.io, T, if (self.upper) .u else .l, self.n, self.a, self.lda);
         }
 
         /// The factor against `A` (backward, within `2 (n + 2)` ulps of

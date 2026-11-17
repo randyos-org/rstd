@@ -30,16 +30,23 @@ const conj = ops.conj;
 const mulConj = ops.mulConj;
 const divReal = ops.divReal;
 
-/// What `potrs` returns.
-pub const PotrsError = interface.ArgError || Allocator.Error || Io.Cancelable;
+/// What `potrs` returns: a reversed `uplo`, a slice too short or a leading
+/// dimension too small, and the allocator's and cancellation.
+pub const PotrsError = interface.TriangleError || Allocator.Error || Io.Cancelable;
 
-/// What `potrf` and `potf2` return: `NotPositiveDefinite` when a leading
-/// minor is not positive definite.
-pub const PotrfError = interface.ArgError || Allocator.Error || Io.Cancelable || error{NotPositiveDefinite};
+/// What `potrfChecked` returns.
+pub const CheckedError = interface.TriangleError || Allocator.Error || Io.Cancelable;
+
+/// What `potrf` returns: `NotPositiveDefinite` when a leading minor is not
+/// positive definite, and `CheckedError`'s.
+pub const PotrfError = CheckedError || error{NotPositiveDefinite};
+
+/// What `potf2` returns, which allocates nothing.
+pub const Potf2Error = interface.TriangleError || error{NotPositiveDefinite};
 
 /// What `potri` returns: `Singular` when the factor has a zero on its
 /// diagonal.
-pub const PotriError = interface.ArgError || Allocator.Error || Io.Cancelable || error{Singular};
+pub const PotriError = interface.TriangleError || Allocator.Error || Io.Cancelable || error{Singular};
 
 // ---- potrf, potf2 ---------------------------------------------------------------
 
@@ -49,51 +56,50 @@ pub const PotriError = interface.ArgError || Allocator.Error || Io.Cancelable ||
 /// imaginary parts of the diagonal are never read; the factor's diagonal
 /// comes out real and positive.
 ///
-/// When the leading minor of order `k` is not positive definite (its pivot
-/// is not positive, or is NaN), returns `error.NotPositiveDefinite` and sets
-/// `minor.*` to `k` (the reference's `INFO`). `A` then holds the factor's
-/// first `k - 1` columns (`u`: rows), the failed pivot at `A(k, k)`, and
-/// partial updates elsewhere. `minor` is written only then.
+/// When a leading minor is not positive definite (a pivot not positive, or
+/// NaN), returns `error.NotPositiveDefinite`, `A` partly factored: the
+/// factor's columns (`u`: rows) before that pivot, the failed pivot on the
+/// diagonal, partial updates elsewhere. The order of that minor is not
+/// reported (issue #314); `potrfChecked` returns it.
 ///
 /// Routed to Accelerate (macOS), a failure leaves its partial factor in `A`.
-pub fn potrf(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, a: [*]T, lda: isize, minor: ?*usize) PotrfError!void {
+pub fn potrf(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: usize, a: []T, lda: usize) PotrfError!void {
+    if (try potrfChecked(allocator, io, T, uplo, n, a, lda) != null) return error.NotPositiveDefinite;
+}
+
+/// `potrf`, a failure returned as the index (0-based) of the first pivot
+/// that is not positive, or null: the leading minor one larger is not
+/// positive definite, `A` partly factored as `potrf` leaves it. Not in
+/// `rstd.linalg.lapack`: for the matlab port's `chol`, MATLAB's `p`.
+pub fn potrfChecked(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: usize, a: []T, lda: usize) CheckedError!?usize {
     comptime ops.requireFloat(T, "potrf");
-    if (!try interface.checkSquare(T, uplo, n, lda)) return;
-    if (accel.potrf(T, uplo, n, a, lda)) |info| return failed(@intCast(info), minor);
+    try interface.holdsTriangle(uplo, n, a.len, lda);
+    if (n == 0) return null;
+    // Accelerate's `INFO`, 1-based at its ABI
+    if (accel.potrf(T, uplo, @intCast(n), a.ptr, @intCast(lda))) |info| return if (info == 0) null else @intCast(info - 1);
     const vt = interface.table(T);
     const blk = driver.Blocking.of(T, vt);
     const upper = uplo == .u;
-    const un: usize = @intCast(n);
-    const la: usize = @intCast(lda);
-    const k = if (interface.threads(.potrf, T, un)) |w|
-        try factorParallel(allocator, io, T, vt, upper, blk, un, a, la, w)
+    return if (interface.threads(.potrf, T, n)) |w|
+        try factorParallel(allocator, io, T, vt, upper, blk, n, a.ptr, lda, w)
     else
-        try factor(allocator, io, T, vt, upper, interface.dtbOf(vt), blk.q, un, a, la);
-    return failed(k, minor);
+        try factor(allocator, io, T, vt, upper, interface.dtbOf(vt), blk.q, n, a.ptr, lda);
 }
 
 /// `?POTF2`: `potrf` unblocked (`potf2_U.c` and the rest, as loops), with
-/// its errors and its `minor`.
-pub fn potf2(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, a: [*]T, lda: isize, minor: ?*usize) PotrfError!void {
+/// its errors.
+pub fn potf2(comptime T: type, uplo: Uplo, n: usize, a: []T, lda: usize) Potf2Error!void {
     comptime ops.requireFloat(T, "potf2");
-    _ = allocator;
-    _ = io;
-    if (!try interface.checkSquare(T, uplo, n, lda)) return;
-    return failed(unblocked(T, uplo == .u, @intCast(n), a, @intCast(lda)), minor);
+    try interface.holdsTriangle(uplo, n, a.len, lda);
+    if (n == 0) return;
+    if (unblocked(T, uplo == .u, n, a.ptr, lda) != null) return error.NotPositiveDefinite;
 }
 
-/// `error.NotPositiveDefinite` for a nonzero `k`, written to `minor`.
-fn failed(k: usize, minor: ?*usize) error{NotPositiveDefinite}!void {
-    if (k == 0) return;
-    if (minor) |m| m.* = k;
-    return error.NotPositiveDefinite;
-}
-
-/// `potrf_U_single.c` and `potrf_L_single.c`: the order of the first minor
-/// that is not positive definite, or 0. Upstream fuses the panel's `trsm`
+/// `potrf_U_single.c` and `potrf_L_single.c`: the index of the first pivot
+/// that is not positive, or null. Upstream fuses the panel's `trsm`
 /// with the update's `herk` column block by column block; here each is one
 /// driver call, the same arithmetic.
-fn factor(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, upper: bool, dtb: usize, q: usize, n: usize, a: [*]T, lda: usize) driver.Error!usize {
+fn factor(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, upper: bool, dtb: usize, q: usize, n: usize, a: [*]T, lda: usize) driver.Error!?usize {
     if (n <= dtb / 2) return unblocked(T, upper, n, a, lda);
     // `(n + 3) / 4` and `n / 4` as upstream has them
     const blocking = if (n > 4 * q) q else if (upper) (n + 3) / 4 else @max(1, n / 4);
@@ -101,11 +107,10 @@ fn factor(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, upp
     while (j < n) : (j += blocking) {
         const bk = @min(n - j, blocking);
         const d = a + j * (lda + 1);
-        const k = try factor(allocator, io, T, vt, upper, dtb, q, bk, d, lda);
-        if (k != 0) return k + j;
+        if (try factor(allocator, io, T, vt, upper, dtb, q, bk, d, lda)) |k| return k + j;
         try trailing(allocator, io, T, vt, upper, n - j - bk, bk, d, lda, 1);
     }
-    return 0;
+    return null;
 }
 
 /// `potrf_U_parallel.c` and `potrf_L_parallel.c`: blocks of half the order
@@ -113,18 +118,17 @@ fn factor(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, upp
 /// `4 * unroll_n` is left for `factor`; the drivers take up to `want`
 /// workers. Upstream drops to `factor` for one thread too; here only the
 /// size does (`threads`).
-fn factorParallel(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, upper: bool, blk: driver.Blocking, n: usize, a: [*]T, lda: usize, want: u32) driver.Error!usize {
+fn factorParallel(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, upper: bool, blk: driver.Blocking, n: usize, a: [*]T, lda: usize, want: u32) driver.Error!?usize {
     if (n <= 4 * blk.un) return factor(allocator, io, T, vt, upper, interface.dtbOf(vt), blk.q, n, a, lda);
     const blocking = @min((n / 2 + blk.un - 1) / blk.un * blk.un, blk.q);
     var i: usize = 0;
     while (i < n) : (i += blocking) {
         const bk = @min(n - i, blocking);
         const d = a + i * (lda + 1);
-        const k = try factorParallel(allocator, io, T, vt, upper, blk, bk, d, lda, want);
-        if (k != 0) return k + i;
+        if (try factorParallel(allocator, io, T, vt, upper, blk, bk, d, lda, want)) |k| return k + i;
         try trailing(allocator, io, T, vt, upper, n - i - bk, bk, d, lda, want);
     }
-    return 0;
+    return null;
 }
 
 /// The `rest` columns (`u`: rows) past the `bk` just factored at `d`:
@@ -148,33 +152,24 @@ fn trailing(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, u
 /// `?POTRS`: solves `A X = B` for the `n x nrhs` `X`, in place of `B`,
 /// given `potrf`'s factor of `A` in its `uplo` triangle: `Uᴴ U X = B` or
 /// `L Lᴴ X = B`, as two `trsm`s. The other triangle is never read.
-pub fn potrs(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, nrhs: isize, a: [*]const T, lda: isize, b: [*]T, ldb: isize) PotrsError!void {
+pub fn potrs(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: usize, nrhs: usize, a: []const T, lda: usize, b: []T, ldb: usize) PotrsError!void {
     comptime ops.requireFloat(T, "potrs");
-    if (uplo.isRev()) return error.InvalidUplo;
-    if (n < 0) return error.InvalidN;
-    if (nrhs < 0) return error.InvalidNrhs;
-    if (lda < @max(1, n)) return error.InvalidLda;
-    if (ldb < @max(1, n)) return error.InvalidLdb;
+    try interface.holdsTriangle(uplo, n, a.len, lda);
+    try util.holds(b.len, n, nrhs, ldb);
     if (n == 0 or nrhs == 0) return;
-    if (!util.fitsMatrix(n, n, lda, @sizeOf(T))) return error.InvalidLda;
-    if (!util.fitsMatrix(n, nrhs, ldb, @sizeOf(T))) return error.InvalidLdb;
     const vt = interface.table(T);
     const complex = comptime isComplex(T);
-    const m: usize = @intCast(n);
-    const r: usize = @intCast(nrhs);
-    const la: usize = @intCast(lda);
-    const lb: usize = @intCast(ldb);
     const one = scalar(T, 1);
     const upper = uplo == .u;
     // `u`: `Uᴴ Y = B`, then `U X = Y`; `l`: `L Y = B`, then `Lᴴ X = Y`
-    try driver.trsm(allocator, io, T, vt, true, upper, upper, upper and complex, false, m, r, one, a, la, b, lb, 1);
-    try driver.trsm(allocator, io, T, vt, true, upper, !upper, !upper and complex, false, m, r, one, a, la, b, lb, 1);
+    try driver.trsm(allocator, io, T, vt, true, upper, upper, upper and complex, false, n, nrhs, one, a.ptr, lda, b.ptr, ldb, 1);
+    try driver.trsm(allocator, io, T, vt, true, upper, !upper, !upper and complex, false, n, nrhs, one, a.ptr, lda, b.ptr, ldb, 1);
 }
 
 /// `potf2_U.c`, `potf2_L.c` and their `z` forms: the unblocked factor, with
 /// upstream's `dot`, `gemv` and `scal` as loops. A pivot that is not
-/// positive is stored, and its order returned.
-pub fn unblocked(comptime T: type, upper: bool, n: usize, a: [*]T, lda: usize) usize {
+/// positive is stored, and its index (0-based) returned; else null.
+pub fn unblocked(comptime T: type, upper: bool, n: usize, a: [*]T, lda: usize) ?usize {
     const F = Float(T);
     for (0..n) |j| {
         const djj = &a[j * (lda + 1)];
@@ -187,7 +182,7 @@ pub fn unblocked(comptime T: type, upper: bool, n: usize, a: [*]T, lda: usize) u
         // `!(ajj > 0)`: NaN fails too, as `xPOTRF2`'s `DISNAN`
         if (!(ajj > 0)) {
             djj.* = scalar(T, ajj);
-            return j + 1;
+            return j;
         }
         const d = @sqrt(ajj);
         djj.* = scalar(T, d);
@@ -210,7 +205,7 @@ pub fn unblocked(comptime T: type, upper: bool, n: usize, a: [*]T, lda: usize) u
             for (j + 1..n) |k| c[k] = divReal(T, c[k], d);
         }
     }
-    return 0;
+    return null;
 }
 
 // ---- potri ---------------------------------------------------------------------
@@ -221,23 +216,17 @@ pub fn unblocked(comptime T: type, upper: bool, n: usize, a: [*]T, lda: usize) u
 /// triangle is never read.
 ///
 /// A zero on the factor's diagonal returns `error.Singular` before `A` is
-/// touched, its index (1-based) in `pivot`, as the reference's `xTRTRI`
-/// reports it; upstream's `potri.c` calls `trtri`'s algorithm without that
+/// touched, as the reference's `xTRTRI` fails; upstream's `potri.c` calls `trtri`'s algorithm without that
 /// check and divides by the zero.
-pub fn potri(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, a: [*]T, lda: isize, pivot: ?*usize) PotriError!void {
+pub fn potri(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: usize, a: []T, lda: usize) PotriError!void {
     comptime ops.requireFloat(T, "potri");
-    if (!try interface.checkSquare(T, uplo, n, lda)) return;
-    const un: usize = @intCast(n);
-    const la: usize = @intCast(lda);
-    if (tri.firstZero(T, un, a, la)) |k| {
-        // 1-based until Z13 (issue #314)
-        if (pivot) |p| p.* = k + 1;
-        return error.Singular;
-    }
+    try interface.holdsTriangle(uplo, n, a.len, lda);
+    if (n == 0) return;
+    if (tri.firstZero(T, n, a.ptr, lda) != null) return error.Singular;
     // upstream runs both parallel algorithms, or both single ones
-    const w = interface.threads(.potri, T, un);
-    try tri.inverse(allocator, io, T, uplo == .u, false, un, a, la, w);
-    try tri.product(allocator, io, T, uplo == .u, un, a, la, w);
+    const w = interface.threads(.potri, T, n);
+    try tri.inverse(allocator, io, T, uplo == .u, false, n, a.ptr, lda, w);
+    try tri.product(allocator, io, T, uplo == .u, n, a.ptr, lda, w);
 }
 
 // ---- tests ---------------------------------------------------------------------
@@ -278,10 +267,11 @@ fn factorOn(comptime T: type, v: *const Vtable, vi: usize) anyerror!void {
             var p = try fixtures.CholProblem(T).init(al, n, upper, n * 31 + @as(u64, @intFromBool(upper)));
             defer p.deinit(al);
             var poison: guard.Poison = .{ .child = al };
-            p.factorIt(poison.allocator(), null) catch |e| {
+            const failed = p.factorIt(poison.allocator()) catch |e| {
                 check.say("potrf {s} {s} n={d}\n", .{ @typeName(T), if (upper) "u" else "l", n });
                 return e;
             };
+            try testing.expectEqual(@as(?usize, null), failed);
             p.expectFactor() catch |e| {
                 check.say("{s}, blocking {s}\n", .{ @typeName(T), if (vi == 0) "shrunk" else "own" });
                 return e;
@@ -294,15 +284,12 @@ test "potrf: A = L Lᴴ from a known L, both triangles, on every linked core" {
     try check.eachCore(factorCases);
 }
 
-/// `potrf` on `p` must fail at minor `want`.
-fn expectMinor(comptime T: type, p: *fixtures.CholProblem(T), want: usize, what: []const u8) !void {
-    var minor: usize = 0;
+/// `potrf` on `p` must fail at pivot `want` (0-based).
+fn expectFailed(comptime T: type, p: *fixtures.CholProblem(T), want: usize, what: []const u8) !void {
     var poison: guard.Poison = .{ .child = testing.allocator };
-    if (p.factorIt(poison.allocator(), &minor)) |_| {
-        check.say("{s} {s} {s} n={d}: no error, want minor {d}\n", .{ what, @typeName(T), if (p.upper) "u" else "l", p.n, want });
-        return error.TestExpectedError;
-    } else |e| if (e != error.NotPositiveDefinite or minor != want) {
-        check.say("{s} {s} {s} n={d}: {s} at minor {d}, want {d}\n", .{ what, @typeName(T), if (p.upper) "u" else "l", p.n, @errorName(e), minor, want });
+    const got = try p.factorIt(poison.allocator());
+    if (got != want) {
+        check.say("{s} {s} {s} n={d}: failed at pivot {?d}, want {d}\n", .{ what, @typeName(T), if (p.upper) "u" else "l", p.n, got, want });
         return error.TestUnexpectedResult;
     }
 }
@@ -329,14 +316,14 @@ fn failOn(comptime T: type, v: *const Vtable, vi: usize) anyerror!void {
             for ([_]f64{ -100, nan }) |x| {
                 p.store();
                 p.a[k * (p.lda + 1)] = fromF64(T, x);
-                try expectMinor(T, &p, k + 1, "diagonal");
+                try expectFailed(T, &p, k, "diagonal");
             }
             if (k == 0) continue;
             for ([_]f64{ nan, inf, -inf }) |x| for ([_]usize{ 0, k / 2, k - 1 }) |c| {
                 p.store();
                 // `(k, c)` in the lower triangle, `(c, k)` in the upper
                 p.a[if (upper) c + k * p.lda else k + c * p.lda] = fromF64(T, x);
-                try expectMinor(T, &p, k + 1, "off the diagonal");
+                try expectFailed(T, &p, k, "off the diagonal");
             };
         }
     }
@@ -346,7 +333,7 @@ test "potrf: the first minor that is not positive definite, by a pivot, NaN or i
     try check.eachCore(failCases);
 }
 
-test "potrf: a failed pivot is stored, real; minor is written only on failure" {
+test "potrf: a failed pivot is stored, real; potrfChecked returns its index" {
     // rstd's own (Accelerate's keeps a complex pivot's imaginary part), after
     // init, which turns routing on
     _ = blas.vtable();
@@ -358,33 +345,29 @@ test "potrf: a failed pivot is stored, real; minor is written only on failure" {
         var a: [16]T = @splat(scalar(T, 0));
         for (0..4) |i| a[i * 5] = scalar(T, 1);
         a[10] = if (comptime isComplex(T)) .init(-3, 5) else -3;
-        var minor: usize = 99;
-        try testing.expectError(error.NotPositiveDefinite, potrf(testing.allocator, check.io, T, uplo, 4, &a, 4, &minor));
-        try testing.expectEqual(@as(usize, 3), minor);
+        const al = testing.allocator;
+        try testing.expectError(error.NotPositiveDefinite, potrf(al, check.io, T, uplo, 4, &a, 4));
         try testing.expectEqual(scalar(T, -3), a[10]);
         try testing.expectEqual(scalar(T, 1), a[5]);
         // a zero pivot fails too
         a[10] = scalar(T, 0);
-        try testing.expectError(error.NotPositiveDefinite, potrf(testing.allocator, check.io, T, uplo, 4, &a, 4, &minor));
-        try testing.expectEqual(@as(usize, 3), minor);
+        try testing.expectEqual(@as(?usize, 2), try potrfChecked(al, check.io, T, uplo, 4, &a, 4));
         a[10] = scalar(T, 4);
-        minor = 99;
-        try potrf(testing.allocator, check.io, T, uplo, 4, &a, 4, &minor);
-        try testing.expectEqual(@as(usize, 99), minor);
+        try testing.expectEqual(@as(?usize, null), try potrfChecked(al, check.io, T, uplo, 4, &a, 4));
         try testing.expectEqual(scalar(T, 2), a[10]);
     };
 }
 
-test "potrf: reports the first bad argument and reads nothing for n = 0" {
+test "potrf: a reversed uplo, a short slice, a small leading dimension; nothing read for n = 0" {
     const fa = testing.failing_allocator;
     var a: [4]f64 = @splat(nan);
-    try testing.expectError(error.InvalidUplo, potrf(fa, check.io, f64, .v, -1, &a, 0, null));
-    try testing.expectError(error.InvalidUplo, potrf(fa, check.io, f64, .m, -1, &a, 0, null));
-    try testing.expectError(error.InvalidN, potrf(fa, check.io, f64, .u, -1, &a, 0, null));
-    try testing.expectError(error.InvalidLda, potrf(fa, check.io, f64, .l, 2, &a, 1, null));
-    try testing.expectError(error.InvalidLda, potrf(fa, check.io, f64, .u, 0, &a, 0, null));
-    try testing.expectError(error.InvalidLda, potrf(fa, check.io, f64, .u, 2, &a, std.math.maxInt(isize) / 2, null));
-    try potrf(fa, check.io, f64, .u, 0, &a, 1, null);
+    try testing.expectError(error.UnsupportedUplo, potrf(fa, check.io, f64, .v, 2, &a, 2));
+    try testing.expectError(error.UnsupportedUplo, potrf(fa, check.io, f64, .m, 2, &a, 2));
+    try testing.expectError(error.LeadingDimensionTooSmall, potrf(fa, check.io, f64, .l, 2, &a, 1));
+    try testing.expectError(error.LeadingDimensionTooSmall, potrf(fa, check.io, f64, .u, 0, &a, 0));
+    try testing.expectError(error.SliceTooShort, potrf(fa, check.io, f64, .u, 3, &a, 3));
+    try testing.expectError(error.SliceTooShort, potrf(fa, check.io, f64, .u, 2, &a, std.math.maxInt(usize) / 2));
+    try potrf(fa, check.io, f64, .u, 0, &a, 1);
     for (a) |v| try testing.expect(std.math.isNan(v));
 }
 
@@ -407,7 +390,7 @@ fn solveCase(comptime T: type, al: Allocator, p: *fixtures.CholProblem(T), nrhs:
     }
     var poison: guard.Poison = .{ .child = al };
     const uplo: Uplo = if (p.upper) .u else .l;
-    try potrs(poison.allocator(), check.io, T, uplo, @intCast(n), @intCast(nrhs), p.a.ptr, @intCast(p.lda), b.ptr, @intCast(ldb));
+    try potrs(poison.allocator(), check.io, T, uplo, n, nrhs, p.a, p.lda, b, ldb);
     const F = Float(T);
     const eps: f128 = std.math.floatEps(F);
     const ulps: f128 = @floatFromInt(8 * (n + 2));
@@ -438,7 +421,7 @@ fn solveCase(comptime T: type, al: Allocator, p: *fixtures.CholProblem(T), nrhs:
     defer al.free(bn);
     for (0..nrhs) |j| @memcpy(bn[j * ldb ..][0..n], b0[j * n ..][0..n]);
     bn[at[0] + at[1] * ldb] = poisoned(T);
-    try potrs(poison.allocator(), check.io, T, uplo, @intCast(n), @intCast(nrhs), p.a.ptr, @intCast(p.lda), bn.ptr, @intCast(ldb));
+    try potrs(poison.allocator(), check.io, T, uplo, n, nrhs, p.a, p.lda, bn, ldb);
     try lcheck.expectNanColumn(T, "potrs", @tagName(uplo), n, nrhs, ldb, at, bn, b);
 }
 
@@ -455,7 +438,7 @@ fn solveOn(comptime T: type, v: *const Vtable, vi: usize) anyerror!void {
             if (check.rig() and n > 70) continue;
             var p = try fixtures.CholProblem(T).init(al, n, upper, n * 17 + @as(u64, @intFromBool(upper)));
             defer p.deinit(al);
-            try p.factorIt(al, null);
+            _ = try p.factorIt(al);
             for ([_]usize{ 1, 3 }) |nrhs| {
                 const nan_at: [2]usize = .{ (n * 7 + nrhs) % n, nrhs / 2 };
                 solveCase(T, al, &p, nrhs, n + nrhs, nan_at) catch |e| {
@@ -471,17 +454,16 @@ test "potrs: A X = B on potrf's factor, both triangles, NaN in one column of B, 
     try check.eachCore(solveCases);
 }
 
-test "potrs: reports the first bad argument and reads nothing when empty" {
+test "potrs: a reversed uplo, short slices, small leading dimensions; nothing read when empty" {
     const fa = testing.failing_allocator;
     var a: [4]f64 = @splat(nan);
     var b: [4]f64 = @splat(nan);
-    try testing.expectError(error.InvalidUplo, potrs(fa, check.io, f64, .v, -1, -1, &a, 0, &b, 0));
-    try testing.expectError(error.InvalidN, potrs(fa, check.io, f64, .u, -1, -1, &a, 0, &b, 0));
-    try testing.expectError(error.InvalidNrhs, potrs(fa, check.io, f64, .l, 0, -1, &a, 0, &b, 0));
-    try testing.expectError(error.InvalidLda, potrs(fa, check.io, f64, .l, 2, 1, &a, 1, &b, 0));
-    try testing.expectError(error.InvalidLdb, potrs(fa, check.io, f64, .l, 2, 1, &a, 2, &b, 1));
-    try testing.expectError(error.InvalidLdb, potrs(fa, check.io, f64, .u, 0, 1, &a, 1, &b, 0));
-    try testing.expectError(error.InvalidLdb, potrs(fa, check.io, f64, .u, 2, 2, &a, 2, &b, std.math.maxInt(isize) / 2));
+    try testing.expectError(error.UnsupportedUplo, potrs(fa, check.io, f64, .v, 2, 2, &a, 2, &b, 2));
+    try testing.expectError(error.LeadingDimensionTooSmall, potrs(fa, check.io, f64, .l, 2, 1, &a, 1, &b, 2));
+    try testing.expectError(error.LeadingDimensionTooSmall, potrs(fa, check.io, f64, .l, 2, 1, &a, 2, &b, 1));
+    try testing.expectError(error.LeadingDimensionTooSmall, potrs(fa, check.io, f64, .u, 0, 1, &a, 1, &b, 0));
+    try testing.expectError(error.SliceTooShort, potrs(fa, check.io, f64, .u, 2, 3, &a, 2, &b, 2));
+    try testing.expectError(error.SliceTooShort, potrs(fa, check.io, f64, .u, 2, 2, &a, 2, &b, std.math.maxInt(usize) / 2));
     try potrs(fa, check.io, f64, .u, 0, 2, &a, 1, &b, 1);
     try potrs(fa, check.io, f64, .l, 2, 0, &a, 2, &b, 2);
     for (b) |v| try testing.expect(std.math.isNan(v));
@@ -502,7 +484,7 @@ fn parallelOn(comptime T: type, v: *const Vtable, vi: usize) anyerror!void {
             defer p.deinit(al);
             var poison: guard.Poison = .{ .child = al };
             const k = try factorParallel(poison.allocator(), check.io, T, interface.table(T), upper, blk, n, p.a.ptr, p.lda, 1);
-            try testing.expectEqual(@as(usize, 0), k);
+            try testing.expectEqual(@as(?usize, null), k);
             p.expectFactor() catch |e| {
                 check.say("{s}, blocking {s}, parallel algorithm\n", .{ @typeName(T), if (vi == 0) "shrunk" else "own" });
                 return e;
@@ -511,7 +493,7 @@ fn parallelOn(comptime T: type, v: *const Vtable, vi: usize) anyerror!void {
             // a failure past the first block
             p.store();
             p.a[(n - 2) * (p.lda + 1)] = fromF64(T, -100);
-            try testing.expectEqual(n - 1, try factorParallel(al, check.io, T, interface.table(T), upper, blk, n, p.a.ptr, p.lda, 1));
+            try testing.expectEqual(@as(?usize, n - 2), try factorParallel(al, check.io, T, interface.table(T), upper, blk, n, p.a.ptr, p.lda, 1));
         }
     }
 }
@@ -537,7 +519,7 @@ fn Threaded(comptime T: type) type {
             defer blas.config.cpu_count = saved;
             blas.config.cpu_count = want;
             @memcpy(out, c.p.a);
-            try potri(testing.allocator, io, T, if (c.p.upper) .u else .l, @intCast(c.p.n), out.ptr, @intCast(c.p.lda), null);
+            try potri(testing.allocator, io, T, if (c.p.upper) .u else .l, c.p.n, out, c.p.lda);
         }
     };
 }
@@ -555,37 +537,31 @@ test "potrf's parallel algorithm and potri give one worker's bits at any worker 
         defer p.deinit(al);
         const c: Threaded(T) = .{ .p = &p };
         try expectSameBits(T, c, Threaded(T).run, p.a.len, "potrf");
-        try p.factorIt(al, null);
+        _ = try p.factorIt(al);
         try expectSameBits(T, c, Threaded(T).inverse, p.a.len, "potri");
     };
 }
 
-test "potf2: the unblocked factor, its failing minor, its first bad argument" {
+test "potf2: the unblocked factor, a failing pivot, bad arguments" {
     const al = testing.allocator;
     inline for (test_types) |T| for ([_]bool{ true, false }) |upper| {
         const n = 26;
         var p = try fixtures.CholProblem(T).init(al, n, upper, 5);
         defer p.deinit(al);
-        try potf2(al, check.io, T, if (upper) .u else .l, n, p.a.ptr, @intCast(p.lda), null);
+        try potf2(T, if (upper) .u else .l, n, p.a, p.lda);
         try p.expectFactor();
         p.store();
         p.a[7 * (p.lda + 1)] = fromF64(T, nan);
-        try expectMinorWith(T, &p, 8, potf2);
+        try testing.expectError(error.NotPositiveDefinite, potf2(T, if (upper) .u else .l, n, p.a, p.lda));
+        // the factor's diagonal positive before the NaN, the failed pivot at it
+        for (0..8) |i| try testing.expectEqual(i < 7, re(T, p.a[i * (p.lda + 1)]) > 0);
     };
-    const fa = testing.failing_allocator;
     var a: [4]f64 = @splat(nan);
-    try testing.expectError(error.InvalidUplo, potf2(fa, check.io, f64, .v, -1, &a, 0, null));
-    try testing.expectError(error.InvalidN, potf2(fa, check.io, f64, .u, -1, &a, 0, null));
-    try testing.expectError(error.InvalidLda, potf2(fa, check.io, f64, .l, 2, &a, 1, null));
-    try potf2(fa, check.io, f64, .u, 0, &a, 1, null);
+    try testing.expectError(error.UnsupportedUplo, potf2(f64, .v, 2, &a, 2));
+    try testing.expectError(error.LeadingDimensionTooSmall, potf2(f64, .l, 2, &a, 1));
+    try testing.expectError(error.SliceTooShort, potf2(f64, .l, 3, &a, 3));
+    try potf2(f64, .u, 0, &a, 1);
     for (a) |v| try testing.expect(std.math.isNan(v));
-}
-
-fn expectMinorWith(comptime T: type, p: *fixtures.CholProblem(T), want: usize, comptime f: anytype) !void {
-    var minor: usize = 0;
-    const r = f(testing.allocator, check.io, T, if (p.upper) .u else .l, @intCast(p.n), p.a.ptr, @intCast(p.lda), &minor);
-    try testing.expectError(error.NotPositiveDefinite, r);
-    try testing.expectEqual(want, minor);
 }
 
 /// `potri` on `potrf`'s factor of `p`: `A X = I` within `32 (n + 2)` ulps
@@ -593,9 +569,9 @@ fn expectMinorWith(comptime T: type, p: *fixtures.CholProblem(T), want: usize, c
 /// it written.
 fn inverseCase(comptime T: type, al: Allocator, p: *fixtures.CholProblem(T)) !void {
     const n = p.n;
-    try p.factorIt(al, null);
+    _ = try p.factorIt(al);
     var poison: guard.Poison = .{ .child = al };
-    try potri(poison.allocator(), check.io, T, if (p.upper) .u else .l, @intCast(n), p.a.ptr, @intCast(p.lda), null);
+    try potri(poison.allocator(), check.io, T, if (p.upper) .u else .l, n, p.a, p.lda);
     const eps: f128 = std.math.floatEps(Float(T));
     const ulps: f128 = @floatFromInt(32 * (n + 2));
     for (0..n) |j| for (0..n) |i| {
@@ -647,22 +623,20 @@ test "potri: A X = I on potrf's factor, both triangles, on every linked core" {
     try check.eachCore(inverseCases);
 }
 
-test "potri: a zero on the factor's diagonal before A is touched; the first bad argument" {
+test "potri: a zero on the factor's diagonal before A is touched; bad arguments" {
     const fa = testing.failing_allocator;
     inline for (.{ f64, types.Complex64 }) |T| for ([_]Uplo{ .u, .l }) |uplo| {
         var a: [9]T = @splat(scalar(T, 1));
         a[8] = scalar(T, 0);
         const before = a;
-        var pivot: usize = 99;
-        try testing.expectError(error.Singular, potri(fa, check.io, T, uplo, 3, &a, 3, &pivot));
-        try testing.expectEqual(@as(usize, 3), pivot);
+        try testing.expectError(error.Singular, potri(fa, check.io, T, uplo, 3, &a, 3));
         try testing.expectEqualSlices(T, &before, &a);
     };
     var a: [4]f64 = @splat(nan);
-    try testing.expectError(error.InvalidUplo, potri(fa, check.io, f64, .m, -1, &a, 0, null));
-    try testing.expectError(error.InvalidN, potri(fa, check.io, f64, .u, -1, &a, 0, null));
-    try testing.expectError(error.InvalidLda, potri(fa, check.io, f64, .l, 2, &a, 1, null));
-    try potri(fa, check.io, f64, .u, 0, &a, 1, null);
+    try testing.expectError(error.UnsupportedUplo, potri(fa, check.io, f64, .m, 2, &a, 2));
+    try testing.expectError(error.LeadingDimensionTooSmall, potri(fa, check.io, f64, .l, 2, &a, 1));
+    try testing.expectError(error.SliceTooShort, potri(fa, check.io, f64, .l, 3, &a, 3));
+    try potri(fa, check.io, f64, .u, 0, &a, 1);
     for (a) |v| try testing.expect(std.math.isNan(v));
 }
 
@@ -675,7 +649,7 @@ test "potrf goes to Accelerate where it routes, and agrees with rstd's" {
             var p = try fixtures.CholProblem(T).init(al, n, upper, n * 3 + @as(u64, @intFromBool(upper)));
             defer p.deinit(al);
             const before = accel.calls.load(.monotonic);
-            try p.factorIt(al, null);
+            try testing.expectEqual(@as(?usize, null), try p.factorIt(al));
             // x86_64's complex `potrf` stays on rstd (`apple_accel.zig`)
             const routed = !(sysinfo.target.cpu.arch == .x86_64 and isComplex(T));
             try testing.expectEqual(routed, accel.calls.load(.monotonic) > before);
@@ -686,7 +660,7 @@ test "potrf goes to Accelerate where it routes, and agrees with rstd's" {
             if (n < 7) continue;
             p.store();
             p.a[(n / 2) * (p.lda + 1)] = fromF64(T, nan);
-            try expectMinor(T, &p, n / 2 + 1, "Accelerate's NaN pivot");
+            try expectFailed(T, &p, n / 2, "Accelerate's NaN pivot");
         }
     };
 }

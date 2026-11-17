@@ -43,17 +43,18 @@ pub const Trans = types.Trans;
 pub const Diag = types.Diag;
 pub const Side = types.Side;
 
-// Each `...Error` is its routine's bad arguments (the LU and triangular
-// routines' by plain names, issue #313; the rest in the reference's `xerbla`
-// order, until their own issues), `error.OutOfMemory` and `error.Canceled`
+// Each `...Error` is its routine's bad arguments (the LU, triangular,
+// Cholesky and symmetric-indefinite routines' by plain names, issues #313
+// and #314; the rest in the reference's `xerbla` order, until their own issues), `error.OutOfMemory` and `error.Canceled`
 // where it can meet them, and the failures its doc names.
-/// `potrf`, `potf2`: `error.NotPositiveDefinite`.
+/// `potrf`: `error.NotPositiveDefinite`.
 pub const PotrfError = cholesky.PotrfError;
+/// `potf2`: `error.NotPositiveDefinite`; it allocates nothing.
+pub const Potf2Error = cholesky.Potf2Error;
 pub const PotrsError = cholesky.PotrsError;
 /// `potri`: `error.Singular`.
 pub const PotriError = cholesky.PotriError;
-/// `pbtrf`: `error.NotPositiveDefinite`, the minor's order in the last
-/// argument.
+/// `pbtrf`: `error.NotPositiveDefinite`.
 pub const PbtrfError = relapack.PbtrfError;
 pub const potrf = if (options.relapack) relapack.potrf else cholesky.potrf;
 pub const potf2 = cholesky.potf2;
@@ -89,9 +90,13 @@ pub const lauum = if (options.relapack) relapack.lauum else triangular.lauum;
 pub const lauu2 = triangular.lauu2;
 pub const trtrs = triangular.trtrs;
 
-/// `sytrf`, `hetrf`, `sytrfRook`, `hetrfRook`: `error.Singular`, a zero block
-/// of `D`, its index in the last argument.
+/// `sytrf`, `hetrf`, `sytrfRook`, `hetrfRook`: they return the first row of
+/// the first zero block of `D` (0-based), or null.
 pub const SytrfError = sytrf_factor.SytrfError;
+/// One entry of `sytrf`'s pivots: a row (0-based) and its block of `D`.
+pub const Pivot = sytrf_factor.Pivot;
+/// `sygst`'s and `hegst`'s eigenproblem, LAPACK's `itype`.
+pub const Problem = relapack.Problem;
 /// `sygst`, `hegst`.
 pub const SygstError = relapack.SygstError;
 pub const sytrf = sytrf_factor.sytrf;
@@ -264,32 +269,32 @@ test "lapack: ReLAPACK's routines through their public names, 2 x 2 smoke tests"
     }.f;
     // sytrf: A = [4 1; 1 3] is positive definite, so 1 x 1 pivots, no swap
     var s = [_]f64{ 4, 1, 1, 3 };
-    var ipiv: [2]isize = undefined;
-    try sytrf(al, io, f64, .l, 2, &s, 2, &ipiv, null);
+    var ipiv: [2]Pivot = undefined;
+    try testing.expectEqual(@as(?usize, null), try sytrf(al, io, f64, .l, 2, &s, 2, &ipiv));
     try near(&.{ 4, 0.25, 1, 3 - 0.25 }, &s);
-    try testing.expectEqualSlices(isize, &.{ 1, 2 }, &ipiv);
+    try testing.expectEqualSlices(Pivot, &.{ .of(0, .one), .of(1, .one) }, &ipiv);
     var h = [_]types.Complex64{ .init(4, 0), .init(1, 1), .init(1, -1), .init(3, 0) };
-    try hetrf(al, io, types.Complex64, .l, 2, &h, 2, &ipiv, null);
+    _ = try hetrf(al, io, types.Complex64, .l, 2, &h, 2, &ipiv);
     try testing.expectApproxEqAbs(@as(f64, 2.5), h[3].re, 1e-14);
     s = .{ 4, 1, 1, 3 };
-    try sytrfRook(al, io, f64, .u, 2, &s, 2, &ipiv, null);
+    _ = try sytrfRook(al, io, f64, .u, 2, &s, 2, &ipiv);
     try testing.expectApproxEqAbs(@as(f64, 3), s[3], 1e-14);
     h = .{ .init(4, 0), .init(1, 1), .init(1, -1), .init(3, 0) };
-    try hetrfRook(al, io, types.Complex64, .u, 2, &h, 2, &ipiv, null);
+    _ = try hetrfRook(al, io, types.Complex64, .u, 2, &h, 2, &ipiv);
     try testing.expectApproxEqAbs(@as(f64, 3), h[3].re, 1e-14);
-    // sygst, itype 1: B = 2 I factored is L = sqrt(2) I, so C = A / 2
+    // sygst, `A x = λ B x`: B = 2 I factored is L = sqrt(2) I, so C = A / 2
     var a = [_]f64{ 4, 2, 2, 6 };
     const l = [_]f64{ @sqrt(2.0), 0, 0, @sqrt(2.0) };
-    try sygst(al, io, f64, 1, .l, 2, &a, 2, &l, 2);
+    try sygst(al, io, f64, .ax_lbx, .l, 2, &a, 2, &l, 2);
     try near(&.{ 2, 1 }, &.{ a[0], a[1] });
     try testing.expectApproxEqAbs(@as(f64, 3), a[3], 1e-14);
     var ha = [_]types.Complex64{ .init(4, 0), .init(2, 0), .init(2, 0), .init(6, 0) };
     const hl = [_]types.Complex64{ .init(@sqrt(2.0), 0), .init(0, 0), .init(0, 0), .init(@sqrt(2.0), 0) };
-    try hegst(al, io, types.Complex64, 1, .u, 2, &ha, 2, &hl, 2);
+    try hegst(al, io, types.Complex64, .ax_lbx, .u, 2, &ha, 2, &hl, 2);
     try testing.expectApproxEqAbs(@as(f64, 3), ha[3].re, 1e-14);
     // pbtrf: [4 2; 2 5] in upper band storage (kd 1) is U = [2 1; 0 2]
     var ab = [_]f64{ 0, 4, 2, 5 };
-    try pbtrf(al, io, f64, .u, 2, 1, &ab, 2, null);
+    try pbtrf(al, io, f64, .u, 2, 1, &ab, 2);
     try near(&.{ 2, 1, 2 }, &.{ ab[1], ab[2], ab[3] });
     // gbtrf: [1 2; 3 4] (kl = ku = 1, ldab 4) swaps its rows: U = [3 4; 0 2/3]
     var gb = [_]f64{ 0, 0, 1, 3, 0, 2, 4, 0 };
