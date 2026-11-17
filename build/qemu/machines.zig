@@ -22,6 +22,9 @@ pub const Machine = struct {
     /// `memory` under `-Drstd-tsan`, whose shadow memory and bigger test
     /// outgrow it (ENOMEM in faer's evd tests at 3G, issue #408)
     tsan_memory: ?[]const u8 = null,
+    /// A Linux rig's `parts` under `-Drstd-tsan`, each a VM of its own, and a
+    /// `rest` part of every test they leave out.
+    tsan_parts: []const Part = &.{},
     boot: Boot,
     /// Why this rig is not wired up yet; a stub gets no step.
     stub: ?[]const u8 = null,
@@ -750,6 +753,13 @@ const base_machines = [_]Machine{
         .hvf_core = "vortexm4",
         .memory = "1G",
         .tsan_memory = "8G",
+        // TCG on CI's arm64 runners: one ThreadSanitizer run passes the job's
+        // time limit (issue #412); split as the kernel rigs' default set
+        .tsan_parts = &.{
+            .{ .name = "blas1-2", .filters = &.{ "linalg.blas.blas1.", "linalg.blas.blas2.", "linalg.blas._test.blas1.", "linalg.blas._test.blas2." } },
+            .{ .name = "blas3", .filters = &.{ "linalg.blas.blas3.", "linalg.blas._test.blas3." } },
+            .{ .name = "lapack", .filters = &.{"linalg.lapack."} },
+        },
         .boot = .{ .linux = .{ .dep = "debian_netboot_arm64", .kernel = "debian-installer/arm64/linux", .console = "ttyAMA0" } },
     },
     .{

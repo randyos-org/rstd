@@ -529,7 +529,7 @@ What the tests check today, and where they run:
   Linux rigs then run them on glibc from Nix ([#178](https://github.com/randyos-org/rstd/issues/178) has why not musl or
   macOS). On `qemu-test-linux-aarch64` (HVF) the `threading` and level-3 threaded tests
   report no race (2026-10-30); the fiber-`Io` test is killed by signal 9 under TSan, so it
-  is left out.
+  is left out. Under it `qemu-test-linux-aarch64` runs in four parts (`-Dqemu-test-part=` `blas1-2`, `blas3`, `lapack` or `rest`, every test the others leave out), one per CI leg ([#412](https://github.com/randyos-org/rstd/issues/412)).
 - **Freestanding:** the kernel rigs build `single_threaded` but for `x86_64-smp` and
   `aarch64-smp` (`cpus` in `build/qemu/machines.zig`), which run the threaded tests above
   (`smp_filters`) on four cores; `rstd-check-uefi` keeps UEFI compiling. In those kernels
