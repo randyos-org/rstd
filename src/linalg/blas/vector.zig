@@ -83,8 +83,20 @@ pub fn Real(comptime F: type, comptime U: comptime_int) type {
         /// `dot`'s, `nrm2`'s and `sum`'s sums: `f64` for `f32`, as the
         /// portable kernels (products of `f32` are exact there), else `F`.
         pub const D = if (F == f32) f64 else F;
-        const DV = @Vector(W, D);
         const DG = @Vector(4, D);
+        /// `dotSum`'s and `squares`' accumulator width: `W`, or half of it where
+        /// their two `D` accumulators would fill more than half the vector
+        /// registers (T21: Zen's `sdot` held all 16 ymm in two `@Vector(32, f64)`).
+        pub const AW = blk: {
+            const bits = lanes(F) * @bitSizeOf(F);
+            const acc_regs = 2 * W * @bitSizeOf(D) / bits;
+            break :blk if (D != F and W >= 2 and 2 * acc_regs > util.registers(bits, sysinfo.target.cpu)) W / 2 else W;
+        };
+        const AV = @Vector(AW, D);
+
+        inline fn ldA(p: [*]const F) @Vector(AW, F) {
+            return p[0..AW].*;
+        }
 
         pub fn dot(n: BlasLong, x: [*]F, incx: BlasLong, y: [*]F, incy: BlasLong) callconv(.c) F {
             if (n <= 0) return 0;
@@ -101,14 +113,14 @@ pub fn Real(comptime F: type, comptime U: comptime_int) type {
         fn dotSum(n: BlasLong, x: [*]F, incx: BlasLong, y: [*]F, incy: BlasLong) D {
             if (incx == 1 and incy == 1) {
                 const len: usize = @intCast(n);
-                var acc: [2]DV = @splat(@splat(0));
+                var acc: [2]AV = @splat(@splat(0));
                 var i: usize = 0;
-                while (i + 2 * W <= len) : (i += 2 * W) {
-                    inline for (0..2) |q| acc[q] = mulAdd(DV, ld(x + i + q * W), ld(y + i + q * W), acc[q]);
+                while (i + 2 * AW <= len) : (i += 2 * AW) {
+                    inline for (0..2) |q| acc[q] = mulAdd(AV, ldA(x + i + q * AW), ldA(y + i + q * AW), acc[q]);
                 }
-                if (i + W <= len) {
-                    acc[0] = mulAdd(DV, ld(x + i), ld(y + i), acc[0]);
-                    i += W;
+                if (i + AW <= len) {
+                    acc[0] = mulAdd(AV, ldA(x + i), ldA(y + i), acc[0]);
+                    i += AW;
                 }
                 var s = @reduce(.Add, acc[0] + acc[1]);
                 while (i < len) : (i += 1) s = mulAdd(D, x[i], y[i], s);
@@ -158,12 +170,12 @@ pub fn Real(comptime F: type, comptime U: comptime_int) type {
 
         /// The plain sum of squares of `x[0..len]`, in `D`.
         pub fn squares(len: usize, x: [*]F) D {
-            var acc: [2]DV = @splat(@splat(0));
+            var acc: [2]AV = @splat(@splat(0));
             var i: usize = 0;
-            while (i + 2 * W <= len) : (i += 2 * W) {
+            while (i + 2 * AW <= len) : (i += 2 * AW) {
                 inline for (0..2) |q| {
-                    const v: DV = ld(x + i + q * W);
-                    acc[q] = mulAdd(DV, v, v, acc[q]);
+                    const v: AV = ldA(x + i + q * AW);
+                    acc[q] = mulAdd(AV, v, v, acc[q]);
                 }
             }
             var s = @reduce(.Add, acc[0] + acc[1]);
@@ -213,13 +225,13 @@ pub fn Real(comptime F: type, comptime U: comptime_int) type {
         }
 
         /// The sum of `x[0..len]` in `D`, as `dot` sums: float `i` of each
-        /// `2 * W` into lane `i % W` of sum `i / W % 2`; then the two lane by
+        /// `2 * AW` into lane `i % AW` of sum `i / AW % 2`; then the two lane by
         /// lane, the lanes in order, and the floats left in order.
         pub fn plainSum(len: usize, x: [*]F) D {
-            var acc: [2]DV = @splat(@splat(0));
+            var acc: [2]AV = @splat(@splat(0));
             var i: usize = 0;
-            while (i + 2 * W <= len) : (i += 2 * W) {
-                inline for (0..2) |q| acc[q] += @as(DV, ld(x + i + q * W));
+            while (i + 2 * AW <= len) : (i += 2 * AW) {
+                inline for (0..2) |q| acc[q] += @as(AV, ldA(x + i + q * AW));
             }
             var s = @reduce(.Add, acc[0] + acc[1]);
             while (i < len) : (i += 1) s += x[i];

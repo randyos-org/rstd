@@ -104,11 +104,11 @@ before the f64 sum differs from `sdsdot.f` only in f64 rounding; harmless.
 **Follow-up (T25, 2026-10-29, `wip/vecsum`).**
 
 - **`sum`.** `vector.zig` has a `@Vector` `sum`, real and complex: `f32` widened to `f64`
-  lanes, as the portable kernel sums, and rounded once. Unit stride: float `i` of each `2 * W`
-  into lane `i % W` of sum `i / W % 2`; then the two sums lane by lane, the lanes in order,
+  lanes, as the portable kernel sums, and rounded once. Unit stride: float `i` of each `2 * AW`
+  into lane `i % AW` of sum `i / AW % 2` (`AW` is `W`, or half of it for `f32` where two accumulators of `W` doubles would fill more than half the vector registers: T21); then the two sums lane by lane, the lanes in order,
   and the floats left in order (`Real.plainSum`). Strided: element `i` into lane `i % 4`, or by
   parts into sum `i % 2` for complex. A test checks those bits against that order written out
-  (`blas1/sum/`). Its error bound, `(n / 2W + 2W) * 2^-53 * sum|x|`, is below the portable
+  (`blas1/sum/`). Its error bound, `(n / 2AW + 2AW) * 2^-53 * sum|x|`, is below the portable
   loop's `n * 2^-53 * sum|x|`. It serves x86_64's `csum`/`zsum` (routed for alignment
   peeling, which had left them on the scalar loop) and arm64's C-upstream sum slots, but not
   `vortex`'s converted ones (unmeasured).
