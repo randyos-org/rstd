@@ -1561,16 +1561,16 @@ routine and matches the reference; `apple_accel.zig` binds it and routes to it.
   `_test/blas2/edge.zig`, `blas3/interface.zig`) found each, against rstd's kernels or the wide
   reference. Rechecked 2026-11-15 natively on both Macs (the Intel Mac on macOS 15.8.3, the M6
   on 27.2) by `tools/probe/accel_quirks.zig`, through all three symbol sets ([#355](https://github.com/randyos-org/rstd/issues/355)); each item
-  says where it showed. Where a quirk did not show, the call still runs rstd's until
-  [#388](https://github.com/randyos-org/rstd/issues/388) decides.
+  says where it showed, and the call runs rstd's there only; elsewhere it goes to Accelerate ([#388](https://github.com/randyos-org/rstd/issues/388), rechecked 2026-11-16 by the special-value tests on the Intel Mac, the M6 and Rosetta 2).
   - Complex `scal`, `axpy`, `axpby` with a scalar that has a zero part: Accelerate skips that
     part's products, so `(1.5, 0) * (inf, 1)` keeps a finite imaginary part. Shows for `scal`
-    and `axpy` on arm64, in the `$NEWLAPACK` sets only; not on x86_64; `axpby` on neither.
-  - `axpby` with a zero `alpha`: it reads `x`. Both.
+    and `axpy` on arm64, in the `$NEWLAPACK` sets only, and for `axpby` on arm64 (the tests; the probe missed it); not on x86_64.
+  - Complex `scal` with a zero `alpha`: it zeroes `x`, where the reference keeps NaN. x86_64 (on arm64 the zero-part quirk covers it).
+  - `axpby` with a zero `alpha`: it reads `x`. Both, real and complex.
   - A zero stride on a vector the routine writes (`swap`, `axpby`): Accelerate rejects it as an invalid parameter and exits. Both. Zero strides on read vectors go to Accelerate.
   - Complex `gemv` with a `beta` that has a zero part and NaN or an infinity in `y`: it skips that part's products, as for `scal`. arm64, the `$NEWLAPACK` sets only.
   - The triangular level 2 with NaN or an infinity in `x`, and `trmm` with one in `B`: past
-    small orders it multiplies them by the triangle's zeros. `trmv` at order 64: arm64 only.
+    small orders it multiplies them by the triangle's zeros. Real `trmv`: arm64 only; complex `trmv` (orders 33 and 130 in the tests): both.
   - `ger`, `gerc` with one in `x`: it does not pass over a zero `y`. Both.
   - `syr`, `spr`, `her`, `hpr` with one in `x` and a zero `x(j)`, and `syr2`, `spr2`, `her2`,
     `hpr2` with one in `x` or `y` and a `j` where both are zero: it does not pass over that
@@ -1580,12 +1580,9 @@ routine and matches the reference; `apple_accel.zig` binds it and routes to it.
   - The Hermitian rank updates leave the diagonal's imaginary parts as `beta` times theirs, or
     NaN where an infinity meets them; the reference sets them to zero. They are zeroed after the
     call; `herk` and `her2k` with `beta` 1 and nothing added, which leave `C` as it was, run
-    rstd's. `herk`: arm64, the `$NEWLAPACK` sets only.
-  - Found under Rosetta 2, before the Intel Mac: `cblas_dsdot` off by `f32`'s epsilon (so `dsdot`,
-    `sdot`, `snrm2` and `scnrm2` run rstd's on x86_64), `gemm` with NaN or an infinity in `A`
-    giving NaN at an edge of `m`, and complex `potrf` (`cpotrf_`, `zpotrf_`) reporting a well
-    conditioned `L Lᴴ` as not positive definite. None shows natively on the Intel Mac, nor on
-    arm64: Rosetta's.
+    rstd's. `herk`: both (the tests; the probe saw arm64's only).
+  - Under Rosetta 2 only, which `start` reads from `sysctl.proc_translated`: `cblas_dsdot` off by `f32`'s epsilon (so `dsdot`, `sdot`, `snrm2` and `scnrm2` run rstd's there), and `gemm` with NaN or an infinity in `A` giving NaN at an edge of `m`.
+  - Complex `potrf` (`cpotrf_`, `zpotrf_`) reporting a well conditioned `L Lᴴ` as not positive definite: x86_64, natively too (the `potrf` test; the probe missed it).
   - `trsm` with a diagonal entry too small to invert (a subnormal): it multiplies by the reciprocal, which overflows, where the reference divides. Both. `trsm` with NaN or an infinity in `B` (complex, left, upper, order 19 seen in CI): it spreads to entries that do not depend on it, so `trsm` falls back as `trmm` does.
 
 ### Core detection and selection
