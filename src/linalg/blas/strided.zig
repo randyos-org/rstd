@@ -57,7 +57,8 @@ fn View(comptime T: type, comptime read_only: bool) type {
             return .{ .data = s, .n = n, .stride = stride };
         }
 
-        /// Where element `i` is in `data`; writes go through it.
+        /// Where element `i` is in `data`; writes go through it. Asserts `i < n`
+        /// (callers index within `n`).
         pub fn index(v: Self, i: usize) usize {
             std.debug.assert(i < v.n);
             const step: usize = @abs(v.stride);

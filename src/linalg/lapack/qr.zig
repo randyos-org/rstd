@@ -11,6 +11,7 @@ const blas_calls = @import("blas_calls.zig");
 const auxiliary = @import("auxiliary.zig");
 const hh = @import("householder.zig");
 const util = @import("../blas/util.zig");
+const interface = @import("interface.zig");
 const types = @import("../blas/types.zig");
 
 const Allocator = std.mem.Allocator;
@@ -33,7 +34,8 @@ pub fn blockSize(m: usize, n: usize) usize {
 }
 
 /// `qr_in_place`: factors `a` in place, `h` (`bs x min(m, n)`, `bs > 0`)
-/// taking the block factors; returns the rank faer estimates.
+/// taking the block factors; returns the rank faer estimates. Asserts `h`'s
+/// shape (internal callers size it).
 pub fn factor(al: Allocator, io: Io, comptime T: type, a: Mat(T), h: Mat(T)) Error!usize {
     std.debug.assert(h.rows > 0 and h.cols == @min(a.rows, a.cols));
     const rank = try blocked(al, io, T, a, h, 0, 0);
@@ -141,27 +143,28 @@ fn blocked(al: Allocator, io: Io, comptime T: type, a: Mat(T), h: Mat(T), row_st
 
 // ---- LAPACK ----------------------------------------------------------------------
 
-/// What `geqrf` returns.
-pub const GeqrfError = error{ InvalidM, InvalidN, InvalidLda } || Allocator.Error || Io.Cancelable;
-/// What `orgqr` returns: `InvalidN` unless `0 <= n <= m`, `InvalidK` unless
-/// `0 <= k <= n`.
-pub const OrgqrError = error{ InvalidM, InvalidN, InvalidK, InvalidLda } || Allocator.Error || Io.Cancelable;
-/// What `ormqr` returns: `InvalidTrans` for other than `n`, `t` or `c`
-/// (complex: `n` or `c`), `InvalidK` unless `0 <= k <=` the side's order.
-pub const OrmqrError = error{ InvalidTrans, InvalidM, InvalidN, InvalidK, InvalidLda, InvalidLdc } || Allocator.Error || Io.Cancelable;
+/// What `geqrf` returns: a slice too short (`a`, or `tau` under
+/// `min(m, n)`) or a leading dimension too small, and the allocator's and
+/// cancellation.
+pub const GeqrfError = interface.ShapeError || Allocator.Error || Io.Cancelable;
+/// What `orgqr` returns: `TooManyColumns` for `n > m`, `TooManyReflections`
+/// for `k > n`, and `GeqrfError`'s.
+pub const OrgqrError = error{TooManyColumns} || interface.ReflectionsError || GeqrfError;
+/// What `ormqr` returns: a `trans` other than `n`, `t` or `c` (complex: `n`
+/// or `c`), `TooManyReflections` for `k` past the side's order, and
+/// `GeqrfError`'s.
+pub const OrmqrError = interface.TransError || interface.ReflectionsError || GeqrfError;
 
 /// `?GEQRF`: `A = Q R` for the `m x n` `A`: `R` on and above the diagonal,
 /// `Q = H(0) ... H(k-1)` (`k = min(m, n)`) as reflections below it and
 /// their `tau`s in `tau` (`k`).
-pub fn geqrf(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize, a: [*]T, lda: isize, tau: [*]T) GeqrfError!void {
+pub fn geqrf(allocator: Allocator, io: Io, comptime T: type, m: usize, n: usize, a: []T, lda: usize, tau: []T) GeqrfError!void {
     comptime ops.requireFloat(T, "geqrf");
-    if (m < 0) return error.InvalidM;
-    if (n < 0) return error.InvalidN;
-    if (lda < @max(1, m)) return error.InvalidLda;
+    try util.holds(a.len, m, n, lda);
+    if (tau.len < @min(m, n)) return error.SliceTooShort;
     if (m == 0 or n == 0) return;
-    if (!util.fitsMatrix(m, n, lda, @sizeOf(T))) return error.InvalidLda;
-    const am: Mat(T) = .{ .ptr = a, .rows = @intCast(m), .cols = @intCast(n), .ld = @intCast(lda) };
-    try factorLapack(allocator, io, T, am, tau);
+    const am: Mat(T) = .{ .ptr = a.ptr, .rows = m, .cols = n, .ld = lda };
+    try factorLapack(allocator, io, T, am, tau.ptr);
 }
 
 /// `geqrf` after its checks.
@@ -202,16 +205,15 @@ pub fn factorsOf(al: Allocator, io: Io, comptime T: type, v: Mat(T), tau: [*]con
 /// `?ORGQR`, `?UNGQR`: the `m x n` `Q` with orthonormal columns, the first
 /// `n` of `H(0) ... H(k-1)`, over the reflections `geqrf` left in `A`'s
 /// first `k` columns.
-pub fn orgqr(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize, k: isize, a: [*]T, lda: isize, tau: [*]const T) OrgqrError!void {
+pub fn orgqr(allocator: Allocator, io: Io, comptime T: type, m: usize, n: usize, k: usize, a: []T, lda: usize, tau: []const T) OrgqrError!void {
     comptime ops.requireFloat(T, "orgqr");
-    if (m < 0) return error.InvalidM;
-    if (n < 0 or n > m) return error.InvalidN;
-    if (k < 0 or k > n) return error.InvalidK;
-    if (lda < @max(1, m)) return error.InvalidLda;
+    if (n > m) return error.TooManyColumns;
+    if (k > n) return error.TooManyReflections;
+    try util.holds(a.len, m, n, lda);
+    if (tau.len < k) return error.SliceTooShort;
     if (n == 0) return;
-    if (!util.fitsMatrix(m, n, lda, @sizeOf(T))) return error.InvalidLda;
-    const am: Mat(T) = .{ .ptr = a, .rows = @intCast(m), .cols = @intCast(n), .ld = @intCast(lda) };
-    try generate(allocator, io, T, am, @intCast(k), tau);
+    const am: Mat(T) = .{ .ptr = a.ptr, .rows = m, .cols = n, .ld = lda };
+    try generate(allocator, io, T, am, k, tau.ptr);
 }
 
 /// `orgqr` after its checks: `a`'s first `k` columns hold the reflections.
@@ -230,25 +232,18 @@ pub fn generate(al: Allocator, io: Io, comptime T: type, a: Mat(T), k: usize, ta
 /// `op` by `trans` (`t` and `c` both `Qᴴ`), for the `m x n` `C` and the
 /// `Q` of `k` reflections in `A`'s first `k` columns (`m` rows for `l`, `n`
 /// for `r`). Only `A`'s strictly lower part is read.
-pub fn ormqr(allocator: Allocator, io: Io, comptime T: type, side: Side, trans: Trans, m: isize, n: isize, k: isize, a: [*]const T, lda: isize, tau: [*]const T, c: [*]T, ldc: isize) OrmqrError!void {
+pub fn ormqr(allocator: Allocator, io: Io, comptime T: type, side: Side, trans: Trans, m: usize, n: usize, k: usize, a: []const T, lda: usize, tau: []const T, c: []T, ldc: usize) OrmqrError!void {
     comptime ops.requireFloat(T, "ormqr");
-    switch (trans) {
-        .n, .c => {},
-        .t => if (comptime ops.isComplex(T)) return error.InvalidTrans,
-        .r, .o, .u, .s, .d => return error.InvalidTrans,
-    }
-    if (m < 0) return error.InvalidM;
-    if (n < 0) return error.InvalidN;
+    try interface.takesAdjoint(T, trans);
     const nq = if (side == .l) m else n;
-    if (k < 0 or k > nq) return error.InvalidK;
-    if (lda < @max(1, nq)) return error.InvalidLda;
-    if (ldc < @max(1, m)) return error.InvalidLdc;
+    if (k > nq) return error.TooManyReflections;
+    try util.holds(a.len, nq, k, lda);
+    try util.holds(c.len, m, n, ldc);
+    if (tau.len < k) return error.SliceTooShort;
     if (m == 0 or n == 0 or k == 0) return;
-    if (!util.fitsMatrix(nq, k, lda, @sizeOf(T))) return error.InvalidLda;
-    if (!util.fitsMatrix(m, n, ldc, @sizeOf(T))) return error.InvalidLdc;
-    const v: Mat(T) = .{ .ptr = @constCast(a), .rows = @intCast(nq), .cols = @intCast(k), .ld = @intCast(lda) };
-    const cm: Mat(T) = .{ .ptr = c, .rows = @intCast(m), .cols = @intCast(n), .ld = @intCast(ldc) };
-    try multiply(allocator, io, T, side, trans != .n, v, tau, cm);
+    const v: Mat(T) = .{ .ptr = @constCast(a.ptr), .rows = nq, .cols = k, .ld = lda };
+    const cm: Mat(T) = .{ .ptr = c.ptr, .rows = m, .cols = n, .ld = ldc };
+    try multiply(allocator, io, T, side, trans != .n, v, tau.ptr, cm);
 }
 
 /// `ormqr` after its checks: `adjoint` takes `Qᴴ`.
@@ -349,7 +344,7 @@ test "faer qr: geqrf and orgqr, Q R = A and Qᴴ Q = I in LAPACK's layout" {
             a.sub(0, 0, m, n).copyFrom(a0);
             const tau = try al.alloc(T, k);
             defer al.free(tau);
-            try geqrf(al, check.io, T, @intCast(m), @intCast(n), a.ptr, @intCast(lda), tau.ptr);
+            try geqrf(al, check.io, T, m, n, a.slice(), lda, tau);
             for (0..n) |j| try testing.expect(lcheck.isNanT(T, a.get(m, j)));
             // R, then Q's first k columns
             const r = try ops.alloc(T, al, k, n);
@@ -357,7 +352,7 @@ test "faer qr: geqrf and orgqr, Q R = A and Qᴴ Q = I in LAPACK's layout" {
             for (0..n) |j| for (0..k) |i| {
                 r.at(i, j).* = if (i <= j) a.get(i, j) else ops.zero(T);
             };
-            try orgqr(al, check.io, T, @intCast(m), @intCast(k), @intCast(k), a.ptr, @intCast(lda), tau.ptr);
+            try orgqr(al, check.io, T, m, k, k, a.slice(), lda, tau);
             const q = a.sub(0, 0, m, k);
             const qr_ = try ops.alloc(T, al, m, n);
             defer ops.free(T, al, qr_);
@@ -421,7 +416,7 @@ test "faer qr: ormqr and orgqr against one reflection at a time, faer's tau and 
             if (kind == 0) {
                 // geqrf's
                 check.fill(T, v.ptr[0 .. nq * nq], 21);
-                try geqrf(al, check.io, T, nq, k, v.ptr, nq, tau.ptr);
+                try geqrf(al, check.io, T, nq, k, v.slice(), nq, tau);
             } else {
                 // the reference's form: `tau = (1 - e^(i phi)) / ‖v‖²`
                 // (`xLARFG`'s `(beta - alpha) / beta`), real 2 / ‖v‖²; one 0
@@ -446,7 +441,7 @@ test "faer qr: ormqr and orgqr against one reflection at a time, faer's tau and 
                 want.copyFrom(c);
                 refApply(T, side, adj, v.sub(0, 0, nq, k), tau, want);
                 const tr: Trans = if (adj) .c else .n;
-                try ormqr(al, check.io, T, side, tr, @intCast(rows), @intCast(cols), k, v.ptr, nq, tau.ptr, c.ptr, @intCast(rows));
+                try ormqr(al, check.io, T, side, tr, rows, cols, k, v.slice(), nq, tau, c.slice(), rows);
                 try lcheck.expectNear(T, "ormqr", c, want, qrTol(F, nq, nq, auxiliary.normMax(T, want)));
             };
             // orgqr: Q's first n columns
@@ -454,7 +449,7 @@ test "faer qr: ormqr and orgqr against one reflection at a time, faer's tau and 
             const q = try ops.alloc(T, al, nq, nq);
             defer ops.free(T, al, q);
             q.copyFrom(v);
-            try orgqr(al, check.io, T, nq, n, k, q.ptr, nq, tau.ptr);
+            try orgqr(al, check.io, T, nq, n, k, q.slice(), nq, tau);
             const want = try ops.alloc(T, al, nq, n);
             defer ops.free(T, al, want);
             want.identity();
@@ -470,20 +465,19 @@ test "faer qr: geqrf, orgqr and ormqr report the first bad argument and read not
     var a: [4]f64 = @splat(nan);
     var tau: [2]f64 = @splat(nan);
     var c: [4]f64 = @splat(nan);
-    try testing.expectError(error.InvalidM, geqrf(fa, check.io, f64, -1, -1, &a, 0, &tau));
-    try testing.expectError(error.InvalidN, geqrf(fa, check.io, f64, 2, -1, &a, 0, &tau));
-    try testing.expectError(error.InvalidLda, geqrf(fa, check.io, f64, 2, 2, &a, 1, &tau));
-    try testing.expectError(error.InvalidM, orgqr(fa, check.io, f64, -1, -1, -1, &a, 0, &tau));
-    try testing.expectError(error.InvalidN, orgqr(fa, check.io, f64, 1, 2, -1, &a, 0, &tau));
-    try testing.expectError(error.InvalidK, orgqr(fa, check.io, f64, 2, 1, 2, &a, 0, &tau));
-    try testing.expectError(error.InvalidLda, orgqr(fa, check.io, f64, 2, 2, 2, &a, 1, &tau));
-    try testing.expectError(error.InvalidTrans, ormqr(fa, check.io, f64, .l, .r, -1, -1, -1, &a, 0, &tau, &c, 0));
-    try testing.expectError(error.InvalidTrans, ormqr(fa, check.io, types.Complex64, .l, .t, 1, 1, 1, @ptrCast(&a), 1, @ptrCast(&tau), @ptrCast(&c), 1));
-    try testing.expectError(error.InvalidM, ormqr(fa, check.io, f64, .l, .t, -1, -1, -1, &a, 0, &tau, &c, 0));
-    try testing.expectError(error.InvalidN, ormqr(fa, check.io, f64, .l, .t, 2, -1, -1, &a, 0, &tau, &c, 0));
-    try testing.expectError(error.InvalidK, ormqr(fa, check.io, f64, .r, .n, 3, 2, 3, &a, 0, &tau, &c, 0));
-    try testing.expectError(error.InvalidLda, ormqr(fa, check.io, f64, .l, .n, 2, 1, 1, &a, 1, &tau, &c, 0));
-    try testing.expectError(error.InvalidLdc, ormqr(fa, check.io, f64, .r, .n, 2, 1, 1, &a, 1, &tau, &c, 1));
+    try testing.expectError(error.LeadingDimensionTooSmall, geqrf(fa, check.io, f64, 2, 2, &a, 1, &tau));
+    try testing.expectError(error.SliceTooShort, geqrf(fa, check.io, f64, 3, 2, &a, 3, &tau));
+    try testing.expectError(error.SliceTooShort, geqrf(fa, check.io, f64, 2, 2, &a, 2, tau[0..1]));
+    try testing.expectError(error.TooManyColumns, orgqr(fa, check.io, f64, 1, 2, 0, &a, 1, &tau));
+    try testing.expectError(error.TooManyReflections, orgqr(fa, check.io, f64, 2, 1, 2, &a, 2, &tau));
+    try testing.expectError(error.LeadingDimensionTooSmall, orgqr(fa, check.io, f64, 2, 2, 2, &a, 1, &tau));
+    try testing.expectError(error.SliceTooShort, orgqr(fa, check.io, f64, 2, 2, 2, &a, 2, tau[0..1]));
+    try testing.expectError(error.UnsupportedTranspose, ormqr(fa, check.io, f64, .l, .r, 2, 2, 1, &a, 2, &tau, &c, 2));
+    try testing.expectError(error.UnsupportedTranspose, ormqr(fa, check.io, types.Complex64, .l, .t, 1, 1, 1, @ptrCast(&a), 1, @ptrCast(&tau), @ptrCast(&c), 1));
+    try testing.expectError(error.TooManyReflections, ormqr(fa, check.io, f64, .r, .n, 2, 1, 2, &a, 1, &tau, &c, 2));
+    try testing.expectError(error.LeadingDimensionTooSmall, ormqr(fa, check.io, f64, .l, .n, 2, 1, 1, &a, 1, &tau, &c, 2));
+    try testing.expectError(error.LeadingDimensionTooSmall, ormqr(fa, check.io, f64, .r, .n, 2, 1, 1, &a, 1, &tau, &c, 1));
+    try testing.expectError(error.SliceTooShort, ormqr(fa, check.io, f64, .l, .n, 2, 3, 1, &a, 2, &tau, &c, 2));
     // empty: nothing read or written
     try geqrf(fa, check.io, f64, 0, 2, &a, 1, &tau);
     try orgqr(fa, check.io, f64, 2, 0, 0, &a, 2, &tau);
@@ -511,10 +505,10 @@ test "faer qr: geqrf and ormqr give one worker's bits at any worker count" {
             const o = outs[ci];
             const a: Mat(T) = .{ .ptr = o.ptr, .rows = m, .cols = n, .ld = m };
             a.copyFrom(a0);
-            try geqrf(al, io, T, m, n, a.ptr, m, o.ptr + m * n);
+            try geqrf(al, io, T, m, n, a.slice(), m, o[m * n ..][0..n]);
             const c: Mat(T) = .{ .ptr = o.ptr + m * n + n, .rows = m, .cols = 40, .ld = m };
             check.fill(T, c.ptr[0 .. m * 40], 78);
-            try ormqr(al, io, T, .l, .c, m, 40, n, a.ptr, m, o.ptr + m * n, c.ptr, m);
+            try ormqr(al, io, T, .l, .c, m, 40, n, a.slice(), m, o[m * n ..][0..n], c.slice(), m);
         }
         try test_io.expectSameBytes(outs);
     }

@@ -55,6 +55,7 @@ pub fn count() usize {
 /// them. First thing at boot: nothing before may touch a thread-local.
 pub fn start() void {
     setupTls(0);
+    arch.initCore();
     for (&cores, 0..) |*c, i| c.slot.ctx.core = @intCast(i);
     const asked = arch.startCores(max_cores - 1);
     // a core that never comes stays offline; none has been seen not to
@@ -67,6 +68,7 @@ pub fn start() void {
 /// Where a started core lands, on its stack: TLS, then tasks forever.
 export fn qemutest_ap_main(index: usize) callconv(.c) noreturn {
     setupTls(index);
+    arch.initCore();
     core_index = index;
     const s = &cores[index].slot;
     current = &s.ctx;
@@ -627,6 +629,8 @@ const x86_64 = struct {
             : .{ .memory = true });
     }
 
+    fn initCore() void {}
+
     /// FS base, with the self pointer local-exec code loads from `%fs:0`.
     fn setThreadPointer(tp: usize) void {
         @as(*usize, @ptrFromInt(tp)).* = tp;
@@ -715,6 +719,22 @@ const aarch64 = struct {
         asm volatile ("msr tpidr_el0, %[tp]"
             :
             : [tp] "r" (tp),
+            : .{ .memory = true });
+    }
+
+    /// The virtual counter's event stream (`CNTKCTL_EL1.EVNTEN`, bit 12's
+    /// rising edges, about 130 µs at QEMU's 62.5 MHz) ends every `wfe` in
+    /// time, as Linux's arch timer does: QEMU 11's TCG can lose a `sev`
+    /// to a core going to sleep (issue #467).
+    fn initCore() void {
+        const old = asm volatile ("mrs %[v], cntkctl_el1"
+            : [v] "=r" (-> u64),
+        );
+        // EVNTEN (bit 2) on, EVNTDIR (3) rising, EVNTI (7:4) 12
+        const v = (old & ~@as(u64, 0xfc)) | 0x4 | (12 << 4);
+        asm volatile ("msr cntkctl_el1, %[v]; isb"
+            :
+            : [v] "r" (v),
             : .{ .memory = true });
     }
 

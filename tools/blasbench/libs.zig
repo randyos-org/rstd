@@ -287,10 +287,16 @@ pub fn cast(comptime p: Prec, x: [*]p.F) [*]Num(p) {
 }
 
 /// rstd's view of the `n` elements `inc` apart that the bench passes from `x`.
-fn view(comptime T: type, x: [*]T, n: isize, inc: isize) blas.Strided(T) {
+pub fn view(comptime T: type, x: [*]T, n: isize, inc: isize) blas.Strided(T) {
     const count: usize = @intCast(@max(n, 0));
     const span = if (count == 0) 0 else (count - 1) * @abs(inc) + 1;
     return blas.Strided(T).init(x[0..span], count, inc) catch unreachable;
+}
+
+/// The bench's `rows` by `cols` matrix at `a`, leading dimension `ld`, as a slice.
+pub fn matrix(comptime T: type, a: [*]T, rows: isize, cols: isize, ld: isize) []T {
+    if (rows <= 0 or cols <= 0) return a[0..0];
+    return a[0..@intCast((cols - 1) * ld + rows)];
 }
 
 /// cblas's `CBLAS_ORDER` and `CBLAS_TRANSPOSE`.
@@ -476,7 +482,7 @@ fn GemvVia(comptime src: Src, comptime p: Prec, comptime t: []const u8) type {
         const Sig = fn (c_int, c_int, c_int, c_int, F, [*]F, c_int, [*]F, c_int, F, [*]F, c_int) callconv(.c) void;
         var f: *const Sig = undefined;
         fn k(m: I, n: I, _: I, a: F, ma: [*]F, lda: I, x: [*]F, ix: I, y: [*]F, iy: I, _: [*]F) callconv(.c) i32 {
-            if (lib) f(col_major, tr, @intCast(m), @intCast(n), a, ma, @intCast(lda), x, @intCast(ix), 1, y, @intCast(iy)) else blas.gemv(rstd_alloc, rstd_io, T, rt, m, n, a, ma, lda, x, ix, 1, y, iy) catch |e| fail(e);
+            if (lib) f(col_major, tr, @intCast(m), @intCast(n), a, ma, @intCast(lda), x, @intCast(ix), 1, y, @intCast(iy)) else blas.gemv(rstd_alloc, rstd_io, T, rt, a, matrix(T, ma, m, n, lda), @intCast(lda), view(T, x, if (rt.transposed()) m else n, ix).toConst(), 1, view(T, y, if (rt.transposed()) n else m, iy)) catch |e| fail(e);
             return 0;
         }
     } else struct {
@@ -485,7 +491,7 @@ fn GemvVia(comptime src: Src, comptime p: Prec, comptime t: []const u8) type {
         const Sig = fn (c_int, c_int, c_int, c_int, *const [2]F, [*]F, c_int, [*]F, c_int, *const [2]F, [*]F, c_int) callconv(.c) void;
         var f: *const Sig = undefined;
         fn k(m: I, n: I, _: I, ar: F, ai: F, ma: [*]F, lda: I, x: [*]F, ix: I, y: [*]F, iy: I, _: [*]F) callconv(.c) i32 {
-            if (lib) f(col_major, tr, @intCast(m), @intCast(n), &.{ ar, ai }, ma, @intCast(lda), x, @intCast(ix), &.{ 1, 0 }, y, @intCast(iy)) else blas.gemv(rstd_alloc, rstd_io, T, rt, m, n, .init(ar, ai), cast(p, ma), lda, cast(p, x), ix, .init(1, 0), cast(p, y), iy) catch |e| fail(e);
+            if (lib) f(col_major, tr, @intCast(m), @intCast(n), &.{ ar, ai }, ma, @intCast(lda), x, @intCast(ix), &.{ 1, 0 }, y, @intCast(iy)) else blas.gemv(rstd_alloc, rstd_io, T, rt, .init(ar, ai), matrix(T, cast(p, ma), m, n, lda), @intCast(lda), view(T, cast(p, x), if (rt.transposed()) m else n, ix).toConst(), .init(1, 0), view(T, cast(p, y), if (rt.transposed()) n else m, iy)) catch |e| fail(e);
             return 0;
         }
     };
@@ -512,7 +518,7 @@ fn GemmVia(comptime src: Src, comptime p: Prec) type {
         var f: *const Sig = undefined;
         fn k(n: usize, a: [*]F, b: [*]F, c: [*]F) void {
             const ni: c_int = @intCast(n);
-            if (lib) f(col_major, no_trans, no_trans, ni, ni, ni, 1, a, ni, b, ni, 1, c, ni) else blas.gemm(rstd_alloc, rstd_io, F, .n, .n, ni, ni, ni, 1, a, ni, b, ni, 1, c, ni) catch |e| fail(e);
+            if (lib) f(col_major, no_trans, no_trans, ni, ni, ni, 1, a, ni, b, ni, 1, c, ni) else blas.gemm(rstd_alloc, rstd_io, F, .n, .n, n, n, n, 1, a[0 .. n * n], n, b[0 .. n * n], n, 1, c[0 .. n * n], n) catch |e| fail(e);
         }
     } else struct {
         const sym = "cblas_" ++ p.name ++ "gemm";
@@ -522,7 +528,7 @@ fn GemmVia(comptime src: Src, comptime p: Prec) type {
         fn k(n: usize, a: [*]F, b: [*]F, c: [*]F) void {
             const ni: c_int = @intCast(n);
             const one: Num(p) = .init(1, 0);
-            if (lib) f(col_major, no_trans, no_trans, ni, ni, ni, &.{ 1, 0 }, a, ni, b, ni, &.{ 1, 0 }, c, ni) else blas.gemm(rstd_alloc, rstd_io, Num(p), .n, .n, ni, ni, ni, one, cast(p, a), ni, cast(p, b), ni, one, cast(p, c), ni) catch |e| fail(e);
+            if (lib) f(col_major, no_trans, no_trans, ni, ni, ni, &.{ 1, 0 }, a, ni, b, ni, &.{ 1, 0 }, c, ni) else blas.gemm(rstd_alloc, rstd_io, Num(p), .n, .n, n, n, n, one, cast(p, a)[0 .. n * n], n, cast(p, b)[0 .. n * n], n, one, cast(p, c)[0 .. n * n], n) catch |e| fail(e);
         }
     };
 }
@@ -957,8 +963,7 @@ fn gemmScale(comptime p: Prec, n: usize, a: []const p.F, b: []const p.F, c0: []c
         abs_b[i] = magAt(p, b, i * cs);
         out[i] = magAt(p, c0, i * cs);
     }
-    const ni: isize = @intCast(n);
-    try blas.gemm(rstd_alloc, rstd_io, f64, .n, .n, ni, ni, ni, 1, abs_a.ptr, ni, abs_b.ptr, ni, 1, out.ptr, ni);
+    try blas.gemm(rstd_alloc, rstd_io, f64, .n, .n, n, n, n, 1, abs_a, n, abs_b, n, 1, out, n);
     // a complex's two floats share its scale, spread from the back
     if (p.complex) {
         var i = sq;

@@ -84,26 +84,24 @@ pub fn ctrans(comptime T: type) Trans {
 
 /// `?POTRF` by ReLAPACK's recursion (`relapack/src/zpotrf.c`, `dpotrf.c`
 /// and the rest; OpenBLAS v0.3.34-317), as `cholesky.potrf` takes it, with
-/// its errors and `minor`. The base case is `potf2`.
-pub fn potrf(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, a: [*]T, lda: isize, minor: ?*usize) chol.PotrfError!void {
+/// its errors. The base case is `potf2`.
+pub fn potrf(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: usize, a: []T, lda: usize) chol.PotrfError!void {
     comptime ops.requireFloat(T, "potrf");
-    if (!try interface.checkSquare(T, uplo, n, lda)) return;
-    const k = try potrfRec(allocator, io, T, uplo, @intCast(n), a, @intCast(lda));
-    if (k == 0) return;
-    if (minor) |m| m.* = k;
-    return error.NotPositiveDefinite;
+    try interface.holdsTriangle(uplo, n, a.len, lda);
+    if (n == 0) return;
+    if (try potrfRec(allocator, io, T, uplo, n, a.ptr, lda) != null) return error.NotPositiveDefinite;
 }
 
-/// `RELAPACK_?potrf_rec`: the first minor that is not positive definite, or 0.
-pub fn potrfRec(al: Allocator, io: Io, comptime T: type, uplo: Uplo, n: usize, a: [*]T, lda: usize) Error!usize {
+/// `RELAPACK_?potrf_rec`: the first pivot that is not positive (0-based),
+/// or null.
+pub fn potrfRec(al: Allocator, io: Io, comptime T: type, uplo: Uplo, n: usize, a: [*]T, lda: usize) Error!?usize {
     if (n <= crossover) return chol.unblocked(T, uplo == .u, n, a, lda);
     const one = scalar(T, 1);
     const minus = scalar(T, -1);
     const n1 = split(T, n);
     const n2 = n - n1;
     const br = a + n1 * lda + n1;
-    const k = try potrfRec(al, io, T, uplo, n1, a, lda);
-    if (k != 0) return k;
+    if (try potrfRec(al, io, T, uplo, n1, a, lda)) |k| return k;
     if (uplo == .l) {
         // A_BL = A_BL / A_TL'; A_BR -= A_BL A_BL'
         try trsm(al, io, T, true, .r, .l, ctrans(T), .n, n2, n1, one, a, lda, a + n1, lda);
@@ -113,43 +111,37 @@ pub fn potrfRec(al: Allocator, io: Io, comptime T: type, uplo: Uplo, n: usize, a
         try trsm(al, io, T, true, .l, .u, ctrans(T), .n, n1, n2, one, a, lda, a + n1 * lda, lda);
         try syrk(al, io, T, true, .u, ctrans(T), n2, n1, minus, a + n1 * lda, lda, null, 0, one, br, lda);
     }
-    const k2 = try potrfRec(al, io, T, uplo, n2, br, lda);
-    return if (k2 != 0) k2 + n1 else 0;
+    return if (try potrfRec(al, io, T, uplo, n2, br, lda)) |k| k + n1 else null;
 }
 
 // ---- getrf (`-Drelapack`) -----------------------------------------------------------
 
 /// `?GETRF` by ReLAPACK's recursion (`relapack/src/zgetrf.c`, `dgetrf.c`
 /// and the rest; OpenBLAS v0.3.34-317), as `lu.getrf` takes it, with its
-/// errors and `pivot`. The base case is `lu.getf2` (ReLAPACK calls
+/// errors and result. The base case is `lu.getf2` (ReLAPACK calls
 /// `xGETRF2`, whose pivots and semantics it shares).
 ///
 /// The reference wins: a zero pivot in the left half does not stop the
 /// recursion, which ReLAPACK's `if (*info) return` does, so the
 /// factorization completes, as `xGETRF`'s.
-pub fn getrf(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize, a: [*]T, lda: isize, ipiv: [*]isize, pivot: ?*usize) lu.GetrfError!void {
+pub fn getrf(allocator: Allocator, io: Io, comptime T: type, m: usize, n: usize, a: []T, lda: usize, ipiv: []usize) lu.GetrfError!?usize {
     comptime ops.requireFloat(T, "getrf");
-    if (m < 0) return error.InvalidM;
-    if (n < 0) return error.InvalidN;
-    if (lda < @max(1, m)) return error.InvalidLda;
-    if (m == 0 or n == 0) return;
-    if (!util.fitsMatrix(m, n, lda, @sizeOf(T))) return error.InvalidLda;
-    const um: usize = @intCast(m);
-    const un: usize = @intCast(n);
-    const la: usize = @intCast(lda);
-    const info = try getrfRec(allocator, io, T, um, @min(um, un), a, la, ipiv);
+    try util.holds(a.len, m, n, lda);
+    if (ipiv.len < @min(m, n)) return error.SliceTooShort;
+    if (m == 0 or n == 0) return null;
+    const zero = try getrfRec(allocator, io, T, m, @min(m, n), a.ptr, lda, ipiv.ptr);
     // the right remainder: `A_R = A_L \ P A_R`
-    if (um < un) {
-        const ar = a + la * um;
-        laswp.swapRows(T, un - um, ar, la, 1, um, ipiv, 1);
-        try trsm(allocator, io, T, true, .l, .l, .n, .u, um, un - um, scalar(T, 1), a, la, ar, la);
+    if (m < n) {
+        const ar = a.ptr + lda * m;
+        laswp.swapRows(T, n - m, ar, lda, 0, m, ipiv.ptr, false);
+        try trsm(allocator, io, T, true, .l, .l, .n, .u, m, n - m, scalar(T, 1), a.ptr, lda, ar, lda);
     }
-    return lu.singular(info, pivot);
+    return zero;
 }
 
-/// `RELAPACK_?getrf_rec` on `m x n`, `m >= n`: the first zero pivot, or 0.
-fn getrfRec(al: Allocator, io: Io, comptime T: type, m: usize, n: usize, a: [*]T, lda: usize, ipiv: [*]isize) Error!usize {
-    if (m == 0 or n == 0) return 0;
+/// `RELAPACK_?getrf_rec` on `m x n`, `m >= n`: the first zero pivot, or null.
+fn getrfRec(al: Allocator, io: Io, comptime T: type, m: usize, n: usize, a: [*]T, lda: usize, ipiv: [*]usize) Error!?usize {
+    if (m == 0 or n == 0) return null;
     if (n <= crossover) return lu.getf2(T, interface.table(T), m, n, a, lda, ipiv);
     const n1 = split(T, n);
     const n2 = n - n1;
@@ -157,36 +149,32 @@ fn getrfRec(al: Allocator, io: Io, comptime T: type, m: usize, n: usize, a: [*]T
     const ar = a + lda * n1;
     const bl = a + n1;
     const br = ar + n1;
-    const info = try getrfRec(al, io, T, m, n1, a, lda, ipiv);
-    laswp.swapRows(T, n2, ar, lda, 1, n1, ipiv, 1);
+    const zero = try getrfRec(al, io, T, m, n1, a, lda, ipiv);
+    laswp.swapRows(T, n2, ar, lda, 0, n1, ipiv, false);
     // A_TR = A_TL \ A_TR; A_BR -= A_BL A_TR
     try trsm(al, io, T, true, .l, .l, .n, .u, n1, n2, scalar(T, 1), a, lda, ar, lda);
     try gemm(al, io, T, .n, .n, m2, n2, n1, scalar(T, -1), bl, lda, ar, lda, scalar(T, 1), br, lda);
-    const info2 = try getrfRec(al, io, T, m2, n2, br, lda, ipiv + n1);
-    laswp.swapRows(T, n1, bl, lda, 1, n2, ipiv + n1, 1);
-    for (ipiv[n1..n]) |*p| p.* += @intCast(n1);
-    return if (info != 0) info else if (info2 != 0) info2 + n1 else 0;
+    const zero2 = try getrfRec(al, io, T, m2, n2, br, lda, ipiv + n1);
+    laswp.swapRows(T, n1, bl, lda, 0, n2, ipiv + n1, false);
+    for (ipiv[n1..n]) |*p| p.* += n1;
+    return interface.firstOf(zero, zero2, n1);
 }
 
 // ---- trtri, lauum (`-Drelapack`) -------------------------------------------------------
 
 /// `?TRTRI` by ReLAPACK's recursion (`relapack/src/ztrtri.c`, `dtrtri.c`
 /// and the rest; OpenBLAS v0.3.34-317), as `triangular.trtri` takes it,
-/// with its errors and `pivot`. The base case is `trti2`.
+/// with its errors. The base case is `trti2`.
 ///
-/// The reference wins: a zero `A(i, i)` reports `i` 1-based, where
+/// The reference wins: any zero `A(i, i)` is `error.Singular`, where
 /// ReLAPACK's singularity check sets `INFO = i - 1`, so a zero first
 /// diagonal element reports success.
-pub fn trtri(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, diag: Diag, n: isize, a: [*]T, lda: isize, pivot: ?*usize) tri.TrtriError!void {
+pub fn trtri(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, diag: Diag, n: usize, a: []T, lda: usize) tri.TrtriError!void {
     comptime ops.requireFloat(T, "trtri");
-    if (!try interface.checkSquare(T, uplo, n, lda)) return;
-    const un: usize = @intCast(n);
-    const la: usize = @intCast(lda);
-    if (diag == .n) if (tri.firstZero(T, un, a, la)) |k| {
-        if (pivot) |p| p.* = k;
-        return error.Singular;
-    };
-    try trtriRec(allocator, io, T, uplo, diag, un, a, la);
+    try interface.holdsTriangle(uplo, n, a.len, lda);
+    if (n == 0) return;
+    if (diag == .n and tri.firstZero(T, n, a.ptr, lda) != null) return error.Singular;
+    try trtriRec(allocator, io, T, uplo, diag, n, a.ptr, lda);
 }
 
 fn trtriRec(al: Allocator, io: Io, comptime T: type, uplo: Uplo, diag: Diag, n: usize, a: [*]T, lda: usize) Error!void {
@@ -212,10 +200,11 @@ fn trtriRec(al: Allocator, io: Io, comptime T: type, uplo: Uplo, diag: Diag, n: 
 /// `?LAUUM` by ReLAPACK's recursion (`relapack/src/zlauum.c`, `dlauum.c`
 /// and the rest; OpenBLAS v0.3.34-317), as `triangular.lauum` takes it. The
 /// base case is `lauu2`.
-pub fn lauum(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, a: [*]T, lda: isize) tri.LauumError!void {
+pub fn lauum(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: usize, a: []T, lda: usize) tri.LauumError!void {
     comptime ops.requireFloat(T, "lauum");
-    if (!try interface.checkSquare(T, uplo, n, lda)) return;
-    try lauumRec(allocator, io, T, uplo, @intCast(n), a, @intCast(lda));
+    try interface.holdsTriangle(uplo, n, a.len, lda);
+    if (n == 0) return;
+    try lauumRec(allocator, io, T, uplo, n, a.ptr, lda);
 }
 
 fn lauumRec(al: Allocator, io: Io, comptime T: type, uplo: Uplo, n: usize, a: [*]T, lda: usize) Error!void {
@@ -241,13 +230,26 @@ fn lauumRec(al: Allocator, io: Io, comptime T: type, uplo: Uplo, n: usize, a: [*
 
 /// What `sygst` and `hegst` return: bad arguments in the reference's order,
 /// `error.OutOfMemory` or `error.Canceled`.
-pub const SygstError = error{ InvalidItype, InvalidUplo, InvalidN, InvalidLda, InvalidLdb } || Allocator.Error || Io.Cancelable;
+/// The generalized eigenproblem `sygst` and `hegst` bring to standard form:
+/// LAPACK's `itype` 1, 2 and 3.
+pub const Problem = enum {
+    /// `A x = λ B x`
+    ax_lbx,
+    /// `A B x = λ x`
+    abx_lx,
+    /// `B A x = λ x`
+    bax_lx,
+};
+
+/// What `sygst` and `hegst` return: a reversed `uplo`, a slice too short or
+/// a leading dimension too small, and the allocator's and cancellation.
+pub const SygstError = interface.TriangleError || Allocator.Error || Io.Cancelable;
 
 /// `?SYGST` by ReLAPACK's recursion (`relapack/src/dsygst.c`, `ssygst.c`;
-/// OpenBLAS v0.3.34-317): the symmetric-definite `A x = λ B x` (`itype` 1),
-/// `A B x = λ x` (2) or `B A x = λ x` (3) to standard form, `B` holding
-/// `potrf`'s factor in the same `uplo` triangle: `A := inv(Uᵀ) A inv(U)` or
-/// `inv(L) A inv(Lᵀ)` for 1, `U A Uᵀ` or `Lᵀ A L` for 2 and 3, into `A`'s
+/// OpenBLAS v0.3.34-317): the symmetric-definite `problem` to standard form,
+/// `B` holding `potrf`'s factor in the same `uplo` triangle:
+/// `A := inv(Uᵀ) A inv(U)` or `inv(L) A inv(Lᵀ)` for `ax_lbx`, `U A Uᵀ` or
+/// `Lᵀ A L` for the other two, into `A`'s
 /// `uplo` triangle. Real `T`; the other triangles are never read.
 ///
 /// The base case is Reference-LAPACK's `xSYGS2` (`gs2`). The workspace
@@ -256,37 +258,31 @@ pub const SygstError = error{ InvalidItype, InvalidUplo, InvalidN, InvalidLda, I
 /// otherwise `symm` runs twice. Every level uses it, as `zhegst.c`'s `>=`
 /// has it; `dsygst.c`, `ssygst.c` and `chegst.c` test `>`, which leaves the
 /// top level's exactly sized buffer unused.
-pub fn sygst(allocator: Allocator, io: Io, comptime T: type, itype: isize, uplo: Uplo, n: isize, a: [*]T, lda: isize, b: [*]const T, ldb: isize) SygstError!void {
+pub fn sygst(allocator: Allocator, io: Io, comptime T: type, problem: Problem, uplo: Uplo, n: usize, a: []T, lda: usize, b: []const T, ldb: usize) SygstError!void {
     comptime ops.requireFloat(T, "sygst");
     if (comptime isComplex(T)) @compileError("sygst: " ++ @typeName(T) ++ " is complex; hegst takes it");
-    return gstImpl(allocator, io, T, itype, uplo, n, a, lda, b, ldb);
+    return gstImpl(allocator, io, T, problem, uplo, n, a, lda, b, ldb);
 }
 
 /// `?HEGST` (`relapack/src/zhegst.c`, `chegst.c`): `sygst` for the
 /// Hermitian-definite problem, `ᴴ` for `ᵀ`; `A`'s diagonal comes out real.
 /// Complex only.
-pub fn hegst(allocator: Allocator, io: Io, comptime T: type, itype: isize, uplo: Uplo, n: isize, a: [*]T, lda: isize, b: [*]const T, ldb: isize) SygstError!void {
+pub fn hegst(allocator: Allocator, io: Io, comptime T: type, problem: Problem, uplo: Uplo, n: usize, a: []T, lda: usize, b: []const T, ldb: usize) SygstError!void {
     comptime ops.requireComplex(T, "hegst");
-    return gstImpl(allocator, io, T, itype, uplo, n, a, lda, b, ldb);
+    return gstImpl(allocator, io, T, problem, uplo, n, a, lda, b, ldb);
 }
 
-fn gstImpl(al: Allocator, io: Io, comptime T: type, itype: isize, uplo: Uplo, n: isize, a: [*]T, lda: isize, b: [*]const T, ldb: isize) SygstError!void {
-    if (itype < 1 or itype > 3) return error.InvalidItype;
-    if (uplo.isRev()) return error.InvalidUplo;
-    if (n < 0) return error.InvalidN;
-    if (lda < @max(1, n)) return error.InvalidLda;
-    if (ldb < @max(1, n)) return error.InvalidLdb;
+fn gstImpl(al: Allocator, io: Io, comptime T: type, problem: Problem, uplo: Uplo, n: usize, a: []T, lda: usize, b: []const T, ldb: usize) SygstError!void {
+    try interface.holdsTriangle(uplo, n, a.len, lda);
+    try util.holds(b.len, n, n, ldb);
     if (n == 0) return;
-    if (!util.fitsMatrix(n, n, lda, @sizeOf(T))) return error.InvalidLda;
-    if (!util.fitsMatrix(n, n, ldb, @sizeOf(T))) return error.InvalidLdb;
-    const un: usize = @intCast(n);
-    const n1 = split(T, un);
-    const work = try al.alloc(T, n1 * (un - n1));
+    const n1 = split(T, n);
+    const work = try al.alloc(T, n1 * (n - n1));
     defer al.free(work);
-    try gstRec(al, io, T, itype == 1, uplo, un, a, @intCast(lda), b, @intCast(ldb), work);
+    try gstRec(al, io, T, problem == .ax_lbx, uplo, n, a.ptr, lda, b.ptr, ldb, work);
 }
 
-/// `RELAPACK_?sygst_rec`; `inv` for `itype` 1.
+/// `RELAPACK_?sygst_rec`; `inv` for `ax_lbx`.
 fn gstRec(al: Allocator, io: Io, comptime T: type, inv: bool, uplo: Uplo, n: usize, a: [*]T, lda: usize, b: [*]const T, ldb: usize, work: []T) Error!void {
     if (n <= crossover) return gs2(T, inv, uplo == .u, n, a, lda, b, ldb);
     const zero = scalar(T, 0);
@@ -498,7 +494,10 @@ fn rank2Row(comptime T: type, a: Tview(T), k: usize, b: Tview(T), alpha: T) void
 /// What `pbtrf` returns: bad arguments in the reference's order,
 /// `NotPositiveDefinite` (with the minor, as `potrf`'s), `error.OutOfMemory`
 /// or `error.Canceled`.
-pub const PbtrfError = error{ InvalidUplo, InvalidN, InvalidKd, InvalidLdab, NotPositiveDefinite } || Allocator.Error || Io.Cancelable;
+/// What `pbtrf` returns: `NotPositiveDefinite` as `potrf`, a reversed
+/// `uplo`, a slice too short or a leading dimension under `kd + 1`, and the
+/// allocator's and cancellation.
+pub const PbtrfError = interface.TriangleError || Allocator.Error || Io.Cancelable || error{NotPositiveDefinite};
 
 /// `?PBTRF` by ReLAPACK's recursion (`relapack/src/dpbtrf.c`, `zpbtrf.c`
 /// and the rest; OpenBLAS v0.3.34-317): the Cholesky factor of the Hermitian
@@ -508,8 +507,8 @@ pub const PbtrfError = error{ InvalidUplo, InvalidN, InvalidKd, InvalidLdab, Not
 /// Blocks of up to `kd` columns are `potrf`'s (this file's), the part below
 /// them a `trsm` and `herk`, the triangle past the band's edge through a
 /// workspace, as ReLAPACK; the base case is Reference-LAPACK's `xPBTF2`
-/// (`pbtf2`). A failure is `potrf`'s: `minor.*` gets the order of the first
-/// leading minor that is not positive definite (NaN included, as `potrf`'s).
+/// (`pbtf2`). A failure is `potrf`'s: a leading minor that is not positive
+/// definite (NaN included) is `error.NotPositiveDefinite`.
 ///
 /// The reference wins where ReLAPACK factors the rest as a dense matrix
 /// whenever `kd` exceeds the block (`if (*kd > n1)`), which reads and
@@ -517,29 +516,22 @@ pub const PbtrfError = error{ InvalidUplo, InvalidN, InvalidKd, InvalidLdab, Not
 /// recurses on the band. The workspace is `n1 x n1` for the top level's
 /// block `n1`, which every level's `n22 x n1` fits (`dpbtrf.c`'s `n22`;
 /// `zpbtrf.c` bounds it by `kd`, past the block).
-pub fn pbtrf(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, kd: isize, ab: [*]T, ldab: isize, minor: ?*usize) PbtrfError!void {
+pub fn pbtrf(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: usize, kd: usize, ab: []T, ldab: usize) PbtrfError!void {
     comptime ops.requireFloat(T, "pbtrf");
-    if (uplo.isRev()) return error.InvalidUplo;
-    if (n < 0) return error.InvalidN;
-    if (kd < 0) return error.InvalidKd;
-    if (ldab < kd + 1) return error.InvalidLdab;
+    if (uplo.isRev()) return error.UnsupportedUplo;
+    try util.holds(ab.len, kd + 1, n, ldab);
     if (n == 0) return;
-    if (!util.fitsMatrix(kd + 1, n, ldab, @sizeOf(T))) return error.InvalidLdab;
-    const un: usize = @intCast(n);
-    const ukd: usize = @intCast(kd);
-    const n1 = @min(split(T, un), ukd);
+    const n1 = @min(split(T, n), kd);
     // zero, as `?laset` leaves the triangle the copies never write
     const work = try allocator.alloc(T, n1 * n1);
     defer allocator.free(work);
     @memset(work, scalar(T, 0));
-    const k = try pbtrfRec(allocator, io, T, uplo, un, ukd, ab, @intCast(ldab), work.ptr, @max(1, n1));
-    if (k == 0) return;
-    if (minor) |m| m.* = k;
-    return error.NotPositiveDefinite;
+    if (try pbtrfRec(allocator, io, T, uplo, n, kd, ab.ptr, ldab, work.ptr, @max(1, n1)) != null) return error.NotPositiveDefinite;
 }
 
-/// `RELAPACK_?pbtrf_rec`: the first minor that is not positive definite, or 0.
-fn pbtrfRec(al: Allocator, io: Io, comptime T: type, uplo: Uplo, n: usize, kd: usize, ab: [*]T, ldab: usize, work: [*]T, ldw: usize) Error!usize {
+/// `RELAPACK_?pbtrf_rec`: the first pivot that is not positive (0-based),
+/// or null.
+fn pbtrfRec(al: Allocator, io: Io, comptime T: type, uplo: Uplo, n: usize, kd: usize, ab: [*]T, ldab: usize, work: [*]T, ldw: usize) Error!?usize {
     if (n <= crossover or ldab == 1) return pbtf2(T, uplo == .u, n, kd, ab, ldab);
     const one = scalar(T, 1);
     const minus = scalar(T, -1);
@@ -549,8 +541,7 @@ fn pbtrfRec(al: Allocator, io: Io, comptime T: type, uplo: Uplo, n: usize, kd: u
     const a = ab + (if (uplo == .l) 0 else kd);
     const n1 = @min(split(T, n), kd);
     const n2 = n - n1;
-    const k = try potrfRec(al, io, T, uplo, n1, a, ld);
-    if (k != 0) return k;
+    if (try potrfRec(al, io, T, uplo, n1, a, ld)) |k| return k;
     const n21 = @min(n2, kd - n1);
     const n22 = @min(n2 - n21, n1);
     const a_br = a + ld * n1 + n1;
@@ -583,7 +574,7 @@ fn pbtrfRec(al: Allocator, io: Io, comptime T: type, uplo: Uplo, n: usize, kd: u
         try potrfRec(al, io, T, uplo, n2, a_br, ld)
     else
         try pbtrfRec(al, io, T, uplo, n2, kd, ab + ldab * n1, ldab, work, ldw);
-    return if (k2 != 0) k2 + n1 else 0;
+    return if (k2) |k| k + n1 else null;
 }
 
 /// `?LACPY` of the upper (`upper`) or lower triangle of `m x n`.
@@ -601,14 +592,14 @@ fn copyTri(comptime T: type, upper: bool, m: usize, n: usize, src: [*]const T, l
 /// BLAS's order. `upper` runs the lower algorithm on the transpose (the
 /// reference conjugates the row it takes). A pivot that is not positive
 /// fails, NaN too, as `potf2`'s (the reference's `AJJ.LE.ZERO` passes NaN).
-fn pbtf2(comptime T: type, upper: bool, n: usize, kd: usize, ab: [*]T, ldab: usize) usize {
+fn pbtf2(comptime T: type, upper: bool, n: usize, kd: usize, ab: [*]T, ldab: usize) ?usize {
     const herm = comptime isComplex(T);
     const a: Tview(T) = .{ .p = ab + (if (upper) kd else 0), .ld = ldab - 1, .t = upper };
     for (0..n) |j| {
         const ajj0 = ops.re(T, a.at(j, j).*);
         if (!(ajj0 > 0)) {
             a.at(j, j).* = scalar(T, ajj0);
-            return j + 1;
+            return j;
         }
         const ajj = @sqrt(ajj0);
         a.at(j, j).* = scalar(T, ajj);
@@ -628,5 +619,5 @@ fn pbtf2(comptime T: type, upper: bool, n: usize, kd: usize, ab: [*]T, ldab: usi
             for (if (herm) c + 1 else c..j + 1 + kn) |i| a.at(i, c).* = ops.add(T, a.at(i, c).*, ops.mul(T, a.at(i, j).*, t));
         }
     }
-    return 0;
+    return null;
 }

@@ -5,6 +5,8 @@
 const std = @import("std");
 const ob = @import("__root__.zig");
 const blas = @import("../../__root__.zig");
+const l3 = @import("../../blas3/core.zig");
+const l2 = @import("../../blas2/core.zig");
 const l1 = @import("../../blas1/interface.zig");
 const lapack = @import("../../../lapack/__root__.zig");
 
@@ -344,7 +346,7 @@ fn strmvLower() !void {
     // row-major lower, not transposed: column-major upper, transposed
     var lower = [9]f32{ 2.0, 0.0, 0.0, 3.0, 4.0, 0.0, 5.0, 6.0, 7.0 };
     var v = [3]f32{ 11.0, 13.0, 17.0 };
-    try blas.trmv(std.testing.allocator, ob.io, f32, .u, .t, .n, 3, &lower, 3, &v, 1);
+    try l2.trmv(std.testing.allocator, ob.io, f32, .u, .t, .n, 3, &lower, 3, &v, 1);
     try nears(f32, &.{ 22.0, 85.0, 252.0 }, &v, single_eps, "strmv");
 }
 
@@ -407,7 +409,7 @@ fn gemvNanInf() !void {
         var y: [2 * n - 1]F = @splat(0);
         const ny: usize = if (inc == 1) n else 2 * n - 1;
         for (0..n) |i| y[i * @as(usize, @intCast(inc))] = if (i % 2 == 0) std.math.nan(F) else std.math.inf(F);
-        try blas.gemv(al, ob.io, F, .n, n, n, 0, &a, n, &x, 1, 0, &y, inc);
+        try l2.gemv(al, ob.io, F, .n, n, n, 0, &a, n, &x, 1, 0, &y, inc);
         for (y[0..ny]) |v| try ob.expect(v == 0, "sgemv 0_nan_inf");
     };
 }
@@ -436,7 +438,7 @@ fn cgemvNanInf() !void {
             var y: [2 * n]C = @splat(.init(0, 0));
             const s: usize = @intCast(inc);
             for (0..n) |i| y[i * s] = if (i % 2 == 0) c.even else c.odd;
-            try blas.gemv(al, ob.io, C, .n, n, n, .init(0, 0), &a, n, &x, 1, c.beta, &y, inc);
+            try l2.gemv(al, ob.io, C, .n, n, n, .init(0, 0), &a, n, &x, 1, c.beta, &y, inc);
             for (y[0 .. n * s], 0..) |v, k| {
                 if (k % s != 0) {
                     try ob.expect(v.re == 0 and v.im == 0, c.name);
@@ -461,12 +463,12 @@ test "utest: cgemv, zgemv, NaN and infinity through beta 0, 2i and 2" {
 fn potrfBug695() !void {
     const al = std.testing.allocator;
     var a1 = carr(C32, 100, potrf_a1);
-    try lapack.potrf(al, ob.io, C32, .u, 10, &a1, 10, null);
+    try lapack.potrf(al, ob.io, C32, .u, 10, &a1, 10);
     var a2 = carr(C64, 100, potrs_a2);
     var b = carr(C64, 20, potrs_b);
     try lapack.potrs(al, ob.io, C64, .l, 10, 2, &a2, 10, &b, 10);
     var a3 = carr(C32, 100, potrf_a1);
-    try lapack.potrf(al, ob.io, C32, .u, 10, &a3, 10, null);
+    try lapack.potrf(al, ob.io, C32, .u, 10, &a3, 10);
     try ob.expect(!std.math.isNan(a3[91].re) and !std.math.isNan(a3[91].im), "cpotrf bug 695: NaN in A3[91]");
 }
 
@@ -482,7 +484,7 @@ fn potrfSmoke() !void {
         const complex = comptime ob.isComplex(T);
         const a1: [4]T = if (complex) carr(T, 4, .{ 2, 0, 0.3, 0.1, 0.3, -0.1, 3, 0 }) else arr(T, 4, .{ 2, 0.3, 0.3, 3 });
         var a = a1;
-        try lapack.potrf(al, ob.io, T, uplo, 2, &a, 2, null);
+        try lapack.potrf(al, ob.io, T, uplo, 2, &a, 2);
         // the other triangle
         a[if (uplo == .l) 2 else 1] = if (complex) .init(0, 0) else 0;
         var b: [4]T = undefined;
@@ -490,7 +492,7 @@ fn potrfSmoke() !void {
         const zero: T = if (complex) .init(0, 0) else 0;
         const t1: blas.Trans = if (uplo == .l) .n else .c;
         const t2: blas.Trans = if (uplo == .l) .c else .n;
-        try blas.gemm(al, ob.io, T, t1, t2, 2, 2, 2, one, &a, 2, &a, 2, zero, &b, 2);
+        try l3.gemm(al, ob.io, T, t1, t2, 2, 2, 2, one, &a, 2, &a, 2, zero, &b, 2);
         const tol: f64 = if (ob.Float(T) == f32) 1e-5 else 1e-12;
         for (a1, b) |w, g| {
             const err: f64 = if (complex) std.math.hypot(@as(f64, w.re - g.re), @as(f64, w.im - g.im)) else @abs(@as(f64, w - g));
@@ -565,11 +567,11 @@ fn kernelRegress() !void {
         a.* = (@as(f64, @floatFromInt(g.next())) + 0.0) / 2147483647.0 * 10;
         t.* = a.*;
     }
-    try lapack.gesvd(al, ob.io, f64, .a, .a, n, n, m.ptr, n, &s, u.ptr, n, vt.ptr, n, null);
+    try lapack.gesvd(al, ob.io, f64, .a, .a, n, n, m, n, &s, u, n, vt, n, null);
     for (0..n) |j| for (0..n) |i| {
         u[i + j * n] *= s[j];
     };
-    try blas.gemm(al, ob.io, f64, .n, .n, n, n, n, 1, u.ptr, n, vt.ptr, n, 0, x.ptr, n);
+    try l3.gemm(al, ob.io, f64, .n, .n, n, n, n, 1, u.ptr, n, vt.ptr, n, 0, x.ptr, n);
     for (x, tmp) |*a, t| a.* -= t;
     const norm = try l1.nrm2(ob.io, f64, n * n, x.ptr, 1);
     try near(0, norm, 1e-10, "kernel_regress skx_avx: |U S Vt - A|");

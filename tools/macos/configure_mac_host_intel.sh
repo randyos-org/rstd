@@ -74,7 +74,7 @@ else note "(failed: Lock Screen > Require password after screen saver begins or 
 # ignores disksleep), sleep after 60. An incoming ssh connection wakes it
 # through a Bonjour sleep proxy (a HomePod or Apple TV) or a magic packet; no
 # standby or hibernation, so the network stays able to and wakes are quick.
-# rstd's ssh tools hold `caffeinate -i` for their runs. Only the settings this
+# rstd's ssh tools hold `caffeinate -is` for their runs. Only the settings this
 # model has (`pmset -g cap`; no `autopoweroff` on a 2018 Mac mini); `pmset -g`
 # can lag, so the saved ones are reported.
 power="sleep 60 displaysleep 10 disksleep 10 standby 0 autopoweroff 0 hibernatemode 0 powernap 0 womp 1 autorestart 1 tcpkeepalive 1"
