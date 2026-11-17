@@ -4,18 +4,22 @@
 //! `finalize.zig` over `simd.zig`'s macro layer. Sizes are pffft's: real
 //! `n` a multiple of 32, complex a multiple of 16, `n / 32` or `n / 16`
 //! of the form `2^a 3^b 5^c`, `n` at most `2^26`. Transforms are unscaled.
+//! With AVX, sizes 8 lanes take (`validFor`) run 8 wide (`finalize8.zig`,
+//! N35), so the unordered order depends on the size and the core.
 
 const std = @import("std");
+const sysinfo = @import("builtin");
 const simd = @import("simd.zig");
 const cfft = @import("cfft.zig");
 const rfftf = @import("rfftf.zig");
 const rfftb = @import("rfftb.zig");
 const finalize = @import("finalize.zig");
+const finalize8 = @import("finalize8.zig");
 
 const Allocator = std.mem.Allocator;
-const V = simd.V;
-const Ptr = simd.Ptr;
-const ConstPtr = simd.ConstPtr;
+
+/// Whether the 8-lane steps build: with AVX, and in tests on any target.
+const eight = simd.wide or sysinfo.is_test;
 
 pub const Kind = enum { real, complex };
 
@@ -37,16 +41,25 @@ const ifac_max = 25;
 
 /// `pffft_min_fft_size`.
 pub fn minSize(kind: Kind) usize {
+    return minFor(kind, 4);
+}
+
+fn minFor(kind: Kind, lanes: usize) usize {
     return switch (kind) {
-        .real => 2 * 4 * 4,
-        .complex => 4 * 4,
+        .real => 2 * lanes * lanes,
+        .complex => lanes * lanes,
     };
 }
 
 /// `pffft_is_valid_size`, and `pffft_new_setup`'s bound.
 pub fn validSize(n: usize, kind: Kind) bool {
+    return validFor(n, kind, 4);
+}
+
+/// `validSize` for `lanes`-wide steps.
+fn validFor(n: usize, kind: Kind, lanes: usize) bool {
     if (n == 0 or n > 1 << 26) return false;
-    const n_min = minSize(kind);
+    const n_min = minFor(kind, lanes);
     var r = n;
     while (r >= 5 * n_min and r % 5 == 0) r /= 5;
     while (r >= 3 * n_min and r % 3 == 0) r /= 3;
@@ -57,43 +70,52 @@ pub fn validSize(n: usize, kind: Kind) bool {
 /// `PFFFT_Setup`: immutable once built, so one serves every thread.
 pub const Setup = struct {
     n: usize,
-    /// complex vectors: `n / 8` real, `n / 4` complex
+    /// the vectors' width: 8 with AVX at the sizes it takes, else 4
+    lanes: usize,
+    /// complex vectors: `n / 2 lanes` real, `n / lanes` complex
     ncvec: usize,
     ifac: [ifac_max]usize,
     kind: Kind,
-    /// `e` (`6 ncvec` floats), then the passes' twiddles (`2 ncvec`)
-    data: []align(16) f32,
+    /// `e` (`2 (lanes - 1) ncvec` floats), then the passes' twiddles (`2 ncvec`)
+    data: []align(32) f32,
 
     /// `pffft_new_setup`; `n` must pass `validSize`.
     pub fn init(allocator: Allocator, n: usize, kind: Kind) Allocator.Error!Setup {
         std.debug.assert(validSize(n, kind));
-        const ncvec = (if (kind == .real) n / 2 else n) / 4;
-        const data = try allocator.alignedAlloc(f32, .@"16", 8 * ncvec);
+        return initLanes(allocator, n, kind, if (simd.wide and validFor(n, kind, 8)) 8 else 4);
+    }
+
+    /// `init` at a given width, 4 or 8 (which every target runs, if slowly), for tests.
+    pub fn initLanes(allocator: Allocator, n: usize, kind: Kind, lanes: usize) Allocator.Error!Setup {
+        std.debug.assert(validFor(n, kind, lanes));
+        const ncvec = (if (kind == .real) n / 2 else n) / lanes;
+        const data = try allocator.alignedAlloc(f32, .@"32", 2 * lanes * ncvec);
         @memset(data, 0); // the real twiddles leave gaps
-        var s: Setup = .{ .n = n, .ncvec = ncvec, .ifac = @splat(0), .kind = kind, .data = data };
-        const ev = data[0 .. 6 * ncvec];
+        var s: Setup = .{ .n = n, .lanes = lanes, .ncvec = ncvec, .ifac = @splat(0), .kind = kind, .data = data };
+        const rows = lanes - 1;
+        const ev = data[0 .. 2 * rows * ncvec];
         const pi = simd.lit(simd.m_pi);
         const nf: f32 = @floatFromInt(n);
         for (0..ncvec) |k| {
-            const i = k / 4;
-            const j = k % 4;
+            const i = k / lanes;
+            const j = k % lanes;
             const kf: f32 = @floatFromInt(k);
-            for (0..3) |m| {
+            for (0..rows) |m| {
                 const mf: f32 = @floatFromInt(m + 1);
                 const a = -2 * pi * mf * kf / nf;
-                ev[(2 * (i * 3 + m) + 0) * 4 + j] = @cos(a);
-                ev[(2 * (i * 3 + m) + 1) * 4 + j] = @sin(a);
+                ev[(2 * (i * rows + m) + 0) * lanes + j] = @cos(a);
+                ev[(2 * (i * rows + m) + 1) * lanes + j] = @sin(a);
             }
         }
-        const wa = data[6 * ncvec ..];
+        const wa = data[2 * rows * ncvec ..];
         switch (kind) {
-            .real => rffti1(n / 4, wa, &s.ifac),
-            .complex => cffti1(n / 4, wa, &s.ifac),
+            .real => rffti1(n / lanes, wa, &s.ifac),
+            .complex => cffti1(n / lanes, wa, &s.ifac),
         }
         // `validSize` leaves only the factors 2, 3, 4, 5 and 8
         var m: usize = 1;
         for (s.ifac[2..][0..s.ifac[1]]) |f| m *= f;
-        std.debug.assert(m == n / 4);
+        std.debug.assert(m == n / lanes);
         return s;
     }
 
@@ -102,12 +124,12 @@ pub const Setup = struct {
         self.* = undefined;
     }
 
-    fn e(self: *const Setup) ConstPtr {
+    fn e(self: *const Setup, comptime lanes: usize) simd.For(lanes).ConstPtr {
         return @ptrCast(self.data.ptr);
     }
 
     fn twiddle(self: *const Setup) [*]const f32 {
-        return self.data[6 * self.ncvec ..].ptr;
+        return self.data[2 * (self.lanes - 1) * self.ncvec ..].ptr;
     }
 
     /// `pffft_transform_internal`: `n` reals (complex: `2 n` floats,
@@ -115,46 +137,60 @@ pub const Setup = struct {
     /// `scratch` holds as many and overlaps neither. `ordered` is `pffft_transform_ordered`'s
     /// natural order, else pffft's own (`pffft_transform`).
     pub fn transform(self: *const Setup, finput: [*]const f32, foutput: [*]f32, scratch: [*]f32, forward: bool, ordered: bool) void {
+        if (eight and self.lanes == 8)
+            self.transformFor(8, finput, foutput, scratch, forward, ordered)
+        else
+            self.transformFor(4, finput, foutput, scratch, forward, ordered);
+    }
+
+    fn transformFor(self: *const Setup, comptime lanes: usize, finput: [*]const f32, foutput: [*]f32, scratch: [*]f32, forward: bool, ordered: bool) void {
+        const S = simd.For(lanes);
+        const C = cfft.For(lanes);
+        const RF = rfftf.For(lanes);
+        const RB = rfftb.For(lanes);
+        const F = if (lanes == 8) finalize8 else finalize;
+        const ConstPtr = S.ConstPtr;
+        const Ptr = S.Ptr;
         const ncvec = self.ncvec;
         const nf_odd = self.ifac[1] & 1 == 1;
         var vinput: ConstPtr = @ptrCast(finput);
         const voutput: Ptr = @ptrCast(foutput);
         const buff = [2]Ptr{ voutput, @ptrCast(scratch) };
         var ib: u1 = @intFromBool(nf_odd != ordered);
-        const e_ = self.e();
+        const e_ = self.e(lanes);
         const ifac = self.ifac[0..];
 
         if (forward) {
             ib = ~ib;
             if (self.kind == .real) {
-                ib = @intFromBool(!same(rfftf.rfftf1(ncvec * 2, vinput, buff[ib], buff[~ib], self.twiddle(), ifac), buff[0]));
-                finalize.realFinalize(ncvec, buff[ib], buff[~ib], e_);
+                ib = @intFromBool(RF.rfftf1(ncvec * 2, vinput, buff[ib], buff[~ib], self.twiddle(), ifac) != buff[0]);
+                F.realFinalize(ncvec, buff[ib], buff[~ib], e_);
             } else {
                 const tmp = buff[ib];
                 for (0..ncvec) |k| {
-                    tmp[k * 2 ..][0..2].* = simd.uninterleave2(vinput[k * 2], vinput[k * 2 + 1]);
+                    tmp[k * 2 ..][0..2].* = S.uninterleave2(vinput[k * 2], vinput[k * 2 + 1]);
                 }
-                ib = @intFromBool(!same(cfft.cfftf1(ncvec, buff[ib], buff[~ib], buff[ib], self.twiddle(), ifac, -1), buff[0]));
-                finalize.cplxFinalize(ncvec, buff[ib], buff[~ib], e_);
+                ib = @intFromBool(C.cfftf1(ncvec, buff[ib], buff[~ib], buff[ib], self.twiddle(), ifac, -1) != buff[0]);
+                F.cplxFinalize(ncvec, buff[ib], buff[~ib], e_);
             }
             if (ordered) {
-                finalize.zreorder(self.n, ncvec, self.kind == .real, @ptrCast(buff[~ib]), @ptrCast(buff[ib]), true);
+                F.zreorder(self.n, ncvec, self.kind == .real, @ptrCast(buff[~ib]), @ptrCast(buff[ib]), true);
             } else ib = ~ib;
         } else {
-            if (same(vinput, buff[ib])) ib = ~ib; // finput == foutput
+            if (vinput == buff[ib]) ib = ~ib; // finput == foutput
             if (ordered) {
-                finalize.zreorder(self.n, ncvec, self.kind == .real, @ptrCast(vinput), @ptrCast(buff[ib]), false);
+                F.zreorder(self.n, ncvec, self.kind == .real, @ptrCast(vinput), @ptrCast(buff[ib]), false);
                 vinput = buff[ib];
                 ib = ~ib;
             }
             if (self.kind == .real) {
-                finalize.realPreprocess(ncvec, vinput, buff[ib], e_);
-                ib = @intFromBool(!same(rfftb.rfftb1(ncvec * 2, buff[ib], buff[0], buff[1], self.twiddle(), ifac), buff[0]));
+                F.realPreprocess(ncvec, vinput, buff[ib], e_);
+                ib = @intFromBool(RB.rfftb1(ncvec * 2, buff[ib], buff[0], buff[1], self.twiddle(), ifac) != buff[0]);
             } else {
-                finalize.cplxPreprocess(ncvec, vinput, buff[ib], e_);
-                ib = @intFromBool(!same(cfft.cfftf1(ncvec, buff[ib], buff[0], buff[1], self.twiddle(), ifac, 1), buff[0]));
+                F.cplxPreprocess(ncvec, vinput, buff[ib], e_);
+                ib = @intFromBool(C.cfftf1(ncvec, buff[ib], buff[0], buff[1], self.twiddle(), ifac, 1) != buff[0]);
                 for (0..ncvec) |k| {
-                    buff[ib][k * 2 ..][0..2].* = simd.interleave2(buff[ib][k * 2], buff[ib][k * 2 + 1]);
+                    buff[ib][k * 2 ..][0..2].* = S.interleave2(buff[ib][k * 2], buff[ib][k * 2 + 1]);
                 }
             }
         }
@@ -176,18 +212,27 @@ pub const Setup = struct {
     /// `pffft_zconvolve_accumulate`: `ab += a b scaling` on spectra in
     /// pffft's order. The three may alias.
     pub fn convolveAccumulate(self: *const Setup, a: [*]const f32, b: [*]const f32, ab: [*]f32, scaling: f32) void {
-        const ncvec = self.ncvec;
-        const va: ConstPtr = @ptrCast(a);
-        const vb: ConstPtr = @ptrCast(b);
-        const vab: Ptr = @ptrCast(ab);
-        const vscal = simd.ld(scaling);
+        if (eight and self.lanes == 8)
+            self.convolveFor(8, a, b, ab, scaling)
+        else
+            self.convolveFor(4, a, b, ab, scaling);
+    }
 
+    fn convolveFor(self: *const Setup, comptime lanes: usize, a: [*]const f32, b: [*]const f32, ab: [*]f32, scaling: f32) void {
+        const S = simd.For(lanes);
+        const ncvec = self.ncvec;
+        const va: S.ConstPtr = @ptrCast(a);
+        const vb: S.ConstPtr = @ptrCast(b);
+        const vab: S.Ptr = @ptrCast(ab);
+        const vscal = S.ld(scaling);
+
+        // a real spectrum's `X[0]` and `X[n/2]`, both real, share lane 0
         const ar0 = a[0];
-        const ai0 = a[4];
+        const ai0 = a[lanes];
         const br0 = b[0];
-        const bi0 = b[4];
+        const bi0 = b[lanes];
         const abr0 = ab[0];
-        const abi0 = ab[4];
+        const abi0 = ab[lanes];
 
         var i: usize = 0;
         while (i < ncvec) : (i += 2) {
@@ -195,27 +240,23 @@ pub const Setup = struct {
             var ai = va[2 * i + 1];
             var br = vb[2 * i + 0];
             var bi = vb[2 * i + 1];
-            simd.cplxMul(&ar, &ai, br, bi);
-            vab[2 * i + 0] = simd.madd(ar, vscal, vab[2 * i + 0]);
-            vab[2 * i + 1] = simd.madd(ai, vscal, vab[2 * i + 1]);
+            S.cplxMul(&ar, &ai, br, bi);
+            vab[2 * i + 0] = S.madd(ar, vscal, vab[2 * i + 0]);
+            vab[2 * i + 1] = S.madd(ai, vscal, vab[2 * i + 1]);
             ar = va[2 * i + 2];
             ai = va[2 * i + 3];
             br = vb[2 * i + 2];
             bi = vb[2 * i + 3];
-            simd.cplxMul(&ar, &ai, br, bi);
-            vab[2 * i + 2] = simd.madd(ar, vscal, vab[2 * i + 2]);
-            vab[2 * i + 3] = simd.madd(ai, vscal, vab[2 * i + 3]);
+            S.cplxMul(&ar, &ai, br, bi);
+            vab[2 * i + 2] = S.madd(ar, vscal, vab[2 * i + 2]);
+            vab[2 * i + 3] = S.madd(ai, vscal, vab[2 * i + 3]);
         }
         if (self.kind == .real) {
             ab[0] = abr0 + ar0 * br0 * scaling;
-            ab[4] = abi0 + ai0 * bi0 * scaling;
+            ab[lanes] = abi0 + ai0 * bi0 * scaling;
         }
     }
 };
-
-fn same(a: ConstPtr, b: ConstPtr) bool {
-    return a == b;
-}
 
 /// `decompose`: `n`'s factors from `ntryh` into `ifac[2..]`, a 2 first.
 fn decompose(n: usize, ifac: *[ifac_max]usize, ntryh: []const usize) usize {

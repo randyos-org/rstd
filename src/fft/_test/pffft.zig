@@ -5,6 +5,7 @@ const std = @import("std");
 const fft = @import("../__root__.zig");
 const cfftp = @import("../cfftp/__root__.zig");
 const rfftp = @import("../rfftp/__root__.zig");
+const pffft = @import("../pffft/__root__.zig");
 
 const testing = std.testing;
 const Complex = std.math.Complex;
@@ -171,4 +172,51 @@ test "RealPlan unordered: an in-place round trip, and convolution at a 3 and 5 s
     try p.convolveAccumulate(&acc, &fa, &fb, 0.5 / @as(f32, n)); // accumulates
     try p.backwardUnordered(&acc, &acc, scratch);
     for (want, acc) |w, g| try testing.expectApproxEqAbs(w, g, 1e-3);
+}
+
+test "pffft's 8-lane steps match its 4-lane ones, ordered, unordered and convolving" {
+    const al = testing.allocator;
+    const Case = struct { n: usize, kind: pffft.Kind };
+    const cases = [_]Case{
+        .{ .n = 128, .kind = .real },    .{ .n = 384, .kind = .real },     .{ .n = 640, .kind = .real },
+        .{ .n = 3840, .kind = .real },   .{ .n = 64, .kind = .complex },   .{ .n = 192, .kind = .complex },
+        .{ .n = 320, .kind = .complex }, .{ .n = 4800, .kind = .complex },
+    };
+    for (cases) |c| {
+        var s4 = try pffft.Setup.initLanes(al, c.n, c.kind, 4);
+        defer s4.deinit(al);
+        var s8 = try pffft.Setup.initLanes(al, c.n, c.kind, 8);
+        defer s8.deinit(al);
+        const len = if (c.kind == .real) c.n else 2 * c.n;
+        const buf = try al.alloc(f32, 7 * len);
+        defer al.free(buf);
+        const x = buf[0..len];
+        const y4 = buf[len .. 2 * len];
+        const y8 = buf[2 * len .. 3 * len];
+        const w = buf[3 * len .. 4 * len];
+        const z = buf[4 * len .. 5 * len];
+        const acc4 = buf[5 * len .. 6 * len];
+        const acc8 = buf[6 * len ..];
+        signal(x, 2);
+        const nf: f32 = @floatFromInt(c.n);
+        const tol = 4e-6 * nf;
+        // ordered, both ways; backward is unscaled
+        s4.transform(x.ptr, y4.ptr, w.ptr, true, true);
+        s8.transform(x.ptr, y8.ptr, w.ptr, true, true);
+        for (y4, y8) |a, b| try testing.expectApproxEqAbs(a, b, tol);
+        s8.transform(y8.ptr, z.ptr, w.ptr, false, true);
+        for (x, z) |a, b| try testing.expectApproxEqAbs(nf * a, b, tol);
+        // unordered: a round trip, then a circular convolution
+        s8.transform(x.ptr, y8.ptr, w.ptr, true, false);
+        s8.transform(y8.ptr, z.ptr, w.ptr, false, false);
+        for (x, z) |a, b| try testing.expectApproxEqAbs(nf * a, b, tol);
+        s4.transform(x.ptr, y4.ptr, w.ptr, true, false);
+        @memset(acc4, 0);
+        @memset(acc8, 0);
+        s4.convolveAccumulate(y4.ptr, y4.ptr, acc4.ptr, 1 / nf);
+        s8.convolveAccumulate(y8.ptr, y8.ptr, acc8.ptr, 1 / nf);
+        s4.transform(acc4.ptr, y4.ptr, w.ptr, false, false);
+        s8.transform(acc8.ptr, y8.ptr, w.ptr, false, false);
+        for (y4, y8) |a, b| try testing.expectApproxEqAbs(a, b, 4 * tol);
+    }
 }
