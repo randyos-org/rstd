@@ -55,7 +55,7 @@ How the code is structured, and why, is in [`design.md`](../design.md).
   upstream's size thresholds they thread with the same bits; on macOS `potrf` goes to
   Accelerate.
   From ReLAPACK's recursive algorithms: `sygst`, `hegst`, `pbtrf`, `trsyl` and `tgsyl` (with
-  its `dif` estimates); `sytrf`,
+  its `dif` estimates; both return `scale` and whether close eigenvalues were perturbed); `sytrf`,
   `hetrf`, `sytrfRook`, `hetrfRook` and `gbtrf` with Reference-LAPACK's loops where ReLAPACK's
   are wrong ([#242](https://github.com/randyos-org/rstd/issues/242), [#243](https://github.com/randyos-org/rstd/issues/243), [#244](https://github.com/randyos-org/rstd/issues/244)); and with `-Drelapack`, `potrf`, `getrf`, `trtri` and
   `lauum` in place of OpenBLAS's.

@@ -564,18 +564,18 @@ fn Sep(comptime T: type) type {
         /// returning `scale`; a perturbed solve counts, as the reference
         /// ignores its `IERR`.
         fn solve(s: Self, adjoint: bool, x: [*]T) Error!Float(T) {
-            var scale: Float(T) = 1;
             const tr: types.Trans = if (adjoint) (if (comptime isComplex(T)) .c else .t) else .n;
-            const n1: isize = @intCast(s.n1);
-            const n2: isize = @intCast(s.n2);
-            const ld: isize = @intCast(s.ldt);
-            trsyl.trsyl(s.al, s.io, T, tr, tr, -1, n1, n2, s.t, ld, s.t + s.n1 + s.n1 * s.ldt, ld, x, n1, &scale) catch |e| switch (e) {
-                error.Perturbed => {},
+            const n1 = s.n1;
+            const n2 = s.n2;
+            const ld = s.ldt;
+            const t11 = s.t[0 .. (n1 - 1) * ld + n1];
+            const t22 = (s.t + n1 + n1 * ld)[0 .. (n2 - 1) * ld + n2];
+            const r = trsyl.trsyl(s.al, s.io, T, tr, tr, -1, n1, n2, t11, ld, t22, ld, x[0 .. n1 * n2], n1) catch |e| switch (e) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.Canceled => return error.Canceled,
                 else => unreachable,
             };
-            return scale;
+            return r.scale;
         }
 
         /// `lacn2`'s callback, keeping the last solve's `scale`.
