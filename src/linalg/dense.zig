@@ -556,7 +556,7 @@ pub fn matrixNorm(allocator: Allocator, io: Io, a: anytype, which: MatrixNorm) M
             return s[0];
         },
     };
-    return lapack.lange(allocator, io, T, kind, toIsize(m), toIsize(n), ca.data.ptr, toIsize(ca.ld)) catch |e| return narrow(Allocator.Error, e);
+    return lapack.lange(allocator, io, T, kind, m, n, ca.data, ca.ld) catch |e| return narrow(Allocator.Error, e);
 }
 
 /// `svd`'s outputs for the `m` by `n` `A`, `k = min(m, n)`: `.values` `s`

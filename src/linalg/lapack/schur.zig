@@ -203,7 +203,7 @@ fn laexc(io: Io, comptime F: type, n: usize, t: [*]F, ldt: usize, q: ?[*]F, ldq:
     if (n1 == 1) {
         // n1 = 1, n2 = 2
         var u = [3]F{ scale, x11, x12 };
-        const tau = try auxiliary.larfg(io, F, 3, &u[2], &u, 1);
+        const tau = try auxiliary.larfg(io, F, &u[2], .of(u[0..2]));
         u[2] = 1;
         const t11 = El.at(t, ldt, j1, j1).*;
         larfx(F, true, 3, 3, u, tau, &d, ldd);
@@ -218,7 +218,7 @@ fn laexc(io: Io, comptime F: type, n: usize, t: [*]F, ldt: usize, q: ?[*]F, ldq:
     } else if (n2 == 1) {
         // n1 = 2, n2 = 1
         var u = [3]F{ -x11, -x21, scale };
-        const tau = try auxiliary.larfg(io, F, 3, &u[0], u[1..].ptr, 1);
+        const tau = try auxiliary.larfg(io, F, &u[0], .of(u[1..]));
         u[0] = 1;
         const t33 = El.at(t, ldt, j3, j3).*;
         larfx(F, true, 3, 3, u, tau, &d, ldd);
@@ -233,11 +233,11 @@ fn laexc(io: Io, comptime F: type, n: usize, t: [*]F, ldt: usize, q: ?[*]F, ldq:
     } else {
         // n1 = n2 = 2
         var r1 = [3]F{ -x11, -x21, scale };
-        const tau1 = try auxiliary.larfg(io, F, 3, &r1[0], r1[1..].ptr, 1);
+        const tau1 = try auxiliary.larfg(io, F, &r1[0], .of(r1[1..]));
         r1[0] = 1;
         const temp = -tau1 * (x12 + r1[1] * x22);
         var r2 = [3]F{ -temp * r1[1] - x22, -temp * r1[2], scale };
-        const tau2 = try auxiliary.larfg(io, F, 3, &r2[0], r2[1..].ptr, 1);
+        const tau2 = try auxiliary.larfg(io, F, &r2[0], .of(r2[1..]));
         r2[0] = 1;
         larfx(F, true, 3, 4, r1, tau1, &d, ldd);
         larfx(F, false, 4, 3, r1, tau1, &d, ldd);
@@ -541,7 +541,7 @@ pub fn trsen(allocator: Allocator, io: Io, comptime T: type, job: TrsenJob, comp
     }
     if (wantsp) {
         var last = Sep(T).Last{ .ctx = ctx };
-        const est = try norm.lacn2(allocator, T, Error, nn, work.ptr + nn, work.ptr, &last, Sep(T).Last.apply);
+        const est = try norm.lacn2(allocator, T, Error, nn, work[nn..], work[0..nn], &last, Sep(T).Last.apply);
         r.sep = last.scale / est;
     }
     return r;

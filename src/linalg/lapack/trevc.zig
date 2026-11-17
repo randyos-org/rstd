@@ -355,7 +355,7 @@ pub fn complex(al: Allocator, io: Io, comptime T: type, right: bool, t: Mat(T), 
             t.at(k, k).* = if (ops.abs1(T, d) < smin) ops.scalar(T, smin) else d;
         }
         if (hi > lo) {
-            const scale = try norm.latrs(al, io, T, true, if (right) .n else .c, false, true, hi - lo, t.col(lo) + lo, t.ld, v + lo, rwork.ptr + lo);
+            const scale = try norm.scaledSolve(al, io, T, true, if (right) .n else .c, false, true, hi - lo, t.col(lo) + lo, t.ld, v + lo, rwork.ptr + lo);
             v[ki] = ops.scalar(T, scale);
         }
         for (lo..hi) |k| t.at(k, k).* = diag[k];

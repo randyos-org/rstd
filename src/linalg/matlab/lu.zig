@@ -101,28 +101,26 @@ pub fn det(self: CxMat, allocator: Allocator, io: Io) Error!Determinant {
 /// the largest column sum of `|a(i, j)|`. Not `norm.matNorm1`, which sums
 /// `|re| + |im|`.
 pub fn lange1(self: CxMat, allocator: Allocator, io: Io) Allocator.Error!f64 {
-    const ni: isize = @intCast(self.n);
-    if (self.isReal()) return lapack.lange(allocator, io, f64, .o, ni, ni, self.r.ptr, @intCast(self.lda)) catch |e| ops.narrow(Allocator.Error, e);
+    const n = self.n;
+    if (self.isReal()) return lapack.lange(allocator, io, f64, .o, n, n, self.r, self.lda) catch |e| ops.narrow(Allocator.Error, e);
     const z = try self.toPacked(Cx, allocator);
     defer allocator.free(z);
-    return lapack.lange(allocator, io, Cx, .o, ni, ni, z.ptr, ni) catch |e| ops.narrow(Allocator.Error, e);
+    return lapack.lange(allocator, io, Cx, .o, n, n, z, n) catch |e| ops.narrow(Allocator.Error, e);
 }
 
 /// `gecon`'s 1-norm `rcond` of the factored `f`, `anorm` its matrix's 1-norm;
 /// 0 where the estimate fails (an infinite or NaN inverse norm), as
 /// numerically singular.
 pub fn rcond(f: Lu, allocator: Allocator, io: Io, anorm: f64) Error!f64 {
-    var rc: f64 = 0;
-    const ni: isize = @intCast(f.a.n);
+    const n = f.a.n;
     const r = if (f.z) |x|
-        lapack.gecon(allocator, io, Cx, .o, ni, x.ptr, ni, anorm, &rc)
+        lapack.gecon(allocator, io, Cx, .o, n, x, n, anorm)
     else
-        lapack.gecon(allocator, io, f64, .o, ni, f.a.r.ptr, @intCast(f.a.lda), anorm, &rc);
-    r catch |e| switch (e) {
+        lapack.gecon(allocator, io, f64, .o, n, f.a.r, f.a.lda, anorm);
+    return r catch |e| switch (e) {
         error.EstimateFailed => return 0,
         else => |x| return ops.narrow(Allocator.Error || Io.Cancelable, x),
     };
-    return rc;
 }
 
 /// INV: `self` (square) inverted in place, by `getrf`, `gecon` and `getri`.
