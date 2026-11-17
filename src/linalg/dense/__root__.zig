@@ -115,7 +115,12 @@ const logm_ = @import("logm.zig");
 pub const LogmError = logm_.LogmError;
 pub const logm = logm_.logm;
 
+const powm_ = @import("powm.zig");
+pub const PowmError = powm_.PowmError;
+pub const powm = powm_.powm;
+
 test {
+    _ = @import("powm.zig");
     _ = @import("logm.zig");
     _ = @import("sqrtm.zig");
     _ = @import("expm.zig");
