@@ -577,3 +577,33 @@ test "RealPlan: 97 takes the general passes, 1009 Bluestein's; strided channels 
     try testing.expectError(error.SliceTooShort, p.forward(testing.io, spec[0..m], &x, scratch, lay, .{}));
     try testing.expectError(error.CountMismatch, p.backward(testing.io, &y, &spec, scratch, .{ .in = .{ .count = 2 } }, .{}));
 }
+
+test "a batch runs as many at once as the scratch holds, with one slot's bits" {
+    const al = testing.allocator;
+    const n = 24;
+    const count = 7;
+    var p = try Plan(f64).init(al, n);
+    defer p.deinit(al);
+    var r = try RealPlan(f64).init(al, n);
+    defer r.deinit(al);
+    const slots = 4;
+    const scratch = try al.alloc(Complex(f64), slots * p.scratchLen());
+    defer al.free(scratch);
+    const rscratch = try al.alloc(f64, slots * r.scratchLen());
+    defer al.free(rscratch);
+    var x: [n * count]Complex(f64) = undefined;
+    signal(f64, &x);
+    var one = x;
+    var many = x;
+    try p.transform(testing.io, &one, scratch[0..p.scratchLen()], .forward, .{ .count = count }, .{});
+    try p.transform(testing.io, &many, scratch, .forward, .{ .count = count }, .{});
+    try testing.expectEqualSlices(Complex(f64), &one, &many);
+    var re: [n * count]f64 = undefined;
+    for (&re, x) |*v, c| v.* = c.re;
+    var h1: [(n / 2 + 1) * count]Complex(f64) = undefined;
+    var h2: [(n / 2 + 1) * count]Complex(f64) = undefined;
+    const lay: Layouts = .{ .in = .{ .count = count }, .out = .{ .count = count } };
+    try r.forward(testing.io, &h1, &re, rscratch[0..r.scratchLen()], lay, .{});
+    try r.forward(testing.io, &h2, &re, rscratch, lay, .{});
+    try testing.expectEqualSlices(Complex(f64), &h1, &h2);
+}

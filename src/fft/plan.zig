@@ -1,8 +1,8 @@
 //! `fft.Plan`: the complex 1-D FFT of any length, PocketFFT's `pocketfft_c`
 //! (`pocketfft_hdronly.h`, cpp branch, commit 4d865cba, BSD-3, LICENSE):
 //! mixed radix (`cfftp/`) unless its cost model prefers Bluestein's
-//! (`bluestein.zig`) for a large prime factor. Batches run one after
-//! another (N9 makes them concurrent).
+//! (`bluestein.zig`) for a large prime factor. A batch runs through `io`
+//! (`batch.zig`).
 
 const std = @import("std");
 const fft = @import("__root__.zig");
@@ -10,6 +10,7 @@ const cmplx = @import("cmplx.zig");
 const util = @import("util.zig");
 const cfftp = @import("cfftp/__root__.zig");
 const bluestein = @import("bluestein.zig");
+const batch_ = @import("batch.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -65,38 +66,58 @@ pub fn Plan(comptime T: type) type {
         }
 
         pub fn transform(self: *const Self, io: Io, data: []C(T), scratch: []C(T), direction: Direction, layout: Layout, options: Options) fft.TransformError!void {
-            _ = io;
-            const n = self.n;
             if (scratch.len < self.scratch_len) return error.SliceTooShort;
-            try covers(data.len, n, layout);
-            const dist = layout.distance orelse (n * layout.stride);
-            const buf = scratch[0..n];
-            const rest = scratch[n..self.scratch_len];
-            for (0..layout.count) |k| {
-                const base = k * dist;
-                for (buf, 0..) |*b, i| b.* = data[base + i * layout.stride];
-                self.run(buf, rest, direction, options);
-                for (buf, 0..) |b, i| data[base + i * layout.stride] = b;
-            }
+            try covers(data.len, self.n, layout);
+            // each transform is gathered whole before it is written back
+            try self.batch(io, data, data, scratch, direction, layout, layout, options);
         }
 
         /// `out` and `in` must not overlap.
         pub fn transformInto(self: *const Self, io: Io, out: []C(T), in: []const C(T), scratch: []C(T), direction: Direction, layouts: Layouts, options: Options) fft.TransformIntoError!void {
-            _ = io;
             if (layouts.in.count != layouts.out.count) return error.CountMismatch;
-            const n = self.n;
             if (scratch.len < self.scratch_len) return error.SliceTooShort;
-            try covers(in.len, n, layouts.in);
-            try covers(out.len, n, layouts.out);
-            const din = layouts.in.distance orelse (n * layouts.in.stride);
-            const dout = layouts.out.distance orelse (n * layouts.out.stride);
-            const buf = scratch[0..n];
-            const rest = scratch[n..self.scratch_len];
-            for (0..layouts.in.count) |k| {
-                for (buf, 0..) |*b, i| b.* = in[k * din + i * layouts.in.stride];
-                self.run(buf, rest, direction, options);
-                for (buf, 0..) |b, i| out[k * dout + i * layouts.out.stride] = b;
-            }
+            try covers(in.len, self.n, layouts.in);
+            try covers(out.len, self.n, layouts.out);
+            try self.batch(io, out, in, scratch, direction, layouts.in, layouts.out, options);
+        }
+
+        /// The checked batch, through `io` (`batch.zig`).
+        fn batch(self: *const Self, io: Io, out: []C(T), in: []const C(T), scratch: []C(T), direction: Direction, lin: Layout, lout: Layout, options: Options) Io.Cancelable!void {
+            const n = self.n;
+            const Ctx = struct {
+                plan: *const Self,
+                out: []C(T),
+                in: []const C(T),
+                scratch: []C(T),
+                direction: Direction,
+                lin: Layout,
+                lout: Layout,
+                din: usize,
+                dout: usize,
+                options: Options,
+
+                fn one(c: *const @This(), k: usize, slot: usize) void {
+                    const sl = c.plan.scratch_len;
+                    const s = c.scratch[slot * sl ..][0..sl];
+                    const buf = s[0..c.plan.n];
+                    for (buf, 0..) |*b, i| b.* = c.in[k * c.din + i * c.lin.stride];
+                    c.plan.run(buf, s[c.plan.n..], c.direction, c.options);
+                    for (buf, 0..) |b, i| c.out[k * c.dout + i * c.lout.stride] = b;
+                }
+            };
+            const ctx: Ctx = .{
+                .plan = self,
+                .out = out,
+                .in = in,
+                .scratch = scratch,
+                .direction = direction,
+                .lin = lin,
+                .lout = lout,
+                .din = lin.distance orelse (n * lin.stride),
+                .dout = lout.distance orelse (n * lout.stride),
+                .options = options,
+            };
+            try batch_.run(io, lin.count, scratch.len / self.scratch_len, &ctx, Ctx.one);
         }
 
         /// One contiguous transform in place, `rest` its working space.
