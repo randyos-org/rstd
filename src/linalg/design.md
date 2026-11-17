@@ -193,7 +193,9 @@ signatures take every change below at once, so none changes twice. [Z7](https://
   does not take, is an input error the caller can fix and retry: it returns an error.
 - **Panics only when unrecoverable.** A broken invariant found mid-calculation, or a state
   where memory may be corrupt (above all from converted assembly kernels), panics. Each
-  routine's doc comment says whether it panics explicitly; callees need not be traced.
+  routine's doc comment says whether it panics explicitly; callees need not be traced. Z4
+  (#57, 2026-11-17) found two in `linalg`, `corespec`'s name lookups (a broken core table,
+  met at build time), and four internal assertions, each now documented.
 - **Exact error sets.** A routine's error set holds only what it can return: its own argument
   errors; `error.OutOfMemory` only if it allocates; `error.Canceled` only if it can be
   canceled. Sets are named and per routine or routine family, built from shared pieces,

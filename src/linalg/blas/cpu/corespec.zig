@@ -341,6 +341,8 @@ fn runsOnMips(cpu: std.Target.Cpu, core: coretypes.MipsCoreType) bool {
 /// is the baseline), a macOS one older than Nehalem, a SPARC V9 without VIS.
 /// So a Pentium III build's objects compute `f64` on the x87, as its cores and
 /// its main library do.
+/// Panics on a model or feature name this Zig lacks: a broken core table
+/// (`check` tests every name), met at build time.
 pub fn objectQuery(query: std.Target.Query, os: std.Target.Os, cpu: std.Target.Cpu, spec: Spec) std.Target.Query {
     const arch = cpu.arch;
     var q = query;
@@ -366,6 +368,7 @@ fn isaOf(arch: std.Target.Cpu.Arch, set: std.Target.Cpu.Feature.Set) std.Target.
     return out;
 }
 
+/// Panics when `arch` has no model `name` (a broken core table).
 fn findModel(arch: std.Target.Cpu.Arch, name: []const u8) *const std.Target.Cpu.Model {
     for (arch.allCpuModels()) |m| {
         if (std.mem.eql(u8, m.name, name)) return m;
@@ -373,6 +376,7 @@ fn findModel(arch: std.Target.Cpu.Arch, name: []const u8) *const std.Target.Cpu.
     std.debug.panic("no CPU model '{s}' for {s}", .{ name, @tagName(arch) });
 }
 
+/// Panics when `arch` lacks a feature in `names` (a broken core table).
 fn featureSet(arch: std.Target.Cpu.Arch, names: []const []const u8) std.Target.Cpu.Feature.Set {
     var set: std.Target.Cpu.Feature.Set = .empty;
     const all = arch.allFeaturesList();
@@ -541,6 +545,7 @@ pub fn notIsa(name: []const u8) bool {
 /// `spec`'s features on `arch` as Zig resolves them: its model's (else the
 /// generic one's) with what they imply, then those it adds, less those it goes
 /// without.
+/// Panics as `objectQuery` does.
 pub fn specFeatures(arch: std.Target.Cpu.Arch, spec: Spec) std.Target.Cpu.Feature.Set {
     const model = if (spec.model) |name| findModel(arch, name) else std.Target.Cpu.Model.generic(arch);
     return resolve(arch, model, featureSet(arch, spec.features), featureSet(arch, spec.without));

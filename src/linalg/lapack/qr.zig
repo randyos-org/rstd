@@ -34,7 +34,8 @@ pub fn blockSize(m: usize, n: usize) usize {
 }
 
 /// `qr_in_place`: factors `a` in place, `h` (`bs x min(m, n)`, `bs > 0`)
-/// taking the block factors; returns the rank faer estimates.
+/// taking the block factors; returns the rank faer estimates. Asserts `h`'s
+/// shape (internal callers size it).
 pub fn factor(al: Allocator, io: Io, comptime T: type, a: Mat(T), h: Mat(T)) Error!usize {
     std.debug.assert(h.rows > 0 and h.cols == @min(a.rows, a.cols));
     const rank = try blocked(al, io, T, a, h, 0, 0);
