@@ -7,6 +7,7 @@ const sysinfo = @import("builtin");
 const types = @import("../../types.zig");
 const Vtable = @import("../../Vtable.zig");
 const blas = @import("../../__root__.zig");
+const l3 = @import("../../blas3/core.zig");
 const driver = @import("../../blas3/driver.zig");
 const driver3m = @import("../../blas3/driver3m.zig");
 const portable = @import("../../portable.zig");
@@ -553,7 +554,7 @@ pub fn callAny(comptime T: type, al: std.mem.Allocator, run_io: std.Io, vt: *con
     }
 }
 
-/// Calls the public routines (`blas.gemm` and the rest) through a poisoned
+/// Calls the public routines (`l3.gemm` and the rest) through a poisoned
 /// allocator; real `r` and `c` stand in for `n` and `t` half the time. As
 /// `Driver`, for one routine `r`.
 pub fn Iface(comptime r: Routine) type {
@@ -575,19 +576,19 @@ pub fn Iface(comptime r: Routine) type {
             const diag: blas.Diag = if (case.unit) .u else .n;
             const herm = comptime isComplex(T);
             switch (r) {
-                .gemm => try blas.gemm(al, io, T, ta, tb, m, n, k, alpha, a, ia, b, ib, beta, c, ic),
-                .gemmt => try blas.gemmt(al, io, T, uplo, ta, tb, n, k, alpha, a, ia, b, ib, beta, c, ic),
-                .symm => try blas.symm(al, io, T, side, uplo, m, n, alpha, a, ia, b, ib, beta, c, ic),
-                .hemm => if (herm) try blas.hemm(al, io, T, side, uplo, m, n, alpha, a, ia, b, ib, beta, c, ic) else unreachable,
-                .syrk => try blas.syrk(al, io, T, uplo, ta, n, k, alpha, a, ia, beta, c, ic),
-                .syr2k => try blas.syr2k(al, io, T, uplo, ta, n, k, alpha, a, ia, b, ib, beta, c, ic),
-                .herk => if (herm) try blas.herk(al, io, T, uplo, ta, n, k, alpha.re, a, ia, beta.re, c, ic) else unreachable,
-                .her2k => if (herm) try blas.her2k(al, io, T, uplo, ta, n, k, alpha, a, ia, b, ib, beta.re, c, ic) else unreachable,
-                .trmm => try blas.trmm(al, io, T, side, uplo, ta, diag, m, n, alpha, a, ia, c, ic),
-                .trsm => try blas.trsm(al, io, T, side, uplo, ta, diag, m, n, alpha, a, ia, c, ic),
-                .gemm3m => if (herm) try blas.gemm3m(al, io, T, ta, tb, m, n, k, alpha, a, ia, b, ib, beta, c, ic) else unreachable,
-                .symm3m => if (herm) try blas.symm3m(al, io, T, side, uplo, m, n, alpha, a, ia, b, ib, beta, c, ic) else unreachable,
-                .hemm3m => if (herm) try blas.hemm3m(al, io, T, side, uplo, m, n, alpha, a, ia, b, ib, beta, c, ic) else unreachable,
+                .gemm => try l3.gemm(al, io, T, ta, tb, m, n, k, alpha, a, ia, b, ib, beta, c, ic),
+                .gemmt => try l3.gemmt(al, io, T, uplo, ta, tb, n, k, alpha, a, ia, b, ib, beta, c, ic),
+                .symm => try l3.symm(al, io, T, side, uplo, m, n, alpha, a, ia, b, ib, beta, c, ic),
+                .hemm => if (herm) try l3.hemm(al, io, T, side, uplo, m, n, alpha, a, ia, b, ib, beta, c, ic) else unreachable,
+                .syrk => try l3.syrk(al, io, T, uplo, ta, n, k, alpha, a, ia, beta, c, ic),
+                .syr2k => try l3.syr2k(al, io, T, uplo, ta, n, k, alpha, a, ia, b, ib, beta, c, ic),
+                .herk => if (herm) try l3.herk(al, io, T, uplo, ta, n, k, alpha.re, a, ia, beta.re, c, ic) else unreachable,
+                .her2k => if (herm) try l3.her2k(al, io, T, uplo, ta, n, k, alpha, a, ia, b, ib, beta.re, c, ic) else unreachable,
+                .trmm => try l3.trmm(al, io, T, side, uplo, ta, diag, m, n, alpha, a, ia, c, ic),
+                .trsm => try l3.trsm(al, io, T, side, uplo, ta, diag, m, n, alpha, a, ia, c, ic),
+                .gemm3m => if (herm) try l3.gemm3m(al, io, T, ta, tb, m, n, k, alpha, a, ia, b, ib, beta, c, ic) else unreachable,
+                .symm3m => if (herm) try l3.symm3m(al, io, T, side, uplo, m, n, alpha, a, ia, b, ib, beta, c, ic) else unreachable,
+                .hemm3m => if (herm) try l3.hemm3m(al, io, T, side, uplo, m, n, alpha, a, ia, b, ib, beta, c, ic) else unreachable,
             }
         }
 

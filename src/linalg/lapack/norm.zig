@@ -7,6 +7,8 @@ const std = @import("std");
 const blas = @import("../blas/__root__.zig");
 const types = @import("../blas/types.zig");
 const util = @import("../blas/util.zig");
+const strided = @import("../blas/strided.zig");
+const interface = @import("interface.zig");
 const ops = @import("ops.zig");
 const blas_calls = @import("blas_calls.zig");
 const auxiliary = @import("auxiliary.zig");
@@ -17,6 +19,8 @@ const Float = types.Float;
 const isComplex = types.isComplex;
 const Trans = types.Trans;
 const Error = ops.Error;
+const Strided = strided.Strided;
+const ConstStrided = strided.ConstStrided;
 
 /// `NORM`: the largest `|a(i, j)|` (`m`), the one norm (`o`, LAPACK's `1`
 /// or `O`), the infinity norm (`i`) or the Frobenius norm (`f`, `F` or
@@ -25,22 +29,20 @@ pub const Norm = enum { m, o, i, f };
 
 // ---- xLANGE, xLASSQ ----------------------------------------------------------------
 
-/// What `lange` returns.
-pub const LangeError = error{ InvalidM, InvalidN, InvalidLda } || Allocator.Error;
+/// What `lange` returns: a slice too short or a leading dimension too
+/// small, and the allocator's.
+pub const LangeError = interface.ShapeError || Allocator.Error;
 
 /// `?LANGE` (`dlange.f`, `zlange.f`): `norm` of the `m x n` `A`; 0 when
 /// empty. A NaN entry gives NaN. The reference checks no argument; here a
-/// negative size or short `lda` is an error. `i` takes `m` reals of
+/// slice too short or a short `lda` is an error. `i` takes `m` reals of
 /// workspace.
-pub fn lange(allocator: Allocator, io: Io, comptime T: type, norm: Norm, m: isize, n: isize, a: [*]const T, lda: isize) LangeError!Float(T) {
+pub fn lange(allocator: Allocator, io: Io, comptime T: type, norm: Norm, m: usize, n: usize, a: []const T, lda: usize) LangeError!Float(T) {
     comptime ops.requireFloat(T, "lange");
     _ = io;
-    if (m < 0) return error.InvalidM;
-    if (n < 0) return error.InvalidN;
-    if (lda < @max(1, m)) return error.InvalidLda;
+    try util.holds(a.len, m, n, lda);
     if (m == 0 or n == 0) return 0;
-    if (!util.fitsMatrix(m, n, lda, @sizeOf(T))) return error.InvalidLda;
-    return matNorm(allocator, T, norm, @intCast(m), @intCast(n), a, @intCast(lda));
+    return matNorm(allocator, T, norm, m, n, a.ptr, lda);
 }
 
 /// `lange` after its checks.
@@ -72,7 +74,7 @@ pub fn matNorm(al: Allocator, comptime T: type, norm: Norm, m: usize, n: usize, 
         .f => {
             var scale: F = 0;
             var sum: F = 1;
-            for (0..n) |j| lassq(T, m, a + j * lda, 1, &scale, &sum);
+            for (0..n) |j| lassq(T, .of((a + j * lda)[0..m]), &scale, &sum);
             value = scale * @sqrt(sum);
         },
     }
@@ -95,8 +97,10 @@ fn Blue(comptime F: type) type {
 
 /// `?LASSQ` (`dlassq.f90`, `zlassq.f90`, Blue's algorithm): updates
 /// `scale` and `sumsq` so `scale² sumsq` gains `Σ |x(i)|²` (complex: both
-/// parts' squares). A NaN in either leaves both as they are.
-pub fn lassq(comptime T: type, n: usize, x: [*]const T, inc: usize, scale: *Float(T), sumsq: *Float(T)) void {
+/// parts' squares), in `x`'s element order. A NaN in either leaves both as
+/// they are.
+pub fn lassq(comptime T: type, x: ConstStrided(T), scale: *Float(T), sumsq: *Float(T)) void {
+    const n = x.n;
     const F = Float(T);
     const c = Blue(F);
     if (std.math.isNan(scale.*) or std.math.isNan(sumsq.*)) return;
@@ -111,7 +115,7 @@ pub fn lassq(comptime T: type, n: usize, x: [*]const T, inc: usize, scale: *Floa
     var amed: F = 0;
     var abig: F = 0;
     for (0..n) |i| {
-        const v = x[i * inc];
+        const v = x.get(i);
         const parts: []const F = if (comptime isComplex(T)) &.{ v.re, v.im } else &.{v};
         for (parts) |p| {
             const ax = @abs(p);
@@ -180,9 +184,17 @@ const itmax = 5;
 /// 1988): a lower bound on `‖B‖₁`, with `v` (`n`) holding `B w` for the
 /// `w` it found, `‖v‖₁ = est`. The reference's reverse communication is a
 /// callback: `apply(ctx, adjoint, x)` sets `x := B x` (its `KASE = 1`) or,
-/// with `adjoint`, `x := Bᴴ x` (`KASE = 2`); any error it returns ends the
-/// estimate. `x` (`n`) is workspace.
-pub fn lacn2(al: Allocator, comptime T: type, comptime E: type, n: usize, v: [*]T, x: [*]T, ctx: anytype, comptime apply: fn (@TypeOf(ctx), bool, [*]T) E!void) (E || Allocator.Error)!Float(T) {
+/// with `adjoint`, `x := Bᴴ x` (`KASE = 2`) on `x`'s first `n`; any error
+/// it returns ends the estimate. `x` (`n`) is workspace; `v` and `x` too
+/// short are `error.SliceTooShort`.
+pub fn lacn2(al: Allocator, comptime T: type, comptime E: type, n: usize, v: []T, x: []T, ctx: anytype, comptime apply: fn (@TypeOf(ctx), bool, [*]T) E!void) (E || Allocator.Error || strided.SliceError)!Float(T) {
+    if (v.len < n or x.len < n) return error.SliceTooShort;
+    if (n == 0) return 0;
+    return estimate(al, T, E, n, v.ptr, x.ptr, ctx, apply);
+}
+
+/// `lacn2` after its checks.
+fn estimate(al: Allocator, comptime T: type, comptime E: type, n: usize, v: [*]T, x: [*]T, ctx: anytype, comptime apply: fn (@TypeOf(ctx), bool, [*]T) E!void) (E || Allocator.Error)!Float(T) {
     const F = Float(T);
     const nf: F = @floatFromInt(n);
     const isgn = try al.alloc(bool, if (comptime isComplex(T)) 0 else n);
@@ -278,9 +290,12 @@ fn signs(comptime T: type, n: usize, x: [*]T, isgn: []bool) void {
 
 /// `?RSCL`, `?DRSCL` (`drscl.f`, `zdrscl.f`): `x := x / sa` by safe
 /// multiplications, `sa` real, never forming an overflowing `1 / sa`.
-pub fn rscl(io: Io, comptime T: type, n: usize, sa: Float(T), x: [*]T, inc: usize) Error!void {
+pub fn rscl(io: Io, comptime T: type, sa: Float(T), x: Strided(T)) Error!void {
     const F = Float(T);
+    const n = x.n;
     if (n == 0) return;
+    // elementwise: memory order serves either stride sign
+    const inc: usize = @abs(x.stride);
     const smlnum = std.math.floatMin(F);
     const bignum = 1 / smlnum;
     var cden = sa;
@@ -300,7 +315,7 @@ pub fn rscl(io: Io, comptime T: type, n: usize, sa: Float(T), x: [*]T, inc: usiz
             mul = cnum / cden;
             done = true;
         }
-        try blas_calls.scal(io, T, n, mul, x, inc);
+        try blas_calls.scal(io, T, n, mul, x.data.ptr, inc);
         if (done) return;
     }
 }
@@ -310,8 +325,24 @@ pub fn rscl(io: Io, comptime T: type, n: usize, sa: Float(T), x: [*]T, inc: usiz
 /// chosen so `x` cannot overflow; returns `scale`. `cnorm` (`n`) holds the
 /// off-diagonal column norms (`abs1` sums), computed unless `normin`. A zero
 /// on the diagonal gives a null vector with `scale = 0`. `trsv` takes over
-/// where the bounds allow.
-pub fn latrs(al: Allocator, io: Io, comptime T: type, upper: bool, op: Trans, unit: bool, normin: bool, n: usize, a: [*]const T, lda: usize, x: [*]T, cnorm: [*]Float(T)) Error!Float(T) {
+/// where the bounds allow. `x` and `cnorm` take `n` each.
+pub fn latrs(al: Allocator, io: Io, comptime T: type, upper: bool, op: Trans, unit: bool, normin: bool, n: usize, a: []const T, lda: usize, x: []T, cnorm: []Float(T)) LatrsError!Float(T) {
+    switch (op) {
+        .n, .t, .c => {},
+        .r, .o, .u, .s, .d => return error.UnsupportedTranspose,
+    }
+    try util.holds(a.len, n, n, lda);
+    if (x.len < n or cnorm.len < n) return error.SliceTooShort;
+    return scaledSolve(al, io, T, upper, op, unit, normin, n, a.ptr, lda, x.ptr, cnorm.ptr);
+}
+
+/// What `latrs` returns: an `op` other than `n`, `t` or `c`, a slice too
+/// short or a leading dimension too small, and the allocator's and
+/// cancellation.
+pub const LatrsError = interface.TransError || interface.ShapeError || Error;
+
+/// `latrs` after its checks.
+pub fn scaledSolve(al: Allocator, io: Io, comptime T: type, upper: bool, op: Trans, unit: bool, normin: bool, n: usize, a: [*]const T, lda: usize, x: [*]T, cnorm: [*]Float(T)) Error!Float(T) {
     const F = Float(T);
     const cx = comptime isComplex(T);
     // zlatrs halves its bounds, so a sum of two parts cannot overflow
@@ -576,57 +607,49 @@ fn eq(comptime T: type, x: T, y: T) bool {
 
 // ---- xGECON ------------------------------------------------------------------------
 
-/// What `gecon` returns: `InvalidNorm` for other than `o` or `i`;
-/// `InvalidAnorm` for a negative, infinite or NaN `anorm` (the reference's
-/// `INFO = -5`, the last two after its checks); `EstimateFailed` for the
-/// reference's `INFO = 1`, an estimate that is NaN, infinite, or of a zero
-/// inverse norm.
-pub const GeconError = error{ InvalidNorm, InvalidN, InvalidLda, InvalidAnorm, EstimateFailed } || Allocator.Error || Io.Cancelable;
+/// What `gecon` returns: `UnsupportedNorm` for other than `o` or `i`; a
+/// slice too short or a leading dimension too small; `NormOutOfRange` for a
+/// negative, infinite or NaN `anorm` (the reference's `INFO = -5`, the last
+/// two after its checks); `EstimateFailed` for the reference's `INFO = 1`,
+/// an estimate that is NaN, infinite, or of a zero inverse norm.
+pub const GeconError = error{ UnsupportedNorm, NormOutOfRange, EstimateFailed } || interface.ShapeError || Allocator.Error || Io.Cancelable;
 
 /// `?GECON` (`dgecon.f`, `zgecon.f`): an estimate of the reciprocal
 /// condition number `1 / (‖A‖ ‖A⁻¹‖)` in the one (`o`) or infinity (`i`)
 /// norm, from `getrf`'s `L U` in `A` (`n x n`) and `anorm`, `A`'s norm
 /// before factoring. `‖A⁻¹‖` comes from `lacn2` over solves with `L` and
-/// `U` (`latrs`). Written to `rcond`: 1 for `n = 0`, 0 for `anorm = 0` or
-/// a solve that would overflow, the estimate otherwise; NaN `anorm` writes
-/// NaN and returns `InvalidAnorm`, and `EstimateFailed` leaves the failed
-/// value. Takes `5 n` elements of workspace.
-pub fn gecon(allocator: Allocator, io: Io, comptime T: type, norm: Norm, n: isize, a: [*]const T, lda: isize, anorm: Float(T), rcond: *Float(T)) GeconError!void {
+/// `U` (`latrs`). Returns `rcond`: 1 for `n = 0`, 0 for `anorm = 0` or a
+/// solve that would overflow, the estimate otherwise. Takes `5 n` elements
+/// of workspace.
+pub fn gecon(allocator: Allocator, io: Io, comptime T: type, norm: Norm, n: usize, a: []const T, lda: usize, anorm: Float(T)) GeconError!Float(T) {
     comptime ops.requireFloat(T, "gecon");
     const F = Float(T);
     const onenrm = switch (norm) {
         .o => true,
         .i => false,
-        .m, .f => return error.InvalidNorm,
+        .m, .f => return error.UnsupportedNorm,
     };
-    if (n < 0) return error.InvalidN;
-    if (lda < @max(1, n)) return error.InvalidLda;
-    if (anorm < 0) return error.InvalidAnorm;
-    rcond.* = 0;
-    if (n == 0) {
-        rcond.* = 1;
-        return;
-    }
-    if (!util.fitsMatrix(n, n, lda, @sizeOf(T))) return error.InvalidLda;
-    if (anorm == 0) return;
-    if (std.math.isNan(anorm)) {
-        rcond.* = anorm;
-        return error.InvalidAnorm;
-    }
-    if (anorm > std.math.floatMax(F)) return error.InvalidAnorm;
-    const un: usize = @intCast(n);
+    try util.holds(a.len, n, n, lda);
+    if (anorm < 0) return error.NormOutOfRange;
+    if (n == 0) return 1;
+    if (anorm == 0) return 0;
+    if (std.math.isNan(anorm) or anorm > std.math.floatMax(F)) return error.NormOutOfRange;
+    const un = n;
     const work = try allocator.alloc(T, 2 * un);
     defer allocator.free(work);
     const cnorm = try allocator.alloc(F, 2 * un);
     defer allocator.free(cnorm);
-    var ctx: Gecon(T) = .{ .al = allocator, .io = io, .onenrm = onenrm, .n = un, .a = a, .lda = @intCast(lda), .cnorm = cnorm.ptr };
-    const ainvnm = lacn2(allocator, T, Gecon(T).Stop, un, work.ptr + un, work.ptr, &ctx, Gecon(T).apply) catch |e| switch (e) {
-        error.Overflow => return,
+    var ctx: Gecon(T) = .{ .al = allocator, .io = io, .onenrm = onenrm, .n = un, .a = a.ptr, .lda = lda, .cnorm = cnorm.ptr };
+    const ainvnm = lacn2(allocator, T, Gecon(T).Stop, un, work[un..], work[0..un], &ctx, Gecon(T).apply) catch |e| switch (e) {
+        error.Overflow => return 0,
         error.OutOfMemory, error.Canceled => |x| return x,
+        // sized above
+        error.SliceTooShort => unreachable,
     };
     if (ainvnm == 0) return error.EstimateFailed;
-    rcond.* = (1 / ainvnm) / anorm;
-    if (std.math.isNan(rcond.*) or rcond.* > std.math.floatMax(F)) return error.EstimateFailed;
+    const rcond = (1 / ainvnm) / anorm;
+    if (std.math.isNan(rcond) or rcond > std.math.floatMax(F)) return error.EstimateFailed;
+    return rcond;
 }
 
 /// `gecon`'s `B = A⁻¹` for `lacn2`: two `latrs` solves, `L` then `U` (or
@@ -654,18 +677,18 @@ fn Gecon(comptime T: type) type {
             var sl: F = undefined;
             var su: F = undefined;
             if (adjoint != s.onenrm) {
-                sl = try latrs(s.al, s.io, T, false, .n, true, s.normin, s.n, s.a, s.lda, x, lower_norms);
-                su = try latrs(s.al, s.io, T, true, .n, false, s.normin, s.n, s.a, s.lda, x, upper_norms);
+                sl = try scaledSolve(s.al, s.io, T, false, .n, true, s.normin, s.n, s.a, s.lda, x, lower_norms);
+                su = try scaledSolve(s.al, s.io, T, true, .n, false, s.normin, s.n, s.a, s.lda, x, upper_norms);
             } else {
-                su = try latrs(s.al, s.io, T, true, op, false, s.normin, s.n, s.a, s.lda, x, upper_norms);
-                sl = try latrs(s.al, s.io, T, false, op, true, s.normin, s.n, s.a, s.lda, x, lower_norms);
+                su = try scaledSolve(s.al, s.io, T, true, op, false, s.normin, s.n, s.a, s.lda, x, upper_norms);
+                sl = try scaledSolve(s.al, s.io, T, false, op, true, s.normin, s.n, s.a, s.lda, x, lower_norms);
             }
             const scale = sl * su;
             s.normin = true;
             if (scale != 1) {
                 const ix = blas_calls.iamax(T, s.n, x, 1);
                 if (scale < ops.abs1(T, x[ix]) * std.math.floatMin(F) or scale == 0) return error.Overflow;
-                try rscl(s.io, T, s.n, scale, x, 1);
+                try rscl(s.io, T, scale, .of(x[0..s.n]));
             }
         }
     };
@@ -698,10 +721,9 @@ test "lapack norm: lange's four norms on a known 2 x 3, NaN, empty, bad argument
         try testing.expectEqual(@as(F, 0), try lange(testing.failing_allocator, check.io, T, .i, 0, 3, &b, 1));
         try testing.expectEqual(@as(F, 0), try lange(testing.failing_allocator, check.io, T, .f, 2, 0, &b, 2));
     }
-    var x = [_]f64{0};
-    try testing.expectError(error.InvalidM, lange(al, check.io, f64, .m, -1, -1, &x, 0));
-    try testing.expectError(error.InvalidN, lange(al, check.io, f64, .m, 1, -1, &x, 0));
-    try testing.expectError(error.InvalidLda, lange(al, check.io, f64, .m, 2, 1, &x, 1));
+    var x = [_]f64{ 0, 0, 0 };
+    try testing.expectError(error.LeadingDimensionTooSmall, lange(al, check.io, f64, .m, 2, 1, &x, 1));
+    try testing.expectError(error.SliceTooShort, lange(al, check.io, f64, .m, 2, 2, &x, 2));
 }
 
 test "lapack norm: lange's Frobenius norm neither overflows nor underflows (Blue's lassq)" {
@@ -740,24 +762,22 @@ fn geconCase(comptime T: type, al: Allocator, n: usize, grade: Float(T), seed: u
         const s: F = @floatCast(std.math.pow(f64, @floatCast(grade), @floatFromInt(i)));
         for (0..n) |j| a[i + j * n] = ops.mulReal(T, a[i + j * n], s);
     }
-    const ipiv = try al.alloc(isize, n);
+    const ipiv = try al.alloc(usize, n);
     defer al.free(ipiv);
     const inv = try al.alloc(T, n * n);
     defer al.free(inv);
     const f = try al.alloc(T, n * n);
     defer al.free(f);
-    const ni: isize = @intCast(n);
     @memcpy(f, a);
-    try lu.getrf(al, check.io, T, ni, ni, f.ptr, ni, ipiv.ptr, null);
+    _ = try lu.getrf(al, check.io, T, n, n, f, n, ipiv);
     @memset(inv, ops.zero(T));
     for (0..n) |i| inv[i * (n + 1)] = ops.one(T);
-    try lu.getrs(al, check.io, T, .n, ni, ni, f.ptr, ni, ipiv.ptr, inv.ptr, ni);
+    try lu.getrs(al, check.io, T, .n, n, n, f, n, ipiv, inv, n);
     for ([_]Norm{ .o, .i }) |nm| {
-        const anorm = try lange(al, check.io, T, nm, ni, ni, a.ptr, ni);
-        const ainvnm = try lange(al, check.io, T, nm, ni, ni, inv.ptr, ni);
+        const anorm = try lange(al, check.io, T, nm, n, n, a, n);
+        const ainvnm = try lange(al, check.io, T, nm, n, n, inv, n);
         const rcondc = (1 / anorm) / ainvnm;
-        var rcond: F = undefined;
-        try gecon(al, check.io, T, nm, ni, f.ptr, ni, anorm, &rcond);
+        const rcond = try gecon(al, check.io, T, nm, n, f, n, anorm);
         const r = lcheck.ratio(F, rcond, rcondc);
         if (!(r < lcheck.thresh)) {
             check.say("gecon {s} n {d} grade {d} norm {s}: rcond {e} against {e}, ratio {d}\n", .{ @typeName(T), n, @as(f64, @floatCast(grade)), @tagName(nm), @as(f64, @floatCast(rcond)), @as(f64, @floatCast(rcondc)), @as(f64, @floatCast(r)) });
@@ -782,36 +802,24 @@ test "lapack gecon: n = 0, anorm = 0, 1 x 1, a zero pivot, NaN and infinite anor
     const al = testing.allocator;
     inline for (test_types) |T| {
         const F = Float(T);
-        var rcond: F = -1;
-        var a = [_]T{ lcheck.cplx(T, 2, 0), lcheck.cplx(T, 1, 0), lcheck.cplx(T, 0, 0), lcheck.cplx(T, 3, 0) };
-        try gecon(al, check.io, T, .o, 0, &a, 1, 1, &rcond);
-        try testing.expectEqual(@as(F, 1), rcond);
-        try gecon(al, check.io, T, .o, 2, &a, 2, 0, &rcond);
-        try testing.expectEqual(@as(F, 0), rcond);
+        const a = [_]T{ lcheck.cplx(T, 2, 0), lcheck.cplx(T, 1, 0), lcheck.cplx(T, 0, 0), lcheck.cplx(T, 3, 0) };
+        try testing.expectEqual(@as(F, 1), try gecon(al, check.io, T, .o, 0, &a, 1, 1));
+        try testing.expectEqual(@as(F, 0), try gecon(al, check.io, T, .o, 2, &a, 2, 0));
         // 1 x 1: exact
-        try gecon(al, check.io, T, .i, 1, &a, 1, 2, &rcond);
-        try testing.expectEqual(@as(F, 1), rcond);
+        try testing.expectEqual(@as(F, 1), try gecon(al, check.io, T, .i, 1, &a, 1, 2));
         // U singular: the overflowing solve stops at 0
-        var s = [_]T{ lcheck.cplx(T, 2, 0), lcheck.cplx(T, 0.5, 0), lcheck.cplx(T, 1, 0), lcheck.cplx(T, 0, 0) };
-        for ([_]Norm{ .o, .i }) |nm| {
-            rcond = -1;
-            try gecon(al, check.io, T, nm, 2, &s, 2, 3, &rcond);
-            try testing.expectEqual(@as(F, 0), rcond);
-        }
-        try testing.expectError(error.InvalidAnorm, gecon(al, check.io, T, .o, 2, &a, 2, std.math.nan(F), &rcond));
-        try testing.expect(std.math.isNan(rcond));
-        try testing.expectError(error.InvalidAnorm, gecon(al, check.io, T, .o, 2, &a, 2, std.math.inf(F), &rcond));
-        try testing.expectEqual(@as(F, 0), rcond);
+        const s = [_]T{ lcheck.cplx(T, 2, 0), lcheck.cplx(T, 0.5, 0), lcheck.cplx(T, 1, 0), lcheck.cplx(T, 0, 0) };
+        for ([_]Norm{ .o, .i }) |nm| try testing.expectEqual(@as(F, 0), try gecon(al, check.io, T, nm, 2, &s, 2, 3));
+        try testing.expectError(error.NormOutOfRange, gecon(al, check.io, T, .o, 2, &a, 2, std.math.nan(F)));
+        try testing.expectError(error.NormOutOfRange, gecon(al, check.io, T, .o, 2, &a, 2, std.math.inf(F)));
         // an anorm so small the estimate overflows: the reference's INFO = 1
-        try testing.expectError(error.EstimateFailed, gecon(al, check.io, T, .o, 1, &a, 1, std.math.floatTrueMin(F), &rcond));
-        try testing.expect(std.math.isInf(rcond));
+        try testing.expectError(error.EstimateFailed, gecon(al, check.io, T, .o, 1, &a, 1, std.math.floatTrueMin(F)));
     }
-    var x = [_]f64{1};
-    var r: f64 = 0;
-    try testing.expectError(error.InvalidNorm, gecon(al, check.io, f64, .f, -1, &x, 0, -1, &r));
-    try testing.expectError(error.InvalidN, gecon(al, check.io, f64, .o, -1, &x, 0, -1, &r));
-    try testing.expectError(error.InvalidLda, gecon(al, check.io, f64, .o, 2, &x, 1, -1, &r));
-    try testing.expectError(error.InvalidAnorm, gecon(al, check.io, f64, .o, 1, &x, 1, -1, &r));
+    const x = [_]f64{ 1, 0, 0 };
+    try testing.expectError(error.UnsupportedNorm, gecon(al, check.io, f64, .f, 1, &x, 1, 1));
+    try testing.expectError(error.LeadingDimensionTooSmall, gecon(al, check.io, f64, .o, 2, &x, 1, 1));
+    try testing.expectError(error.SliceTooShort, gecon(al, check.io, f64, .o, 2, &x, 2, 1));
+    try testing.expectError(error.NormOutOfRange, gecon(al, check.io, f64, .o, 1, &x, 1, -1));
 }
 
 /// `latrs` on an `n x n` triangle with diagonal `d`: `scale` in [0, 1], `x`
@@ -833,7 +841,7 @@ fn latrsCase(comptime T: type, al: Allocator, upper: bool, op: Trans, unit: bool
     @memcpy(x, b);
     const cnorm = try al.alloc(F, n);
     defer al.free(cnorm);
-    const scale = try latrs(al, check.io, T, upper, op, unit, false, n, a.ptr, n, x.ptr, cnorm.ptr);
+    const scale = try latrs(al, check.io, T, upper, op, unit, false, n, a, n, x, cnorm);
     try testing.expect(scale >= 0 and scale <= 1);
     var xmax: F = 0;
     for (x) |v| xmax = @max(xmax, ops.abs1(T, v));
@@ -884,7 +892,7 @@ test "lapack norm: laset fills the diagonal and the chosen strict triangle, wide
             const m = mn[0];
             const n = mn[1];
             var a: [16]T = @splat(x);
-            try auxiliary.laset(T, uplo, @intCast(m), @intCast(n), al_, be, &a, @intCast(m));
+            try auxiliary.laset(T, uplo, m, n, al_, be, &a, m);
             for (0..n) |j| for (0..m) |i| {
                 const inside = uplo == null or (uplo == .u and i <= j) or (uplo == .l and i >= j);
                 const want = if (!inside) x else if (i == j) be else al_;
@@ -893,7 +901,42 @@ test "lapack norm: laset fills the diagonal and the chosen strict triangle, wide
         };
     }
     var a: [4]f64 = @splat(0);
-    try testing.expectError(error.InvalidM, auxiliary.laset(f64, null, -1, 1, 0, 0, &a, 1));
-    try testing.expectError(error.InvalidN, auxiliary.laset(f64, null, 1, -1, 0, 0, &a, 1));
-    try testing.expectError(error.InvalidLda, auxiliary.laset(f64, null, 2, 2, 0, 0, &a, 1));
+    try testing.expectError(error.UnsupportedUplo, auxiliary.laset(f64, .v, 2, 2, 0, 0, &a, 2));
+    try testing.expectError(error.LeadingDimensionTooSmall, auxiliary.laset(f64, null, 2, 2, 0, 0, &a, 1));
+    try testing.expectError(error.SliceTooShort, auxiliary.laset(f64, null, 2, 3, 0, 0, &a, 2));
+}
+
+test "lapack norm: lassq, rscl and larfg on strided views; latrs and lacn2 checks" {
+    // lassq: |(3, 4)| = 5 at stride 2, either sign
+    const v = [_]f64{ 3, 99, 4 };
+    for ([_]isize{ 2, -2 }) |st| {
+        var scale: f64 = 0;
+        var sumsq: f64 = 1;
+        lassq(f64, try .init(&v, 2, st), &scale, &sumsq);
+        try testing.expectApproxEqRel(@as(f64, 5), scale * @sqrt(sumsq), 4 * std.math.floatEps(f64));
+    }
+    // rscl: x / 4 at stride 2, the gap untouched
+    var w = [_]f64{ 8, 7, 4 };
+    try rscl(check.io, f64, 4, try .init(&w, 2, 2));
+    try testing.expectEqualSlices(f64, &.{ 2, 7, 1 }, &w);
+    // larfg: H [3; 4] = [-5; 0], v = [1; 0.5], tau = 1.6
+    var alpha: f64 = 3;
+    var x = [_]f64{4};
+    const tau = try auxiliary.larfg(check.io, f64, &alpha, .of(&x));
+    try testing.expectApproxEqAbs(@as(f64, -5), alpha, 1e-15);
+    try testing.expectApproxEqAbs(@as(f64, 1.6), tau, 1e-15);
+    try testing.expectApproxEqAbs(@as(f64, 0.5), x[0], 1e-15);
+    const al = testing.allocator;
+    var a = [_]f64{ 2, 0, 1, 2 };
+    var b = [_]f64{ 1, 1 };
+    var cn: [2]f64 = undefined;
+    try testing.expectError(error.UnsupportedTranspose, latrs(al, check.io, f64, true, .o, false, false, 2, &a, 2, &b, &cn));
+    try testing.expectError(error.LeadingDimensionTooSmall, latrs(al, check.io, f64, true, .n, false, false, 2, &a, 1, &b, &cn));
+    try testing.expectError(error.SliceTooShort, latrs(al, check.io, f64, true, .n, false, false, 2, &a, 2, b[0..1], &cn));
+    const Id = struct {
+        fn apply(_: void, _: bool, _: [*]f64) error{}!void {}
+    };
+    try testing.expectError(error.SliceTooShort, lacn2(al, f64, error{}, 2, b[0..1], &cn, {}, Id.apply));
+    // the identity's one norm
+    try testing.expectEqual(@as(f64, 1), try lacn2(al, f64, error{}, 2, &b, &cn, {}, Id.apply));
 }

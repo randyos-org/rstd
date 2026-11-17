@@ -5,6 +5,8 @@
 const std = @import("std");
 const types = @import("../blas/types.zig");
 const util = @import("../blas/util.zig");
+const strided = @import("../blas/strided.zig");
+const interface = @import("interface.zig");
 const ops = @import("ops.zig");
 const blas_calls = @import("blas_calls.zig");
 
@@ -14,6 +16,7 @@ const isComplex = types.isComplex;
 const Uplo = types.Uplo;
 const Mat = ops.Mat;
 const Error = ops.Error;
+const Strided = strided.Strided;
 const scalar = ops.scalar;
 const zero = ops.zero;
 const one = ops.one;
@@ -125,12 +128,16 @@ pub fn lartg(comptime F: type, f: F, g: F) struct { c: F, s: F, r: F } {
 
 /// `?LARFG` (`dlarfg.f`, `zlarfg.f`): the reflector `H = I - tau v vᴴ`,
 /// `v(0) = 1`, with `Hᴴ [alpha; x] = [beta; 0]`, `beta` real; `beta`
-/// replaces `alpha`, `v`'s tail `x` (`n - 1`); returns `tau`. Complex
-/// division is Smith's (`div`) where `zlarfg.f` takes `ZLADIV`.
-pub fn larfg(io: Io, comptime T: type, n: usize, alpha: *T, x: [*]T, inc: usize) Error!T {
+/// replaces `alpha`, `v`'s tail `x` (the reference's `n - 1` elements);
+/// returns `tau`. Complex division is Smith's (`div`) where `zlarfg.f`
+/// takes `ZLADIV`. `x`'s norm sums in memory order, as `asum`'s.
+pub fn larfg(io: Io, comptime T: type, alpha: *T, x_view: Strided(T)) Error!T {
     const F = Float(T);
     const cx = comptime isComplex(T);
-    if (n == 0 or (!cx and n == 1)) return zero(T);
+    const n = x_view.n + 1;
+    const x = x_view.data.ptr;
+    const inc: usize = @abs(x_view.stride);
+    if (!cx and n == 1) return zero(T);
     var xnorm = nrm2(io, T, n - 1, x, inc);
     var alphr = re(T, alpha.*);
     var alphi: F = if (cx) alpha.*.im else 0;
@@ -186,22 +193,21 @@ pub fn lapy3(comptime F: type, x: F, y: F, z: F) F {
     return w * @sqrt((xa / w) * (xa / w) + (ya / w) * (ya / w) + (za / w) * (za / w));
 }
 
-/// What `laset` returns.
-pub const LasetError = error{ InvalidM, InvalidN, InvalidLda };
+/// What `laset` returns: a reversed `uplo`, a slice too short or a leading
+/// dimension too small.
+pub const LasetError = interface.UploError || interface.ShapeError;
 
 /// `?LASET` (`dlaset.f`, `zlaset.f`): the `m x n` `A`'s off-diagonal
 /// entries set to `alpha` and its diagonal to `beta`; with `uplo`, only that
 /// strict triangle and the diagonal, the rest untouched (null: all of it).
-pub fn laset(comptime T: type, uplo: ?Uplo, m: isize, n: isize, alpha: T, beta: T, a: [*]T, lda: isize) LasetError!void {
+pub fn laset(comptime T: type, uplo: ?Uplo, m: usize, n: usize, alpha: T, beta: T, a: []T, lda: usize) LasetError!void {
     comptime requireFloat(T, "laset");
-    if (m < 0) return error.InvalidM;
-    if (n < 0) return error.InvalidN;
-    if (lda < @max(1, m)) return error.InvalidLda;
+    if (uplo) |u| if (u.isRev()) return error.UnsupportedUplo;
+    try util.holds(a.len, m, n, lda);
     if (m == 0 or n == 0) return;
-    if (!util.fitsMatrix(m, n, lda, @sizeOf(T))) return error.InvalidLda;
-    const rows: usize = @intCast(m);
-    const la: usize = @intCast(lda);
-    for (0..@intCast(n)) |j| {
+    const rows = m;
+    const la = lda;
+    for (0..n) |j| {
         const from = if (uplo == .l) @min(j, rows) else 0;
         const to = if (uplo == .u) @min(j + 1, rows) else rows;
         for (from..to) |i| a[i + j * la] = if (i == j) beta else alpha;

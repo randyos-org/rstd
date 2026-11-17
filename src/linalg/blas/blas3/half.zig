@@ -5,6 +5,7 @@
 const std = @import("std");
 const sysinfo = @import("builtin");
 const blas = @import("../__root__.zig");
+const l2 = @import("../blas2/core.zig");
 const driver = @import("driver.zig");
 const loops = @import("loops.zig");
 const interface = @import("interface.zig");
@@ -635,9 +636,9 @@ test "interface: gemmtHalf gives gemvHalf's bits per column, and leaves the othe
                         v.* = if (ab[1] == 0) halfOf(O, 0) else halfOf(O, ab[1] * valOf(O, v.*));
                     };
                 } else if (ta) {
-                    try blas.gemvHalf(check.io, comptime kind.gemv(), .t, @intCast(k), @intCast(len), alpha, cs.a.ptr + r0 * cs.lda, @intCast(cs.lda), bb, incb, beta, col, 1);
+                    try l2.gemvHalf(check.io, comptime kind.gemv(), .t, @intCast(k), @intCast(len), alpha, cs.a.ptr + r0 * cs.lda, @intCast(cs.lda), bb, incb, beta, col, 1);
                 } else {
-                    try blas.gemvHalf(check.io, comptime kind.gemv(), .n, @intCast(len), @intCast(k), alpha, cs.a.ptr + r0, @intCast(cs.lda), bb, incb, beta, col, 1);
+                    try l2.gemvHalf(check.io, comptime kind.gemv(), .n, @intCast(len), @intCast(k), alpha, cs.a.ptr + r0, @intCast(cs.lda), bb, incb, beta, col, 1);
                 }
             }
             for (want, cs.c, 0..) |w, g, at| {

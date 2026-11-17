@@ -25,14 +25,16 @@ const add = ops.add;
 const mul = ops.mul;
 const conj = ops.conj;
 
-/// Bad arguments of `trtri`, `trti2`, `lauum` and `lauu2`.
-pub const ArgError = interface.SquareError;
-/// What `trti2`, `lauu2` and `lauum` return.
+/// What `trti2` and `lauu2` return: a reversed `uplo`, a slice too short or
+/// a leading dimension too small.
+pub const ArgError = interface.TriangleError;
+/// What `lauum` returns: `ArgError`, and the allocator's and cancellation.
 pub const LauumError = ArgError || Allocator.Error || Io.Cancelable;
 /// What `trtri` returns: `Singular` for a zero on the diagonal.
-pub const TrtriError = LauumError || error{Singular};
-/// What `trtrs` returns: `Singular` for a zero on the diagonal.
-pub const TrtrsError = error{ InvalidUplo, InvalidTrans, InvalidN, InvalidNrhs, InvalidLda, InvalidLdb, Singular } || Allocator.Error || Io.Cancelable;
+pub const TrtriError = LauumError || interface.SingularError;
+/// What `trtrs` returns: `Singular` for a zero on the diagonal, a `trans`
+/// it does not take, and `TrtriError`'s others.
+pub const TrtrsError = TrtriError || interface.TransError;
 
 // ---- trtri, trti2 ----------------------------------------------------------------
 
@@ -41,33 +43,27 @@ pub const TrtrsError = error{ InvalidUplo, InvalidTrans, InvalidN, InvalidNrhs, 
 /// never read.
 ///
 /// For a non-unit `diag`, a zero on the diagonal returns `error.Singular`
-/// before `A` is touched, the first one's index (1-based) in `pivot`, the
-/// reference's `INFO`. `pivot` is written only then.
-pub fn trtri(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, diag: Diag, n: isize, a: [*]T, lda: isize, pivot: ?*usize) TrtriError!void {
+/// before `A` is touched.
+pub fn trtri(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, diag: Diag, n: usize, a: []T, lda: usize) TrtriError!void {
     comptime ops.requireFloat(T, "trtri");
-    if (!try interface.checkSquare(T, uplo, n, lda)) return;
-    const un: usize = @intCast(n);
-    const la: usize = @intCast(lda);
-    if (diag == .n) if (firstZero(T, un, a, la)) |k| {
-        if (pivot) |p| p.* = k;
-        return error.Singular;
-    };
-    return inverse(allocator, io, T, uplo == .u, diag == .u, un, a, la, interface.threads(.trtri, T, un));
+    try interface.holdsTriangle(uplo, n, a.len, lda);
+    if (n == 0) return;
+    if (diag == .n and firstZero(T, n, a.ptr, lda) != null) return error.Singular;
+    return inverse(allocator, io, T, uplo == .u, diag == .u, n, a.ptr, lda, interface.threads(.trtri, T, n));
 }
 
 /// `?TRTI2`: `trtri` unblocked (`trti2_U.c` and the rest, as loops). No
 /// singularity check, as in the reference: a zero on the diagonal divides.
-pub fn trti2(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, diag: Diag, n: isize, a: [*]T, lda: isize) LauumError!void {
+pub fn trti2(comptime T: type, uplo: Uplo, diag: Diag, n: usize, a: []T, lda: usize) ArgError!void {
     comptime ops.requireFloat(T, "trti2");
-    _ = allocator;
-    _ = io;
-    if (!try interface.checkSquare(T, uplo, n, lda)) return;
-    unblockedInverse(T, uplo == .u, diag == .u, @intCast(n), a, @intCast(lda));
+    try interface.holdsTriangle(uplo, n, a.len, lda);
+    if (n == 0) return;
+    unblockedInverse(T, uplo == .u, diag == .u, n, a.ptr, lda);
 }
 
-/// The first zero on the diagonal of the `n x n` `a` (1-based), or null.
+/// The first zero on the diagonal of the `n x n` `a` (0-based), or null.
 pub fn firstZero(comptime T: type, n: usize, a: [*]const T, lda: usize) ?usize {
-    for (0..n) |i| if (ops.isZero(T, a[i * (lda + 1)])) return i + 1;
+    for (0..n) |i| if (ops.isZero(T, a[i * (lda + 1)])) return i;
     return null;
 }
 
@@ -216,20 +212,19 @@ fn recip(comptime T: type, v: T) T {
 /// `?LAUUM`: `U Uᴴ` (`u`) or `Lᴴ L` (`l`) of the triangular `n x n` factor
 /// in `A`'s `uplo` triangle, into that triangle. The other triangle is never
 /// read. Complex: the diagonal comes out real, as `xLAUUM`'s.
-pub fn lauum(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, a: [*]T, lda: isize) LauumError!void {
+pub fn lauum(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: usize, a: []T, lda: usize) LauumError!void {
     comptime ops.requireFloat(T, "lauum");
-    if (!try interface.checkSquare(T, uplo, n, lda)) return;
-    const un: usize = @intCast(n);
-    return product(allocator, io, T, uplo == .u, un, a, @intCast(lda), interface.threads(.lauum, T, un));
+    try interface.holdsTriangle(uplo, n, a.len, lda);
+    if (n == 0) return;
+    return product(allocator, io, T, uplo == .u, n, a.ptr, lda, interface.threads(.lauum, T, n));
 }
 
 /// `?LAUU2`: `lauum` unblocked (`lauu2_U.c` and the rest, as loops).
-pub fn lauu2(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, a: [*]T, lda: isize) LauumError!void {
+pub fn lauu2(comptime T: type, uplo: Uplo, n: usize, a: []T, lda: usize) ArgError!void {
     comptime ops.requireFloat(T, "lauu2");
-    _ = allocator;
-    _ = io;
-    if (!try interface.checkSquare(T, uplo, n, lda)) return;
-    unblockedProduct(T, uplo == .u, @intCast(n), a, @intCast(lda));
+    try interface.holdsTriangle(uplo, n, a.len, lda);
+    if (n == 0) return;
+    unblockedProduct(T, uplo == .u, n, a.ptr, lda);
 }
 
 /// `lauum`'s algorithm: with `want` (`interface.threads`), the parallel one on
@@ -341,30 +336,19 @@ pub fn unblockedProduct(comptime T: type, upper: bool, n: usize, a: [*]T, lda: u
 /// upstream's `trtrs_single.c` has it.
 ///
 /// For a non-unit `diag`, a zero on the diagonal returns `error.Singular`
-/// before `B` is touched (even for `nrhs = 0`, as the reference), its index
-/// (1-based) in `pivot`.
-pub fn trtrs(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, trans: Trans, diag: Diag, n: isize, nrhs: isize, a: [*]const T, lda: isize, b: [*]T, ldb: isize, pivot: ?*usize) TrtrsError!void {
+/// before `B` is touched, even for `nrhs = 0`, as the reference.
+pub fn trtrs(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, trans: Trans, diag: Diag, n: usize, nrhs: usize, a: []const T, lda: usize, b: []T, ldb: usize) TrtrsError!void {
     comptime ops.requireFloat(T, "trtrs");
-    if (uplo.isRev()) return error.InvalidUplo;
-    if (trans.conjX()) return error.InvalidTrans;
-    if (n < 0) return error.InvalidN;
-    if (nrhs < 0) return error.InvalidNrhs;
-    if (lda < @max(1, n)) return error.InvalidLda;
-    if (ldb < @max(1, n)) return error.InvalidLdb;
+    try interface.takes(trans);
+    try interface.holdsTriangle(uplo, n, a.len, lda);
+    try util.holds(b.len, n, nrhs, ldb);
     if (n == 0) return;
-    if (!util.fitsMatrix(n, n, lda, @sizeOf(T))) return error.InvalidLda;
-    if (!util.fitsMatrix(n, nrhs, ldb, @sizeOf(T))) return error.InvalidLdb;
-    const m: usize = @intCast(n);
-    const la: usize = @intCast(lda);
-    if (diag == .n) if (firstZero(T, m, a, la)) |k| {
-        if (pivot) |p| p.* = k;
-        return error.Singular;
-    };
+    if (diag == .n and firstZero(T, n, a.ptr, lda) != null) return error.Singular;
     if (nrhs == 0) return;
     const vt = interface.table(T);
-    if (nrhs == 1) return triangular.trsvTable(allocator, io, T, vt, uplo, trans, diag, m, a, la, b);
-    const want = interface.threads(.trtrs, T, m) orelse 1;
-    try driver.trsm(allocator, io, T, vt, true, uplo == .u, trans.transposed(), trans.conjA(), diag == .u, m, @intCast(nrhs), scalar(T, 1), a, la, b, @intCast(ldb), want);
+    if (nrhs == 1) return triangular.trsvTable(allocator, io, T, vt, uplo, trans, diag, n, a.ptr, lda, b.ptr);
+    const want = interface.threads(.trtrs, T, n) orelse 1;
+    try driver.trsm(allocator, io, T, vt, true, uplo == .u, trans.transposed(), trans.conjA(), diag == .u, n, nrhs, scalar(T, 1), a.ptr, lda, b.ptr, ldb, want);
 }
 
 // ---- tests ---------------------------------------------------------------------
@@ -445,26 +429,26 @@ test "trti2 and lauu2 are the unblocked forms, and every size picks an algorithm
     inline for (.{ f64, types.Complex32 }) |T| for ([_]bool{ true, false }) |upper| {
         var t = try fixtures.Tri(T).init(al, 9, upper, false, 3);
         defer t.deinit(al);
-        try trti2(al, check.io, T, if (upper) .u else .l, .n, 9, t.a.ptr, @intCast(t.lda));
+        try trti2(T, if (upper) .u else .l, .n, 9, t.a, t.lda);
         try t.expectInverse();
         t.store();
-        try lauu2(al, check.io, T, if (upper) .u else .l, 9, t.a.ptr, @intCast(t.lda));
+        try lauu2(T, if (upper) .u else .l, 9, t.a, t.lda);
         try t.expectProduct();
         // the public routines, past upstream's thresholds too
         for ([_]usize{ 40, 200 }) |n| {
             if (check.rig() and n > 70) continue;
             var p = try fixtures.Tri(T).init(al, n, upper, false, n);
             defer p.deinit(al);
-            try trtri(al, check.io, T, if (upper) .u else .l, .n, @intCast(n), p.a.ptr, @intCast(p.lda), null);
+            try trtri(al, check.io, T, if (upper) .u else .l, .n, n, p.a, p.lda);
             try p.expectInverse();
             p.store();
-            try lauum(al, check.io, T, if (upper) .u else .l, @intCast(n), p.a.ptr, @intCast(p.lda));
+            try lauum(al, check.io, T, if (upper) .u else .l, n, p.a, p.lda);
             try p.expectProduct();
         }
     };
 }
 
-test "trtri: a zero on the diagonal, the first one's index, nothing written; a unit diagonal is not read" {
+test "trtri: a zero on the diagonal is Singular, nothing written; a unit diagonal is not read" {
     const al = testing.failing_allocator;
     inline for (.{ f64, types.Complex64 }) |T| for ([_]Uplo{ .u, .l }) |uplo| {
         var a: [16]T = @splat(scalar(T, 0));
@@ -474,37 +458,32 @@ test "trtri: a zero on the diagonal, the first one's index, nothing written; a u
         // a part only zero is not zero
         if (comptime isComplex(T)) a[0] = .init(0, 1);
         const before = a;
-        var pivot: usize = 99;
-        try testing.expectError(error.Singular, trtri(al, check.io, T, uplo, .n, 4, &a, 4, &pivot));
-        try testing.expectEqual(@as(usize, 2), pivot);
+        try testing.expectEqual(@as(?usize, 1), firstZero(T, 4, &a, 4));
+        try testing.expectError(error.Singular, trtri(al, check.io, T, uplo, .n, 4, &a, 4));
         try testing.expectEqualSlices(T, &before, &a);
-        // `u`: the zeros are ones; `pivot` is written only on failure
-        pivot = 99;
-        try trtri(testing.allocator, check.io, T, uplo, .u, 4, &a, 4, &pivot);
-        try testing.expectEqual(@as(usize, 99), pivot);
+        // `u`: the zeros are ones
+        try trtri(testing.allocator, check.io, T, uplo, .u, 4, &a, 4);
         for (0..4) |i| try testing.expect(lcheck.sameBits(T, before[i * 5], a[i * 5]));
     };
 }
 
-test "trtri, trti2, lauum, lauu2: the first bad argument, nothing read for n = 0" {
+test "trtri, trti2, lauum, lauu2: a reversed uplo, a short slice, a small leading dimension; nothing read for n = 0" {
     const fa = testing.failing_allocator;
     var a: [4]f64 = @splat(nan);
-    try testing.expectError(error.InvalidUplo, trtri(fa, check.io, f64, .v, .n, -1, &a, 0, null));
-    try testing.expectError(error.InvalidN, trtri(fa, check.io, f64, .u, .n, -1, &a, 0, null));
-    try testing.expectError(error.InvalidLda, trtri(fa, check.io, f64, .l, .u, 2, &a, 1, null));
-    try testing.expectError(error.InvalidLda, trtri(fa, check.io, f64, .l, .u, 2, &a, std.math.maxInt(isize) / 2, null));
-    try testing.expectError(error.InvalidUplo, trti2(fa, check.io, f64, .m, .n, -1, &a, 0));
-    try testing.expectError(error.InvalidN, trti2(fa, check.io, f64, .u, .u, -1, &a, 0));
-    try testing.expectError(error.InvalidLda, trti2(fa, check.io, f64, .u, .n, 2, &a, 1));
-    try testing.expectError(error.InvalidUplo, lauum(fa, check.io, f64, .v, -1, &a, 0));
-    try testing.expectError(error.InvalidN, lauum(fa, check.io, f64, .l, -1, &a, 0));
-    try testing.expectError(error.InvalidLda, lauum(fa, check.io, f64, .l, 2, &a, 1));
-    try testing.expectError(error.InvalidUplo, lauu2(fa, check.io, f64, .m, -1, &a, 0));
-    try testing.expectError(error.InvalidLda, lauu2(fa, check.io, f64, .u, 0, &a, 0));
-    try trtri(fa, check.io, f64, .u, .n, 0, &a, 1, null);
-    try trti2(fa, check.io, f64, .l, .n, 0, &a, 1);
+    try testing.expectError(error.UnsupportedUplo, trtri(fa, check.io, f64, .v, .n, 2, &a, 2));
+    try testing.expectError(error.LeadingDimensionTooSmall, trtri(fa, check.io, f64, .l, .u, 2, &a, 1));
+    try testing.expectError(error.SliceTooShort, trtri(fa, check.io, f64, .l, .u, 2, &a, std.math.maxInt(usize) / 2));
+    try testing.expectError(error.SliceTooShort, trtri(fa, check.io, f64, .l, .u, 3, &a, 3));
+    try testing.expectError(error.UnsupportedUplo, trti2(f64, .m, .n, 2, &a, 2));
+    try testing.expectError(error.LeadingDimensionTooSmall, trti2(f64, .u, .n, 2, &a, 1));
+    try testing.expectError(error.UnsupportedUplo, lauum(fa, check.io, f64, .v, 2, &a, 2));
+    try testing.expectError(error.LeadingDimensionTooSmall, lauum(fa, check.io, f64, .l, 2, &a, 1));
+    try testing.expectError(error.UnsupportedUplo, lauu2(f64, .m, 2, &a, 2));
+    try testing.expectError(error.LeadingDimensionTooSmall, lauu2(f64, .u, 0, &a, 0));
+    try trtri(fa, check.io, f64, .u, .n, 0, &a, 1);
+    try trti2(f64, .l, .n, 0, &a, 1);
     try lauum(fa, check.io, f64, .u, 0, &a, 1);
-    try lauu2(fa, check.io, f64, .l, 0, &a, 1);
+    try lauu2(f64, .l, 0, &a, 1);
     for (a) |v| try testing.expect(std.math.isNan(v));
 }
 
@@ -526,7 +505,7 @@ fn solveCase(comptime T: type, al: Allocator, t: *const fixtures.Tri(T), trans: 
     var poison: guard.Poison = .{ .child = al };
     const uplo: Uplo = if (t.upper) .u else .l;
     const diag: Diag = if (t.unit) .u else .n;
-    try trtrs(poison.allocator(), check.io, T, uplo, trans, diag, @intCast(n), @intCast(nrhs), t.a.ptr, @intCast(t.lda), b.ptr, @intCast(ldb), null);
+    try trtrs(poison.allocator(), check.io, T, uplo, trans, diag, n, nrhs, t.a, t.lda, b, ldb);
     const tr = trans.transposed();
     const cj = isComplex(T) and trans.conjA();
     const eps: f128 = std.math.floatEps(Float(T));
@@ -572,28 +551,22 @@ test "trtrs: op(A) X = B, every op, both triangles and diagonals, one and severa
     try check.eachCore(solveCases);
 }
 
-test "trtrs: a zero on the diagonal before B is touched, even with no right-hand side; the first bad argument" {
+test "trtrs: a zero on the diagonal before B is touched, even with no right-hand side; bad arguments" {
     const fa = testing.failing_allocator;
     var a: [4]f64 = .{ 1, 2, 3, 0 };
     var b: [4]f64 = @splat(nan);
-    var pivot: usize = 99;
-    try testing.expectError(error.Singular, trtrs(fa, check.io, f64, .u, .n, .n, 2, 2, &a, 2, &b, 2, &pivot));
-    try testing.expectEqual(@as(usize, 2), pivot);
-    pivot = 99;
-    try testing.expectError(error.Singular, trtrs(fa, check.io, f64, .l, .t, .n, 2, 0, &a, 2, &b, 2, &pivot));
-    try testing.expectEqual(@as(usize, 2), pivot);
+    try testing.expectError(error.Singular, trtrs(fa, check.io, f64, .u, .n, .n, 2, 2, &a, 2, &b, 2));
+    try testing.expectError(error.Singular, trtrs(fa, check.io, f64, .l, .t, .n, 2, 0, &a, 2, &b, 2));
     // a unit diagonal is not read
-    try trtrs(fa, check.io, f64, .u, .n, .u, 2, 0, &a, 2, &b, 2, &pivot);
+    try trtrs(fa, check.io, f64, .u, .n, .u, 2, 0, &a, 2, &b, 2);
     for (b) |v| try testing.expect(std.math.isNan(v));
-    // the reference's order: `uplo` before `diag` and `trans`
-    try testing.expectError(error.InvalidUplo, trtrs(fa, check.io, f64, .v, .o, .n, -1, -1, &a, 0, &b, 0, null));
-    try testing.expectError(error.InvalidTrans, trtrs(fa, check.io, f64, .u, .o, .n, -1, -1, &a, 0, &b, 0, null));
-    try testing.expectError(error.InvalidN, trtrs(fa, check.io, f64, .u, .n, .n, -1, -1, &a, 0, &b, 0, null));
-    try testing.expectError(error.InvalidNrhs, trtrs(fa, check.io, f64, .u, .n, .n, 2, -1, &a, 0, &b, 0, null));
-    try testing.expectError(error.InvalidLda, trtrs(fa, check.io, f64, .u, .n, .n, 2, 1, &a, 1, &b, 0, null));
-    try testing.expectError(error.InvalidLdb, trtrs(fa, check.io, f64, .u, .n, .n, 2, 1, &a, 2, &b, 1, null));
-    try testing.expectError(error.InvalidLdb, trtrs(fa, check.io, f64, .u, .n, .n, 2, 2, &a, 2, &b, std.math.maxInt(isize) / 2, null));
-    try trtrs(fa, check.io, f64, .u, .n, .n, 0, 2, &a, 1, &b, 1, null);
+    try testing.expectError(error.UnsupportedUplo, trtrs(fa, check.io, f64, .v, .n, .n, 2, 2, &a, 2, &b, 2));
+    try testing.expectError(error.UnsupportedTranspose, trtrs(fa, check.io, f64, .u, .o, .n, 2, 2, &a, 2, &b, 2));
+    try testing.expectError(error.LeadingDimensionTooSmall, trtrs(fa, check.io, f64, .u, .n, .n, 2, 1, &a, 1, &b, 2));
+    try testing.expectError(error.LeadingDimensionTooSmall, trtrs(fa, check.io, f64, .u, .n, .n, 2, 1, &a, 2, &b, 1));
+    try testing.expectError(error.SliceTooShort, trtrs(fa, check.io, f64, .u, .n, .n, 2, 2, &a, 2, &b, std.math.maxInt(usize) / 2));
+    try testing.expectError(error.SliceTooShort, trtrs(fa, check.io, f64, .u, .n, .n, 2, 3, &a, 2, &b, 2));
+    try trtrs(fa, check.io, f64, .u, .n, .n, 0, 2, &a, 1, &b, 1);
 }
 
 /// Inputs of a threaded-bits case: a triangle, copied into each run's `out`.
@@ -618,7 +591,7 @@ fn Threaded(comptime T: type) type {
             blas.config.cpu_count = want;
             const n = c.t.n;
             check.fill(T, out, 9);
-            try trtrs(testing.allocator, io, T, if (c.t.upper) .u else .l, .c, .n, @intCast(n), @intCast(out.len / n), c.t.a.ptr, @intCast(c.t.lda), out.ptr, @intCast(n), null);
+            try trtrs(testing.allocator, io, T, if (c.t.upper) .u else .l, .c, .n, n, out.len / n, c.t.a, c.t.lda, out, n);
         }
     };
 }

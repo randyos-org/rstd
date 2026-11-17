@@ -16,7 +16,7 @@ pub const Machine = struct {
     /// Overrides the build's optimize mode; OpenBIOS maps about 4 MB of a sparc64
     /// image, which debug builds of the tests outgrow. sparc64 uses `.fast`, as
     /// `.small` from Zig 0.18.0-dev.250 jumps into unrelated code in the gemm
-    /// parameter test (an LLVM `-Oz` miscompile on sparc64, it appears).
+    /// parameter test (an LLVM `-Oz` miscompile on sparc64, it appears; issue #183).
     optimize: ?Optimize = null,
     memory: []const u8 = "128M",
     /// `memory` under `-Drstd-tsan`, whose shadow memory and bigger test
@@ -737,6 +737,18 @@ const base_machines = [_]Machine{
         .args = &.{ "-M", "virt", "-cpu", "cortex-a72" },
         .hvf = &.{ "-accel", "hvf", "-M", "virt", "-cpu", "host" },
         .kvm = &.{ "-accel", "kvm", "-M", "virt,gic-version=host", "-cpu", "host" },
+        .memory = "1G",
+        .boot = .{ .kernel = .{
+            .linker_script = "",
+            .firmware = "edk2-aarch64-code.fd",
+        } },
+    },
+    .{
+        // the SVE and SME cores, linked only for an SVE target; TCG, as `aarch64-sve`
+        .name = "aarch64-uefi-sve",
+        .query = .{ .cpu_arch = .aarch64, .os_tag = .uefi, .cpu_model = .{ .explicit = &std.Target.aarch64.cpu.neoverse_v1 } },
+        .qemu = "qemu-system-aarch64",
+        .args = &.{ "-M", "virt", "-cpu", "max,pauth-impdef=on" },
         .memory = "1G",
         .boot = .{ .kernel = .{
             .linker_script = "",

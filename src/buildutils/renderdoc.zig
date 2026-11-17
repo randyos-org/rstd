@@ -11,6 +11,8 @@ const DepModule = rstdbuild.DepModule;
 pub fn addRenderDoc(b: *Build, comptime build_zig: type, target: ResolvedTarget, optimize: Optimize) ?DepModule {
     // Ask for everything before bailing, so one fetch round gets it all.
     const renderdoc_dep = b.dependencyLazy("renderdoc", .{}) catch return null;
+    // parked until translate-c's Aro builds on this Zig (issue #217); the
+    // built-in `addTranslateC` meanwhile
     // const translate_c_dep = b.lazyDependency("translate_c", .{}) orelse return null;
     // // std.Build.Step.TranslateC is deprecated (0.17.0) for this package.
     // const translate_c = b.lazyImport(build_zig, "translate_c") orelse return null;

@@ -111,7 +111,28 @@ pub fn build(b: *Build) !void {
     const rstd_mod = try addRstdModule(b, "rstd", target, optimize, blas_cores, .{ .vulkan = vulkan_opt, .renderdoc = renderdoc_opt });
     if (vulkan_opt) {
         try rstdbuild.wireRglShaders(b, optimize, rstd_mod);
-        rstdbuild.addVulkan(b).addImportToModule(rstd_mod);
+        const vulkan_mod = rstdbuild.addVulkan(b);
+        vulkan_mod.addImportToModule(rstd_mod);
+        // shaderlib's probes and rgl's pipelines on a headless device, their
+        // SPIR-V embedded (tools/shader_run, issue #380); libc for `dlopen`, as
+        // std's libc-free ELF loader misses the Vulkan loader on Linux
+        const shader_run = b.addExecutable(.{ .name = "shader-run", .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/shader_run/main.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = if (target.result.os.tag == .windows) null else true,
+            .imports = &.{
+                .{ .name = "rstd", .module = rstd_mod },
+                .{ .name = vulkan_mod.name, .module = vulkan_mod.mod },
+                .{ .name = "probe", .module = b.createModule(.{
+                    .root_source_file = b.path("src/rgl/shaders/probe.zig"),
+                    .target = target,
+                    .optimize = optimize,
+                    .imports = &.{.{ .name = "rstd", .module = rstd_mod }},
+                }) },
+            },
+        }) });
+        b.step("shader-run", "Run shaderlib's probes and rgl's pipelines on the first Vulkan device and check them (tools/shader_run)").dependOn(&b.addRunArtifact(shader_run).step);
         // one shader per shaderlib operation, and rgl's own, to disassemble
         // (src/rgl/shaders/lib/readme.md)
         const probes = b.step("shader-probes", "Build each shaderlib probe and rgl's shaders to SPIR-V in zig-out/spv");
@@ -119,11 +140,18 @@ pub fn build(b: *Build) !void {
         // each probe's disassembly must show its native instruction
         // (`probe.expect`); spirv-dis is the Vulkan SDK's
         const spirv_dis = b.findProgramLazy(.{ .names = &.{"spirv-dis"} });
+        // every stage of every shader through the Vulkan SDK's validator, for
+        // the shaders' Vulkan version (issue #353)
+        const shader_check = b.step("shader-check", "Validate every shaderlib probe and rgl shader with spirv-val (Vulkan 1.2)");
+        const spirv_val = b.findProgramLazy(.{ .names = &.{"spirv-val"} });
         inline for (@typeInfo(shader_probe.Op).@"enum".field_names) |op| {
+            const opts = b.addOptions();
+            opts.addOption([]const u8, "op", op);
+            const s = try rstdbuild.addShaderWith(b, optimize, b.path("src/rgl/shaders/probe.zig"), op, .{ ._rstd_mod = rstd_mod }, &.{.{ .name = "probe_op", .module = opts.createModule() }});
+            shader_run.root_module.addAnonymousImport(op ++ ".vert.spv", .{ .root_source_file = s.spv_vert_path });
+            shader_run.root_module.addAnonymousImport(op ++ ".frag.spv", .{ .root_source_file = s.spv_frag_path });
             if (only == null or std.mem.eql(u8, only.?, op)) {
-                const opts = b.addOptions();
-                opts.addOption([]const u8, "op", op);
-                const s = try rstdbuild.addShaderWith(b, optimize, b.path("src/rgl/shaders/probe.zig"), op, .{ ._rstd_mod = rstd_mod }, &.{.{ .name = "probe_op", .module = opts.createModule() }});
+                validate(b, shader_check, spirv_val, s, op);
                 probes.dependOn(&b.addInstallFile(s.spv_frag_path, "spv/" ++ op ++ ".frag.spv").step);
                 if (comptime shader_probe.expect(@field(shader_probe.Op, op))) |text| {
                     const dis = std.Build.Step.Run.create(b, "spirv-dis " ++ op);
@@ -136,6 +164,7 @@ pub fn build(b: *Build) !void {
         }
         for ([_][]const u8{ "shapes", "glyph", "image" }) |n| {
             const s = try rstdbuild.addShader(b, optimize, b.path(b.fmt("src/rgl/shaders/{s}.zig", .{n})), n, .{ ._rstd_mod = rstd_mod });
+            validate(b, shader_check, spirv_val, s, n);
             probes.dependOn(&b.addInstallFile(s.spv_frag_path, b.fmt("spv/{s}.frag.spv", .{n})).step);
             probes.dependOn(&b.addInstallFile(s.spv_vert_path, b.fmt("spv/{s}.vert.spv", .{n})).step);
         }
@@ -249,4 +278,16 @@ pub fn build(b: *Build) !void {
     const rigs = try qemutest.addQemuTests(b, optimize);
     if (rigs.linux_vm) try bench.addLinuxBenches(b, rigs.test_host, rigs.whpx_host);
     try wasmtest.addWasmTests(b, optimize);
+}
+
+/// `spirv-val` on both of `s`'s stages, as a dependency of `step`.
+fn validate(b: *Build, step: *Build.Step, spirv_val: rstdbuild.LazyPath, s: rstdbuild.spirv.CompiledShader, name: []const u8) void {
+    for ([_]struct { []const u8, rstdbuild.LazyPath }{ .{ "vert", s.spv_vert_path }, .{ "frag", s.spv_frag_path } }) |stage| {
+        const run = Build.Step.Run.create(b, b.fmt("spirv-val {s}.{s}", .{ name, stage[0] }));
+        run.addFileArg(spirv_val);
+        run.addArgs(&.{ "--target-env", "vulkan1.2" });
+        run.addFileArg(stage[1]);
+        run.expectExitCode(0);
+        step.dependOn(&run.step);
+    }
 }

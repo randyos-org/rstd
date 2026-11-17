@@ -12,6 +12,7 @@ const blas_calls = @import("../blas_calls.zig");
 const auxiliary = @import("../auxiliary.zig");
 const hessenberg = @import("../hessenberg.zig");
 const evd = @import("../evd.zig");
+const schur = @import("../schur.zig");
 
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
@@ -21,8 +22,8 @@ const Float = ops.Float;
 const isComplex = ops.isComplex;
 const Uplo = types.Uplo;
 const Jobz = evd.Jobz;
-const Eigenvalues = evd.Eigenvalues;
-const GeesSelect = evd.GeesSelect;
+const Eigenvalues = schur.Eigenvalues;
+const GeesSelect = schur.GeesSelect;
 
 const test_types = .{ f32, f64, types.Complex32, types.Complex64 };
 
@@ -74,8 +75,8 @@ fn decompose(comptime T: type, al: Allocator, io: Io, r: Routine, jobz: Jobz, up
         if (if (uplo == .l) i >= j else i <= j) a.at(i, j).* = a0.get(i, j);
     };
     switch (r) {
-        .syevd => try evd.syevd(al, io, T, jobz, uplo, @intCast(n), a.ptr, @intCast(lda), w.ptr),
-        .syev => try evd.syev(al, io, T, jobz, uplo, @intCast(n), a.ptr, @intCast(lda), w.ptr),
+        .syevd => try evd.syevd(al, io, T, jobz, uplo, n, a.slice(), lda, w),
+        .syev => try evd.syev(al, io, T, jobz, uplo, n, a.slice(), lda, w),
     }
     for (0..n) |j| try testing.expect(lcheck.isNanT(T, a.get(n, j)));
     if (v) |x| x.copyFrom(a.sub(0, 0, n, n));
@@ -181,7 +182,7 @@ test "faer evd: OpenBLAS's test_laed3_nan.c: dsyevd on I + 10 v vᵀ, nearly deg
         const a = try ops.alloc(f64, al, n, n);
         defer ops.free(f64, al, a);
         a.copyFrom(a0);
-        try evd.syevd(al, check.io, f64, .v, .u, @intCast(n), a.ptr, @intCast(n), w.ptr);
+        try evd.syevd(al, check.io, f64, .v, .u, n, a.slice(), n, w);
         for (w) |x| try testing.expect(!std.math.isNan(x));
         for (a.ptr[0 .. n * n]) |x| try testing.expect(!std.math.isNan(x));
         try expectSym(f64, al, a0, w, a, "laed3");
@@ -218,11 +219,11 @@ test "faer evd: NaN and infinity are NoConvergence; scaled past the bounds; 1 x 
             const a = try ops.alloc(T, al, n, n);
             defer ops.free(T, al, a);
             a.copyFrom(a0);
-            try evd.syevd(al, check.io, T, .n, .l, n, a.ptr, n, &w0);
+            try evd.syevd(al, check.io, T, .n, .l, n, a.slice(), n, &w0);
             for (0..n) |j| for (a0.col(j)[0..n]) |*x| {
                 x.* = ops.mulReal(T, x.*, sc / 8);
             };
-            try evd.syevd(al, check.io, T, .n, .l, n, a0.ptr, n, &w1);
+            try evd.syevd(al, check.io, T, .n, .l, n, a0.slice(), n, &w1);
             const tol = tolerance(F, n, 1) * (sc / 8) * 8;
             for (w0, w1) |x, y| try testing.expect(@abs(x * (sc / 8) - y) <= tol);
         }
@@ -235,9 +236,10 @@ test "faer evd: NaN and infinity are NoConvergence; scaled past the bounds; 1 x 
     const fa = testing.failing_allocator;
     var a: [4]f64 = @splat(std.math.nan(f64));
     var w: [2]f64 = @splat(std.math.nan(f64));
-    try testing.expectError(error.InvalidUplo, evd.syevd(fa, check.io, f64, .v, .v, -1, &a, 0, &w));
-    try testing.expectError(error.InvalidN, evd.syevd(fa, check.io, f64, .v, .l, -1, &a, 0, &w));
-    try testing.expectError(error.InvalidLda, evd.syev(fa, check.io, f64, .v, .u, 2, &a, 1, &w));
+    try testing.expectError(error.UnsupportedUplo, evd.syevd(fa, check.io, f64, .v, .v, 2, &a, 2, &w));
+    try testing.expectError(error.LeadingDimensionTooSmall, evd.syev(fa, check.io, f64, .v, .u, 2, &a, 1, &w));
+    try testing.expectError(error.SliceTooShort, evd.syevd(fa, check.io, f64, .v, .l, 2, a[0..3], 2, &w));
+    try testing.expectError(error.SliceTooShort, evd.syev(fa, check.io, f64, .n, .l, 2, &a, 2, w[0..1]));
     try evd.syevd(fa, check.io, f64, .v, .l, 0, &a, 1, &w);
     for (a ++ w) |x| try testing.expect(std.math.isNan(x));
 }
@@ -266,7 +268,7 @@ test "faer evd: syevd gives one worker's bits at any worker count" {
         for (0..test_io.worker_runs.len) |c| {
             const io = runs.io(c);
             @memcpy(outs[c], a0.ptr[0 .. n * n]);
-            try evd.syevd(al, io, T, .v, .l, n, outs[c].ptr, n, ws[c].ptr);
+            try evd.syevd(al, io, T, .v, .l, n, outs[c], n, ws[c]);
         }
         try test_io.expectSameBytes(outs);
         try test_io.expectSameBytes(ws);
@@ -359,8 +361,8 @@ fn geevCase(comptime T: type, al: Allocator, io: Io, a0: Mat(T)) !void {
         a.sub(0, 0, n, n).copyFrom(a0);
         const jv: Jobz = if (pass == 0) .v else .n;
         const off = pass * 2 * n;
-        const w: Eigenvalues(T) = if (comptime isComplex(T)) cw.ptr + pass * n else .{ .re = ev.ptr + off, .im = ev.ptr + off + n };
-        try evd.geev(al, io, T, jv, jv, @intCast(n), a.ptr, @intCast(n + 1), w, vl.ptr, @intCast(n), vr.ptr, @intCast(n), null);
+        const w: Eigenvalues(T) = if (comptime isComplex(T)) cw[pass * n ..][0..n] else .{ .re = ev[off..][0..n], .im = ev[off + n ..][0..n] };
+        try evd.geev(al, io, T, jv, jv, n, a.slice(), n + 1, w, vl.slice(), n, vr.slice(), n, null);
         for (0..n) |j| try testing.expect(lcheck.isNanT(T, a.get(n, j)));
     }
     const etol = tolerance(F, n, auxiliary.normMax(T, a0));
@@ -487,7 +489,7 @@ test "faer evd: geev's eigenvectors that overflow unscaled (xTREVC3's scaling)" 
     }
 }
 
-test "faer evd: geev's NaN is InvalidA, infinity NoConvergence; scaled past the bounds; arguments" {
+test "faer evd: geev's NaN is NanInA, infinity NoConvergence; scaled past the bounds; arguments" {
     const al = testing.allocator;
     inline for (.{ f64, types.Complex32 }) |T| {
         const F = Float(T);
@@ -495,12 +497,12 @@ test "faer evd: geev's NaN is InvalidA, infinity NoConvergence; scaled past the 
         check.fill(T, &a, 1);
         var e: [6]F = undefined;
         var ce: [3]T = undefined;
-        const w: Eigenvalues(T) = if (comptime isComplex(T)) &ce else .{ .re = &e, .im = e[3..].ptr };
+        const w: Eigenvalues(T) = if (comptime isComplex(T)) &ce else .{ .re = e[0..3], .im = e[3..] };
         var v: [9]T = undefined;
         a[4] = ops.scalar(T, std.math.nan(F));
-        try testing.expectError(error.InvalidA, evd.geev(al, check.io, T, .v, .n, 3, &a, 3, w, &v, 3, &v, 1, null));
+        try testing.expectError(error.NanInA, evd.geev(al, check.io, T, .v, .n, 3, &a, 3, w, &v, 3, v[0..0], 1, null));
         a[4] = ops.scalar(T, std.math.inf(F));
-        try testing.expectError(error.NoConvergence, evd.geev(al, check.io, T, .n, .n, 3, &a, 3, w, &v, 1, &v, 1, null));
+        try testing.expectError(error.NoConvergence, evd.geev(al, check.io, T, .n, .n, 3, &a, 3, w, v[0..0], 1, v[0..0], 1, null));
         // scaled past SMLNUM and BIGNUM: the unscaled matrix's vectors
         // (residuals on it, as they would overflow on the scaled one) and
         // its values times the scale
@@ -524,8 +526,8 @@ test "faer evd: geev's NaN is InvalidA, infinity NoConvergence; scaled past the 
             defer ops.free(T, al, vr);
             var ev: [2 * n]F = undefined;
             var cw: [n]T = undefined;
-            const ws: Eigenvalues(T) = if (comptime isComplex(T)) &cw else .{ .re = &ev, .im = ev[n..].ptr };
-            try evd.geev(al, check.io, T, .v, .v, n, as.ptr, n, ws, vl.ptr, n, vr.ptr, n, null);
+            const ws: Eigenvalues(T) = if (comptime isComplex(T)) &cw else .{ .re = ev[0..n], .im = ev[n..] };
+            try evd.geev(al, check.io, T, .v, .v, n, as.slice(), n, ws, vl.slice(), n, vr.slice(), n, null);
             for (&ev) |*x| x.* /= sc / 8;
             for (&cw) |*x| x.* = ops.mulReal(T, x.*, 1 / (sc / 8));
             if (comptime isComplex(T)) {
@@ -540,11 +542,12 @@ test "faer evd: geev's NaN is InvalidA, infinity NoConvergence; scaled past the 
     var wr: [2]f64 = @splat(std.math.nan(f64));
     var wi: [2]f64 = @splat(std.math.nan(f64));
     const w: Eigenvalues(f64) = .{ .re = &wr, .im = &wi };
-    try testing.expectError(error.InvalidN, evd.geev(fa, check.io, f64, .v, .v, -1, &a, 0, w, &a, 0, &a, 0, null));
-    try testing.expectError(error.InvalidLda, evd.geev(fa, check.io, f64, .v, .v, 2, &a, 1, w, &a, 0, &a, 0, null));
-    try testing.expectError(error.InvalidLdvl, evd.geev(fa, check.io, f64, .v, .v, 2, &a, 2, w, &a, 1, &a, 0, null));
-    try testing.expectError(error.InvalidLdvl, evd.geev(fa, check.io, f64, .n, .v, 2, &a, 2, w, &a, 0, &a, 2, null));
-    try testing.expectError(error.InvalidLdvr, evd.geev(fa, check.io, f64, .n, .v, 2, &a, 2, w, &a, 1, &a, 1, null));
+    try testing.expectError(error.LeadingDimensionTooSmall, evd.geev(fa, check.io, f64, .v, .v, 2, &a, 1, w, &a, 2, &a, 2, null));
+    try testing.expectError(error.LeadingDimensionTooSmall, evd.geev(fa, check.io, f64, .v, .v, 2, &a, 2, w, &a, 1, &a, 2, null));
+    try testing.expectError(error.LeadingDimensionTooSmall, evd.geev(fa, check.io, f64, .n, .v, 2, &a, 2, w, a[0..0], 0, &a, 1, null));
+    try testing.expectError(error.SliceTooShort, evd.geev(fa, check.io, f64, .n, .n, 2, a[0..3], 2, w, a[0..0], 0, a[0..0], 0, null));
+    try testing.expectError(error.SliceTooShort, evd.geev(fa, check.io, f64, .n, .v, 2, &a, 2, w, a[0..0], 0, a[0..3], 2, null));
+    try testing.expectError(error.SliceTooShort, evd.geev(fa, check.io, f64, .n, .n, 2, &a, 2, .{ .re = &wr, .im = wi[0..1] }, a[0..0], 0, a[0..0], 0, null));
     try evd.geev(fa, check.io, f64, .v, .v, 0, &a, 1, w, &a, 1, &a, 1, null);
     for (a ++ wr ++ wi) |x| try testing.expect(std.math.isNan(x));
 }
@@ -562,7 +565,7 @@ test "faer evd: geev's INFO > 0: w[i..n] converged and scaled back, the count in
         var ev: [2 * n]F = undefined;
         var cw: [n]T = undefined;
         var a = a0;
-        const w0: Eigenvalues(T) = if (comptime isComplex(T)) &cw else .{ .re = &ev, .im = ev[n..].ptr };
+        const w0: Eigenvalues(T) = if (comptime isComplex(T)) &cw else .{ .re = ev[0..n], .im = ev[n..] };
         try evd.geev(al, check.io, T, .n, .n, n, &a, n, w0, &v, 1, &v, 1, null);
         for ([_]F{ 1, std.math.ldexp(@as(F, 1), std.math.floatExponentMin(F) + 8) }) |sc| {
             ops.test_iter_limit = 10;
@@ -570,7 +573,7 @@ test "faer evd: geev's INFO > 0: w[i..n] converged and scaled back, the count in
             for (&a, a0) |*x, y| x.* = ops.mulReal(T, y, sc);
             var ev1: [2 * n]F = undefined;
             var cw1: [n]T = undefined;
-            const w1: Eigenvalues(T) = if (comptime isComplex(T)) &cw1 else .{ .re = &ev1, .im = ev1[n..].ptr };
+            const w1: Eigenvalues(T) = if (comptime isComplex(T)) &cw1 else .{ .re = ev1[0..n], .im = ev1[n..] };
             var info: usize = 0;
             var vr: [n * n]T = undefined;
             try testing.expectError(error.NoConvergence, evd.geev(al, check.io, T, .n, .v, n, &a, n, w1, &v, 1, &vr, n, &info));
@@ -624,8 +627,8 @@ test "faer evd: geev gives one worker's bits at any worker count" {
             const io = runs.io(c);
             const o = outs[c];
             @memcpy(o[0 .. n * n], a0.ptr[0 .. n * n]);
-            const w: Eigenvalues(T) = if (comptime isComplex(T)) evs[c].ptr else .{ .re = evs[c].ptr, .im = evs[c].ptr + n };
-            try evd.geev(al, io, T, .v, .v, n, o.ptr, n, w, o.ptr + n * n, n, o.ptr + 2 * n * n, n, null);
+            const w: Eigenvalues(T) = if (comptime isComplex(T)) evs[c][0..n] else .{ .re = evs[c][0..n], .im = evs[c][n..] };
+            try evd.geev(al, io, T, .v, .v, n, o[0 .. n * n], n, w, o[n * n ..][0 .. n * n], n, o[2 * n * n ..], n, null);
         }
         try test_io.expectSameBytes(outs);
         try test_io.expectSameBytes(evs);
@@ -651,8 +654,8 @@ test "faer evd: geev balances, so D M D⁻¹ keeps M's eigenvalues to M's scale 
         var cw: [2 * n]T = undefined;
         var v: [1]T = undefined;
         for ([_]Mat(T){ m, a }, 0..) |x, p| {
-            const w: Eigenvalues(T) = if (comptime isComplex(T)) cw[p * n ..].ptr else .{ .re = ev[2 * p * n ..].ptr, .im = ev[2 * p * n + n ..].ptr };
-            try evd.geev(al, check.io, T, .n, .n, n, x.ptr, n, w, &v, 1, &v, 1, null);
+            const w: Eigenvalues(T) = if (comptime isComplex(T)) cw[p * n ..][0..n] else .{ .re = ev[2 * p * n ..][0..n], .im = ev[2 * p * n + n ..][0..n] };
+            try evd.geev(al, check.io, T, .n, .n, n, x.slice(), n, w, &v, 1, &v, 1, null);
         }
         // each of A's within tolerance of one of M's
         const tol = tolerance(F, n, 4);
@@ -667,13 +670,14 @@ test "faer evd: geev balances, so D M D⁻¹ keeps M's eigenvalues to M's scale 
     }
 }
 
-test "hseqr: Zᴴ A Z = T after gehrd and orghr, the ilo..ihi block, both jobs, real and complex" {
+test "hseqr: Zᴴ A Z = T after gehrd and orghr, the lo..hi block, both jobs, real and complex" {
     const al = testing.allocator;
     inline for (.{ f64, types.Complex64, f32, types.Complex32 }) |T| {
         const F = Float(T);
-        for ([_][3]usize{ .{ 1, 1, 1 }, .{ 2, 1, 2 }, .{ 6, 1, 6 }, .{ 9, 3, 7 }, .{ 30, 4, 27 } }) |c| {
+        // n, lo, hi; an empty block leaves A triangular
+        for ([_][3]usize{ .{ 1, 0, 1 }, .{ 2, 0, 2 }, .{ 6, 0, 6 }, .{ 9, 2, 7 }, .{ 30, 3, 27 }, .{ 5, 2, 2 } }) |c| {
             const n = c[0];
-            const lo = c[1] - 1;
+            const lo = c[1];
             const hi = c[2];
             const a0 = try al.alloc(T, n * n);
             defer al.free(a0);
@@ -685,22 +689,20 @@ test "hseqr: Zᴴ A Z = T after gehrd and orghr, the ilo..ihi block, both jobs, 
             defer al.free(t);
             const tau = try al.alloc(T, @max(n, 2) - 1);
             defer al.free(tau);
-            const ni: isize = @intCast(n);
-            try hessenberg.gehrd(al, check.io, T, ni, @intCast(lo + 1), @intCast(hi), t.ptr, ni, tau.ptr);
+            try hessenberg.gehrd(al, check.io, T, n, lo, hi, t, n, tau);
             const z = try al.dupe(T, t);
             defer al.free(z);
-            try hessenberg.orghr(al, check.io, T, ni, @intCast(lo + 1), @intCast(hi), z.ptr, ni, tau.ptr);
+            try hessenberg.orghr(al, check.io, T, n, lo, hi, z, n, tau);
             const h2 = try al.dupe(T, t);
             defer al.free(h2);
             const ev = try al.alloc(F, 4 * n);
             defer al.free(ev);
             const cw = try al.alloc(T, 2 * n);
             defer al.free(cw);
-            const w: Eigenvalues(T) = if (comptime isComplex(T)) cw.ptr else .{ .re = ev.ptr, .im = ev.ptr + n };
-            const w2: Eigenvalues(T) = if (comptime isComplex(T)) cw.ptr + n else .{ .re = ev.ptr + 2 * n, .im = ev.ptr + 3 * n };
-            try evd.hseqr(check.io, T, .s, .v, ni, @intCast(lo + 1), @intCast(hi), t.ptr, ni, w, z.ptr, ni, null);
-            var dummy: [1]T = undefined;
-            try evd.hseqr(check.io, T, .e, .n, ni, @intCast(lo + 1), @intCast(hi), h2.ptr, ni, w2, &dummy, 1, null);
+            const w: Eigenvalues(T) = if (comptime isComplex(T)) cw[0..n] else .{ .re = ev[0..n], .im = ev[n..][0..n] };
+            const w2: Eigenvalues(T) = if (comptime isComplex(T)) cw[n..] else .{ .re = ev[2 * n ..][0..n], .im = ev[3 * n ..] };
+            try schur.hseqr(check.io, T, .s, .v, n, lo, hi, t, n, w, z, n, null);
+            try schur.hseqr(check.io, T, .e, .n, n, lo, hi, h2, n, w2, h2[0..0], 0, null);
             const nrm = @max(auxiliary.normMax(T, .{ .ptr = a0.ptr, .rows = n, .cols = n, .ld = n }), 1);
             const tol = 128 * std.math.floatEps(F) * @as(F, @floatFromInt(n + 1)) * nrm;
             for (0..n) |j| for (0..n) |i| {
@@ -717,7 +719,7 @@ test "hseqr: Zᴴ A Z = T after gehrd and orghr, the ilo..ihi block, both jobs, 
                 const err = ops.abs(T, ops.sub(T, s, want));
                 const gerr = ops.abs(T, ops.sub(T, g, if (i == j) ops.one(T) else ops.zero(T)));
                 if (!(err <= tol) or !(gerr <= tol / nrm)) {
-                    check.say("hseqr {s} n={d} ilo={d} ihi={d}: ({d},{d}) T off by {e}, ZᴴZ by {e}\n", .{ @typeName(T), n, lo + 1, hi, i, j, err, gerr });
+                    check.say("hseqr {s} n={d} lo={d} hi={d}: ({d},{d}) T off by {e}, ZᴴZ by {e}\n", .{ @typeName(T), n, lo, hi, i, j, err, gerr });
                     return error.TestUnexpectedResult;
                 }
             };
@@ -733,12 +735,13 @@ test "hseqr: Zᴴ A Z = T after gehrd and orghr, the ilo..ihi block, both jobs, 
     var wr: [2]f64 = undefined;
     var wi: [2]f64 = undefined;
     const w: Eigenvalues(f64) = .{ .re = &wr, .im = &wi };
-    try testing.expectError(error.InvalidN, evd.hseqr(check.io, f64, .e, .n, -1, 1, 0, &a, 1, w, &a, 1, null));
-    try testing.expectError(error.InvalidIlo, evd.hseqr(check.io, f64, .e, .n, 2, 3, 2, &a, 2, w, &a, 1, null));
-    try testing.expectError(error.InvalidIhi, evd.hseqr(check.io, f64, .e, .n, 2, 2, 1, &a, 2, w, &a, 1, null));
-    try testing.expectError(error.InvalidLdh, evd.hseqr(check.io, f64, .e, .n, 2, 1, 2, &a, 1, w, &a, 1, null));
-    try testing.expectError(error.InvalidLdz, evd.hseqr(check.io, f64, .s, .i, 2, 1, 2, &a, 2, w, &a, 1, null));
-    try evd.hseqr(check.io, f64, .e, .n, 0, 1, 0, &a, 1, w, &a, 1, null);
+    try testing.expectError(error.BlockOutOfRange, schur.hseqr(check.io, f64, .e, .n, 2, 2, 1, &a, 2, w, &a, 1, null));
+    try testing.expectError(error.BlockOutOfRange, schur.hseqr(check.io, f64, .e, .n, 2, 0, 3, &a, 2, w, &a, 1, null));
+    try testing.expectError(error.LeadingDimensionTooSmall, schur.hseqr(check.io, f64, .e, .n, 2, 0, 2, &a, 1, w, &a, 1, null));
+    try testing.expectError(error.LeadingDimensionTooSmall, schur.hseqr(check.io, f64, .s, .i, 2, 0, 2, &a, 2, w, &a, 1, null));
+    try testing.expectError(error.SliceTooShort, schur.hseqr(check.io, f64, .s, .i, 2, 0, 2, &a, 2, w, a[0..3], 2, null));
+    try testing.expectError(error.SliceTooShort, schur.hseqr(check.io, f64, .e, .n, 2, 0, 2, &a, 2, .{ .re = wr[0..1], .im = &wi }, &a, 1, null));
+    try schur.hseqr(check.io, f64, .e, .n, 0, 0, 0, &a, 1, w, &a, 1, null);
 }
 
 /// `gees`'s test sort: the left half plane first.
@@ -760,7 +763,6 @@ test "gees: A = Z T Zᴴ, unsorted and the left half plane first, tiny scale, Na
         const F = Float(T);
         const pick: GeesSelect(T) = if (comptime isComplex(T)) &LeftHalf(T).cplx else &LeftHalf(T).real;
         for ([_]usize{ 1, 2, 6, 17 }) |n| for ([_]bool{ false, true }) |sort| for ([_]F{ 1, 1e-30 }) |sc| {
-            const ni: isize = @intCast(n);
             const a0 = try al.alloc(T, n * n);
             defer al.free(a0);
             check.fill(T, a0, 17 * n + @intFromBool(sort));
@@ -773,9 +775,8 @@ test "gees: A = Z T Zᴴ, unsorted and the left half plane first, tiny scale, Na
             defer al.free(ev);
             const cw = try al.alloc(T, n);
             defer al.free(cw);
-            const w: Eigenvalues(T) = if (comptime isComplex(T)) cw.ptr else .{ .re = ev.ptr, .im = ev.ptr + n };
-            var sdim: isize = -1;
-            try evd.gees(al, check.io, T, .v, if (sort) pick else null, ni, t.ptr, ni, &sdim, w, z.ptr, ni, null);
+            const w: Eigenvalues(T) = if (comptime isComplex(T)) cw else .{ .re = ev[0..n], .im = ev[n..] };
+            const sdim = try schur.gees(al, check.io, T, .v, if (sort) pick else null, n, t, n, w, z, n, null);
             const nrm = @max(auxiliary.normMax(T, .{ .ptr = a0.ptr, .rows = n, .cols = n, .ld = n }), std.math.floatMin(F));
             const tol = 256 * std.math.floatEps(F) * @as(F, @floatFromInt(n + 1)) * nrm;
             for (0..n) |j| for (0..n) |i| {
@@ -792,14 +793,14 @@ test "gees: A = Z T Zᴴ, unsorted and the left half plane first, tiny scale, Na
                 }
             };
             if (!sort) {
-                try testing.expectEqual(@as(isize, 0), sdim);
+                try testing.expectEqual(0, sdim);
                 continue;
             }
-            var neg: isize = 0;
+            var neg: usize = 0;
             for (0..n) |i| {
                 const re = if (comptime isComplex(T)) cw[i].re else ev[i];
                 if (re < 0) neg += 1;
-                try testing.expectEqual(re < 0, @as(isize, @intCast(i)) < sdim);
+                try testing.expectEqual(re < 0, i < sdim);
             }
             try testing.expectEqual(neg, sdim);
         };
@@ -808,13 +809,13 @@ test "gees: A = Z T Zᴴ, unsorted and the left half plane first, tiny scale, Na
     var z: [4]f64 = undefined;
     var wr: [2]f64 = undefined;
     var wi: [2]f64 = undefined;
-    var sdim: isize = 0;
     const w: Eigenvalues(f64) = .{ .re = &wr, .im = &wi };
-    try testing.expectError(error.InvalidA, evd.gees(al, check.io, f64, .v, null, 2, &a, 2, &sdim, w, &z, 2, null));
-    try testing.expectError(error.InvalidN, evd.gees(al, check.io, f64, .v, null, -1, &a, 1, &sdim, w, &z, 1, null));
-    try testing.expectError(error.InvalidLda, evd.gees(al, check.io, f64, .n, null, 2, &a, 1, &sdim, w, &z, 1, null));
-    try testing.expectError(error.InvalidLdvs, evd.gees(al, check.io, f64, .v, null, 2, &a, 2, &sdim, w, &z, 1, null));
-    try evd.gees(al, check.io, f64, .n, null, 0, &a, 1, &sdim, w, &z, 1, null);
+    try testing.expectError(error.NanInA, schur.gees(al, check.io, f64, .v, null, 2, &a, 2, w, &z, 2, null));
+    try testing.expectError(error.LeadingDimensionTooSmall, schur.gees(al, check.io, f64, .n, null, 2, &a, 1, w, &z, 1, null));
+    try testing.expectError(error.LeadingDimensionTooSmall, schur.gees(al, check.io, f64, .v, null, 2, &a, 2, w, &z, 1, null));
+    try testing.expectError(error.SliceTooShort, schur.gees(al, check.io, f64, .v, null, 2, &a, 2, w, z[0..3], 2, null));
+    try testing.expectError(error.SliceTooShort, schur.gees(al, check.io, f64, .n, null, 2, &a, 2, .{ .re = &wr, .im = wi[0..1] }, z[0..0], 0, null));
+    try testing.expectEqual(0, try schur.gees(al, check.io, f64, .n, null, 0, &a, 1, w, z[0..0], 0, null));
 }
 
 test "syevd, syev: graded large at the bottom right given as .u, and at the top left as .l, keep the small eigenvalues (T125)" {
@@ -855,9 +856,8 @@ test "syevd, syev: graded large at the bottom right given as .u, and at the top 
             defer al.free(w);
             const w128 = try al.alloc(f128, n);
             defer al.free(w128);
-            const ni: isize = @intCast(n);
-            if (use_qr) try evd.syev(al, check.io, T, .n, uplo, ni, a.ptr, ni, w.ptr) else try evd.syevd(al, check.io, T, .n, uplo, ni, a.ptr, ni, w.ptr);
-            try evd.syevd(al, check.io, W, .n, uplo, ni, a128.ptr, ni, w128.ptr);
+            if (use_qr) try evd.syev(al, check.io, T, .n, uplo, n, a, n, w) else try evd.syevd(al, check.io, T, .n, uplo, n, a, n, w);
+            try evd.syevd(al, check.io, W, .n, uplo, n, a128, n, w128);
             // graded small eigenvalues hold to a few hundred eps (matlab88's
             // bottom-up reduction reaches 1.7e-13 here, M1's E2); reduced
             // from the wrong end they were off by 0.3 to 3e8

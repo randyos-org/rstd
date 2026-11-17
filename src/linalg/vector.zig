@@ -165,7 +165,8 @@ pub inline fn zero(comptime V: type) V {
 /// order, each product after the first fused into the sum as `mulAdd` says;
 /// a complex real part adds `re re` then `im im`, its imaginary part `re im`
 /// then `-im re`. Under SPIR-V `OpDot`.
-pub inline fn dot(a: anytype, b: @TypeOf(a)) Elem(@TypeOf(a)) {
+/// A plain `fn`, as `length`.
+pub fn dot(a: anytype, b: @TypeOf(a)) Elem(@TypeOf(a)) {
     // builtins, not `Elem` and `Real` again: calls cost the caller's quota
     const T = @TypeOf(a[0]);
     if (on_spirv and comptime spirvVec(@TypeOf(a))) return spvDot(a, b);
@@ -181,7 +182,8 @@ pub inline fn dot(a: anytype, b: @TypeOf(a)) Elem(@TypeOf(a)) {
 }
 
 /// `dot(v, v)`'s real part, `Σ |v[i]|²`, as the real type.
-pub inline fn dot2(v: anytype) Real(Elem(@TypeOf(v))) {
+/// A plain `fn`, as `length`.
+pub fn dot2(v: anytype) Real(Elem(@TypeOf(v))) {
     if (on_spirv and comptime spirvVec(@TypeOf(v))) return spvDot(v, v);
     const E = Elem(@TypeOf(v));
     const complex = comptime isComplex(E);
@@ -191,7 +193,9 @@ pub inline fn dot2(v: anytype) Real(Elem(@TypeOf(v))) {
 /// The 2-norm (MATLAB's `norm`, GLSL's `length`). Tries `sqrt(dot2(v))`
 /// first and falls back to a `std.math.hypot` fold on overflow or underflow
 /// (except on SPIR-V, which can't use that fallback). Under SPIR-V `Length`.
-pub inline fn length(v: anytype) Real(Elem(@TypeOf(v))) {
+/// A plain `fn`: its comptime work is paid once per type, not against each
+/// caller's branch quota (T157, issue #352).
+pub fn length(v: anytype) Real(Elem(@TypeOf(v))) {
     if (on_spirv and comptime spirvVec(@TypeOf(v))) return spvLength(v);
     const sq = dot2(v);
     const looks_fine = on_spirv or (std.math.isFinite(sq) and (sq != 0 or isZero(v)));
@@ -216,7 +220,8 @@ inline fn isZero(v: anytype) bool {
 }
 
 /// `length(b - a)`. Under SPIR-V `Distance`.
-pub inline fn distance(a: anytype, b: @TypeOf(a)) Real(Elem(@TypeOf(a))) {
+/// A plain `fn`, as `length`.
+pub fn distance(a: anytype, b: @TypeOf(a)) Real(Elem(@TypeOf(a))) {
     if (on_spirv and comptime spirvVec(@TypeOf(a))) return spvDistance(a, b);
     return length(diff(b, a));
 }
@@ -234,7 +239,8 @@ inline fn diff(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
 /// Normalizes `v` to `v / length(v)` (GLSL's `normalize`; MATLAB's `norm` is
 /// `length`). A fallback is the caller's: `norm(v) catch fallback`. Under
 /// SPIR-V `Normalize` after a `Length` test.
-pub inline fn norm(v: anytype) error{ZeroVector}!@TypeOf(v) {
+/// A plain `fn`, as `length`.
+pub fn norm(v: anytype) error{ZeroVector}!@TypeOf(v) {
     const V = @TypeOf(v);
     const len = length(v);
     if (len == 0) return error.ZeroVector;
@@ -266,6 +272,7 @@ pub inline fn cross(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
 
 /// `(1 - t) a + t b` (GLSL's `mix`): floats or `Vec`s, `t` a float or, for
 /// `Vec`s, a weight per element. Under SPIR-V `FMix`.
+/// A plain `fn`, as `length`.
 pub fn mix(a: anytype, b: anytype, t: anytype) @TypeOf(a, b) {
     const V = @TypeOf(a, b);
     const weight_info = @typeInfo(@TypeOf(t));

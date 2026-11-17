@@ -341,6 +341,8 @@ fn runsOnMips(cpu: std.Target.Cpu, core: coretypes.MipsCoreType) bool {
 /// is the baseline), a macOS one older than Nehalem, a SPARC V9 without VIS.
 /// So a Pentium III build's objects compute `f64` on the x87, as its cores and
 /// its main library do.
+/// Panics on a model or feature name this Zig lacks: a broken core table
+/// (`check` tests every name), met at build time.
 pub fn objectQuery(query: std.Target.Query, os: std.Target.Os, cpu: std.Target.Cpu, spec: Spec) std.Target.Query {
     const arch = cpu.arch;
     var q = query;
@@ -366,6 +368,7 @@ fn isaOf(arch: std.Target.Cpu.Arch, set: std.Target.Cpu.Feature.Set) std.Target.
     return out;
 }
 
+/// Panics when `arch` has no model `name` (a broken core table).
 fn findModel(arch: std.Target.Cpu.Arch, name: []const u8) *const std.Target.Cpu.Model {
     for (arch.allCpuModels()) |m| {
         if (std.mem.eql(u8, m.name, name)) return m;
@@ -373,6 +376,7 @@ fn findModel(arch: std.Target.Cpu.Arch, name: []const u8) *const std.Target.Cpu.
     std.debug.panic("no CPU model '{s}' for {s}", .{ name, @tagName(arch) });
 }
 
+/// Panics when `arch` lacks a feature in `names` (a broken core table).
 fn featureSet(arch: std.Target.Cpu.Arch, names: []const []const u8) std.Target.Cpu.Feature.Set {
     var set: std.Target.Cpu.Feature.Set = .empty;
     const all = arch.allFeaturesList();
@@ -541,6 +545,7 @@ pub fn notIsa(name: []const u8) bool {
 /// `spec`'s features on `arch` as Zig resolves them: its model's (else the
 /// generic one's) with what they imply, then those it adds, less those it goes
 /// without.
+/// Panics as `objectQuery` does.
 pub fn specFeatures(arch: std.Target.Cpu.Arch, spec: Spec) std.Target.Cpu.Feature.Set {
     const model = if (spec.model) |name| findModel(arch, name) else std.Target.Cpu.Model.generic(arch);
     return resolve(arch, model, featureSet(arch, spec.features), featureSet(arch, spec.without));
@@ -563,24 +568,13 @@ fn resolve(
     return set;
 }
 
-/// A core's feature that its spec adds and some of its CPUs lack.
-pub const Waiver = struct { core: []const u8, feature: []const u8 };
-
-/// The features a spec adds that `machine` says some CPUs of the core lack,
-/// each awaiting a decision: drop it from the spec, or have `runnable` require
-/// it and add it to `machine`. `excess` passes them; keep the list empty.
-pub const undecided = [_]Waiver{};
-
 /// The features an object built with `object` uses that a CPU running `core`
 /// (`machine`) may lack and the target, which the whole program needs, does
-/// not promise, `undecided` aside. Empty where every such CPU runs the object.
+/// not promise. Empty where every such CPU runs the object.
 pub fn excess(core: anytype, arch: std.Target.Cpu.Arch, object: std.Target.Cpu.Feature.Set, target: std.Target.Cpu.Feature.Set) std.Target.Cpu.Feature.Set {
     var set = isaOf(arch, object);
     set.removeFeatureSet(specFeatures(arch, machine(core)));
     set.removeFeatureSet(target);
-    for (undecided) |w| {
-        if (std.mem.eql(u8, w.core, @tagName(core))) set.removeFeatureSet(featureSet(arch, &.{w.feature}));
-    }
     return set;
 }
 
@@ -684,21 +678,4 @@ test "no kernel object needs a feature the CPUs of its cores may lack" {
         for (a[1]) |os| bad += countExcess(a[0], os);
     }
     try std.testing.expectEqual(@as(usize, 0), bad);
-}
-
-test "every undecided feature is one its core's spec adds and its machine lacks" {
-    const os: std.Target.Os = .{ .tag = .freestanding, .version_range = .{ .none = {} } };
-    for (undecided) |w| {
-        var found = false;
-        inline for (.{ .x86_64, .aarch64, .arm, .powerpc64, .riscv64, .mips64, .loongarch64, .s390x, .sparc64, .wasm32 }) |arch| {
-            if (std.meta.stringToEnum(CoreType(arch), w.core)) |core| {
-                found = true;
-                const f = featureSet(arch, &.{w.feature});
-                const base = std.Target.Cpu.Model.baseline(arch, os).name;
-                try std.testing.expect(specFeatures(arch, .{ .model = of(core).model orelse base, .features = of(core).features }).isSuperSetOf(f));
-                try std.testing.expect(!specFeatures(arch, machine(core)).isSuperSetOf(f));
-            }
-        }
-        try std.testing.expect(found);
-    }
 }

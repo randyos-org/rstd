@@ -275,7 +275,7 @@ pub fn liveLog(b: *Build, m: Machine) []const u8 {
 }
 
 /// qemu's console on stdout and, as it is written, in `liveLog`: a run step
-/// checking stdout shows it only once qemu exits. Naming the serial port and
+/// checking stdout shows it only once qemu exits (issue #215). Naming the serial port and
 /// monitor keeps `-nographic`'s firmware console. On a test host
 /// `tools/rig/test_host.zig` writes the log.
 pub fn addConsole(b: *Build, run: *Build.Step.Run, m: Machine, host: ?TestHost) void {

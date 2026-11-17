@@ -137,8 +137,19 @@ Conventions shared by every interface:
 - **Errors.** Each file has an `ArgError` set named after the reference's `xerbla` arguments
   (`InvalidTrans`, `InvalidLda`, `InvalidIncx`, ...), checked in the reference's order, so the
   first bad argument wins. Each level's `Error` adds `Allocator.Error` where it allocates and
-  `Io.Cancelable` everywhere; the root exports them as `Level1Error` to `Level3Error`, and
-  the extensions' as `ExtError`.
+  `Io.Cancelable` everywhere; the root exports the extensions' as `ExtError`. Level 1's
+  public routines (`blas1/api.zig`, Z8) take strided
+  views over this core and return exact sets: `error.LengthMismatch` for two vectors, and
+  `error.Canceled` where they thread. Level 2's (`blas2/api.zig`, Z9; the core gathered in
+  `blas2/core.zig`) take matrices as a slice and leading dimension and vectors as views, the
+  sizes from the views; `Level2Error` adds `SliceTooShort` and `LeadingDimensionTooSmall`.
+  Level 3's (`blas3/api.zig`, Z10; `blas3/core.zig`) take matrices the same way, sizes as
+  `usize`, every slice checked by `util.holds`; `Level3Error` has those two errors, and the
+  batched routines' `BatchError` adds `LengthMismatch` for lists that differ in length. The
+  extensions' (`ext/api.zig`, Z11) likewise, with `UnsupportedTranspose` for a letter one
+  does not take and `Overlap` for `omatcopy`'s `A` and `B` sharing memory; `laswp` takes
+  0-based pivots (user, 2026-11-15), as the LU routines and the row-swap kernel do inside
+  (H159, [#398](https://github.com/randyos-org/rstd/issues/398)).
   A vector or matrix that could not fit the address space (`util.fits`, `util.fitsMatrix`)
   returns its stride's or leading dimension's error, so no index computation overflows.
 - **Letters.** Transposes, triangles, sides and diagonals are one set of letter enums for every
@@ -168,16 +179,23 @@ and `vector` for `tools/blasbench`. The interface files stay where they are.
 
 Decided (2026-10-26), not yet implemented; the interface above is the reference's shape, which
 users are not assumed to know. Part of the codebase-wide pass to make rstd more Zig-idiomatic.
+For the BLAS and LAPACK alike, one group of routines at a time (user, 2026-11-15): each group's
+signatures take every change below at once, so none changes twice. [Z7](https://github.com/randyos-org/rstd/issues/308) adds the views and the shared error pieces; Z8 to Z18 ([#309](https://github.com/randyos-org/rstd/issues/309) to [#319](https://github.com/randyos-org/rstd/issues/319)) move the groups: levels 1, 2 and 3 (with batched and half), the extensions, then LAPACK by family.
 
-- **Slices.** Vectors and matrices are slices (`[]const T`, `[]T`), not many-pointers, so a
-  short buffer is caught instead of overrun. A size the slice already carries is not a separate
-  argument; strides and leading dimensions remain only where they describe a layout inside the
-  slice. Each routine checks that its slices cover what its sizes and strides need.
+- **Slices.** Matrices are slices (`[]const T`, `[]T`), not many-pointers, so a short buffer is
+  caught instead of overrun, with their sizes and leading dimension. Vectors are views,
+  `blas.Strided(T)` and `blas.ConstStrided(T)` (`blas/strided.zig`, user, 2026-11-13): the
+  slice, the element count and the stride, from `of(slice)` (contiguous, the slice's length)
+  or `init(slice, n, stride)`, which refuses a zero stride or a slice too short. The count is
+  never inferred from the slice, so spare elements cannot change it. Each routine checks that
+  its slices cover what its sizes and strides need.
 - **Errors, not panics, for bad input.** A wrong length, size or stride, or a letter the routine
   does not take, is an input error the caller can fix and retry: it returns an error.
 - **Panics only when unrecoverable.** A broken invariant found mid-calculation, or a state
   where memory may be corrupt (above all from converted assembly kernels), panics. Each
-  routine's doc comment says whether it panics explicitly; callees need not be traced.
+  routine's doc comment says whether it panics explicitly; callees need not be traced. Z4
+  (#57, 2026-11-17) found two in `linalg`, `corespec`'s name lookups (a broken core table,
+  met at build time), and four internal assertions, each now documented.
 - **Exact error sets.** A routine's error set holds only what it can return: its own argument
   errors; `error.OutOfMemory` only if it allocates; `error.Canceled` only if it can be
   canceled. Sets are named and per routine or routine family, built from shared pieces,
@@ -408,8 +426,7 @@ cpu.Arch(family): vtableFromCoreType(core)
   (the LLVM model of the CPU a core is named for, or of the weakest part it covers, plus what
   `runnable` requires), apart from the spec. `excess` is what an object uses beyond that and
   beyond the target; the build stops on any (`checkIsa` in `build/blaskern.zig`), and a test
-  tries every architecture with its baselines and each core's own CPU as targets. `undecided`
-  lists spec features waiting on a decision; keep it empty. The check sees
+  tries every architecture with its baselines and each core's own CPU as targets. The check sees
   compiler-chosen instructions only: x86 inline assembly is not held to the target's features.
 - **Groups.** `build/blaskern.zig` takes `corespec.kernelCores(arch)` (the cores with kernels,
   derived from the registries and checked by a test in `cpu/__root__.zig`), keeps those whose
@@ -901,7 +918,7 @@ allows.
   interchanges, then `trsm` with `L` and with `U` through the drivers, or for `op(A)`
   transposed the solves first and the interchanges backward; one real right-hand side takes
   `trsv` on the vtable's kernels, as `getrs_single.c:47` does. It takes `trans` `r`, as
-  `interface/lapack/zgetrs.c:96` does, and checks that every pivot is a row of `B` (`error.InvalidIpiv`), as
+  `interface/lapack/zgetrs.c:96` does, and checks that every pivot is a row of `B` (`error.PivotOutOfRange`), as
   rstd's `laswp` does; the reference checks none. Threaded, its `trsm`s split the columns, as
   `getrs_parallel.c` gives each thread a column block.
 - **`gesv`** (`lu.zig`, `interface/lapack/gesv.c`): `getrf`, then `getrs` unless `U` is
@@ -930,15 +947,15 @@ allows.
   the products thread inside the BLAS; and divide-and-conquer's two halves run in turn, as
   rstd's threading splits flat ranges, not task trees.
 - **`gesvd`, `gesdd`** (`svd.zig`): `dgesvd.f`'s and `dgesdd.f`'s arguments, jobs (`Job`:
-  `a`, `s`, `o`, `n`), `xerbla` order and scaling of `A` into `[SMLNUM, BIGNUM]` (`dlascl.f`),
+  `a`, `s`, `o`, `n`; both `o` is `ConflictingJobs`), scaling of `A` into `[SMLNUM, BIGNUM]` (`dlascl.f`),
   over faer's SVD: QR first past an aspect ratio of `11 / 6`, then bidiagonalization, then the
   bidiagonal's SVD by QR iteration (`gesvd`, as the reference's `xBDSQR`) or divide and conquer
   from 128 up (`gesdd`, as its `xBDSDC`). No `WORK` arguments: the allocator gives workspace.
   Failure is an error: `NoConvergence` for the reference's `INFO > 0` and for an infinite
   `A`, or a NaN for `gesvd`, since faer refuses a bidiagonal that is not finite; `gesdd`
-  returns `InvalidA` for a NaN, the reference's `INFO = -4` (`dgesdd.f:595`). `gesvd` writes
+  returns `NanInA` for a NaN, the reference's `INFO = -4` (`dgesdd.f:595`). `gesvd` writes
   that `INFO`, the count of superdiagonals QR iteration left nonzero (`xBDSQR`'s), to an
-  optional `unconverged: ?*usize`, its last argument, as `potrf`'s `minor`; faer does not keep
+  optional `unconverged: ?*usize`, its last argument, as Zig's diagnostics arguments do; faer does not keep
   it, so `svd.zig` counts them from the bidiagonal it gives up on (`min(m, n) - 1` for an
   infinity or NaN). `S`, `U` and `Vᴴ` are then undefined: the reference's unconverged
   bidiagonal in `S` and `WORK` has nowhere to go. Four fixes to faer, each an issue ([#250](https://github.com/randyos-org/rstd/issues/250), [#252](https://github.com/randyos-org/rstd/issues/252), [#253](https://github.com/randyos-org/rstd/issues/253), [#255](https://github.com/randyos-org/rstd/issues/255)): its
@@ -960,9 +977,8 @@ allows.
   and their `_rook` forms run the reference's blocked `xSYTRF` loop over ReLAPACK's `rec2`
   panels (`indefinite.zig`); `gbtrf` is `xGBTF2`; `tgsyl`'s transposed updates read `F` and
   `E` at their own leading dimensions, and its `dif` counts every base case's block pairs.
-  `tgsyl` takes `trans` `t` (real) or `c` (complex) only and rejects `m` or `n` below 1, as
-  `dtgsyl.f` and `ztgsyl.f` do; `dif` is `ijob`'s estimate of `Dif[(A, D), (B, E)]` (1 and 3
-  by look-ahead, 2 and 4 by `xGECON`'s null vectors), unwritten for `ijob` 0 or `trans`.
+  `tgsyl` takes `trans` `t` (real) or `c` (complex) only, as `dtgsyl.f` and `ztgsyl.f` do, and solves nothing for an empty `m` or `n`, which they refuse; `dif` is `ijob`'s estimate of `Dif[(A, D), (B, E)]` (1 and 3
+  by look-ahead, 2 and 4 by `xGECON`'s null vectors), null for `ijob` 0 or `trans`. Both return their `scale` with `perturbed` for close or common eigenvalues (the reference's `INFO > 0`, [Z17](https://github.com/randyos-org/rstd/issues/318)): the solve completes either way, so by Z12's rule it is a result, not an error; `isgn` (1 or -1) and `ijob` (0 to 4) keep the reference's numbers.
 - **`geqrf`, `orgqr`, `ormqr`** (`qr.zig`; `ungqr`, `unmqr` the same functions):
   `dgeqrf.f`'s, `dorgqr.f`'s and `dormqr.f`'s arguments and `xerbla` order over faer's
   staircase QR. `tau` is LAPACK's (`H = I - tau v vᴴ`), the reciprocal of faer's, so an
@@ -980,14 +996,14 @@ allows.
   the factor's diagonal is `error.Singular` with its index in `pivot`, the reference's
   `INFO > 0`.
 - **`syevd`, `heevd`, `syev`, `heev`** (`evd.zig`): `dsyevd.f`'s and `dsyev.f`'s
-  arguments, `xerbla` order and scaling into `[sqrt(SMLNUM), sqrt(BIGNUM)]`, over faer's
+  arguments and scaling into `[sqrt(SMLNUM), sqrt(BIGNUM)]`, over faer's
   `self_adjoint_evd`: tridiagonalize, take the real tridiagonal (a complex subdiagonal's
   phases moved into the vectors), decompose it by divide and conquer from 128 up (`syevd`, as
   the reference's `xSTEDC`) or by QR iteration (`syev`, as `xSTEQR`; and for values alone),
   apply the reflections. `NoConvergence` also for a NaN or infinity in `A`, which faer's
   solvers cannot take; with `jobz` `n`, `A` is left as it was.
-- **`geev`** (`evd.zig`): `dgeev.f`'s arguments, `xerbla` order, NaN check
-  (`InvalidA`, the reference's `INFO = -4`), scaling and normalization (unit 2-norm, largest
+- **`geev`** (`evd.zig`): `dgeev.f`'s arguments, NaN check
+  (`NanInA`, the reference's `INFO = -4`), scaling and normalization (unit 2-norm, largest
   entry real; a real pair turned by `DLARTG`), over faer's `evd_real` and `evd_cplx`:
   Hessenberg reduction, Schur form by `lahqr` (`xLAHQR`'s double-shift and single-shift QR),
   then the triangular factor's right and left eigenvectors times the Schur vectors. Two
@@ -1009,7 +1025,7 @@ allows.
 - **Reference-LAPACK's own** (T115; 3.12.0 as OpenBLAS ships it in `lapack-netlib/SRC/`, the
   fallback where neither faer nor libflame has a method of its own): `lange` with Blue's `xLASSQ`
   and `gecon` with `xLACN2` (its reverse communication a callback) and `xLATRS` (`norm.zig`);
-  `gebal` and `gebak`, every job (`balance.zig`, which `geev` calls with job `B`); `trexc` and `trsen` (`schur.zig`: `xLAEXC`
+  `gebal` and `gebak`, every job (`balance.zig`, which `geev` calls with job `B`). Since [Z18](https://github.com/randyos-org/rstd/issues/319) `gecon` returns `rcond` (a negative, NaN or infinite `anorm` is `NormOutOfRange`), `lassq`, `rscl` and `larfg` take strided views (`larfg`'s `x` the reference's `n - 1` tail; `rscl` and `larfg` scale and sum in memory order, as `asum`), `latrs` and `lacn2` slices, and `laset` refuses a reversed `uplo`; `trexc` and `trsen` (`schur.zig`: `xLAEXC`
   with `xLASY2`, `xLARFG`, `xLARFX`, `xLANV2`, `xLARTG`; `trsen`'s solves are ReLAPACK's `trsyl`);
   `gelsy` (`lsq.zig`: `xLAIC1`, and `xTZRZF`, `xORMRZ` by their unblocked `xLATRZ`, `xORMR3`) over
   faer's pivoted QR (`qr_pivot.zig`, `geqp3`, which recomputes every norm where the
@@ -1020,7 +1036,7 @@ allows.
 - **The matlab port's routines** (T123): `getri` from faer's LU inverse (`lu.zig`: `trtri` on
   `U` and `L`, `U⁻¹ L⁻¹` by `trmm`, the columns swapped back); `gehrd` and `orghr`/`unghr`
   (`hessenberg.zig`) over faer's reduction with LAPACK's `tau` (faer's reciprocal) and
-  `ilo`/`ihi`, `Q` applied to the block's other rows and columns, `orghr` by `dorghr.f`'s shift
+  block, `Q` applied to the block's other rows and columns, `orghr` by `dorghr.f`'s shift
   over `orgqr`; `hseqr` (`evd.zig`) over the `lahqr`s; `trevc3` (`trevc.zig`) over `xTREVC3`'s
   solves, back-transformed or selected; `gees` (`evd.zig`) as `dgees.f` and `zgees.f`: the scale,
   `gebal` job `P`, `gehrd`, `orghr`, `hseqr`, `trsen` to sort, `gebak`; `laset` and
@@ -1030,16 +1046,23 @@ allows.
   implements, run on `Aᴴ` (LQ of `A` is QR of `Aᴴ`), with the reference's storage (`conj(v)` in
   each row, `tau` its own). No libflame code is ported. As faer's `geqrf`, a complex `L`'s
   diagonal stays complex (`tau` is real instead).
-- **Not positive definite:** `potrf` returns
-  `error.NotPositiveDefinite` and writes the failing minor's order (the reference's `INFO`) to
-  an optional `minor: ?*usize`, its last argument, as Zig's diagnostics arguments do; `A` then
-  holds the factor's first `k - 1` columns and the failed pivot at `A(k, k)`, as both upstreams
-  leave it. The alternative, returning `INFO` as a value, lets a caller use an unfinished factor
-  by forgetting a check; an error cannot carry the order itself.
-- **Singular:** `getrf` (and `gesv`) completes the factorization, as both upstreams do, then
-  returns `error.Singular` with the first zero `U(i, i)`'s `i` in an optional `pivot`. A NaN
-  pivot is not zero, as in the reference's `INFO`: its column fills with NaN, and nothing
-  fails. `trtri`, `trtrs` and `potri` return it for a zero on the diagonal, the same way.
+- **Not positive definite:** `potrf`, `potf2` and `pbtrf` return `error.NotPositiveDefinite`
+  without the failing minor's order (user, 2026-11-16,
+  [Z13](https://github.com/randyos-org/rstd/issues/314)): unlike `getrf`, they stop with half a
+  factor, so by Z12's rule it is an error. `A` then holds the factor's columns before the failed
+  pivot and that pivot on the diagonal, as both upstreams leave it. `cholesky.potrfChecked`,
+  outside the public names, returns the pivot's index for the matlab port's `chol` (MATLAB's
+  `p`).
+- **Singular:** `getrf` and `gbtrf` complete the factorization, as both upstreams do, and return
+  the first zero `U(i, i)`'s `i` (0-based), or null: a singular `U` is a result, not an error
+  (user, 2026-11-15, [Z12](https://github.com/randyos-org/rstd/issues/313)). A NaN pivot is not
+  zero, as in the reference's `INFO`: its column fills with NaN. `gesv`, `getri`, `trtri` and
+  `trtrs`, which cannot divide by the zero, return `error.Singular` without its index; `getrf`
+  run first gives it. `potri` returns `error.Singular` the same way, and `sytrf`, `hetrf` and
+  their rook forms the first row of the first zero block of `D` (0-based), or null, as `getrf`
+  (Z13). Their pivots are `Pivot`s: a 0-based row and whether it is in a 1 x 1 or a 2 x 2 block,
+  packed in a `usize`, where LAPACK signs a 1-based index.
+- **Eigenvalue routines' indices and results** ([Z15](https://github.com/randyos-org/rstd/issues/316)): the reference's `ilo..ihi` is a 0-based `lo..hi`, `hi` past the end, which `gebal` returns as a `Block` and `gebak`, `gehrd`, `orghr` and `hseqr` take (an empty block, `lo == hi`, is allowed); `gebal`'s `scale` holds 0-based rows, and `gebak` returns `error.PivotOutOfRange` for one past `V`'s. `trexc`'s `ifst` and `ilst` are 0-based and stay in-out pointers, as the reference moves both. The single results come back: `gees` returns `sdim`, `trevc3` its columns used, `trsen` a `Reordered` (`m`, with `s` and `sep` as `job` asks, else null). `unconverged` stays an optional pointer, written only on `error.NoConvergence`. A NaN in `A` is `error.NanInA`. `gebal`, `gebak` and `trexc` take no allocator, as they never allocate.
 - **`laed3`:** OpenBLAS's own (`lapack/laed3/`) serves only the reference's `xSTEDC`, which
   rstd does not port: `syevd`'s merge is faer's (`tridiag_evd.zig`), whose `z` from the roots
   takes `sqrt(|prod|)` where `xLAED3` takes `sqrt(-W)` (NaN for a spuriously positive `W`,
@@ -1224,7 +1247,7 @@ No BLAS and no limit; each operation is its native instruction, used as is.
 
 ##### Functions
 
-Re-exported flat at `rstd.linalg` from `src/linalg/dense.zig` (`matrix.zig` holds the types). Each takes
+Re-exported flat at `rstd.linalg` from `src/linalg/dense/` (`matrix.zig` holds the types; one file per family: reductions, products, inverse, factor, singular, eigen). Each takes
 views (any mix of `StaticMat`, `Mat` and borrowed storage); errors listed are beyond
 `OutOfMemory` and `Canceled`.
 
@@ -1236,7 +1259,7 @@ views (any mix of `StaticMat`, `Mat` and borrowed storage); errors listed are be
 | `mul(allocator, io, a, b)`, `mulInto(allocator, io, out, a, b)` | `Mat`, or into `out` | `gemm`; `gemv` for a vector; inline up to `L` | `DimensionMismatch` |
 | `transpose`, `ctranspose` (and `...Into(io, out, a)`) | `Mat` | `omatcopy` | `DimensionMismatch` (`...Into`) |
 | `solve(allocator, io, a, b)`, `solveInto(allocator, io, out, a, b)` | `Mat`: `A \ B` | square up to `L`, `B`'s columns too: `linalg.matrix.solve`'s LU; past it, triangular: `trtrs`; Hermitian with a positive real diagonal: `potrf`, `potrs`, LU if not positive definite; square: `gesv`; rectangular: `gelsy` (QR with column pivoting, as MATLAB; rank cut at `max(m, n) eps`) | `DimensionMismatch`, `Singular` (square) |
-| `lu` | `Lu` (`factors`, `ipiv` 0-based, `l()`, `u()`, `zero_pivot: ?usize`) | `getrf` (its `error.Singular` becomes `zero_pivot`) | none; a singular matrix factors completely (decision 5) |
+| `lu` | `Lu` (`factors`, `ipiv` 0-based, `l()`, `u()`, `zero_pivot: ?usize`) | `getrf` (its zero pivot is `zero_pivot`) | none; a singular matrix factors completely (decision 5) |
 | `chol` | `Mat` (upper `R`, `A = Rᴴ R`) | `potrf` | `NotSquare`, `NotPositiveDefinite` |
 | `qr(..., .economy or .full)` | `Qr` (`q`, `r`; `QrMode`) | `geqrf`, `orgqr` | |
 | `svd(..., .values, .economy or .full)` | `Svd` (`s` nonincreasing; `u`, `v` null for `.values`; `SvdMode`); empty with `.full`: identities | values: `gesvd` (QR iteration, `xBDSQR`'s accuracy on graded matrices, M1's E4); with vectors: `gesdd` (divide and conquer), so the two may differ in the last bits | `NoConvergence` (also a NaN) |
@@ -1250,8 +1273,8 @@ views (any mix of `StaticMat`, `Mat` and borrowed storage); errors listed are be
 
 `solve`'s structure tests read only the values, so the same input always takes the same route.
 `solve` and `inv` return `error.Singular` with no partial result: a singular matrix has neither.
-The 1980s port, `linalg.matlab`, keeps its own API (split complex) until M2; this layer does not
-depend on it. `linalg.blas` and `linalg.lapack` stay public for tools, tests and experts, the docs
+The 1980s port, `linalg.matlab`, is gone (M33, #337): its routines moved into this layer or were
+rewritten by modern methods; matlab88's source stays in `src/linalg/ref/matlab88/` for reference. `linalg.blas` and `linalg.lapack` stay public for tools, tests and experts, the docs
 pointing everyone else here (decision 7).
 
 #### `rstd.simd`, removed
@@ -1332,7 +1355,7 @@ checks of the tier-2 rigs, `zig build shader-probes -Dvulkan` for SPIR-V).
    `linalg.matrix`'s `det`, `inv` and `outer`, are their instructions (table above), each
    checked by a probe (`src/rgl/shaders/lib/readme.md`); shaderlib's aliases stay S2's.
 6. **Float-slice reductions** to `linalg` (the NaN change); `rstd.simd` is gone already. Done 2026-11-12 (M13): M10 had already made `sum`, `max` and `min` take slices and views, inline up to `L` and the BLAS past it, with the first-NaN rule on both paths; M13 tests that rule on plain slices on both paths.
-7. **M2** moves the matlab port onto this layer.
+7. **M2** moved the matlab port onto this layer; M19 to M33 (#322 to #337, plan in #60) then dissolved it into the layer's own routines and deleted it.
 
 #### Decisions
 
@@ -1524,8 +1547,8 @@ routine and matches the reference; `apple_accel.zig` binds it and routes to it.
   `rotm`, `axpy`, `axpby`; `gemv`, `gbmv`, `ger`, `gerc`, the real `symv`, `sbmv`, `spmv`,
   `syr`, `spr`, `syr2`, `spr2`, the Hermitian `hemv`, `hbmv`, `hpmv`, `her`, `hpr`, `her2`,
   `hpr2`, and the six triangular routines; all of level 3, less what is kept for speed (below);
-  LAPACK's `potrf` (its `INFO` becomes rstd's error and `minor`; after a failure `A` holds
-  Accelerate's partial factor).
+  LAPACK's `potrf` (its `INFO` becomes rstd's error, 0-based in `potrfChecked`; after a failure
+  `A` holds Accelerate's partial factor).
   Routed, `sdot` is `cblas_dsdot` rounded, and `snrm2` and `scnrm2` the root of `dsdot(x, x)`,
   so `s` sums in `f64` as rstd's kernels do. `d` and `z` `nrm2`, and `asum`, take `incx > 0` only.
 - **Kept for speed (arm64).** Level 1 goes by routine, letter and stride, one table
@@ -1553,28 +1576,32 @@ routine and matches the reference; `apple_accel.zig` binds it and routes to it.
 - **Quirks.** Where Accelerate's results differ from the reference's (macOS 27, M6), the call
   runs rstd's kernels. The Accelerate special-value tests (`_test/apple_accel.zig`,
   `_test/blas2/edge.zig`, `blas3/interface.zig`) found each, against rstd's kernels or the wide
-  reference.
+  reference. Rechecked 2026-11-15 natively on both Macs (the Intel Mac on macOS 15.8.3, the M6
+  on 27.2) by `tools/probe/accel_quirks.zig`, through all three symbol sets ([#355](https://github.com/randyos-org/rstd/issues/355)); each item
+  says where it showed, and the call runs rstd's there only; elsewhere it goes to Accelerate ([#388](https://github.com/randyos-org/rstd/issues/388), rechecked 2026-11-16 by the special-value tests on the Intel Mac, the M6 and Rosetta 2).
   - Complex `scal`, `axpy`, `axpby` with a scalar that has a zero part: Accelerate skips that
-    part's products, so `(1.5, 0) * (inf, 1)` keeps a finite imaginary part.
-  - `axpby` with a zero `alpha`: it reads `x`.
-  - A zero stride on a vector the routine writes (`swap`, `axpby`): Accelerate rejects it as an invalid parameter and exits (x86_64; arm64 untested). Zero strides on read vectors go to Accelerate.
-  - Complex `gemv` with a `beta` that has a zero part and NaN or an infinity in `y`: it skips that part's products, as for `scal`.
+    part's products, so `(1.5, 0) * (inf, 1)` keeps a finite imaginary part. Shows for `scal`
+    and `axpy` on arm64, in the `$NEWLAPACK` sets only, and for `axpby` on arm64 (the tests; the probe missed it); not on x86_64.
+  - Complex `scal` with a zero `alpha`: it zeroes `x`, where the reference keeps NaN. x86_64 (on arm64 the zero-part quirk covers it).
+  - `axpby` with a zero `alpha`: it reads `x`. Both, real and complex.
+  - A zero stride on a vector the routine writes (`swap`, `axpby`): Accelerate rejects it as an invalid parameter and exits. Both. Zero strides on read vectors go to Accelerate.
+  - Complex `gemv` with a `beta` that has a zero part and NaN or an infinity in `y`: it skips that part's products, as for `scal`. arm64, the `$NEWLAPACK` sets only.
+  - Real `symv` with an infinity in `x`: some `y(i)` come out NaN where the reference gives an infinity, though every entry of `A` is nonzero. arm64, all three sets (in the probe 1024 of 3072 cases for `ssymv`, 2048 for `dsymv`); not on x86_64 or under Rosetta 2 ([#410](https://github.com/randyos-org/rstd/issues/410)).
   - The triangular level 2 with NaN or an infinity in `x`, and `trmm` with one in `B`: past
-    small orders it multiplies them by the triangle's zeros.
-  - `ger`, `gerc` with one in `x`: it does not pass over a zero `y`.
+    small orders it multiplies them by the triangle's zeros. Real `trmv`: arm64 only; complex `trmv` (orders 33 and 130 in the tests): both.
+  - `ger`, `gerc` with one in `x`: it does not pass over a zero `y`. Both.
   - `syr`, `spr`, `her`, `hpr` with one in `x` and a zero `x(j)`, and `syr2`, `spr2`, `her2`,
     `hpr2` with one in `x` or `y` and a `j` where both are zero: it does not pass over that
-    column, in either triangle.
+    column, in either triangle. `syr` and `syr2`: both.
   - `herk`, `her2k` with one in `C`'s triangle and a nonzero `beta`: past small orders it scales
-    `C` by the real `beta` as a complex product.
+    `C` by the real `beta` as a complex product. `herk` at order 64: x86_64 only.
   - The Hermitian rank updates leave the diagonal's imaginary parts as `beta` times theirs, or
     NaN where an infinity meets them; the reference sets them to zero. They are zeroed after the
     call; `herk` and `her2k` with `beta` 1 and nothing added, which leave `C` as it was, run
-    rstd's.
-  - x86_64 (under Rosetta 2; no Intel Mac was at hand): `cblas_dsdot` is off by `f32`'s epsilon,
-    so `dsdot`, `sdot`, `snrm2` and `scnrm2` run rstd's; `gemm` with NaN or an infinity in `A`,
-    which gives NaN at an edge of `m`.
-  - x86_64: complex `potrf`, always: `cpotrf_` and `zpotrf_` report a well conditioned `L Lᴴ` as not positive definite from order 2 (arm64's are right). `trsm` with a diagonal entry too small to invert (a subnormal; arm64 untested): it multiplies by the reciprocal, which overflows, where the reference divides. `trsm` with NaN or an infinity in `B` (complex, left, upper, order 19 seen in CI): it spreads to entries that do not depend on it, so `trsm` falls back as `trmm` does.
+    rstd's. `herk`: both (the tests; the probe saw arm64's only).
+  - Under Rosetta 2 only, which `start` reads from `sysctl.proc_translated`: `cblas_dsdot` off by `f32`'s epsilon (so `dsdot`, `sdot`, `snrm2` and `scnrm2` run rstd's there), and `gemm` with NaN or an infinity in `A` giving NaN at an edge of `m`.
+  - Complex `potrf` (`cpotrf_`, `zpotrf_`) reporting a well conditioned `L Lᴴ` as not positive definite: x86_64, natively too (the `potrf` test; the probe missed it).
+  - `trsm` with a diagonal entry too small to invert (a subnormal): it multiplies by the reciprocal, which overflows, where the reference divides. Both. `trsm` with NaN or an infinity in `B` (complex, left, upper, order 19 seen in CI): it spreads to entries that do not depend on it, so `trsm` falls back as `trmm` does.
 
 ### Core detection and selection
 
@@ -1688,14 +1715,14 @@ Initialization also caches the CPU count in `cpu_count` (1 without threads).
 | `OPENBLAS_L2_SIZE` | `l2_size_override` | replaces the detected L2 size (KiB) in the blocking rules |
 | `OPENBLAS_NUM_THREADS`, else `OPENBLAS_DEFAULT_NUM_THREADS` | `num_threads` | LA464's blocking set; the thread ceiling of [`threading.md`](blas/threading.md) |
 | `GOTO_NUM_THREADS` | `goto_num_threads` | the fallback ceiling of [`threading.md`](blas/threading.md) |
-| `OMP_NUM_THREADS`, `OMP_ADAPTIVE`, `OPENBLAS_THREAD_TIMEOUT` | `omp_num_threads`, `omp_adaptive`, `thread_timeout` | parsed, no effect |
-| `GOTO_DEBUG` | `goto_debug` | parsed, no effect |
-| `OPENBLAS_MAIN_FREE`, `GOTOBLAS_MAIN_FREE` | `main_free` | parsed, no effect |
 | `LD_HWCAP_MASK` | `ld_hwcap_mask` | s390x only: ANDed with `AT_HWCAP` before detection (`cpuid_zarch.h:35`) |
 | `RSTD_BLAS_ACCELERATE` (rstd's own) | `accelerate` | macOS: 0 keeps the routines off Accelerate ([above](#apple-accelerate)) |
 
 Integers parse with Zig's base-0 rules after trimming whitespace; negative values clamp to 0
-except `GOTO_DEBUG`, `OPENBLAS_L2_SIZE` and `LD_HWCAP_MASK`. A bare leading zero is decimal, not
+except `OPENBLAS_L2_SIZE` and `LD_HWCAP_MASK`. OpenBLAS's variables for OpenMP (`OMP_NUM_THREADS`,
+`OMP_ADAPTIVE`), its thread pool (`OPENBLAS_THREAD_TIMEOUT`), debug prints (`GOTO_DEBUG`) and NUMA
+buffers (`OPENBLAS_MAIN_FREE`) are not read: rstd has none of those
+([#88](https://github.com/randyos-org/rstd/issues/88)). A bare leading zero is decimal, not
 octal as with `strtoul` (`0o` is octal). Diagnostics print as `OpenBLAS: ...` through
 `std.debug.print`, never on freestanding targets.
 
@@ -2104,12 +2131,12 @@ Questions decided once, with the reason, so they are not reopened without new ev
   only on size and target, not on the type holding the data, so a call gives the same bits every
   time ("Planned: the public `rstd.linalg` layer", above). The BLAS keeps its slice and stride routines for `linalg` to
   call. `rstd.simd` is gone: its element-wise helpers (`mix`, `mulAdd`) moved to
-  `linalg.vector`, and slice reductions become BLAS routines ([#52](https://github.com/randyos-org/rstd/issues/52)). Under SPIR-V each operation is
+  `linalg.vector`, and slice reductions became BLAS routines ([#52](https://github.com/randyos-org/rstd/issues/52)). Under SPIR-V each operation is
   SPIR-V's own instruction where one exists (`OpDot`, GLSL.std.450 `Length`, `Fma`: GLSL.std.450
   1.00 revision 17, <https://registry.khronos.org/SPIR-V/specs/unified1/GLSL.std.450.html>), used as is,
   not rebuilt or tuned: the goal is one API, not GPU speed.
-- **The matlab port defers to modern BLAS and LAPACK** (2026-10-29). `rstd.linalg.matlab`
-  ports 1980s LINPACK and EISPACK algorithms. Where rstd's BLAS or LAPACK (chosen per routine,
+- **The matlab port defers to modern BLAS and LAPACK** (2026-10-29; ended 2026-11-17 by M33, which deleted `rstd.linalg.matlab`, its routines in the public layer, matlab88's source in `src/linalg/ref/matlab88/`). `rstd.linalg.matlab`
+  ported 1980s LINPACK and EISPACK algorithms. Where rstd's BLAS or LAPACK (chosen per routine,
   as the next decision says) has the operation, the modern routine replaces the old one; the old one
   stays only where a test shows it better (more accurate, or right on an edge case the modern
   one gets wrong), and that test is kept with it. M1's audit ("The matlab port against the
@@ -2165,7 +2192,7 @@ Questions decided once, with the reason, so they are not reopened without new ev
   changing these routines' results from the one-pass serial order for sizes past one chunk,
   which a one-worker call shares; below one chunk they run as before ([`threading.md`](blas/threading.md)).
 - **LAPACK failures are errors** (2026-10-29). A matrix that is not positive definite is
-  `error.NotPositiveDefinite`, its failing minor written to an optional `minor` argument, so a
+  `error.NotPositiveDefinite` (its failing minor is not reported since Z13, issue #314), so a
   caller cannot go on with half a factor by forgetting a check; a NaN pivot fails, as in the
   reference's `xPOTRF2`, where OpenBLAS's `ajj <= 0` passes it ([Extensions](#extensions)).
   An exactly singular `U` is `error.Singular`, its first zero pivot written to `pivot`; a NaN
@@ -2217,9 +2244,9 @@ Questions decided once, with the reason, so they are not reopened without new ev
 | Bit-exact models | `blas1/dot/__root__.zig`, `blas1/asum/__root__.zig`, `blas1/nrm2/__root__.zig`, `blas2/gemv/__root__.zig` | the Zig kernels that replace converted or C code give its bits (the x87 sums, `skylakexModel`, the half-precision `gemv`) |
 | Buffers | `_test/guard.zig` | each level-2 kernel gets exactly the buffer its contract promises, with canaries |
 | Interfaces | `blas1/interface.zig`, `blas2/interface.zig`, `blas3/interface.zig` | argument errors and their order, quick returns |
-| LAPACK | `../lapack/cholesky.zig` | on every core, shrunk and own blocking: `potrf` of `A = L Lᴴ` from a known `L` (backward within `2 (n + 2)` ulps, forward loosely), the exact failing minor for a negative, NaN or infinite element, nothing outside the triangle read or written; `potrs`'s residual within `8 (n + 2)` ulps of `L`, `Lᴴ` and `X` multiplied in magnitude, a NaN in `B` filling its column alone; `getrf` on square, tall and wide shapes (`P A` within `2 (min(m, n) + 2)` ulps of `L` and `U` multiplied in magnitude, `L` at most 1 in magnitude, `sqrt 2` complex), the first zero pivot with the factorization completed, NaN never singular, pivoting ties, NaN and infinite pivots, denormal pivots divided by; `getrs` for every `op`, its residual within `8 (n + 2)` ulps of `L`, `U` and `X` multiplied in magnitude, a NaN in `B` filling its column alone; `gesv` bit for bit `getrf` then `getrs`, singular before `B` is touched; `potri`'s `A X = I` within `32 (n + 2)` ulps of `A` and `X` multiplied in magnitude; `trtri`'s `A X = I` within `8 (n + 2)` ulps, both triangles and diagonals, a unit diagonal never read; `lauum`'s products within `2 (n + 2)` ulps, the complex diagonal exactly real; `trtrs` for every `op`, within `8 (n + 2)` ulps; each blocked routine's single and parallel algorithms, and the threaded ones (`potrf`, `potri`, `trtri`, `lauum`, `trtrs`, `getrf`'s lookahead, `getrs`, `gesv`) bit for bit one worker's at 2, 3 and 8, inline and on `Io.Threaded`; `potrf` through Accelerate on macOS; ReLAPACK's routines (`_test/relapack.zig`, `sytrf.zig`, `trsyl.zig`, `tgsyl.zig`, `gbtrf.zig`): `sytrf`, `hetrf` and the `_rook` forms, random and zero-diagonal, rebuilt as `L D Lᵀ` from LAPACK's format within `32 (n + 2)` ulps of `A` and the factors multiplied in magnitude, singular at a zero `D` block; `sygst`, `hegst` for every `itype` against `M X Mᴴ` within `32 (n + 2)` ulps; `pbtrf` within `2 (n + 2)` ulps of the factor and its transpose multiplied in magnitude, the minor for a negative or NaN pivot; `gbtrf`'s `P L U` within `2 (min(m, n) + 2)` ulps; `trsyl`'s residual within `32 (m + n + 2)` ulps for every `op` and sign on quasi-triangular input; ReLAPACK's `potrf`, `getrf`, `trtri`, `lauum` by `cholesky.zig`'s and the rest's checks, and with `-Drelapack` against OpenBLAS's within `64 n` ulps; the bits inline and on `Io.Threaded` |
+| LAPACK | `../lapack/cholesky.zig` | on every core, shrunk and own blocking: `potrf` of `A = L Lᴴ` from a known `L` (backward within `2 (n + 2)` ulps, forward loosely), the exact failing pivot for a negative, NaN or infinite element, nothing outside the triangle read or written; `potrs`'s residual within `8 (n + 2)` ulps of `L`, `Lᴴ` and `X` multiplied in magnitude, a NaN in `B` filling its column alone; `getrf` on square, tall and wide shapes (`P A` within `2 (min(m, n) + 2)` ulps of `L` and `U` multiplied in magnitude, `L` at most 1 in magnitude, `sqrt 2` complex), the first zero pivot with the factorization completed, NaN never singular, pivoting ties, NaN and infinite pivots, denormal pivots divided by; `getrs` for every `op`, its residual within `8 (n + 2)` ulps of `L`, `U` and `X` multiplied in magnitude, a NaN in `B` filling its column alone; `gesv` bit for bit `getrf` then `getrs`, singular before `B` is touched; `potri`'s `A X = I` within `32 (n + 2)` ulps of `A` and `X` multiplied in magnitude; `trtri`'s `A X = I` within `8 (n + 2)` ulps, both triangles and diagonals, a unit diagonal never read; `lauum`'s products within `2 (n + 2)` ulps, the complex diagonal exactly real; `trtrs` for every `op`, within `8 (n + 2)` ulps; each blocked routine's single and parallel algorithms, and the threaded ones (`potrf`, `potri`, `trtri`, `lauum`, `trtrs`, `getrf`'s lookahead, `getrs`, `gesv`) bit for bit one worker's at 2, 3 and 8, inline and on `Io.Threaded`; `potrf` through Accelerate on macOS; ReLAPACK's routines (`_test/relapack.zig`, `sytrf.zig`, `trsyl.zig`, `tgsyl.zig`, `gbtrf.zig`): `sytrf`, `hetrf` and the `_rook` forms, random and zero-diagonal, rebuilt as `L D Lᵀ` from LAPACK's format within `32 (n + 2)` ulps of `A` and the factors multiplied in magnitude, singular at a zero `D` block; `sygst`, `hegst` for every problem against `M X Mᴴ` within `32 (n + 2)` ulps; `pbtrf` within `2 (n + 2)` ulps of the factor and its transpose multiplied in magnitude, stopping at a negative or NaN pivot; `gbtrf`'s `P L U` within `2 (min(m, n) + 2)` ulps; `trsyl`'s residual within `32 (m + n + 2)` ulps for every `op` and sign on quasi-triangular input; ReLAPACK's `potrf`, `getrf`, `trtri`, `lauum` by `cholesky.zig`'s and the rest's checks, and with `-Drelapack` against OpenBLAS's within `64 n` ulps; the bits inline and on `Io.Threaded` |
 | LAPACK, faer | `../lapack/*.zig` | on the selected core: `gesvd` and `gesdd` in the four precisions, every job, square, tall and wide (past `11 / 6`, and past 128 for divide and conquer), `A - U Σ Vᴴ`, `Uᴴ U - I` and `V Vᴴ - I` within faer's `test_svd` tolerance (`128 eps sqrt(8 max(m, n))`), `Σ` nonincreasing and the same for every job; faer's `test_special` (zero, ones, identity), rank deficient, scaled past `SMLNUM` and `BIGNUM`, a lone denormal; NaN and infinity; the argument errors; one worker's bits at 3 and 8; and the parts: `Q R = A`, `Uᴴ A V = B`, block reflections against single ones, Givens, faer's bidiagonal tests (`test_qr_algorithm`, `test_divide_and_conquer` at thresholds 4 and 8, `test_zink`, the deflation cases). QR: `Q R = A` and `Qᴴ Q - I` within `4 (m + n) eps` of `‖A‖`, square, tall, wide, rank deficient and a zero column; `ormqr` for both sides and `op`s and `orgqr` against one reflection at a time, with geqrf's `tau` and the reference's complex form; `gels` against a known least-squares or minimum-norm answer for `A` and `Aᴴ`, tall and wide, the residual in `B`'s trailing rows, an inconsistent system's `Aᴴ r` (`dqrt17.f`, Reference-LAPACK's threshold 30), rank deficient, zero, scaled, NaN. Eigen: `syevd` and `syev` for both triangles at faer's sizes and past 128, `A V - V Λ` and `Vᴴ V - I` within faer's `128 eps sqrt(8 n)`, values alone the same; faer's `test_special`, clustered, graded and Wilkinson matrices; OpenBLAS's `test_laed3_nan.c`; faer's tridiagonal tests (`test_evd_2_0` to `test_gh_82_mini`) through QR iteration and divide and conquer, and random, clustered, graded and zero tridiagonals; `Qᴴ A Q` tridiagonal and Hessenberg; `lahqr`'s `Z T Zᴴ = H` with standardized blocks; `geev`'s right and left residuals, unit vectors with a real largest entry, pairs positive first, on random, zero, identity, Jordan, rotation, companion and triangular matrices; balancing (`D⁻¹ Pᵀ A P D`, and `D M D⁻¹`'s eigenvalues to `M`'s scale); NaN, infinity, scaling and the argument errors; and one worker's bits at 3 and 8 for `geqrf` with `ormqr`, `syevd` and `geev` |
-| LAPACK, reference | `../lapack/norm.zig`, `balance.zig`, `schur.zig`, `lq.zig`, `lsq.zig`, `qr_pivot.zig` | on the selected core, the reference's own test ratios and thresholds (`TESTING/dtest.in`'s 30, `dec.in`'s 20): `gecon` within `dget06.f`'s ratio of `1 / (‖A‖ ‖A⁻¹‖)`, `latrs`'s scaled residual near overflow, `lange`'s norms at the range's ends; `gebal` on `dbal.in`'s cases and `gebak` back; `trexc` every move with `dget36.f`'s residuals, `trsen`'s `s` and `sep` against the Kronecker operator; `gelqf`, `orglq`, `ormlq` by `dlqt01.f`, `dlqt03.f`; `geqp3` by `dqpt01.f`, `dqrt11.f`; `gelsy`'s rank and the SVD's minimum-norm solution; `gelqf` and `gelsy` give the same bits at 1, 3 and 8 workers |
+| LAPACK, reference | `../lapack/norm.zig`, `balance.zig`, `schur.zig`, `lq.zig`, `lsq.zig`, `qr_pivot.zig` | on the selected core, the reference's own test ratios and thresholds (`TESTING/dtest.in`'s 30, `dec.in`'s 20): `gecon` within `dget06.f`'s ratio of `1 / (‖A‖ ‖A⁻¹‖)`, `latrs`'s scaled residual near overflow, `lange`'s norms at the range's ends; `gebal` on `dbal.in`'s cases (case 5's swap order, which 3.12.0's `dgebal.f` does not give, and case 13 past `f64`'s range checked only by `gebak` back) and `gebak` back; `trexc` every move with `dget36.f`'s residuals, `trsen`'s `s` and `sep` against the Kronecker operator; `gelqf`, `orglq`, `ormlq` by `dlqt01.f`, `dlqt03.f`; `geqp3` by `dqpt01.f`, `dqrt11.f`; `gelsy`'s rank and the SVD's minimum-norm solution; `gelqf` and `gelsy` give the same bits at 1, 3 and 8 workers |
 | Ported suites | `_test/from_openblas/` | OpenBLAS's `blat1`, `blat2`, `blat3`, `utest`, `utest/test_extensions` |
 | Selection | `cpu/`, `cpu/select.zig`, `cpu/detect/*.zig` | decisions on synthetic `Caps`, served objects, names |
 | Initialization | `__root__.zig` | the handshake, `shutdown`, environment copies, racing threads |
@@ -2295,7 +2322,7 @@ to the same expectations. Where a core's converted kernels did otherwise, they a
   in `_test/from_openblas/__root__.zig`: `xerbla` and bad letters (only the letters a type
   rejects remain), checks that scalars come back unchanged, row-major CBLAS, `test_fork.c`,
   `test_post_fork*.c`, and the `ARMV8` `sdot`/`ddot` cases that preload a vector register.
-- **Pending.** `blat3` runs every level-3 routine through the flat API, and `test_potrs.c`
+- **More ports.** `blat3` runs every level-3 routine through the flat API, and `test_potrs.c`
   and `test_kernel_regress.c`'s `dgesvd` run through `rstd.linalg.lapack`, the latter's
   matrix from glibc's `rand` as on OpenBLAS's Linux CI. `compare.zig` ports `test/compare_sgemv_*.c` and
   `compare_sgemm_*.c`: the half routines against `sgemv` and `sgemm` and a plain loop, to order
@@ -2438,8 +2465,8 @@ Rig mechanics:
 
 ## Implementation plan
 
-1. **Threading** of levels 1 and 2 ([`threading.md`](blas/threading.md)'s plan); level 3 threads.
-2. **Zig-idiomatic interface.** Slices, exact error sets with plain names, and documented
+1. **Threading.** Landed: levels 1, 2 and 3 thread ([`threading.md`](blas/threading.md)).
+2. **Zig-idiomatic interface** (Z7 to Z18, [#308](https://github.com/randyos-org/rstd/issues/308) to [#319](https://github.com/randyos-org/rstd/issues/319)). Slices, exact error sets with plain names, and documented
    panics ([above](#planned-a-zig-idiomatic-interface)), with the codebase-wide pass.
 3. **Remaining level 3.** Landed: 3M, the small-matrix path, and bfloat16 and half-precision
    level 3 (`blas3/half.zig`); Cooper Lake's `sbgemm` small-matrix kernels, in the portable bits.
