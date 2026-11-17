@@ -1,5 +1,6 @@
 pub const vector = @import("vector.zig");
 pub const matrix = @import("matrix.zig");
+pub const array = @import("array.zig");
 pub const blas = @import("blas/__root__.zig");
 pub const lapack = @import("lapack/__root__.zig");
 pub const gallery = @import("gallery.zig");
