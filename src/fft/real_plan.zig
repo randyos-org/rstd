@@ -12,10 +12,12 @@ const util = @import("util.zig");
 const complex_plan = @import("plan.zig");
 const rfftp = @import("rfftp/__root__.zig");
 const bluestein = @import("bluestein.zig");
+const batch = @import("batch.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
 const C = cmplx.C;
+const Layout = fft.Layout;
 const Layouts = fft.Layouts;
 const Options = fft.Options;
 
@@ -64,53 +66,99 @@ pub fn RealPlan(comptime T: type) type {
         }
 
         pub fn forward(self: *const Self, io: Io, out: []C(T), in: []const T, scratch: []T, layouts: Layouts, options: Options) fft.TransformIntoError!void {
-            _ = io;
             if (layouts.in.count != layouts.out.count) return error.CountMismatch;
             const n = self.n;
             const m = n / 2 + 1;
             if (scratch.len < self.scratch_len) return error.SliceTooShort;
             try complex_plan.covers(in.len, n, layouts.in);
             try complex_plan.covers(out.len, m, layouts.out);
-            const din = layouts.in.distance orelse (n * layouts.in.stride);
-            const dout = layouts.out.distance orelse (m * layouts.out.stride);
-            const buf = scratch[0..n];
-            const f = complex_plan.factor(T, n, true, options.norm);
-            for (0..layouts.in.count) |k| {
-                for (buf, 0..) |*b, i| b.* = in[k * din + i * layouts.in.stride];
-                self.run(buf, scratch[n..self.scratch_len], f, true);
-                // the halfcomplex order to the half spectrum
-                const o = out[k * dout ..];
-                const s = layouts.out.stride;
-                o[0] = .{ .re = buf[0], .im = 0 };
-                for (1..m) |j| o[j * s] = .{ .re = buf[2 * j - 1], .im = if (2 * j < n) buf[2 * j] else 0 };
-            }
+            const Ctx = struct {
+                plan: *const Self,
+                out: []C(T),
+                in: []const T,
+                scratch: []T,
+                lin: Layout,
+                lout: Layout,
+                din: usize,
+                dout: usize,
+                f: T,
+
+                fn one(c: *const @This(), k: usize, slot: usize) void {
+                    const p = c.plan;
+                    const sl = p.scratch_len;
+                    const s = c.scratch[slot * sl ..][0..sl];
+                    const buf = s[0..p.n];
+                    for (buf, 0..) |*b, i| b.* = c.in[k * c.din + i * c.lin.stride];
+                    p.run(buf, s[p.n..], c.f, true);
+                    // the halfcomplex order to the half spectrum
+                    const o = c.out[k * c.dout ..];
+                    const st = c.lout.stride;
+                    o[0] = .{ .re = buf[0], .im = 0 };
+                    for (1..p.n / 2 + 1) |j| o[j * st] = .{ .re = buf[2 * j - 1], .im = if (2 * j < p.n) buf[2 * j] else 0 };
+                }
+            };
+            const ctx: Ctx = .{
+                .plan = self,
+                .out = out,
+                .in = in,
+                .scratch = scratch,
+                .lin = layouts.in,
+                .lout = layouts.out,
+                .din = layouts.in.distance orelse (n * layouts.in.stride),
+                .dout = layouts.out.distance orelse (m * layouts.out.stride),
+                .f = complex_plan.factor(T, n, true, options.norm),
+            };
+            try batch.run(io, layouts.in.count, scratch.len / self.scratch_len, &ctx, Ctx.one);
         }
 
         /// Reads only the half spectrum; the imaginary parts at 0 (and at
         /// `n / 2` for even `n`) are ignored, as NumPy's `irfft`.
         pub fn backward(self: *const Self, io: Io, out: []T, in: []const C(T), scratch: []T, layouts: Layouts, options: Options) fft.TransformIntoError!void {
-            _ = io;
             if (layouts.in.count != layouts.out.count) return error.CountMismatch;
             const n = self.n;
             const m = n / 2 + 1;
             if (scratch.len < self.scratch_len) return error.SliceTooShort;
             try complex_plan.covers(in.len, m, layouts.in);
             try complex_plan.covers(out.len, n, layouts.out);
-            const din = layouts.in.distance orelse (m * layouts.in.stride);
-            const dout = layouts.out.distance orelse (n * layouts.out.stride);
-            const buf = scratch[0..n];
-            const f = complex_plan.factor(T, n, false, options.norm);
-            for (0..layouts.in.count) |k| {
-                const h = in[k * din ..];
-                const s = layouts.in.stride;
-                buf[0] = h[0].re;
-                for (1..m) |j| {
-                    buf[2 * j - 1] = h[j * s].re;
-                    if (2 * j < n) buf[2 * j] = h[j * s].im;
+            const Ctx = struct {
+                plan: *const Self,
+                out: []T,
+                in: []const C(T),
+                scratch: []T,
+                lin: Layout,
+                lout: Layout,
+                din: usize,
+                dout: usize,
+                f: T,
+
+                fn one(c: *const @This(), k: usize, slot: usize) void {
+                    const p = c.plan;
+                    const sl = p.scratch_len;
+                    const s = c.scratch[slot * sl ..][0..sl];
+                    const buf = s[0..p.n];
+                    const h = c.in[k * c.din ..];
+                    const st = c.lin.stride;
+                    buf[0] = h[0].re;
+                    for (1..p.n / 2 + 1) |j| {
+                        buf[2 * j - 1] = h[j * st].re;
+                        if (2 * j < p.n) buf[2 * j] = h[j * st].im;
+                    }
+                    p.run(buf, s[p.n..], c.f, false);
+                    for (buf, 0..) |b, i| c.out[k * c.dout + i * c.lout.stride] = b;
                 }
-                self.run(buf, scratch[n..self.scratch_len], f, false);
-                for (buf, 0..) |b, i| out[k * dout + i * layouts.out.stride] = b;
-            }
+            };
+            const ctx: Ctx = .{
+                .plan = self,
+                .out = out,
+                .in = in,
+                .scratch = scratch,
+                .lin = layouts.in,
+                .lout = layouts.out,
+                .din = layouts.in.distance orelse (m * layouts.in.stride),
+                .dout = layouts.out.distance orelse (n * layouts.out.stride),
+                .f = complex_plan.factor(T, n, false, options.norm),
+            };
+            try batch.run(io, layouts.in.count, scratch.len / self.scratch_len, &ctx, Ctx.one);
         }
 
         /// One transform of `buf` in the halfcomplex order, `rest` its space.
