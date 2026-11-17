@@ -151,7 +151,7 @@ pub fn qemuCommand(b: *Build, m: Machine, host: ?TestHost) *Build.Step.Run {
     run.addArgs(&.{ "Stopping execution", "!!!! X64 Exception", "Synchronous Exception at", "--" });
     const h = testHostFor(m, host) orelse {
         run.addArg(m.qemu);
-        run.addArgs(m.args);
+        run.addArgs(if (kvm(b)) m.kvm orelse m.args else m.args);
         return run;
     };
     run.addArtifactArg2(tools.hostTool(b, .test_host), .{});
@@ -179,6 +179,17 @@ pub fn watchCommand(b: *Build) *Build.Step.Run {
     run.addArg("60");
     if (failFast(b)) run.addArg("--fail-fast");
     return run;
+}
+
+var kvm_on: ?struct { owner: *Build, on: bool } = null;
+
+/// `-Dqemu-kvm`: rigs with KVM arguments (`Machine.kvm`) run under KVM, on a
+/// Linux host of their architecture, as CI's runners are; the rest under TCG.
+fn kvm(b: *Build) bool {
+    if (kvm_on) |k| if (k.owner == b) return k.on;
+    const on = b.option(bool, "qemu-kvm", "Run the rigs that can under KVM, here on a Linux host of their architecture (CI)") orelse false;
+    kvm_on = .{ .owner = b, .on = on };
+    return on;
 }
 
 var fail_fast: ?struct { owner: *Build, on: bool } = null;

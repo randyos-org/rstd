@@ -2431,6 +2431,7 @@ Rig mechanics:
   there at once, across builds. On an arm64 Mac, `aarch64`, `aarch64-uefi` and `linux-aarch64` run under HVF on
   the host's CPU (Apple, SME2, no SVE: the `vortexm4` kernels run too); `-Dtest-host-tcg` keeps
   them on TCG. `x86_64-whpx` and the macOS VM rig stay local.
+- **KVM and CI.** `-Dqemu-kvm` runs the rigs that have KVM arguments (`Machine.kvm`; `x86_64` and `x86_64-smp` so far, `-cpu host`) under KVM on a Linux host of their architecture; the rest stay on TCG. CI's rig job runs them so on GitHub's Linux runners, the latest Zig only ([#343](https://github.com/randyos-org/rstd/issues/343); #344 to #349 add the other RandyOS rigs).
 - **WHPX.** QEMU's model plus FMA4 and XOP, of which WHPX keeps what the host has; `host` and
   `max` stop in SeaBIOS. TCG implements no AVX-512, FMA4 or XOP (QEMU v10.1.0
   `target/i386/cpu.c`: neither `TCG_7_0_EBX_FEATURES` nor `TCG_EXT3_FEATURES` has them), so the `skylakex`,

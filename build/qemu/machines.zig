@@ -29,6 +29,10 @@ pub const Machine = struct {
     /// (`-Dtest-host-arch`), unless `-Dtest-host-tcg`; null where the rig
     /// needs a CPU the host lacks.
     hvf: ?[]const []const u8 = null,
+    /// `args` under KVM, with `-Dqemu-kvm` on a Linux host of the rig's
+    /// architecture (CI's runners); null where the rig needs a CPU the host
+    /// lacks, or has not been tried under KVM.
+    kvm: ?[]const []const u8 = null,
     /// The BLAS core a Linux rig must select under `args`, and under `hvf`
     /// (on the M6); its run fails otherwise.
     core: ?[]const u8 = null,
@@ -361,6 +365,7 @@ const base_machines = [_]Machine{
         .qemu = "qemu-system-x86_64",
         .args = &.{ "-M", "pc", "-cpu", "max" },
         .hvf = &.{ "-accel", "hvf", "-M", "pc", "-cpu", "host" },
+        .kvm = &.{ "-accel", "kvm", "-M", "pc", "-cpu", "host" },
         .memory = "128M",
         .boot = .{ .kernel = .{
             .linker_script = "test/qemu/x86_64.ld",
@@ -374,6 +379,7 @@ const base_machines = [_]Machine{
         .qemu = "qemu-system-x86_64",
         .args = &.{ "-M", "pc", "-cpu", "max" },
         .hvf = &.{ "-accel", "hvf", "-M", "pc", "-cpu", "host" },
+        .kvm = &.{ "-accel", "kvm", "-M", "pc", "-cpu", "host" },
         .memory = "128M",
         .boot = .{ .kernel = .{
             .linker_script = "test/qemu/x86_64.ld",
