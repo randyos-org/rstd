@@ -119,7 +119,17 @@ const powm_ = @import("powm.zig");
 pub const PowmError = powm_.PowmError;
 pub const powm = powm_.powm;
 
+const funm_ = @import("funm.zig");
+pub const FunmError = funm_.FunmError;
+pub const AtanmError = funm_.AtanmError;
+pub const Derivatives = funm_.Derivatives;
+pub const funm = funm_.funm;
+pub const cosm = funm_.cosm;
+pub const sinm = funm_.sinm;
+pub const atanm = funm_.atanm;
+
 test {
+    _ = @import("funm.zig");
     _ = @import("powm.zig");
     _ = @import("logm.zig");
     _ = @import("sqrtm.zig");
