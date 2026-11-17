@@ -132,14 +132,18 @@ pub fn Running(comptime F: type) type {
     };
 }
 
-pub const MedianError = error{ EmptyInput, OutOfMemory, NotImplemented };
+pub const MedianError = error{ EmptyInput, OutOfMemory };
 
-/// Selects on a copy; `xs` is untouched.
+/// Sorts a copy; `xs` is untouched. NaN if `xs` holds one, as MATLAB's.
 pub fn median(allocator: Allocator, comptime F: type, xs: []const F) MedianError!F {
     comptime checkFloat(F);
-    _ = allocator;
     if (xs.len == 0) return error.EmptyInput;
-    return error.NotImplemented;
+    const s = try sortedCopy(allocator, F, xs);
+    defer allocator.free(s);
+    const n = s.len;
+    if (std.math.isNan(s[n - 1])) return s[n - 1];
+    if (n % 2 == 1) return s[n / 2];
+    return lerp(F, s[n / 2 - 1], s[n / 2], @as(Wide(F), 0.5));
 }
 
 /// Hyndman and Fan's nine (The American Statistician 50(4), 1996), in their
@@ -159,7 +163,7 @@ pub const QuantileMethod = enum {
 
 pub const QuantileOptions = struct { method: QuantileMethod = .linear };
 
-pub const QuantileError = error{ EmptyInput, OutOfMemory, ProbabilityOutOfRange, NotImplemented };
+pub const QuantileError = error{ EmptyInput, OutOfMemory, ProbabilityOutOfRange };
 pub const QuantileIntoError = QuantileError || error{SliceTooShort};
 
 /// One quantile of `xs` per `p`, each in [0, 1]; owned by the caller.
@@ -178,12 +182,89 @@ pub fn quantileInto(allocator: Allocator, comptime F: type, out: []F, xs: []cons
 
 fn quantiles(allocator: Allocator, comptime F: type, out: []F, xs: []const F, p: []const F, options: QuantileOptions) QuantileError!void {
     comptime checkFloat(F);
-    _ = allocator;
-    _ = out;
-    _ = options;
     if (xs.len == 0) return error.EmptyInput;
     for (p) |q| if (!(q >= 0 and q <= 1)) return error.ProbabilityOutOfRange;
-    return error.NotImplemented;
+    const s = try sortedCopy(allocator, F, xs);
+    defer allocator.free(s);
+    // a NaN, sorted last, makes every quantile NaN, as NumPy's
+    if (std.math.isNan(s[s.len - 1])) {
+        @memset(out[0..p.len], s[s.len - 1]);
+        return;
+    }
+    for (out[0..p.len], p) |*o, q| o.* = quantileOf(F, s, q, options.method);
+}
+
+/// NumPy's `_quantile` on the sorted `s` (numpy/lib/_function_base_impl.py,
+/// v2.1): the method's virtual index, then the two neighbors and `gamma`.
+fn quantileOf(comptime F: type, s: []const F, p: F, method: QuantileMethod) F {
+    const W = if (@bitSizeOf(F) < 64) f64 else F;
+    const n: W = @floatFromInt(s.len);
+    const q: W = p;
+    const last = s.len - 1;
+    switch (method) {
+        .inverted_cdf, .closest_observation => {
+            // the discontinuous ones pick an order statistic
+            const vi = if (method == .inverted_cdf) n * q - 1 else n * q - 1 - 0.5;
+            const prev = @floor(vi);
+            const exact = vi == prev;
+            const take_prev = if (method == .inverted_cdf) exact else exact and @mod(prev, 2) == 0;
+            const k = if (take_prev) prev else prev + 1;
+            return s[index(W, k, last)];
+        },
+        .averaged_inverted_cdf => {
+            const vi = n * q - 1;
+            const prev = @floor(vi);
+            const gamma: W = if (vi == prev) 0.5 else 1;
+            return lerp(F, s[index(W, prev, last)], s[index(W, prev + 1, last)], gamma);
+        },
+        else => {
+            const ab: [2]W = switch (method) {
+                .interpolated_inverted_cdf => .{ 0, 1 },
+                .hazen => .{ 0.5, 0.5 },
+                .weibull => .{ 0, 0 },
+                .linear => .{ 1, 1 },
+                .median_unbiased => .{ 1.0 / 3.0, 1.0 / 3.0 },
+                .normal_unbiased => .{ 3.0 / 8.0, 3.0 / 8.0 },
+                .inverted_cdf, .averaged_inverted_cdf, .closest_observation => unreachable,
+            };
+            const vi = n * q + (ab[0] + q * (1 - ab[0] - ab[1])) - 1;
+            // `_get_indexes`: past either end, that end
+            if (vi < 0) return s[0];
+            if (vi >= @as(W, @floatFromInt(last))) return s[last];
+            const prev = @floor(vi);
+            return lerp(F, s[index(W, prev, last)], s[index(W, prev + 1, last)], vi - prev);
+        },
+    }
+}
+
+/// A virtual index clamped to `0..last`.
+fn index(comptime W: type, k: W, last: usize) usize {
+    if (!(k > 0)) return 0;
+    const u: usize = @intFromFloat(@min(k, @as(W, @floatFromInt(last))));
+    return @min(u, last);
+}
+
+/// NumPy's `_lerp`: from `a` for `t < 0.5`, from `b` past it, so the ends
+/// are exact.
+fn lerp(comptime F: type, a: F, b: F, t: anytype) F {
+    const W = @TypeOf(t);
+    const aw: W = a;
+    const bw: W = b;
+    const d = bw - aw;
+    return @floatCast(if (t >= 0.5) bw - d * (1 - t) else aw + d * t);
+}
+
+/// `xs` sorted ascending, NaN last, owned by the caller.
+fn sortedCopy(allocator: Allocator, comptime F: type, xs: []const F) Allocator.Error![]F {
+    const s = try allocator.dupe(F, xs);
+    std.mem.sort(F, s, {}, struct {
+        fn lt(_: void, a: F, b: F) bool {
+            if (std.math.isNan(a)) return false;
+            if (std.math.isNan(b)) return true;
+            return a < b;
+        }
+    }.lt);
+    return s;
 }
 
 /// `count` bins spread evenly over `xs`'s range, or the given sorted edges.
@@ -310,6 +391,32 @@ test "quantile methods" {
     const owned = try quantile(testing.allocator, f64, &xs, &.{ 0, 0.5, 1 }, .{});
     defer testing.allocator.free(owned);
     try testing.expectEqualSlices(f64, &.{ 1, 2.5, 4 }, owned);
+}
+
+test "quantile: all nine methods on [1, 2, 3, 4], NumPy's values" {
+    const al = testing.allocator;
+    const xs = [_]f64{ 3, 1, 4, 2 };
+    const want = [_][2]f64{
+        .{ 1, 2 }, // inverted_cdf at 0.25, 0.5
+        .{ 1.5, 2.5 }, // averaged_inverted_cdf
+        .{ 1, 2 }, // closest_observation
+        .{ 1, 2 }, // interpolated_inverted_cdf
+        .{ 1.5, 2.5 }, // hazen
+        .{ 1.25, 2.5 }, // weibull
+        .{ 1.75, 2.5 }, // linear
+        .{ 1.0 + 5.0 / 12.0, 2.5 }, // median_unbiased
+        .{ 1.4375, 2.5 }, // normal_unbiased
+    };
+    for (std.enums.values(QuantileMethod), want) |m, w| {
+        var out: [2]f64 = undefined;
+        try quantileInto(al, f64, &out, &xs, &.{ 0.25, 0.5 }, .{ .method = m });
+        try testing.expectApproxEqAbs(w[0], out[0], 1e-15);
+        try testing.expectApproxEqAbs(w[1], out[1], 1e-15);
+    }
+    var out: [1]f64 = undefined;
+    try quantileInto(al, f64, &out, &.{ 1, std.math.nan(f64) }, &.{0.5}, .{});
+    try testing.expect(std.math.isNan(out[0]));
+    try testing.expectEqual(5, try median(al, f16, &.{ 9, 5, 1 }));
 }
 
 test "histogram" {
