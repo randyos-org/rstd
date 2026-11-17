@@ -90,6 +90,8 @@ pub const ExpmError = dense.ExpmError;
 pub const expm = dense.expm;
 pub const SqrtmError = dense.SqrtmError;
 pub const sqrtm = dense.sqrtm;
+pub const LogmError = dense.LogmError;
+pub const logm = dense.logm;
 pub const rank = dense.rank;
 pub const cond = dense.cond;
 

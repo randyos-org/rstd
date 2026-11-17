@@ -111,7 +111,12 @@ const sqrtm_ = @import("sqrtm.zig");
 pub const SqrtmError = sqrtm_.SqrtmError;
 pub const sqrtm = sqrtm_.sqrtm;
 
+const logm_ = @import("logm.zig");
+pub const LogmError = logm_.LogmError;
+pub const logm = logm_.logm;
+
 test {
+    _ = @import("logm.zig");
     _ = @import("sqrtm.zig");
     _ = @import("expm.zig");
     _ = @import("schur_form.zig");
