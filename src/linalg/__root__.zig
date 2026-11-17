@@ -60,6 +60,9 @@ pub const orth = dense.orth;
 pub const nullSpace = dense.nullSpace;
 pub const RcondError = dense.RcondError;
 pub const rcond = dense.rcond;
+pub const VectorNorm = dense.VectorNorm;
+pub const VectorNormError = dense.VectorNormError;
+pub const vectorNorm = dense.vectorNorm;
 pub const rank = dense.rank;
 pub const cond = dense.cond;
 
