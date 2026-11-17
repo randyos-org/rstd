@@ -94,6 +94,13 @@ pub const LogmError = dense.LogmError;
 pub const logm = dense.logm;
 pub const PowmError = dense.PowmError;
 pub const powm = dense.powm;
+pub const FunmError = dense.FunmError;
+pub const AtanmError = dense.AtanmError;
+pub const Derivatives = dense.Derivatives;
+pub const funm = dense.funm;
+pub const cosm = dense.cosm;
+pub const sinm = dense.sinm;
+pub const atanm = dense.atanm;
 pub const rank = dense.rank;
 pub const cond = dense.cond;
 
