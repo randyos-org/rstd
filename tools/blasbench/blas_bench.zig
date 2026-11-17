@@ -1,5 +1,5 @@
-//! rstd's BLAS and LAPACK raced against OpenBLAS, BLIS, Accelerate and the reference binaries, and its arm64 kernels against
-//! OpenBLAS's own `.S`, printing Markdown table rows. Sections, options and steps: `readme.md`.
+//! rstd's BLAS and LAPACK raced against OpenBLAS, BLIS, Accelerate and the reference binaries, and its kernels against
+//! OpenBLAS's own (arm64's `.S`, x86_64's level 1), printing Markdown table rows. Sections, options and steps: `readme.md`.
 
 const std = @import("std");
 const sysinfo = @import("builtin");
@@ -12,6 +12,7 @@ const kernels = @import("kernels.zig");
 const l3thread = @import("l3thread.zig");
 const libs = @import("libs.zig");
 const ext = @import("ext.zig");
+const obx86 = @import("obx86.zig");
 const sparse_bench = @import("sparse_bench.zig");
 
 const blas = rstd.linalg.blas;
@@ -41,6 +42,8 @@ const libLapack = ext.libLapack;
 pub const arm = sysinfo.target.cpu.arch == .aarch64;
 /// OpenBLAS's vortex gemm `.S` is linked (`-Dopenblas`): `l3`, `ob .S`.
 pub const ob_asm = bench_options.ob_asm;
+/// OpenBLAS's HASWELL and ZEN level-1 kernels are linked (`-Dopenblas`, x86_64): `l1`'s references.
+pub const ob_x86 = bench_options.ob_x86;
 
 comptime {
     if (!arm and sysinfo.target.cpu.arch != .x86_64) @compileError("blas_bench runs on arm64 and x86_64");
@@ -57,6 +60,8 @@ const Tables = struct {
     vortexm4: Vtable,
     armv8: Vtable,
     portable: Vtable,
+    /// the selected core's, which x86_64's `l1` races
+    core: Vtable,
 };
 pub var tables: Tables = undefined;
 
@@ -138,6 +143,7 @@ pub fn main(init: std.process.Init) !void {
     // rstd's tables select nothing, but the alone run leaves rstd untouched
     if (!alone) {
         tables.portable = blas.cpu.generic.vtableFromCoreType(.generic);
+        if (!arm) tables.core = blas.cpu.vtableFromCoreType(blas.cpu.detect());
         if (arm) {
             tables.vortex = blas.cpu.vtableFromCoreType(.vortex);
             tables.vortexm4 = blas.cpu.vtableFromCoreType(.vortexm4);
@@ -159,7 +165,7 @@ pub fn main(init: std.process.Init) !void {
         }
     }.f;
     if (!arm) {
-        for ([_][]const u8{ "probe", "l1", "l2", "l3" }) |s| if (want(sections.items, s)) return error.ArmOnlySection;
+        for ([_][]const u8{ "probe", "l2", "l3" }) |s| if (want(sections.items, s)) return error.ArmOnlySection;
     }
     if (!ob_asm and want(sections.items, "l3")) return error.NeedsOpenblasAsm;
     if (arm and !alone) {
@@ -167,6 +173,8 @@ pub fn main(init: std.process.Init) !void {
         if (all or want(sections.items, "l1")) try level1(io, gpa);
         if (all or want(sections.items, "l2")) try level2(io, gpa);
     }
+    // x86_64's `l1` races the selected core against OpenBLAS's, when linked
+    if (!arm and !alone and (want(sections.items, "l1") or (all and ob_x86))) try level1(io, gpa);
     if (ob_asm and !alone) {
         if (all or want(sections.items, "l3")) try level3(io, gpa);
     }

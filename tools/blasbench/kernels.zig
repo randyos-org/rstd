@@ -1,4 +1,5 @@
-//! The arm64 kernel races: `l1`, `l2`, `l3` and `kern3`.
+//! The kernel races: `l1` (arm64, and x86_64 against OpenBLAS's Haswell and Zen
+//! kernels), `l2`, `l3` and `kern3` (arm64).
 
 const std = @import("std");
 const Io = std.Io;
@@ -6,6 +7,7 @@ const rstd = @import("rstd");
 const bench = @import("bench.zig");
 const bb = @import("blas_bench.zig");
 const libs = @import("libs.zig");
+const obx86 = @import("obx86.zig");
 
 const blas = rstd.linalg.blas;
 const Vtable = blas.Vtable;
@@ -311,8 +313,15 @@ pub const l1_cases = [_]Case{
     .{ .bytes = 32 << 10, .inc = 2 },
 };
 
-/// Which converted kernel a slot holds: vortex's own, else armv8's, else none.
+/// The reference kernel for a slot: on arm64 the converted one it holds,
+/// vortex's, else armv8's; on x86_64 OpenBLAS's own for the selected core
+/// (`-Dopenblas`); else none.
 pub fn asmFor(comptime name: []const u8) ?struct { f: Fn(name), from: []const u8 } {
+    if (!bb.arm) {
+        if (!bb.ob_x86) return null;
+        const c = obx86.coreFor(blas.cpu.detect()) orelse return null;
+        return .{ .f = obx86.kernel(name, c), .from = if (c == .zen) "ob zen" else "ob haswell" };
+    }
     const port = @field(bb.tables.portable, name).?;
     if (@field(bb.tables.vortex, name).? != port) return .{ .f = @field(bb.tables.vortex, name).?, .from = "vortex" };
     if (@field(bb.tables.armv8, name).? != port) return .{ .f = @field(bb.tables.armv8, name).?, .from = "armv8" };
@@ -321,14 +330,21 @@ pub fn asmFor(comptime name: []const u8) ?struct { f: Fn(name), from: []const u8
 
 pub fn level1(io: Io, gpa: std.mem.Allocator) !void {
     try clock(io, "level 1 start");
-    std.debug.print(
-        \\
-        \\GB/s, best of {d} batches of at least {d} ms; ratios are each over the converted kernel
-        \\
+    // x86_64 adds the selected core's own kernel, `core`
+    const head = if (bb.arm)
         \\| routine | p | n | inc | asm | asm GB/s | portable | vec | vec x4 | portable/asm | vec/asm | vec x4/asm |
         \\| ------- | - | -: | --: | --- | -------: | -------: | --: | -----: | -----------: | ------: | ---------: |
+    else
+        \\| routine | p | n | inc | asm | asm GB/s | core | portable | vec | vec x4 | core/asm | portable/asm | vec/asm | vec x4/asm |
+        \\| ------- | - | -: | --: | --- | -------: | ---: | -------: | --: | -----: | -------: | -----------: | ------: | ---------: |
+    ;
+    std.debug.print(
         \\
-    , .{ l1_timing.batches, @divTrunc(l1_timing.min_ns, std.time.ns_per_ms) });
+        \\GB/s, best of {d} batches of at least {d} ms; ratios are each over the reference kernel (`asm`: the converted one on arm64, OpenBLAS's own on x86_64)
+        \\
+        \\{s}
+        \\
+    , .{ l1_timing.batches, @divTrunc(l1_timing.min_ns, std.time.ns_per_ms), head });
     inline for (precs) |p| {
         const len = l1_cases[3].bytes / @sizeOf(p.F);
         const b = try Bufs(p.F).init(gpa, len, 1);
@@ -343,12 +359,17 @@ fn raceL1(io: Io, comptime r: L1, comptime p: Prec, b: Bufs(p.F)) !void {
     const asm_k = asmFor(name);
     for (l1_cases) |case| {
         const n = case.bytes / p.es() / case.inc;
-        var fns: [4]Fn(name) = undefined;
-        var labels: [4][]const u8 = undefined;
+        var fns: [5]Fn(name) = undefined;
+        var labels: [5][]const u8 = undefined;
         var count: usize = 0;
         if (asm_k) |a| {
             fns[count] = a.f;
             labels[count] = "asm";
+            count += 1;
+        }
+        if (!bb.arm) {
+            fns[count] = @field(bb.tables.core, name).?;
+            labels[count] = "core";
             count += 1;
         }
         for ([_]Fn(name){ @field(bb.tables.portable, name).?, candidate(r, p, 1), candidate(r, p, 4) }, [_][]const u8{ "portable", "vec", "vec x4" }) |f, l| {
@@ -356,8 +377,8 @@ fn raceL1(io: Io, comptime r: L1, comptime p: Prec, b: Bufs(p.F)) !void {
             labels[count] = l;
             count += 1;
         }
-        var ctxs: [4]C = undefined;
-        var calls: [4]bench.Call = undefined;
+        var ctxs: [5]C = undefined;
+        var calls: [5]bench.Call = undefined;
         var ok = true;
         for (0..count) |i| {
             const e = checkL1(r, p, fns[i], n, case.inc, b);
@@ -370,10 +391,10 @@ fn raceL1(io: Io, comptime r: L1, comptime p: Prec, b: Bufs(p.F)) !void {
         }
         if (!ok) continue;
         b.reset();
-        var secs: [4]f64 = undefined;
+        var secs: [5]f64 = undefined;
         try bench.race(io, l1_timing, calls[0..count], &secs);
         const bytes = l1Bytes(r, n, p.es());
-        var gbs: [4]f64 = undefined;
+        var gbs: [5]f64 = undefined;
         for (0..count) |i| gbs[i] = bytes / secs[i] / 1e9;
         const off: usize = if (asm_k != null) 1 else 0;
         std.debug.print("| {s} | {s} | {d} | {d} | {s} | ", .{ @tagName(r), p.name, n, case.inc, if (asm_k) |a| a.from else "none" });
