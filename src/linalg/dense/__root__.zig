@@ -103,7 +103,12 @@ pub const Schur = schur_form.Schur;
 pub const schur = schur_form.schur;
 pub const schurComplex = schur_form.schurComplex;
 
+const expm_ = @import("expm.zig");
+pub const ExpmError = expm_.ExpmError;
+pub const expm = expm_.expm;
+
 test {
+    _ = @import("expm.zig");
     _ = @import("schur_form.zig");
     _ = @import("elementwise.zig");
     _ = @import("vector_norm.zig");
