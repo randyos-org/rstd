@@ -7,6 +7,7 @@ const std = @import("std");
 const blas = @import("../blas/__root__.zig");
 const types = @import("../blas/types.zig");
 const util = @import("../blas/util.zig");
+const interface = @import("interface.zig");
 const ops = @import("ops.zig");
 const blas_calls = @import("blas_calls.zig");
 const auxiliary = @import("auxiliary.zig");
@@ -274,42 +275,39 @@ fn standardize(io: Io, comptime F: type, n: usize, t: [*]F, ldt: usize, q: ?[*]F
 
 // ---- xTREXC ------------------------------------------------------------------------
 
-/// What `trexc` returns: `SwapRejected` for the reference's `INFO = 1`
+/// What `trexc` returns: a slice too short or a leading dimension too small
+/// (`q` checked only with `compq` `v`), `RowOutOfRange` for an `ifst` or
+/// `ilst` past `T`'s rows, `SwapRejected` for the reference's `INFO = 1`
 /// (real only): two adjacent blocks were too close to swap stably, `T`
 /// part reordered and `ilst` the moving block's current row.
-pub const TrexcError = error{ InvalidN, InvalidLdt, InvalidLdq, InvalidIfst, InvalidIlst, SwapRejected } || Io.Cancelable;
+pub const TrexcError = interface.ShapeError || error{ RowOutOfRange, SwapRejected } || Io.Cancelable;
 
 /// `?TREXC` (`dtrexc.f`, `ztrexc.f`): moves the diagonal block of the
-/// `n x n` Schur form `T` at row `ifst` (1-based) to row `ilst` by
+/// `n x n` Schur form `T` at row `ifst` (0-based) to row `ilst` by
 /// orthogonal (unitary) similarity, `T := Zᴴ T Z`, and with `compq` `v`
 /// `Q := Q Z`. Real: `T` is quasi-triangular with standardized 2 x 2
 /// blocks; `ifst` moves to its block's first row and `ilst` to the moved
 /// block's final first row, as the reference's. Complex: both unchanged.
-pub fn trexc(allocator: Allocator, io: Io, comptime T: type, compq: Compq, n: isize, t: [*]T, ldt: isize, q: [*]T, ldq: isize, ifst: *isize, ilst: *isize) TrexcError!void {
+pub fn trexc(io: Io, comptime T: type, compq: Compq, n: usize, t: []T, ldt: usize, q: []T, ldq: usize, ifst: *usize, ilst: *usize) TrexcError!void {
     comptime ops.requireFloat(T, "trexc");
-    _ = allocator;
     const wantq = compq == .v;
-    if (n < 0) return error.InvalidN;
-    if (ldt < @max(1, n)) return error.InvalidLdt;
-    if (ldq < 1 or (wantq and ldq < @max(1, n))) return error.InvalidLdq;
-    if ((ifst.* < 1 or ifst.* > n) and n > 0) return error.InvalidIfst;
-    if ((ilst.* < 1 or ilst.* > n) and n > 0) return error.InvalidIlst;
+    try util.holds(t.len, n, n, ldt);
+    if (wantq) try util.holds(q.len, n, n, ldq);
+    if (n > 0 and (ifst.* >= n or ilst.* >= n)) return error.RowOutOfRange;
     if (n <= 1) return;
-    if (!util.fitsMatrix(n, n, ldt, @sizeOf(T))) return error.InvalidLdt;
-    if (wantq and !util.fitsMatrix(n, n, ldq, @sizeOf(T))) return error.InvalidLdq;
-    const un: usize = @intCast(n);
-    const qq: ?[*]T = if (wantq) q else null;
+    const qq: ?[*]T = if (wantq) q.ptr else null;
     if (comptime isComplex(T)) {
-        moveComplex(T, un, t, @intCast(ldt), qq, @intCast(ldq), @intCast(ifst.*), @intCast(ilst.*));
+        moveComplex(T, n, t.ptr, ldt, qq, ldq, ifst.* + 1, ilst.* + 1);
         return;
     }
-    var f: usize = @intCast(ifst.*);
-    var l: usize = @intCast(ilst.*);
+    // the reference's 1-based rows
+    var f = ifst.* + 1;
+    var l = ilst.* + 1;
     defer {
-        ifst.* = @intCast(f);
-        ilst.* = @intCast(l);
+        ifst.* = f - 1;
+        ilst.* = l - 1;
     }
-    const done = moveReal(io, T, un, t, @intCast(ldt), qq, @intCast(ldq), &f, &l) catch |e| switch (e) {
+    const done = moveReal(io, T, n, t.ptr, ldt, qq, ldq, &f, &l) catch |e| switch (e) {
         error.OutOfMemory => unreachable,
         error.Canceled => return error.Canceled,
     };
@@ -458,30 +456,37 @@ fn moveReal(io: Io, comptime F: type, n: usize, t: [*]F, ldt: usize, q: ?[*]F, l
 /// invariant subspace's (`v`, `sep`), or both (`b`).
 pub const TrsenJob = enum { n, e, v, b };
 
-/// What `trsen` returns: `SwapRejected` for the reference's `INFO = 1`
-/// (real only): a swap was rejected, `T` part reordered, `s` and `sep`
-/// zero, the eigenvalues written.
-pub const TrsenError = error{ InvalidN, InvalidLdt, InvalidLdq, SwapRejected } || Allocator.Error || Io.Cancelable;
+/// What `trsen` returns: a slice too short (`t`, `select` or `w` under
+/// `n`, `q` with `compq` `v`) or a leading dimension too small,
+/// `SwapRejected` for the reference's `INFO = 1` (real only): a swap was
+/// rejected, `T` part reordered, the eigenvalues written.
+pub const TrsenError = interface.ShapeError || error{SwapRejected} || Allocator.Error || Io.Cancelable;
+
+/// What `trsen` found: the reordered cluster's size (the reference's `m`)
+/// and, as `job` asks, the reciprocal condition numbers of the cluster
+/// (`s`) and of the invariant subspace (`sep`, an estimate), else null.
+pub fn Reordered(comptime T: type) type {
+    return struct { m: usize, s: ?Float(T) = null, sep: ?Float(T) = null };
+}
 
 /// `?TRSEN` (`dtrsen.f`, `ztrsen.f`): reorders the `n x n` Schur form `T`
 /// so the eigenvalues `select` picks (`n`; real: either of a pair picks
 /// both) lead it, `T := Zᴴ T Z`, `Q := Q Z` with `compq` `v`. Writes the
-/// reordered eigenvalues to `w`, their count to `m`, and as `job` asks the
-/// reciprocal condition numbers of the cluster (`s`) and of the invariant
-/// subspace (`sep`, an estimate).
-pub fn trsen(allocator: Allocator, io: Io, comptime T: type, job: TrsenJob, compq: Compq, select: [*]const bool, n: isize, t: [*]T, ldt: isize, q: [*]T, ldq: isize, w: Eigenvalues(T), m: *isize, s: *Float(T), sep: *Float(T)) TrsenError!void {
+/// reordered eigenvalues to `w` and returns their count with the condition
+/// numbers `job` asks for.
+pub fn trsen(allocator: Allocator, io: Io, comptime T: type, job: TrsenJob, compq: Compq, select: []const bool, n: usize, t_in: []T, ldt: usize, q: []T, ldq: usize, w: Eigenvalues(T)) TrsenError!Reordered(T) {
     comptime ops.requireFloat(T, "trsen");
     const wants = job == .e or job == .b;
     const wantsp = job == .v or job == .b;
     const wantq = compq == .v;
-    if (n < 0) return error.InvalidN;
-    if (ldt < @max(1, n)) return error.InvalidLdt;
-    if (ldq < 1 or (wantq and ldq < n)) return error.InvalidLdq;
-    if (!util.fitsMatrix(n, n, ldt, @sizeOf(T))) return error.InvalidLdt;
-    if (wantq and !util.fitsMatrix(n, n, ldq, @sizeOf(T))) return error.InvalidLdq;
-    const un: usize = @intCast(n);
-    const lt: usize = @intCast(ldt);
-    const qq: ?[*]T = if (wantq) q else null;
+    try util.holds(t_in.len, n, n, ldt);
+    if (wantq) try util.holds(q.len, n, n, ldq);
+    if (select.len < n) return error.SliceTooShort;
+    try evd.eigenvaluesHold(T, w, n);
+    const un = n;
+    const lt = ldt;
+    const t = t_in.ptr;
+    const qq: ?[*]T = if (wantq) q.ptr else null;
     // the cluster's size, a real pair counted whole
     var cnt: usize = 0;
     {
@@ -493,12 +498,12 @@ pub fn trsen(allocator: Allocator, io: Io, comptime T: type, job: TrsenJob, comp
             } else if (select[k]) cnt += 1;
         }
     }
-    m.* = @intCast(cnt);
+    var r: Reordered(T) = .{ .m = cnt };
     defer eigenvalues(T, un, t, lt, w);
     if (cnt == un or cnt == 0) {
-        if (wants) s.* = 1;
-        if (wantsp) sep.* = try norm.matNorm(allocator, T, .o, un, un, t, lt);
-        return;
+        if (wants) r.s = 1;
+        if (wantsp) r.sep = try norm.matNorm(allocator, T, .o, un, un, t, lt);
+        return r;
     }
     // move the selected blocks up, in order
     var ks: usize = 0;
@@ -510,14 +515,10 @@ pub fn trsen(allocator: Allocator, io: Io, comptime T: type, job: TrsenJob, comp
             ks += 1;
             if (k + 1 != ks) {
                 if (comptime isComplex(T)) {
-                    moveComplex(T, un, t, lt, qq, @intCast(ldq), k + 1, ks);
+                    moveComplex(T, un, t, lt, qq, ldq, k + 1, ks);
                 } else {
                     var kk = k + 1;
-                    if (!try moveReal(io, T, un, t, lt, qq, @intCast(ldq), &kk, &ks)) {
-                        if (wants) s.* = 0;
-                        if (wantsp) sep.* = 0;
-                        return error.SwapRejected;
-                    }
+                    if (!try moveReal(io, T, un, t, lt, qq, ldq, &kk, &ks)) return error.SwapRejected;
                 }
             }
             if (pair) ks += 1;
@@ -527,7 +528,7 @@ pub fn trsen(allocator: Allocator, io: Io, comptime T: type, job: TrsenJob, comp
     const n1 = cnt;
     const n2 = un - cnt;
     const nn = n1 * n2;
-    if (!wants and !wantsp) return;
+    if (!wants and !wantsp) return r;
     const work = try allocator.alloc(T, 2 * nn);
     defer allocator.free(work);
     const ctx: Sep(T) = .{ .al = allocator, .io = io, .n1 = n1, .n2 = n2, .t = t, .ldt = lt, .x = work.ptr };
@@ -536,13 +537,14 @@ pub fn trsen(allocator: Allocator, io: Io, comptime T: type, job: TrsenJob, comp
         for (0..n2) |j| @memcpy(work[j * n1 ..][0..n1], t[(n1 + j) * lt ..][0..n1]);
         const scale = try ctx.solve(false, work.ptr);
         const rnorm = try norm.matNorm(allocator, T, .f, n1, n2, work.ptr, n1);
-        s.* = if (rnorm == 0) 1 else scale / (@sqrt(scale * scale / rnorm + rnorm) * @sqrt(rnorm));
+        r.s = if (rnorm == 0) 1 else scale / (@sqrt(scale * scale / rnorm + rnorm) * @sqrt(rnorm));
     }
     if (wantsp) {
         var last = Sep(T).Last{ .ctx = ctx };
         const est = try norm.lacn2(allocator, T, Error, nn, work.ptr + nn, work.ptr, &last, Sep(T).Last.apply);
-        sep.* = last.scale / est;
+        r.sep = last.scale / est;
     }
+    return r;
 }
 
 /// `trsen`'s Sylvester operator `X ↦ T11 X - X T22` on `n1 x n2` `X`.
@@ -702,18 +704,17 @@ test "lapack trexc: moves every block to every place, Q T Q' = T0, Schur form ke
             defer al.free(t);
             const q = try al.alloc(T, n * n);
             defer al.free(q);
-            for (1..n + 1) |f| for (1..n + 1) |l| {
+            for (0..n) |f| for (0..n) |l| {
                 @memcpy(t, t0);
                 @memset(q, ops.zero(T));
                 for (0..n) |i| q[i * (n + 1)] = ops.one(T);
-                var ifst: isize = @intCast(f);
-                var ilst: isize = @intCast(l);
-                const ni: isize = @intCast(n);
-                try trexc(al, check.io, T, .v, ni, t.ptr, ni, q.ptr, ni, &ifst, &ilst);
+                var ifst = f;
+                var ilst = l;
+                try trexc(check.io, T, .v, n, t, n, q, n, &ifst, &ilst);
                 try expectSimilar(T, n, t0, t, q);
                 // the moved eigenvalue sits at ilst
-                const want = eigAt(T, n, t0, @intCast(ifst - 1));
-                const got = eigAt(T, n, t, @intCast(ilst - 1));
+                const want = eigAt(T, n, t0, ifst);
+                const got = eigAt(T, n, t, ilst);
                 const tol = 100 * @as(f64, @floatCast(std.math.floatEps(F))) * @as(f64, @floatFromInt(n));
                 try testing.expectApproxEqAbs(want[0], got[0], tol);
                 try testing.expectApproxEqAbs(@abs(want[1]), @abs(got[1]), tol);
@@ -723,30 +724,29 @@ test "lapack trexc: moves every block to every place, Q T Q' = T0, Schur form ke
 }
 
 test "lapack trexc: n = 0 and 1, compq n, bad arguments" {
-    const al = testing.allocator;
     inline for (test_types) |T| {
         var t = [_]T{ops.scalar(T, 3)};
         var q = [_]T{ops.scalar(T, 7)};
-        var f: isize = 1;
-        var l: isize = 1;
-        try trexc(al, check.io, T, .v, 1, &t, 1, &q, 1, &f, &l);
-        try trexc(al, check.io, T, .n, 0, &t, 1, &q, 1, &f, &l);
+        var f: usize = 0;
+        var l: usize = 0;
+        try trexc(check.io, T, .v, 1, &t, 1, &q, 1, &f, &l);
+        try trexc(check.io, T, .n, 0, &t, 1, &q, 1, &f, &l);
         try testing.expect(ops.re(T, t[0]) == 3 and ops.re(T, q[0]) == 7);
     }
     var t: [4]f64 = .{ 1, 0, 2, 3 };
     var q: [4]f64 = undefined;
-    var f: isize = 1;
-    var l: isize = 2;
-    try trexc(al, check.io, f64, .n, 2, &t, 2, &q, 1, &f, &l);
+    var f: usize = 0;
+    var l: usize = 1;
+    try trexc(check.io, f64, .n, 2, &t, 2, &q, 1, &f, &l);
     try testing.expect(t[0] == 3 and t[3] == 1 and @abs(t[2]) == 2 and t[1] == 0);
-    try testing.expectError(error.InvalidN, trexc(al, check.io, f64, .n, -1, &t, 1, &q, 1, &f, &l));
-    try testing.expectError(error.InvalidLdt, trexc(al, check.io, f64, .n, 2, &t, 1, &q, 1, &f, &l));
-    try testing.expectError(error.InvalidLdq, trexc(al, check.io, f64, .v, 2, &t, 2, &q, 1, &f, &l));
-    f = 3;
-    try testing.expectError(error.InvalidIfst, trexc(al, check.io, f64, .n, 2, &t, 2, &q, 1, &f, &l));
-    f = 1;
-    l = 0;
-    try testing.expectError(error.InvalidIlst, trexc(al, check.io, f64, .n, 2, &t, 2, &q, 1, &f, &l));
+    try testing.expectError(error.LeadingDimensionTooSmall, trexc(check.io, f64, .n, 2, &t, 1, &q, 1, &f, &l));
+    try testing.expectError(error.SliceTooShort, trexc(check.io, f64, .n, 2, t[0..3], 2, &q, 1, &f, &l));
+    try testing.expectError(error.LeadingDimensionTooSmall, trexc(check.io, f64, .v, 2, &t, 2, &q, 1, &f, &l));
+    f = 2;
+    try testing.expectError(error.RowOutOfRange, trexc(check.io, f64, .n, 2, &t, 2, &q, 1, &f, &l));
+    f = 0;
+    l = 2;
+    try testing.expectError(error.RowOutOfRange, trexc(check.io, f64, .n, 2, &t, 2, &q, 1, &f, &l));
 }
 
 /// `I ⊗ T11 - T22ᵀ ⊗ I`, the Sylvester operator `trsen` measures, on
@@ -782,14 +782,12 @@ test "lapack trsen: the selected cluster leads, s against the Kronecker solve, s
             var select: [8]bool = undefined;
             for (0..n) |i| select[i] = (sel >> @intCast(i)) & 1 != 0;
             var wbuf: [16]T = undefined;
-            const w: Eigenvalues(T) = if (comptime isComplex(T)) &wbuf else .{ .re = &wbuf, .im = wbuf[8..].ptr };
-            var m: isize = -1;
-            var s: F = -1;
-            var sep: F = -1;
-            const ni: isize = @intCast(n);
-            try trsen(al, check.io, T, .b, .v, &select, ni, t.ptr, ni, q.ptr, ni, w, &m, &s, &sep);
+            const w: Eigenvalues(T) = if (comptime isComplex(T)) &wbuf else .{ .re = wbuf[0..8], .im = wbuf[8..] };
+            const r = try trsen(al, check.io, T, .b, .v, select[0..n], n, t, n, q, n, w);
+            const s = r.s.?;
+            const sep = r.sep.?;
             try expectSimilar(T, n, t0, t, q);
-            const n1: usize = @intCast(m);
+            const n1 = r.m;
             // the selected eigenvalues, in their old order, lead
             var k: usize = 0;
             var got: usize = 0;
@@ -848,34 +846,32 @@ test "lapack trsen: the selected cluster leads, s against the Kronecker solve, s
 test "lapack trsen: none or all selected, a block-diagonal T, n = 0, bad arguments" {
     const al = testing.allocator;
     inline for (test_types) |T| {
-        const F = Float(T);
         // diag(1, 4): s = 1 (T12 = 0), sep = |1 - 4| exactly
         var t = [_]T{ ops.scalar(T, 1), ops.zero(T), ops.zero(T), ops.scalar(T, 4) };
         var q: [4]T = undefined;
         var wbuf: [4]T = undefined;
-        const w: Eigenvalues(T) = if (comptime isComplex(T)) &wbuf else .{ .re = &wbuf, .im = wbuf[2..].ptr };
-        var m: isize = -1;
-        var s: F = -1;
-        var sep: F = -1;
-        try trsen(al, check.io, T, .b, .n, &[_]bool{ false, true }, 2, &t, 2, &q, 1, w, &m, &s, &sep);
-        try testing.expect(m == 1 and s == 1 and sep == 3);
+        const w: Eigenvalues(T) = if (comptime isComplex(T)) &wbuf else .{ .re = wbuf[0..2], .im = wbuf[2..] };
+        var r = try trsen(al, check.io, T, .b, .n, &.{ false, true }, 2, &t, 2, &q, 1, w);
+        try testing.expect(r.m == 1 and r.s.? == 1 and r.sep.? == 3);
         try testing.expect(ops.re(T, t[0]) == 4 and ops.re(T, t[3]) == 1);
-        try trsen(al, check.io, T, .b, .n, &[_]bool{ false, false }, 2, &t, 2, &q, 1, w, &m, &s, &sep);
-        try testing.expect(m == 0 and s == 1 and sep == 4);
-        try trsen(al, check.io, T, .v, .n, &[_]bool{ true, true }, 2, &t, 2, &q, 1, w, &m, &s, &sep);
-        try testing.expect(m == 2 and sep == 4);
-        try trsen(al, check.io, T, .b, .n, &[_]bool{}, 0, &t, 1, &q, 1, w, &m, &s, &sep);
-        try testing.expect(m == 0 and s == 1);
+        r = try trsen(al, check.io, T, .b, .n, &.{ false, false }, 2, &t, 2, &q, 1, w);
+        try testing.expect(r.m == 0 and r.s.? == 1 and r.sep.? == 4);
+        r = try trsen(al, check.io, T, .v, .n, &.{ true, true }, 2, &t, 2, &q, 1, w);
+        try testing.expect(r.m == 2 and r.s == null and r.sep.? == 4);
+        r = try trsen(al, check.io, T, .b, .n, &.{}, 0, &t, 1, &q, 1, w);
+        try testing.expect(r.m == 0 and r.s.? == 1);
+        r = try trsen(al, check.io, T, .n, .n, &.{ true, false }, 2, &t, 2, &q, 1, w);
+        try testing.expect(r.m == 1 and r.s == null and r.sep == null);
     }
     var t: [4]f64 = undefined;
     var q: [4]f64 = undefined;
     var wr: [2]f64 = undefined;
     var wi: [2]f64 = undefined;
-    var m: isize = 0;
-    var s: f64 = 0;
-    var sep: f64 = 0;
     const sel = [_]bool{ true, false };
-    try testing.expectError(error.InvalidN, trsen(al, check.io, f64, .n, .n, &sel, -1, &t, 1, &q, 1, .{ .re = &wr, .im = &wi }, &m, &s, &sep));
-    try testing.expectError(error.InvalidLdt, trsen(al, check.io, f64, .n, .n, &sel, 2, &t, 1, &q, 1, .{ .re = &wr, .im = &wi }, &m, &s, &sep));
-    try testing.expectError(error.InvalidLdq, trsen(al, check.io, f64, .n, .v, &sel, 2, &t, 2, &q, 1, .{ .re = &wr, .im = &wi }, &m, &s, &sep));
+    const w: Eigenvalues(f64) = .{ .re = &wr, .im = &wi };
+    try testing.expectError(error.LeadingDimensionTooSmall, trsen(al, check.io, f64, .n, .n, &sel, 2, &t, 1, &q, 1, w));
+    try testing.expectError(error.SliceTooShort, trsen(al, check.io, f64, .n, .n, &sel, 2, t[0..3], 2, &q, 1, w));
+    try testing.expectError(error.LeadingDimensionTooSmall, trsen(al, check.io, f64, .n, .v, &sel, 2, &t, 2, &q, 1, w));
+    try testing.expectError(error.SliceTooShort, trsen(al, check.io, f64, .n, .n, sel[0..1], 2, &t, 2, &q, 1, w));
+    try testing.expectError(error.SliceTooShort, trsen(al, check.io, f64, .n, .n, &sel, 2, &t, 2, &q, 1, .{ .re = &wr, .im = wi[0..1] }));
 }

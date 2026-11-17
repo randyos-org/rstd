@@ -585,9 +585,9 @@ pub fn Svd(comptime T: type) type {
 /// in `A`.
 pub const SvdError = error{NoConvergence} || Allocator.Error || Io.Cancelable;
 
-/// `InvalidA` (a NaN) is `NoConvergence`.
+/// `InvalidA` or `NanInA` (a NaN) is `NoConvergence`.
 fn svdError(e: anyerror) SvdError {
-    return if (e == error.InvalidA) error.NoConvergence else narrow(SvdError, e);
+    return if (e == error.InvalidA or e == error.NanInA) error.NoConvergence else narrow(SvdError, e);
 }
 
 /// `A = U Σ Vᴴ` (MATLAB's `svd`): the values alone by `gesvd` (QR
@@ -734,14 +734,14 @@ pub fn eig(allocator: Allocator, io: Io, a: anytype, want_vectors: bool) EigErro
     const ca = constOf(a);
     if (ca.rows != ca.cols) return error.NotSquare;
     const n = ca.rows;
-    const ld = toIsize(@max(n, 1));
+    const ld = @max(n, 1);
     const jobz: lapack.Jobz = if (want_vectors) .v else .n;
     const f = try copyOf(T, allocator, ca);
     if (isHermitian(ca)) {
         errdefer f.deinit(allocator);
         const w = try allocator.alloc(Real(T), n);
         errdefer allocator.free(w);
-        lapack.syevd(allocator, io, T, jobz, .u, toIsize(n), f.data.ptr, ld, w.ptr) catch |e| return svdError(e);
+        lapack.syevd(allocator, io, T, jobz, .u, n, f.data, ld, w) catch |e| return svdError(e);
         if (!want_vectors) f.deinit(allocator);
         return .{ .hermitian = .{ .values = w, .vectors = if (want_vectors) f else null } };
     }
@@ -750,16 +750,16 @@ pub fn eig(allocator: Allocator, io: Io, a: anytype, want_vectors: bool) EigErro
     errdefer allocator.free(w);
     const vr: ?Mat(T) = if (want_vectors) try Mat(T).init(allocator, n, n) else null;
     var none: [1]T = undefined;
-    const pr = if (vr) |x| x.data.ptr else &none;
+    const pr: []T = if (vr) |x| x.data else &none;
     if (comptime isComplex(T)) {
         errdefer if (vr) |x| x.deinit(allocator);
-        lapack.geev(allocator, io, T, .n, jobz, toIsize(n), f.data.ptr, ld, w.ptr, &none, 1, pr, ld, null) catch |e| return svdError(e);
+        lapack.geev(allocator, io, T, .n, jobz, n, f.data, ld, w, &none, 1, pr, ld, null) catch |e| return svdError(e);
         return .{ .general = .{ .values = w, .vectors = vr } };
     }
     defer if (vr) |x| x.deinit(allocator);
     const wr = try allocator.alloc(T, 2 * n);
     defer allocator.free(wr);
-    lapack.geev(allocator, io, T, .n, jobz, toIsize(n), f.data.ptr, ld, .{ .re = wr.ptr, .im = wr[n..].ptr }, &none, 1, pr, ld, null) catch |e| return svdError(e);
+    lapack.geev(allocator, io, T, .n, jobz, n, f.data, ld, .{ .re = wr[0..n], .im = wr[n..] }, &none, 1, pr, ld, null) catch |e| return svdError(e);
     for (w, wr[0..n], wr[n..]) |*d, re, im| d.* = .init(re, im);
     const x = vr orelse return .{ .general = .{ .values = w, .vectors = null } };
     // `v(:, j) ± i v(:, j + 1)` for a pair, `wi(j) > 0` first

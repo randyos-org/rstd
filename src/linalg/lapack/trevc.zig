@@ -12,6 +12,7 @@ const auxiliary = @import("auxiliary.zig");
 const norm = @import("norm.zig");
 const sylvester = @import("sylvester.zig");
 const util = @import("../blas/util.zig");
+const interface = @import("interface.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -371,9 +372,11 @@ pub const Side = enum { r, l, b };
 /// `Q` given in `vl`/`vr` (`b`), or those `select` picks (`s`).
 pub const Howmny = enum { a, b, s };
 
-/// What `trevc3` returns: `InvalidSelect` for `s` without `select`,
-/// `InvalidMm` when `mm` is short of the `m` columns needed.
-pub const Trevc3Error = error{ InvalidN, InvalidSelect, InvalidLdt, InvalidLdvl, InvalidLdvr, InvalidMm } || Allocator.Error || Io.Cancelable;
+/// What `trevc3` returns: a slice too short (`t`, `select` under `n`, `vl`
+/// or `vr` when computed) or a leading dimension too small,
+/// `MissingSelect` for `s` without `select`, `TooFewColumns` when `mm` is
+/// short of the columns the vectors need.
+pub const Trevc3Error = interface.ShapeError || error{ MissingSelect, TooFewColumns } || Allocator.Error || Io.Cancelable;
 
 /// `?TREVC3` (`dtrevc3.f`, `ztrevc3.f`): eigenvectors of the `n x n` Schur
 /// form `T` (real: upper quasi-triangular with standardized 2 x 2 blocks, as
@@ -384,21 +387,20 @@ pub const Trevc3Error = error{ InvalidN, InvalidSelect, InvalidLdt, InvalidLdvl,
 /// the multiplication by the `Q` given in `vl`/`vr` (from `orghr` and
 /// `hseqr`, so the vectors are `A`'s). With `s`, only the vectors `select`
 /// picks, in order; a real pair picked by either entry takes both columns,
-/// `select` then marking its first only, as the reference does. `m` gets
-/// the columns used. `T` is restored on return (the complex solves scale
-/// its diagonal in place).
-pub fn trevc3(allocator: Allocator, io: Io, comptime T: type, side: Side, howmny: Howmny, select: ?[*]bool, n: isize, t: [*]T, ldt: isize, vl: [*]T, ldvl: isize, vr: [*]T, ldvr: isize, mm: isize, m: *isize) Trevc3Error!void {
+/// `select` then marking its first only, as the reference does. Returns
+/// the columns used (the reference's `m`). `T` is restored on return (the
+/// complex solves scale its diagonal in place).
+pub fn trevc3(allocator: Allocator, io: Io, comptime T: type, side: Side, howmny: Howmny, select: ?[]bool, n: usize, t: []T, ldt: usize, vl: []T, ldvl: usize, vr: []T, ldvr: usize, mm: usize) Trevc3Error!usize {
     comptime ops.requireFloat(T, "trevc3");
     const left = side != .r;
     const right = side != .l;
-    if (n < 0) return error.InvalidN;
-    if (howmny == .s and select == null) return error.InvalidSelect;
-    if (ldt < @max(1, n)) return error.InvalidLdt;
-    if (ldvl < 1 or (left and ldvl < n)) return error.InvalidLdvl;
-    if (ldvr < 1 or (right and ldvr < n)) return error.InvalidLdvr;
-    const un: usize = @intCast(n);
-    if (un > 0 and !util.fitsMatrix(n, n, ldt, @sizeOf(T))) return error.InvalidLdt;
-    const tm: Mat(T) = .{ .ptr = t, .rows = un, .cols = un, .ld = if (un > 0) @intCast(ldt) else 1 };
+    if (howmny == .s and select == null) return error.MissingSelect;
+    if (select) |sel| if (howmny == .s and sel.len < n) return error.SliceTooShort;
+    try util.holds(t.len, n, n, ldt);
+    if (left) try util.holds(vl.len, n, mm, ldvl);
+    if (right) try util.holds(vr.len, n, mm, ldvr);
+    const un = n;
+    const tm: Mat(T) = .{ .ptr = t.ptr, .rows = un, .cols = un, .ld = ldt };
     var count = un;
     if (howmny == .s) {
         const sel = select.?;
@@ -415,11 +417,8 @@ pub fn trevc3(allocator: Allocator, io: Io, comptime T: type, side: Side, howmny
             } else if (sel[j]) count += 1;
         }
     }
-    m.* = @intCast(count);
-    if (mm < count) return error.InvalidMm;
-    if (un == 0 or count == 0) return;
-    if (left and !util.fitsMatrix(n, mm, ldvl, @sizeOf(T))) return error.InvalidLdvl;
-    if (right and !util.fitsMatrix(n, mm, ldvr, @sizeOf(T))) return error.InvalidLdvr;
+    if (mm < count) return error.TooFewColumns;
+    if (un == 0 or count == 0) return count;
     const x = try ops.alloc(T, allocator, un, un);
     defer ops.free(T, allocator, x);
     const cn = try allocator.alloc(Float(T), un);
@@ -429,9 +428,9 @@ pub fn trevc3(allocator: Allocator, io: Io, comptime T: type, side: Side, howmny
     for ([_]bool{ true, false }) |r| {
         if ((r and !right) or (!r and !left)) continue;
         const dst: Mat(T) = if (r)
-            .{ .ptr = vr, .rows = un, .cols = @intCast(mm), .ld = @intCast(ldvr) }
+            .{ .ptr = vr.ptr, .rows = un, .cols = mm, .ld = ldvr }
         else
-            .{ .ptr = vl, .rows = un, .cols = @intCast(mm), .ld = @intCast(ldvl) };
+            .{ .ptr = vl.ptr, .rows = un, .cols = mm, .ld = ldvl };
         if (comptime ops.isComplex(T)) try complex(allocator, io, T, r, tm, x, cn, diag) else real(T, r, tm, x, cn);
         switch (howmny) {
             .a => dst.sub(0, 0, un, un).copyFrom(x),
@@ -469,6 +468,7 @@ pub fn trevc3(allocator: Allocator, io: Io, comptime T: type, side: Side, howmny
             },
         }
     }
+    return count;
 }
 
 /// A real 2 x 2 block (a complex pair) starts at `j`.
@@ -518,7 +518,6 @@ test "trevc3: A's eigenvectors after gehrd, orghr and hseqr, back-transformed an
         const F = Float(T);
         const C = std.math.Complex(F);
         for ([_]usize{ 1, 2, 5, 12, 31 }) |n| {
-            const ni: isize = @intCast(n);
             const a0 = try al.alloc(T, n * n);
             defer al.free(a0);
             check.fill(T, a0, 13 * n + 1);
@@ -526,23 +525,22 @@ test "trevc3: A's eigenvectors after gehrd, orghr and hseqr, back-transformed an
             defer al.free(t);
             const tau = try al.alloc(T, @max(n, 2) - 1);
             defer al.free(tau);
-            try hessenberg.gehrd(al, check.io, T, ni, 1, ni, t.ptr, ni, tau.ptr);
+            try hessenberg.gehrd(al, check.io, T, n, 0, n, t, n, tau);
             const z = try al.dupe(T, t);
             defer al.free(z);
-            try hessenberg.orghr(al, check.io, T, ni, 1, ni, z.ptr, ni, tau.ptr);
+            try hessenberg.orghr(al, check.io, T, n, 0, n, z, n, tau);
             const ev = try al.alloc(F, 2 * n);
             defer al.free(ev);
             const cw = try al.alloc(T, n);
             defer al.free(cw);
-            const w: evd.Eigenvalues(T) = if (comptime types.isComplex(T)) cw.ptr else .{ .re = ev.ptr, .im = ev.ptr + n };
-            try evd.hseqr(check.io, T, .s, .v, ni, 1, ni, t.ptr, ni, w, z.ptr, ni, null);
+            const w: evd.Eigenvalues(T) = if (comptime types.isComplex(T)) cw else .{ .re = ev[0..n], .im = ev[n..] };
+            try evd.hseqr(check.io, T, .s, .v, n, 0, n, t, n, w, z, n, null);
             const vl = try al.dupe(T, z);
             defer al.free(vl);
             const vr = try al.dupe(T, z);
             defer al.free(vr);
-            var m: isize = 0;
-            try trevc3(al, check.io, T, .b, .b, null, ni, t.ptr, ni, vl.ptr, ni, vr.ptr, ni, ni, &m);
-            try testing.expectEqual(ni, m);
+            var m = try trevc3(al, check.io, T, .b, .b, null, n, t, n, vl, n, vr, n, n);
+            try testing.expectEqual(n, m);
             const tol = 256 * std.math.floatEps(F) * @as(F, @floatFromInt(n + 1)) * @max(auxiliary.normMax(T, .{ .ptr = a0.ptr, .rows = n, .cols = n, .ld = n }), 1);
             var j: usize = 0;
             while (j < n) : (j += 1) {
@@ -565,8 +563,9 @@ test "trevc3: A's eigenvectors after gehrd, orghr and hseqr, back-transformed an
             defer al.free(all);
             const some = try al.alloc(T, n * n);
             defer al.free(some);
-            try trevc3(al, check.io, T, .r, .a, null, ni, t.ptr, ni, vl.ptr, ni, all.ptr, ni, ni, &m);
-            try trevc3(al, check.io, T, .r, .s, sel.ptr, ni, t.ptr, ni, vl.ptr, ni, some.ptr, ni, ni, &m);
+            m = try trevc3(al, check.io, T, .r, .a, null, n, t, n, vl, n, all, n, n);
+            try testing.expectEqual(n, m);
+            m = try trevc3(al, check.io, T, .r, .s, sel, n, t, n, vl, n, some, n, n);
             var c: usize = 0;
             j = 0;
             while (j < n) : (j += 1) {
@@ -582,15 +581,19 @@ test "trevc3: A's eigenvectors after gehrd, orghr and hseqr, back-transformed an
                     j += 1;
                 }
             }
-            try testing.expectEqual(@as(isize, @intCast(c)), m);
+            try testing.expectEqual(c, m);
         }
     }
     var a: [4]f64 = @splat(0);
-    var m: isize = 0;
-    try testing.expectError(error.InvalidN, trevc3(al, check.io, f64, .r, .a, null, -1, &a, 1, &a, 1, &a, 1, 0, &m));
-    try testing.expectError(error.InvalidSelect, trevc3(al, check.io, f64, .r, .s, null, 2, &a, 2, &a, 1, &a, 2, 2, &m));
-    try testing.expectError(error.InvalidLdvr, trevc3(al, check.io, f64, .r, .a, null, 2, &a, 2, &a, 1, &a, 1, 2, &m));
-    try testing.expectError(error.InvalidMm, trevc3(al, check.io, f64, .r, .a, null, 2, &a, 2, &a, 1, &a, 2, 1, &m));
+    var sel = [_]bool{ true, false };
+    try testing.expectError(error.MissingSelect, trevc3(al, check.io, f64, .r, .s, null, 2, &a, 2, &a, 1, &a, 2, 2));
+    try testing.expectError(error.SliceTooShort, trevc3(al, check.io, f64, .r, .s, sel[0..1], 2, &a, 2, &a, 1, &a, 2, 2));
+    try testing.expectError(error.LeadingDimensionTooSmall, trevc3(al, check.io, f64, .r, .a, null, 2, &a, 2, &a, 1, &a, 1, 2));
+    try testing.expectError(error.LeadingDimensionTooSmall, trevc3(al, check.io, f64, .l, .a, null, 2, &a, 2, &a, 1, &a, 1, 2));
+    try testing.expectError(error.SliceTooShort, trevc3(al, check.io, f64, .r, .a, null, 2, &a, 2, &a, 1, a[0..3], 2, 2));
+    try testing.expectError(error.SliceTooShort, trevc3(al, check.io, f64, .r, .a, null, 2, a[0..3], 2, &a, 1, &a, 2, 2));
+    try testing.expectError(error.TooFewColumns, trevc3(al, check.io, f64, .r, .a, null, 2, &a, 2, &a, 1, &a, 2, 1));
+    try testing.expectEqual(1, try trevc3(al, check.io, f64, .r, .s, &sel, 2, &a, 2, &a, 1, &a, 2, 1));
 }
 
 test "trevc3: a zero Q back-transforms to zero columns, not NaN, real with a pair and complex" {
@@ -606,9 +609,7 @@ test "trevc3: a zero Q back-transforms to zero columns, not NaN, real with a pai
         var tm = t;
         var vl: [n * n]T = @splat(ops.zero(T));
         var vr: [n * n]T = @splat(ops.zero(T));
-        var m: isize = 0;
-        try trevc3(al, check.io, T, .b, .b, null, n, &tm, n, &vl, n, &vr, n, n, &m);
-        try testing.expectEqual(@as(isize, n), m);
+        try testing.expectEqual(n, try trevc3(al, check.io, T, .b, .b, null, n, &tm, n, &vl, n, &vr, n, n));
         for (vl, vr) |l, r| try testing.expect(ops.abs1(T, l) == 0 and ops.abs1(T, r) == 0);
     }
 }
