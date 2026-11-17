@@ -450,8 +450,7 @@ fn sigmaMin(comptime T: type, al: Allocator, g: Gen(T)) !f64 {
     };
     const s = try al.alloc(f64, 2 * k);
     defer al.free(s);
-    var dummy: [1]C = undefined;
-    try faer_svd.gesvd(al, check.io, C, .n, .n, @intCast(2 * k), @intCast(2 * k), z.ptr, @intCast(2 * k), s.ptr, &dummy, 1, &dummy, 1, null);
+    try faer_svd.gesvd(al, check.io, C, .n, .n, 2 * k, 2 * k, z, 2 * k, s, z[0..0], 1, z[0..0], 1, null);
     return s[2 * k - 1];
 }
 

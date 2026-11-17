@@ -20,12 +20,9 @@ pub const Error = error{NoConvergence} || Allocator.Error || Io.Cancelable;
 /// and `vt` non-null the thin `U` (`m x k`) and `Vᴴ` (`k x n`).
 fn gesvd(comptime T: type, allocator: Allocator, io: Io, m: usize, n: usize, x: []T, s: []f64, u: ?[]T, vt: ?[]T) Error!void {
     const k = @min(m, n);
-    var none: [1]T = undefined;
     const job: lapack.Job = if (u != null) .s else .n;
-    const up: [*]T = if (u) |y| y.ptr else &none;
-    const vp: [*]T = if (vt) |y| y.ptr else &none;
     // the arguments come from the shape
-    lapack.gesvd(allocator, io, T, job, job, @intCast(m), @intCast(n), x.ptr, @intCast(@max(1, m)), s.ptr, up, @intCast(if (u != null) @max(1, m) else 1), vp, @intCast(if (vt != null) @max(1, k) else 1), null) catch |e| return ops.narrow(Error, e);
+    lapack.gesvd(allocator, io, T, job, job, m, n, x, @max(1, m), s, u orelse x[0..0], @max(1, m), vt orelse x[0..0], @max(1, k), null) catch |e| return ops.narrow(Error, e);
 }
 
 /// The singular values of `a` (not mutated), nonincreasing. Caller frees.

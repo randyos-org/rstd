@@ -14,6 +14,7 @@ const qr = @import("qr.zig");
 const bidiag = @import("bidiag.zig");
 const bsvd = @import("bidiag_svd.zig");
 const util = @import("../blas/util.zig");
+const interface = @import("interface.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -26,11 +27,14 @@ const isComplex = ops.isComplex;
 /// `A` (`o`), or none (`n`).
 pub const Job = enum { a, s, o, n };
 
-/// What `gesvd` returns: `InvalidJobvt` when both jobs are `o`.
-pub const GesvdError = error{ InvalidJobvt, InvalidM, InvalidN, InvalidLda, InvalidLdu, InvalidLdvt, NoConvergence } || Allocator.Error || Io.Cancelable;
+/// What `gesvd` returns: `ConflictingJobs` when both jobs are `o`, a slice
+/// too short (`a`, `s` under `min(m, n)`, `u` and `vt` where their jobs
+/// write them) or a leading dimension too small, `NoConvergence`.
+pub const GesvdError = error{ConflictingJobs} || interface.ShapeError || error{NoConvergence} || Allocator.Error || Io.Cancelable;
 
-/// What `gesdd` returns: `InvalidA` when `A` holds a NaN.
-pub const GesddError = error{ InvalidM, InvalidN, InvalidA, InvalidLda, InvalidLdu, InvalidLdvt, NoConvergence } || Allocator.Error || Io.Cancelable;
+/// What `gesdd` returns: `gesvd`'s shape errors, `NanInA` when `A` holds a
+/// NaN, `NoConvergence`.
+pub const GesddError = interface.ShapeError || interface.NanError || error{NoConvergence} || Allocator.Error || Io.Cancelable;
 
 /// `SvdParams::auto`'s `recursion_threshold`: below it, divide and conquer
 /// is QR iteration.
@@ -42,28 +46,25 @@ const qr_ratio = 11.0 / 6.0;
 /// `?GESVD`: `A = U Σ Vᴴ` for the `m x n` `A`; the singular values into `s`
 /// (`min(m, n)`, nonincreasing, nonnegative), `U` by `jobu` into `u` (`ldu`)
 /// or `A`, `Vᴴ` by `jobvt` into `vt` (`ldvt`) or `A`. `A` is destroyed
-/// unless a job puts its vectors there. `u` and `vt` are not read where
-/// their job does not use them. The bidiagonal by QR iteration.
+/// unless a job puts its vectors there. `u` and `vt` are neither read nor
+/// checked where their job does not use them. The bidiagonal by QR
+/// iteration.
 ///
 /// On `error.NoConvergence`, `unconverged` (when given) gets the reference's
 /// `INFO > 0`: how many superdiagonals of the bidiagonal did not converge to
 /// zero (`min(m, n) - 1`, all of them, for an infinity or NaN in `A`); `s`,
 /// `U` and `Vᴴ` are then undefined. The reference also leaves that
 /// bidiagonal in `S` and `WORK`; rstd has no `WORK`.
-pub fn gesvd(allocator: Allocator, io: Io, comptime T: type, jobu: Job, jobvt: Job, m: isize, n: isize, a: [*]T, lda: isize, s: [*]Float(T), u: [*]T, ldu: isize, vt: [*]T, ldvt: isize, unconverged: ?*usize) GesvdError!void {
+pub fn gesvd(allocator: Allocator, io: Io, comptime T: type, jobu: Job, jobvt: Job, m: usize, n: usize, a: []T, lda: usize, s: []Float(T), u: []T, ldu: usize, vt: []T, ldvt: usize, unconverged: ?*usize) GesvdError!void {
     comptime ops.requireFloat(T, "gesvd");
     const minmn = @min(m, n);
-    if (jobu == .o and jobvt == .o) return error.InvalidJobvt;
-    if (m < 0) return error.InvalidM;
-    if (n < 0) return error.InvalidN;
-    if (lda < @max(1, m)) return error.InvalidLda;
-    if (ldu < 1 or ((jobu == .a or jobu == .s) and ldu < m)) return error.InvalidLdu;
-    if (ldvt < 1 or (jobvt == .a and ldvt < n) or (jobvt == .s and ldvt < minmn)) return error.InvalidLdvt;
+    if (jobu == .o and jobvt == .o) return error.ConflictingJobs;
+    try util.holds(a.len, m, n, lda);
+    if (s.len < minmn) return error.SliceTooShort;
+    if (jobu == .a or jobu == .s) try util.holds(u.len, m, if (jobu == .a) m else minmn, ldu);
+    if (jobvt == .a or jobvt == .s) try util.holds(vt.len, if (jobvt == .a) n else minmn, n, ldvt);
     if (m == 0 or n == 0) return;
-    if (!util.fitsMatrix(m, n, lda, @sizeOf(T))) return error.InvalidLda;
-    if (!util.fitsMatrix(m, if (jobu == .a) m else if (jobu == .s) minmn else 0, ldu, @sizeOf(T))) return error.InvalidLdu;
-    if (!util.fitsMatrix(if (jobvt == .a) n else if (jobvt == .s) minmn else 0, n, ldvt, @sizeOf(T))) return error.InvalidLdvt;
-    run(allocator, io, T, jobu, jobvt, @intCast(m), @intCast(n), a, @intCast(lda), s, u, @intCast(ldu), vt, @intCast(ldvt), std.math.maxInt(usize), unconverged) catch |e| return switch (e) {
+    run(allocator, io, T, jobu, jobvt, m, n, a.ptr, lda, s.ptr, u.ptr, ldu, vt.ptr, ldvt, std.math.maxInt(usize), unconverged) catch |e| return switch (e) {
         error.NanInA => error.NoConvergence,
         else => |x| x,
     };
@@ -73,17 +74,11 @@ pub fn gesvd(allocator: Allocator, io: Io, comptime T: type, jobu: Job, jobvt: J
 /// `gesvd`'s for `U` and `Vᴴ` alike; `o` puts `U` on `A` and all of `Vᴴ` in
 /// `vt` when `m >= n`, else all of `U` in `u` and `Vᴴ` on `A`. The
 /// bidiagonal by divide and conquer.
-pub fn gesdd(allocator: Allocator, io: Io, comptime T: type, jobz: Job, m: isize, n: isize, a: [*]T, lda: isize, s: [*]Float(T), u: [*]T, ldu: isize, vt: [*]T, ldvt: isize) GesddError!void {
+pub fn gesdd(allocator: Allocator, io: Io, comptime T: type, jobz: Job, m: usize, n: usize, a: []T, lda: usize, s: []Float(T), u: []T, ldu: usize, vt: []T, ldvt: usize) GesddError!void {
     comptime ops.requireFloat(T, "gesdd");
     const minmn = @min(m, n);
-    const as = jobz == .a or jobz == .s;
-    if (m < 0) return error.InvalidM;
-    if (n < 0) return error.InvalidN;
-    if (lda < @max(1, m)) return error.InvalidLda;
-    if (ldu < 1 or (as and ldu < m) or (jobz == .o and m < n and ldu < m)) return error.InvalidLdu;
-    if (ldvt < 1 or (jobz == .a and ldvt < n) or (jobz == .s and ldvt < minmn) or (jobz == .o and m >= n and ldvt < n)) return error.InvalidLdvt;
-    if (m == 0 or n == 0) return;
-    if (!util.fitsMatrix(m, n, lda, @sizeOf(T))) return error.InvalidLda;
+    try util.holds(a.len, m, n, lda);
+    if (s.len < minmn) return error.SliceTooShort;
     const ucols = switch (jobz) {
         .a => m,
         .s => minmn,
@@ -96,16 +91,14 @@ pub fn gesdd(allocator: Allocator, io: Io, comptime T: type, jobz: Job, m: isize
         .o => if (m >= n) n else 0,
         .n => 0,
     };
-    if (!util.fitsMatrix(m, ucols, ldu, @sizeOf(T))) return error.InvalidLdu;
-    if (!util.fitsMatrix(vtrows, n, ldvt, @sizeOf(T))) return error.InvalidLdvt;
+    if (ucols > 0) try util.holds(u.len, m, ucols, ldu);
+    if (vtrows > 0) try util.holds(vt.len, vtrows, n, ldvt);
+    if (m == 0 or n == 0) return;
     const jobu: Job, const jobvt: Job = switch (jobz) {
         .o => if (m >= n) .{ .o, .a } else .{ .a, .o },
         .a, .s, .n => .{ jobz, jobz },
     };
-    run(allocator, io, T, jobu, jobvt, @intCast(m), @intCast(n), a, @intCast(lda), s, u, @intCast(ldu), vt, @intCast(ldvt), dc_threshold, null) catch |e| return switch (e) {
-        error.NanInA => error.InvalidA,
-        else => |x| x,
-    };
+    try run(allocator, io, T, jobu, jobvt, m, n, a.ptr, lda, s.ptr, u.ptr, ldu, vt.ptr, ldvt, dc_threshold, null);
 }
 
 const RunError = error{ NanInA, NoConvergence } || ops.Error;
@@ -412,8 +405,8 @@ fn decompose(comptime T: type, al: Allocator, io: Io, r: Routine, ju: Job, jv: J
     a.fill(lcheck.poisoned(T));
     a.sub(0, 0, m, n).copyFrom(a0);
     switch (r) {
-        .gesvd => try gesvd(al, io, T, ju, jv, @intCast(m), @intCast(n), a.ptr, @intCast(lda), s.ptr, u.ptr, @intCast(u.ld), vt.ptr, @intCast(vt.ld), null),
-        .gesdd => try gesdd(al, io, T, ju, @intCast(m), @intCast(n), a.ptr, @intCast(lda), s.ptr, u.ptr, @intCast(u.ld), vt.ptr, @intCast(vt.ld)),
+        .gesvd => try gesvd(al, io, T, ju, jv, m, n, a.slice(), lda, s, u.slice(), u.ld, vt.slice(), vt.ld, null),
+        .gesdd => try gesdd(al, io, T, ju, m, n, a.slice(), lda, s, u.slice(), u.ld, vt.slice(), vt.ld),
     }
     const k = @min(m, n);
     const uo = if (r == .gesdd) ju == .o and m >= n else ju == .o;
@@ -553,7 +546,7 @@ test "faer svd: special matrices, faer's test_special: zero, ones, identity; ran
     }
 }
 
-test "faer svd: NaN and infinity: gesdd's INFO = -4 for NaN, else NoConvergence" {
+test "faer svd: NaN and infinity: gesdd's NanInA (INFO = -4) for NaN, else NoConvergence" {
     const al = testing.allocator;
     inline for (.{ f64, types.Complex32 }) |T| {
         const F = Float(T);
@@ -564,7 +557,7 @@ test "faer svd: NaN and infinity: gesdd's INFO = -4 for NaN, else NoConvergence"
             var s: [3]F = undefined;
             var u: [16]T = undefined;
             var vt: [9]T = undefined;
-            const want_dd: anyerror = if (std.math.isNan(bad)) error.InvalidA else error.NoConvergence;
+            const want_dd: anyerror = if (std.math.isNan(bad)) error.NanInA else error.NoConvergence;
             var b = a;
             var count: usize = 99;
             try testing.expectError(error.NoConvergence, gesvd(al, check.io, T, .a, .a, 4, 3, &b, 4, &s, &u, 4, &vt, 3, &count));
@@ -605,34 +598,34 @@ test "faer svd: gesvd's INFO > 0, the unconverged superdiagonals, QR iteration c
                 try testing.expectEqual(5, count);
                 // no out-parameter: the same error
                 a = a0;
-                try testing.expectError(error.NoConvergence, gesvd(al, check.io, T, .n, .n, n, n, &a, n, &s, &u, 1, &vt, 1, null));
+                try testing.expectError(error.NoConvergence, gesvd(al, check.io, T, .n, .n, n, n, &a, n, &s, u[0..0], 1, vt[0..0], 1, null));
             }
         }
     }
 }
 
-test "faer svd: reports the first bad argument and reads nothing when empty" {
+test "faer svd: bad arguments, and nothing read when empty" {
     const fa = testing.failing_allocator;
     const nan = std.math.nan(f64);
     var a: [4]f64 = @splat(nan);
     var s: [2]f64 = @splat(nan);
     var u: [4]f64 = @splat(nan);
     var vt: [4]f64 = @splat(nan);
-    try testing.expectError(error.InvalidJobvt, gesvd(fa, check.io, f64, .o, .o, -1, -1, &a, 0, &s, &u, 0, &vt, 0, null));
-    try testing.expectError(error.InvalidM, gesvd(fa, check.io, f64, .a, .a, -1, -1, &a, 0, &s, &u, 0, &vt, 0, null));
-    try testing.expectError(error.InvalidN, gesvd(fa, check.io, f64, .a, .a, 2, -1, &a, 0, &s, &u, 0, &vt, 0, null));
-    try testing.expectError(error.InvalidLda, gesvd(fa, check.io, f64, .a, .a, 2, 2, &a, 1, &s, &u, 0, &vt, 0, null));
-    try testing.expectError(error.InvalidLdu, gesvd(fa, check.io, f64, .a, .a, 2, 2, &a, 2, &s, &u, 1, &vt, 0, null));
-    try testing.expectError(error.InvalidLdu, gesvd(fa, check.io, f64, .n, .a, 2, 2, &a, 2, &s, &u, 0, &vt, 0, null));
-    try testing.expectError(error.InvalidLdvt, gesvd(fa, check.io, f64, .n, .a, 2, 2, &a, 2, &s, &u, 1, &vt, 1, null));
-    try testing.expectError(error.InvalidLdvt, gesvd(fa, check.io, f64, .n, .s, 3, 2, &a, 3, &s, &u, 1, &vt, 1, null));
-    try testing.expectError(error.InvalidM, gesdd(fa, check.io, f64, .a, -1, -1, &a, 0, &s, &u, 0, &vt, 0));
-    try testing.expectError(error.InvalidN, gesdd(fa, check.io, f64, .a, 2, -1, &a, 0, &s, &u, 0, &vt, 0));
-    try testing.expectError(error.InvalidLda, gesdd(fa, check.io, f64, .a, 2, 2, &a, 1, &s, &u, 0, &vt, 0));
-    try testing.expectError(error.InvalidLdu, gesdd(fa, check.io, f64, .a, 2, 2, &a, 2, &s, &u, 1, &vt, 0));
-    try testing.expectError(error.InvalidLdu, gesdd(fa, check.io, f64, .o, 1, 2, &a, 1, &s, &u, 0, &vt, 0));
-    try testing.expectError(error.InvalidLdvt, gesdd(fa, check.io, f64, .o, 2, 2, &a, 2, &s, &u, 1, &vt, 1));
-    try testing.expectError(error.InvalidLdvt, gesdd(fa, check.io, f64, .s, 3, 2, &a, 3, &s, &u, 3, &vt, 1));
+    try testing.expectError(error.ConflictingJobs, gesvd(fa, check.io, f64, .o, .o, 2, 2, &a, 2, &s, &u, 2, &vt, 2, null));
+    try testing.expectError(error.LeadingDimensionTooSmall, gesvd(fa, check.io, f64, .a, .a, 2, 2, &a, 1, &s, &u, 2, &vt, 2, null));
+    try testing.expectError(error.SliceTooShort, gesvd(fa, check.io, f64, .n, .n, 2, 2, a[0..3], 2, &s, &u, 0, &vt, 0, null));
+    try testing.expectError(error.SliceTooShort, gesvd(fa, check.io, f64, .n, .n, 2, 2, &a, 2, s[0..1], &u, 0, &vt, 0, null));
+    try testing.expectError(error.LeadingDimensionTooSmall, gesvd(fa, check.io, f64, .a, .a, 2, 2, &a, 2, &s, &u, 1, &vt, 2, null));
+    try testing.expectError(error.SliceTooShort, gesvd(fa, check.io, f64, .s, .n, 2, 2, &a, 2, &s, u[0..3], 2, &vt, 0, null));
+    try testing.expectError(error.LeadingDimensionTooSmall, gesvd(fa, check.io, f64, .n, .a, 2, 2, &a, 2, &s, &u, 0, &vt, 1, null));
+    try testing.expectError(error.LeadingDimensionTooSmall, gesvd(fa, check.io, f64, .n, .s, 2, 2, &a, 2, &s, &u, 0, &vt, 1, null));
+    try testing.expectError(error.LeadingDimensionTooSmall, gesdd(fa, check.io, f64, .a, 2, 2, &a, 1, &s, &u, 2, &vt, 2));
+    try testing.expectError(error.SliceTooShort, gesdd(fa, check.io, f64, .n, 2, 2, a[0..3], 2, &s, &u, 0, &vt, 0));
+    try testing.expectError(error.LeadingDimensionTooSmall, gesdd(fa, check.io, f64, .a, 2, 2, &a, 2, &s, &u, 1, &vt, 2));
+    try testing.expectError(error.LeadingDimensionTooSmall, gesdd(fa, check.io, f64, .o, 1, 2, &a, 1, &s, &u, 0, &vt, 0));
+    try testing.expectError(error.LeadingDimensionTooSmall, gesdd(fa, check.io, f64, .o, 2, 2, &a, 2, &s, &u, 0, &vt, 1));
+    try testing.expectError(error.LeadingDimensionTooSmall, gesdd(fa, check.io, f64, .s, 2, 2, &a, 2, &s, &u, 2, &vt, 1));
+    try testing.expectError(error.SliceTooShort, gesdd(fa, check.io, f64, .s, 2, 2, &a, 2, &s, &u, 2, vt[0..3], 2));
     // empty: nothing read or written
     try gesvd(fa, check.io, f64, .a, .a, 0, 2, &a, 1, &s, &u, 1, &vt, 2, null);
     try gesdd(fa, check.io, f64, .a, 2, 0, &a, 2, &s, &u, 2, &vt, 1);
@@ -740,7 +733,7 @@ test "gesvd, gesdd: a graded bidiagonal keeps its small singular values to relat
                 var u: [n * n]T = undefined;
                 var vt: [n * n]T = undefined;
                 const job: Job = if (vectors) .a else .n;
-                const ldv: isize = if (vectors) n else 1;
+                const ldv: usize = if (vectors) n else 1;
                 switch (rt) {
                     .gesvd => try gesvd(al, check.io, T, job, job, n, n, &b, n, &s, &u, ldv, &vt, ldv, null),
                     .gesdd => try gesdd(al, check.io, T, job, n, n, &b, n, &s, &u, ldv, &vt, ldv),

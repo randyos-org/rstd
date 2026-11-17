@@ -945,13 +945,13 @@ allows.
   the products thread inside the BLAS; and divide-and-conquer's two halves run in turn, as
   rstd's threading splits flat ranges, not task trees.
 - **`gesvd`, `gesdd`** (`svd.zig`): `dgesvd.f`'s and `dgesdd.f`'s arguments, jobs (`Job`:
-  `a`, `s`, `o`, `n`), `xerbla` order and scaling of `A` into `[SMLNUM, BIGNUM]` (`dlascl.f`),
+  `a`, `s`, `o`, `n`; both `o` is `ConflictingJobs`), scaling of `A` into `[SMLNUM, BIGNUM]` (`dlascl.f`),
   over faer's SVD: QR first past an aspect ratio of `11 / 6`, then bidiagonalization, then the
   bidiagonal's SVD by QR iteration (`gesvd`, as the reference's `xBDSQR`) or divide and conquer
   from 128 up (`gesdd`, as its `xBDSDC`). No `WORK` arguments: the allocator gives workspace.
   Failure is an error: `NoConvergence` for the reference's `INFO > 0` and for an infinite
   `A`, or a NaN for `gesvd`, since faer refuses a bidiagonal that is not finite; `gesdd`
-  returns `InvalidA` for a NaN, the reference's `INFO = -4` (`dgesdd.f:595`). `gesvd` writes
+  returns `NanInA` for a NaN, the reference's `INFO = -4` (`dgesdd.f:595`). `gesvd` writes
   that `INFO`, the count of superdiagonals QR iteration left nonzero (`xBDSQR`'s), to an
   optional `unconverged: ?*usize`, its last argument, as Zig's diagnostics arguments do; faer does not keep
   it, so `svd.zig` counts them from the bidiagonal it gives up on (`min(m, n) - 1` for an

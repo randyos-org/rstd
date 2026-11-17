@@ -585,9 +585,9 @@ pub fn Svd(comptime T: type) type {
 /// in `A`.
 pub const SvdError = error{NoConvergence} || Allocator.Error || Io.Cancelable;
 
-/// `InvalidA` or `NanInA` (a NaN) is `NoConvergence`.
+/// `NanInA` is `NoConvergence`.
 fn svdError(e: anyerror) SvdError {
-    return if (e == error.InvalidA or e == error.NanInA) error.NoConvergence else narrow(SvdError, e);
+    return if (e == error.NanInA) error.NoConvergence else narrow(SvdError, e);
 }
 
 /// `A = U Σ Vᴴ` (MATLAB's `svd`): the values alone by `gesvd` (QR
@@ -618,7 +618,7 @@ pub fn svd(allocator: Allocator, io: Io, a: anytype, mode: SvdMode) SvdError!Svd
     defer f.deinit(allocator);
     const vt = try allocator.alloc(T, vc * n);
     defer allocator.free(vt);
-    lapack.gesdd(allocator, io, T, if (mode == .full) .a else .s, toIsize(m), toIsize(n), f.data.ptr, toIsize(m), s.ptr, u.data.ptr, toIsize(m), vt.ptr, toIsize(vc)) catch |e| return svdError(e);
+    lapack.gesdd(allocator, io, T, if (mode == .full) .a else .s, m, n, f.data, m, s, u.data, m, vt, vc) catch |e| return svdError(e);
     for (0..n) |j| for (0..vc) |i| {
         v.data[j + i * n] = ops.conj(T, vt[i + j * vc]);
     };
@@ -635,8 +635,7 @@ fn singularValues(allocator: Allocator, io: Io, a: anytype) SvdError![]Real(@Typ
     if (s.len == 0) return s;
     const f = try copyOf(T, allocator, a);
     defer f.deinit(allocator);
-    var none: [1]T = undefined;
-    lapack.gesvd(allocator, io, T, .n, .n, toIsize(m), toIsize(n), f.data.ptr, toIsize(m), s.ptr, &none, 1, &none, 1, null) catch |e| return svdError(e);
+    lapack.gesvd(allocator, io, T, .n, .n, m, n, f.data, m, s, f.data[0..0], 1, f.data[0..0], 1, null) catch |e| return svdError(e);
     return s;
 }
 

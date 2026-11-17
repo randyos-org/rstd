@@ -567,7 +567,7 @@ fn kernelRegress() !void {
         a.* = (@as(f64, @floatFromInt(g.next())) + 0.0) / 2147483647.0 * 10;
         t.* = a.*;
     }
-    try lapack.gesvd(al, ob.io, f64, .a, .a, n, n, m.ptr, n, &s, u.ptr, n, vt.ptr, n, null);
+    try lapack.gesvd(al, ob.io, f64, .a, .a, n, n, m, n, &s, u, n, vt, n, null);
     for (0..n) |j| for (0..n) |i| {
         u[i + j * n] *= s[j];
     };

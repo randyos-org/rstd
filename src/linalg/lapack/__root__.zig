@@ -44,8 +44,8 @@ pub const Diag = types.Diag;
 pub const Side = types.Side;
 
 // Each `...Error` is its routine's bad arguments (the LU, triangular,
-// Cholesky, symmetric-indefinite, QR and eigenvalue routines' by plain
-// names, issues #313 to #316; the rest in the reference's `xerbla` order, until their own issues), `error.OutOfMemory` and `error.Canceled`
+// Cholesky, symmetric-indefinite, QR, eigenvalue and SVD routines' by plain
+// names, issues #313 to #317; the rest in the reference's `xerbla` order, until their own issues), `error.OutOfMemory` and `error.Canceled`
 // where it can meet them, and the failures its doc names.
 /// `potrf`: `error.NotPositiveDefinite`.
 pub const PotrfError = cholesky.PotrfError;
@@ -205,10 +205,10 @@ pub const trsen = schur.trsen;
 pub const trsyl = trsyl_solve.trsyl;
 pub const tgsyl = tgsyl_solve.tgsyl;
 
-/// `gesvd`: `error.NoConvergence`, its count of unconverged superdiagonals in
-/// the last argument.
+/// `gesvd`: both jobs `o` is `error.ConflictingJobs`; `error.NoConvergence`,
+/// its count of unconverged superdiagonals in the last argument.
 pub const GesvdError = svd.GesvdError;
-/// `gesdd`: a NaN in `A` is `error.InvalidA`; `error.NoConvergence`.
+/// `gesdd`: a NaN in `A` is `error.NanInA`; `error.NoConvergence`.
 pub const GesddError = svd.GesddError;
 /// `gesvd`'s and `gesdd`'s jobs.
 pub const Job = svd.Job;
