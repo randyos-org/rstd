@@ -6,6 +6,7 @@ const sysinfo = @import("builtin");
 const dll = @import("../../../dll.zig");
 const types = @import("../types.zig");
 const blas = @import("../__root__.zig");
+const l2 = @import("../blas2/core.zig");
 const l1 = @import("../blas1/interface.zig");
 const threading = @import("../threading.zig");
 const test_io = @import("io.zig");
@@ -411,63 +412,63 @@ fn everyRoutine(comptime T: type, on_: bool) !void {
     try l1.axpby(io, T, n, al1, &x, 1, be1, &y, 1);
     try p.saw(true, "axpby");
 
-    try blas.gemv(al, io, T, .n, n, n, al1, &a, n, &x, 1, be1, &y, 1);
+    try l2.gemv(al, io, T, .n, n, n, al1, &a, n, &x, 1, be1, &y, 1);
     try p.saw(true, "gemv");
-    try blas.gemv(al, io, T, if (cx) .c else .t, n, n, al1, &a, n, &x, 1, be1, &y, 1);
+    try l2.gemv(al, io, T, if (cx) .c else .t, n, n, al1, &a, n, &x, 1, be1, &y, 1);
     try p.saw(true, "gemv transposed");
-    try blas.gemv(al, io, T, .r, n, n, al1, &a, n, &x, 1, be1, &y, 1);
+    try l2.gemv(al, io, T, .r, n, n, al1, &a, n, &x, 1, be1, &y, 1);
     try p.saw(real, "gemv r");
-    try blas.gbmv(al, io, T, .t, n, n, 1, 1, al1, &a, 3, &x, 1, be1, &y, 1);
+    try l2.gbmv(al, io, T, .t, n, n, 1, 1, al1, &a, 3, &x, 1, be1, &y, 1);
     try p.saw(true, "gbmv");
-    try blas.ger(al, io, T, n, n, al1, &x, 1, &y, 1, &c, n);
+    try l2.ger(al, io, T, n, n, al1, &x, 1, &y, 1, &c, n);
     try p.saw(true, "ger");
     if (cx) {
-        try blas.gerc(al, io, T, n, n, al1, &x, 1, &y, 1, &c, n);
+        try l2.gerc(al, io, T, n, n, al1, &x, 1, &y, 1, &c, n);
         try p.saw(true, "gerc");
-        try blas.hemv(al, io, T, .l, n, al1, &a, n, &x, 1, be1, &y, 1);
+        try l2.hemv(al, io, T, .l, n, al1, &a, n, &x, 1, be1, &y, 1);
         try p.saw(true, "hemv");
-        try blas.hemv(al, io, T, .v, n, al1, &a, n, &x, 1, be1, &y, 1);
+        try l2.hemv(al, io, T, .v, n, al1, &a, n, &x, 1, be1, &y, 1);
         try p.saw(false, "hemv v");
-        try blas.hbmv(al, io, T, .u, n, 1, al1, &a, 2, &x, 1, be1, &y, 1);
+        try l2.hbmv(al, io, T, .u, n, 1, al1, &a, 2, &x, 1, be1, &y, 1);
         try p.saw(true, "hbmv");
-        try blas.hpmv(al, io, T, .l, n, al1, &c, &x, 1, be1, &y, 1);
+        try l2.hpmv(al, io, T, .l, n, al1, &c, &x, 1, be1, &y, 1);
         try p.saw(true, "hpmv");
-        try blas.her(al, io, T, .u, n, 0.5, &x, 1, &c, n);
+        try l2.her(al, io, T, .u, n, 0.5, &x, 1, &c, n);
         try p.saw(true, "her");
-        try blas.hpr(al, io, T, .l, n, 0.5, &x, 1, &c);
+        try l2.hpr(al, io, T, .l, n, 0.5, &x, 1, &c);
         try p.saw(true, "hpr");
-        try blas.her2(al, io, T, .u, n, al1, &x, 1, &y, 1, &c, n);
+        try l2.her2(al, io, T, .u, n, al1, &x, 1, &y, 1, &c, n);
         try p.saw(true, "her2");
-        try blas.hpr2(al, io, T, .l, n, al1, &x, 1, &y, 1, &c);
+        try l2.hpr2(al, io, T, .l, n, al1, &x, 1, &y, 1, &c);
         try p.saw(true, "hpr2");
     }
-    try blas.symv(al, io, T, .u, n, al1, &a, n, &x, 1, be1, &y, 1);
+    try l2.symv(al, io, T, .u, n, al1, &a, n, &x, 1, be1, &y, 1);
     try p.saw(real, "symv");
-    try blas.sbmv(al, io, T, .l, n, 1, al1, &a, 2, &x, 1, be1, &y, 1);
+    try l2.sbmv(al, io, T, .l, n, 1, al1, &a, 2, &x, 1, be1, &y, 1);
     try p.saw(real, "sbmv");
-    try blas.spmv(al, io, T, .u, n, al1, &c, &x, 1, be1, &y, 1);
+    try l2.spmv(al, io, T, .u, n, al1, &c, &x, 1, be1, &y, 1);
     try p.saw(real, "spmv");
-    try blas.syr(al, io, T, .u, n, al1, &x, 1, &c, n);
+    try l2.syr(al, io, T, .u, n, al1, &x, 1, &c, n);
     try p.saw(real, "syr");
-    try blas.spr(al, io, T, .l, n, al1, &x, 1, &c);
+    try l2.spr(al, io, T, .l, n, al1, &x, 1, &c);
     try p.saw(real, "spr");
-    try blas.syr2(al, io, T, .u, n, al1, &x, 1, &y, 1, &c, n);
+    try l2.syr2(al, io, T, .u, n, al1, &x, 1, &y, 1, &c, n);
     try p.saw(real, "syr2");
-    try blas.spr2(al, io, T, .l, n, al1, &x, 1, &y, 1, &c);
+    try l2.spr2(al, io, T, .l, n, al1, &x, 1, &y, 1, &c);
     try p.saw(real, "spr2");
-    try blas.trmv(al, io, T, .u, .t, .n, n, &a, n, &x, 1);
+    try l2.trmv(al, io, T, .u, .t, .n, n, &a, n, &x, 1);
     try p.saw(true, "trmv");
-    try blas.trmv(al, io, T, .u, .r, .n, n, &a, n, &x, 1);
+    try l2.trmv(al, io, T, .u, .r, .n, n, &a, n, &x, 1);
     try p.saw(real, "trmv r");
-    try blas.trsv(al, io, T, .l, .n, .u, n, &a, n, &x, -1);
+    try l2.trsv(al, io, T, .l, .n, .u, n, &a, n, &x, -1);
     try p.saw(true, "trsv");
-    try blas.tbmv(al, io, T, .u, .n, .n, n, 1, &a, 2, &x, 1);
+    try l2.tbmv(al, io, T, .u, .n, .n, n, 1, &a, 2, &x, 1);
     try p.saw(true, "tbmv");
-    try blas.tbsv(al, io, T, .l, .c, .n, n, 1, &a, 2, &x, 1);
+    try l2.tbsv(al, io, T, .l, .c, .n, n, 1, &a, 2, &x, 1);
     try p.saw(true, "tbsv");
-    try blas.tpmv(al, io, T, .u, .n, .u, n, &a, &x, 1);
+    try l2.tpmv(al, io, T, .u, .n, .u, n, &a, &x, 1);
     try p.saw(true, "tpmv");
-    try blas.tpsv(al, io, T, .l, .n, .u, n, &a, &x, 1);
+    try l2.tpsv(al, io, T, .l, .n, .u, n, &a, &x, 1);
     try p.saw(true, "tpsv");
 
     try blas.gemm(al, io, T, .n, if (cx) .c else .t, n, n, n, al1, &a, n, &bm, n, be1, &c, n);
@@ -643,11 +644,11 @@ fn splitRun(comptime T: type, al: std.mem.Allocator, io: Io, o: *Outputs(T)) !vo
         const n = mn[1];
         for ([_]types.Trans{ .n, if (cx) .c else .t }) |t| {
             check.fill(T, y, 5);
-            try blas.gemv(al, io, T, t, m, n, al1, a.ptr, l, x.ptr, -2, be1, y.ptr, 3);
+            try l2.gemv(al, io, T, t, m, n, al1, a.ptr, l, x.ptr, -2, be1, y.ptr, 3);
             try o.add(al, y);
         }
         @memcpy(c, b0);
-        try blas.ger(al, io, T, m, n, al1, x.ptr, 1, y.ptr, -3, c.ptr, l);
+        try l2.ger(al, io, T, m, n, al1, x.ptr, 1, y.ptr, -3, c.ptr, l);
         try o.add(al, c);
         for ([_][2]types.Trans{ .{ .n, .n }, .{ .t, if (cx) .c else .t } }) |tt| {
             @memcpy(c, b0);
@@ -753,7 +754,7 @@ test "on the 32-bit table, what does not fit c_int runs rstd's kernels" {
     try zigstd.testExpectEqual(@as(isize, 1), try l1.index(io, f64, .amax, 1, &x, big));
     // one column at a leading dimension past it
     var c = [_]f64{ 1, 1, 1 };
-    try blas.gemv(al, io, f64, .n, 3, 1, 2, &x, big, &y, 1, 1, &c, 1);
+    try l2.gemv(al, io, f64, .n, 3, 1, 2, &x, big, &y, 1, 1, &c, 1);
     try zigstd.testExpectEqualSlices(f64, &.{ 2, -1, 4 }, &c);
     try blas.gemm(al, io, f64, .n, .n, 3, 1, 1, 1, &x, 3, &y, big, 0, &c, big);
     try zigstd.testExpectEqualSlices(f64, &.{ 0.5, -1, 1.5 }, &c);
@@ -1081,29 +1082,29 @@ test "quirk cases run rstd's kernels, and the Hermitian diagonal comes out real"
     try zigstd.testExpectEqualSlices(f64, &.{ 2, 0, 4, 1 }, &y);
     try l1.axpby(io, Complex64, 4, .init(1, 1), &z, 1, .init(2, 0), &w, 1);
     try p.saw(x86_64, "complex axpby, beta with a zero part");
-    try blas.trmv(al, io, f64, .u, .n, .n, 4, &a, 4, &x, 1);
+    try l2.trmv(al, io, f64, .u, .n, .n, 4, &a, 4, &x, 1);
     try p.saw(x86_64, "trmv, x not finite");
-    try blas.ger(al, io, f64, 4, 4, 1, &x, 1, &y, 1, &a, 4);
+    try l2.ger(al, io, f64, 4, 4, 1, &x, 1, &y, 1, &a, 4);
     try p.saw(false, "ger, x not finite");
     // a zero factor beside an infinity, through rstd; without one, Accelerate
     var sx = [_]f64{ 0, inf, -1, 2 };
     @memset(&a, 1);
-    try blas.syr(al, io, f64, .l, 4, 1, &sx, 1, &a, 4);
+    try l2.syr(al, io, f64, .l, 4, 1, &sx, 1, &a, 4);
     try p.saw(false, "syr, x(0) zero and x not finite");
     try zigstd.testExpectEqual(@as(f64, 1), a[1]);
     // `x(3)` and `y(3)` are zero, `x` at a negative stride
     var sy = [_]f64{ 1, 2, 3, -0.0 };
-    try blas.syr2(al, io, f64, .u, 4, 1, &sx, -1, &sy, 1, &a, 4);
+    try l2.syr2(al, io, f64, .u, 4, 1, &sx, -1, &sy, 1, &a, 4);
     try p.saw(false, "syr2, x(j) and y(j) zero and x not finite");
     sy[3] = 1;
-    try blas.syr2(al, io, f64, .u, 4, 1, &sx, -1, &sy, 1, &a, 4);
+    try l2.syr2(al, io, f64, .u, 4, 1, &sx, -1, &sy, 1, &a, 4);
     try p.saw(true, "syr2, no j with both zero");
     try blas.trmm(al, io, f64, .l, .l, .n, .n, 4, 4, 1, &a, 4, &b, 4);
     try p.saw(false, "trmm, B not finite");
     // the same cases, finite, call it
     x = .{ 1, 3, -1, 2 };
     @memset(&a, 1);
-    try blas.trmv(al, io, f64, .u, .n, .n, 4, &a, 4, &x, 1);
+    try l2.trmv(al, io, f64, .u, .n, .n, 4, &a, 4, &x, 1);
     try p.saw(true, "trmv");
     @memset(&b, 0.5);
     try blas.trmm(al, io, f64, .l, .l, .n, .n, 4, 4, 1, &a, 4, &b, 4);
@@ -1128,11 +1129,11 @@ test "quirk cases run rstd's kernels, and the Hermitian diagonal comes out real"
     // and `her2`, packed too
     var hx: [3]Complex64 = .{ .init(inf, 1), .init(1, 2), .init(-1, 0.5) };
     check.fill(Complex64, &c, 5);
-    try blas.her2(al, io, Complex64, .l, 3, .init(0.5, 0.25), &hx, 1, &hx, 1, &c, 3);
+    try l2.her2(al, io, Complex64, .l, 3, .init(0.5, 0.25), &hx, 1, &hx, 1, &c, 3);
     try p.saw(true, "her2");
     for (0..3) |i| try zigstd.testExpectEqual(@as(f64, 0), c[i * 4].im);
     check.fill(Complex64, &c, 5);
-    try blas.hpr2(al, io, Complex64, .u, 3, .init(0.5, 0.25), &hx, 1, &hx, 1, &c);
+    try l2.hpr2(al, io, Complex64, .u, 3, .init(0.5, 0.25), &hx, 1, &hx, 1, &c);
     try p.saw(true, "hpr2");
     for ([_]usize{ 0, 2, 5 }) |i| try zigstd.testExpectEqual(@as(f64, 0), c[i].im);
     // `beta` 1 and nothing added leaves `C` as it was, through rstd

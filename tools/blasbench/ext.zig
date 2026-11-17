@@ -609,7 +609,8 @@ const Ger = struct {
         f(&n, &n, &al, w.b.ptr, &one_c, w.c.ptr, &one_c, w.a.ptr, &n);
     }
     pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
-        try blas.ger(rstd_alloc, libs.rstd_io, Num(p), w.in(), w.in(), num(p, axpy_alpha), cast(p, w.b.ptr), 1, cast(p, w.c.ptr), 1, cast(p, w.a.ptr), w.in());
+        const n = w.in();
+        try blas.ger(rstd_alloc, libs.rstd_io, Num(p), num(p, axpy_alpha), libs.view(Num(p), cast(p, w.b.ptr), n, 1).toConst(), libs.view(Num(p), cast(p, w.c.ptr), n, 1).toConst(), libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), @intCast(n));
     }
     pub fn residual(comptime p: Prec, w: *const Work(p), i: usize, j: usize) ?[2]f64 {
         const k = i + j * w.n;
@@ -637,7 +638,8 @@ const Symv = struct {
         f(&fc.U, &n, &al, w.a.ptr, &n, w.b.ptr, &one_c, &one, w.c.ptr, &one_c, 1);
     }
     pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
-        try blas.symv(rstd_alloc, libs.rstd_io, Num(p), .u, w.in(), num(p, gemv_alpha), cast(p, w.a.ptr), w.in(), cast(p, w.b.ptr), 1, num(p, 1), cast(p, w.c.ptr), 1);
+        const n = w.in();
+        try blas.symv(rstd_alloc, libs.rstd_io, Num(p), .u, num(p, gemv_alpha), libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), @intCast(n), libs.view(Num(p), cast(p, w.b.ptr), n, 1).toConst(), num(p, 1), libs.view(Num(p), cast(p, w.c.ptr), n, 1));
     }
     pub fn residual(comptime p: Prec, w: *const Work(p), i: usize, _: usize) ?[2]f64 {
         var s: Pair = .{ 0, 0 };
@@ -671,7 +673,8 @@ const Trsv = struct {
         f(&fc.U, &fc.N, &fc.N, &n, w.a.ptr, &n, w.b.ptr, &one_c, 1, 1, 1);
     }
     pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
-        try blas.trsv(rstd_alloc, libs.rstd_io, Num(p), .u, .n, .n, w.in(), cast(p, w.a.ptr), w.in(), cast(p, w.b.ptr), 1);
+        const n = w.in();
+        try blas.trsv(rstd_alloc, libs.rstd_io, Num(p), .u, .n, .n, libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), @intCast(n), libs.view(Num(p), cast(p, w.b.ptr), n, 1));
     }
     /// `A x` against the right-hand side.
     pub fn residual(comptime p: Prec, w: *const Work(p), i: usize, _: usize) ?[2]f64 {
@@ -706,7 +709,9 @@ const Gbmv = struct {
         f(&fc.N, &n, &n, &band_kc, &band_kc, &al, w.a.ptr, &lda, w.b.ptr, &one_c, &one, w.c.ptr, &one_c, 1);
     }
     pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
-        try blas.gbmv(rstd_alloc, libs.rstd_io, Num(p), .n, w.in(), w.in(), band_k, band_k, num(p, gemv_alpha), cast(p, w.a.ptr), @intCast(bandRows(@This())), cast(p, w.b.ptr), 1, num(p, 1), cast(p, w.c.ptr), 1);
+        const n = w.in();
+        const rows: isize = @intCast(bandRows(@This()));
+        try blas.gbmv(rstd_alloc, libs.rstd_io, Num(p), .n, band_k, band_k, num(p, gemv_alpha), libs.matrix(Num(p), cast(p, w.a.ptr), rows, n, rows), @intCast(rows), libs.view(Num(p), cast(p, w.b.ptr), n, 1).toConst(), num(p, 1), libs.view(Num(p), cast(p, w.c.ptr), n, 1));
     }
     pub fn residual(comptime p: Prec, w: *const Work(p), i: usize, _: usize) ?[2]f64 {
         const lda = bandRows(@This());

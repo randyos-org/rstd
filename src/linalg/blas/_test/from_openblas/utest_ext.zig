@@ -5,6 +5,7 @@
 const std = @import("std");
 const ob = @import("__root__.zig");
 const blas = @import("../../__root__.zig");
+const l2 = @import("../../blas2/core.zig");
 const l1 = @import("../../blas1/interface.zig");
 const check = @import("../check.zig");
 const apple_accel = @import("../../apple_accel.zig");
@@ -411,8 +412,8 @@ fn gbmv() !void {
         fill(T, y, prng.random());
         const yv = try al.dupe(T, y);
         defer al.free(yv);
-        try blas.gemv(al, ob.io, T, transOf(c.trans), c.m, c.n, val(T, c.alpha), full.ptr, c.m, b.ptr, c.inc_b, val(T, c.beta), yv.ptr, c.inc_c);
-        try blas.gbmv(al, ob.io, T, transOf(c.trans), c.m, c.n, c.kl, c.ku, val(T, c.alpha), band.ptr, c.lda, b.ptr, c.inc_b, val(T, c.beta), y.ptr, c.inc_c);
+        try l2.gemv(al, ob.io, T, transOf(c.trans), c.m, c.n, val(T, c.alpha), full.ptr, c.m, b.ptr, c.inc_b, val(T, c.beta), yv.ptr, c.inc_c);
+        try l2.gbmv(al, ob.io, T, transOf(c.trans), c.m, c.n, c.kl, c.ku, val(T, c.alpha), band.ptr, c.lda, b.ptr, c.inc_b, val(T, c.beta), y.ptr, c.inc_c);
         try expectNorm(c.name, T, diffNorm(T, lenc, y, yv, c.inc_c), tol(T, single_tol, double_tol));
     };
 }
@@ -444,7 +445,7 @@ fn gemvCase(comptime T: type, c: Case, r: std.Random, t: f64) !void {
     const yv = try al.dupe(T, y);
     defer al.free(yv);
     gemvRef(T, c.trans, m, n, val(T, c.alpha), a, lda, x, ib, val(T, c.beta), yv, ic);
-    try blas.gemv(al, ob.io, T, transOf(c.trans), c.m, c.n, val(T, c.alpha), a.ptr, c.lda, x.ptr, ib, val(T, c.beta), y.ptr, ic);
+    try l2.gemv(al, ob.io, T, transOf(c.trans), c.m, c.n, val(T, c.alpha), a.ptr, c.lda, x.ptr, ib, val(T, c.beta), y.ptr, ic);
     try expectNorm(c.name, T, diffNorm(T, leny, y, yv, ic), t);
 }
 
@@ -477,7 +478,7 @@ fn gemvTCUD() !void {
             8 => error.InvalidIncx,
             else => error.InvalidIncy,
         };
-        try ob.expectError(want, blas.gemv(al, ob.io, T, transOf(c.trans), c.m, c.n, val(T, .{ 1, 1 }), &a, c.lda, &x, c.inc_x, val(T, .{ 1, 1 }), &y, c.inc_y), c.name);
+        try ob.expectError(want, l2.gemv(al, ob.io, T, transOf(c.trans), c.m, c.n, val(T, .{ 1, 1 }), &a, c.lda, &x, c.inc_x, val(T, .{ 1, 1 }), &y, c.inc_y), c.name);
     };
 }
 
@@ -502,9 +503,9 @@ fn symBad(comptime T: type, comptime pack: bool, c: Case) !void {
     };
     const one = val(T, .{ 1, 1 });
     const res = if (pack)
-        blas.spmv(al, ob.io, T, .u, n, one, &a, &x, c.inc_b, ob.zero(T), &y, c.inc_c)
+        l2.spmv(al, ob.io, T, .u, n, one, &a, &x, c.inc_b, ob.zero(T), &y, c.inc_c)
     else
-        blas.sbmv(al, ob.io, T, .u, n, c.k, one, &a, c.lda, &x, c.inc_b, ob.zero(T), &y, c.inc_c);
+        l2.sbmv(al, ob.io, T, .u, n, c.k, one, &a, c.lda, &x, c.inc_b, ob.zero(T), &y, c.inc_c);
     try ob.expectError(want, res, c.name);
 }
 
@@ -552,11 +553,11 @@ fn sbmvSpmv() !void {
             const yv = try al.dupe(T, y);
             defer al.free(yv);
             const in: isize = @intCast(n);
-            try blas.gemv(al, ob.io, T, .n, in, in, val(T, c.alpha), full.ptr, @max(in, 1), b.ptr, c.inc_b, val(T, c.beta), yv.ptr, c.inc_c);
+            try l2.gemv(al, ob.io, T, .n, in, in, val(T, c.alpha), full.ptr, @max(in, 1), b.ptr, c.inc_b, val(T, c.beta), yv.ptr, c.inc_c);
             if (pack) {
-                try blas.spmv(al, ob.io, T, if (up) .u else .l, in, val(T, c.alpha), store.ptr, b.ptr, c.inc_b, val(T, c.beta), y.ptr, c.inc_c);
+                try l2.spmv(al, ob.io, T, if (up) .u else .l, in, val(T, c.alpha), store.ptr, b.ptr, c.inc_b, val(T, c.beta), y.ptr, c.inc_c);
             } else {
-                try blas.sbmv(al, ob.io, T, if (up) .u else .l, in, c.k, val(T, c.alpha), store.ptr, c.lda, b.ptr, c.inc_b, val(T, c.beta), y.ptr, c.inc_c);
+                try l2.sbmv(al, ob.io, T, if (up) .u else .l, in, c.k, val(T, c.alpha), store.ptr, c.lda, b.ptr, c.inc_b, val(T, c.beta), y.ptr, c.inc_c);
             }
             const norm = diffNorm(T, in, y, yv, c.inc_c);
             if (c.kind == .nan) {
@@ -591,7 +592,7 @@ fn trmvTrsv() !void {
             defer al.free(xv);
             const u = ob.letter(blas.Uplo, c.uplo).?;
             const d = ob.letter(blas.Diag, c.diag).?;
-            const f = if (solve) blas.trsv else blas.trmv;
+            const f = if (solve) l2.trsv else l2.trmv;
             try f(al, ob.io, T, u, .n, d, c.n, av.ptr, c.lda, xv.ptr, c.incx);
             try f(al, ob.io, T, u, ob.letter(blas.Trans, c.trans).?, d, c.n, a.ptr, c.lda, x.ptr, c.incx);
             // relative to the result, which a solve grows to 1e32 in single

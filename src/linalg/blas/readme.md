@@ -118,12 +118,12 @@ or `(io, T, ...)` when it needs no scratch space beyond a small stack buffer. Ro
 thread run their workers on `io` ([`threading.md`](threading.md)). `rotg`,
 `zrotg`, `rotmg` and `cabs1` work on scalars only and take neither.
 
-Level 1 takes vectors as strided views, `blas.Strided(T)` and `blas.ConstStrided(T)`: a slice, a count and a stride, from `.of(slice)` or `.init(slice, n, stride)`, which refuses a zero stride or a slice too short. Two vectors' counts must agree (`error.LengthMismatch`). A negative stride reads the vector backward in every routine, `scal`, `asum`, `sum` and the extremes too, where the reference does nothing. `index` is 0-based and, like `extreme`, null for an empty vector. Levels 2 and 3 take pointers and sizes until Z9 and Z10 ([#310](https://github.com/randyos-org/rstd/issues/310), [#311](https://github.com/randyos-org/rstd/issues/311)).
+Level 1 takes vectors as strided views, `blas.Strided(T)` and `blas.ConstStrided(T)`: a slice, a count and a stride, from `.of(slice)` or `.init(slice, n, stride)`, which refuses a zero stride or a slice too short. Two vectors' counts must agree (`error.LengthMismatch`). A negative stride reads the vector backward in every routine, `scal`, `asum`, `sum` and the extremes too, where the reference does nothing. `index` is 0-based and, like `extreme`, null for an empty vector. Level 2 takes each matrix as a slice and its leading dimension, column-major, and its vectors as views; the sizes come from the views (`gemv`'s `m` and `n` from `y` and `x` by `trans`, the square routines' order from `x`), and a slice too short for its matrix or a leading dimension below its rows is `error.SliceTooShort` or `error.LeadingDimensionTooSmall`. Level 3 takes pointers and sizes until Z10 ([#311](https://github.com/randyos-org/rstd/issues/311)).
 
 | Level | Shape | Errors |
 | --- | --- | --- |
 | 1 | `axpy(io, T, alpha, x: ConstStrided(T), y: Strided(T))` | per routine; `Level1Error` for two vectors that may thread |
-| 2 | `gemv(allocator, io, T, trans, m, n, alpha, a, lda, x, incx, beta, y, incy)` | `Level2Error` |
+| 2 | `gemv(allocator, io, T, trans, alpha, a: []const T, lda, x: ConstStrided(T), beta, y: Strided(T))` | `Level2Error` |
 | 3 | `gemm(allocator, io, T, transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc)` | `Level3Error` |
 | extensions | `omatcopy(io, T, trans, rows, cols, alpha, a, lda, b, ldb)` | `ExtError` |
 

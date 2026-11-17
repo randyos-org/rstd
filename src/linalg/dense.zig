@@ -12,6 +12,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
 const blas = @import("blas/__root__.zig");
+const l2 = @import("blas/blas2/core.zig");
 const l1 = @import("blas/blas1/interface.zig");
 const lapack = @import("lapack/__root__.zig");
 const vector = @import("vector.zig");
@@ -173,7 +174,7 @@ fn mulWith(path: Path, allocator: Allocator, io: Io, o: anytype, ca: ConstView(@
     const pb: [*]T = @constCast(cb.data.ptr);
     const one = ops.one(T);
     if (n == 1) {
-        blas.gemv(allocator, io, T, .n, toIsize(m), toIsize(k), one, pa, toIsize(ca.ld), pb, 1, ops.zero(T), o.data.ptr, 1) catch |e| return narrow(Error, e);
+        l2.gemv(allocator, io, T, .n, toIsize(m), toIsize(k), one, pa, toIsize(ca.ld), pb, 1, ops.zero(T), o.data.ptr, 1) catch |e| return narrow(Error, e);
         return;
     }
     blas.gemm(allocator, io, T, .n, .n, toIsize(m), toIsize(n), toIsize(k), one, pa, toIsize(ca.ld), pb, toIsize(cb.ld), ops.zero(T), o.data.ptr, toIsize(o.ld)) catch |e| return narrow(Error, e);

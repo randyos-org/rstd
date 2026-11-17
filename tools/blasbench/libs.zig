@@ -287,10 +287,16 @@ pub fn cast(comptime p: Prec, x: [*]p.F) [*]Num(p) {
 }
 
 /// rstd's view of the `n` elements `inc` apart that the bench passes from `x`.
-fn view(comptime T: type, x: [*]T, n: isize, inc: isize) blas.Strided(T) {
+pub fn view(comptime T: type, x: [*]T, n: isize, inc: isize) blas.Strided(T) {
     const count: usize = @intCast(@max(n, 0));
     const span = if (count == 0) 0 else (count - 1) * @abs(inc) + 1;
     return blas.Strided(T).init(x[0..span], count, inc) catch unreachable;
+}
+
+/// The bench's `rows` by `cols` matrix at `a`, leading dimension `ld`, as a slice.
+pub fn matrix(comptime T: type, a: [*]T, rows: isize, cols: isize, ld: isize) []T {
+    if (rows <= 0 or cols <= 0) return a[0..0];
+    return a[0..@intCast((cols - 1) * ld + rows)];
 }
 
 /// cblas's `CBLAS_ORDER` and `CBLAS_TRANSPOSE`.
@@ -476,7 +482,7 @@ fn GemvVia(comptime src: Src, comptime p: Prec, comptime t: []const u8) type {
         const Sig = fn (c_int, c_int, c_int, c_int, F, [*]F, c_int, [*]F, c_int, F, [*]F, c_int) callconv(.c) void;
         var f: *const Sig = undefined;
         fn k(m: I, n: I, _: I, a: F, ma: [*]F, lda: I, x: [*]F, ix: I, y: [*]F, iy: I, _: [*]F) callconv(.c) i32 {
-            if (lib) f(col_major, tr, @intCast(m), @intCast(n), a, ma, @intCast(lda), x, @intCast(ix), 1, y, @intCast(iy)) else blas.gemv(rstd_alloc, rstd_io, T, rt, m, n, a, ma, lda, x, ix, 1, y, iy) catch |e| fail(e);
+            if (lib) f(col_major, tr, @intCast(m), @intCast(n), a, ma, @intCast(lda), x, @intCast(ix), 1, y, @intCast(iy)) else blas.gemv(rstd_alloc, rstd_io, T, rt, a, matrix(T, ma, m, n, lda), @intCast(lda), view(T, x, if (rt.transposed()) m else n, ix).toConst(), 1, view(T, y, if (rt.transposed()) n else m, iy)) catch |e| fail(e);
             return 0;
         }
     } else struct {
@@ -485,7 +491,7 @@ fn GemvVia(comptime src: Src, comptime p: Prec, comptime t: []const u8) type {
         const Sig = fn (c_int, c_int, c_int, c_int, *const [2]F, [*]F, c_int, [*]F, c_int, *const [2]F, [*]F, c_int) callconv(.c) void;
         var f: *const Sig = undefined;
         fn k(m: I, n: I, _: I, ar: F, ai: F, ma: [*]F, lda: I, x: [*]F, ix: I, y: [*]F, iy: I, _: [*]F) callconv(.c) i32 {
-            if (lib) f(col_major, tr, @intCast(m), @intCast(n), &.{ ar, ai }, ma, @intCast(lda), x, @intCast(ix), &.{ 1, 0 }, y, @intCast(iy)) else blas.gemv(rstd_alloc, rstd_io, T, rt, m, n, .init(ar, ai), cast(p, ma), lda, cast(p, x), ix, .init(1, 0), cast(p, y), iy) catch |e| fail(e);
+            if (lib) f(col_major, tr, @intCast(m), @intCast(n), &.{ ar, ai }, ma, @intCast(lda), x, @intCast(ix), &.{ 1, 0 }, y, @intCast(iy)) else blas.gemv(rstd_alloc, rstd_io, T, rt, .init(ar, ai), matrix(T, cast(p, ma), m, n, lda), @intCast(lda), view(T, cast(p, x), if (rt.transposed()) m else n, ix).toConst(), .init(1, 0), view(T, cast(p, y), if (rt.transposed()) n else m, iy)) catch |e| fail(e);
             return 0;
         }
     };
