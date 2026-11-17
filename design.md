@@ -202,7 +202,7 @@ pub fn realForwardAxes(allocator, io, out, in: ConstArrayView(T), axes, options)
 Built on `rstd.fft`, for audio first:
 
 - **Window functions:** Hann, Hamming, Blackman, Kaiser, and the Princen-Bradley windows the
-  `Mdct` needs (sine, KBD); symmetric or periodic (MATLAB's `'symmetric'`, `'periodic'`).
+  `Mdct` needs (sine, KBD); symmetric or periodic (MATLAB's `'symmetric'`, `'periodic'`). Done (`src/signal/window.zig`): MATLAB's definitions, SciPy's for the sine and KBD windows, which are even-length and symmetric only.
 - **STFT** and its inverse by weighted overlap-add, over `RealPlan`; hop, window and FFT size
   free.
 - **Partitioned convolution:** uniform-partitioned overlap-add over the unordered forms, for long
