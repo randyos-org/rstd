@@ -8,6 +8,7 @@
 const std = @import("std");
 const blas = @import("linalg/blas/__root__.zig");
 const blas_types = @import("linalg/blas/types.zig");
+const sort = @import("sort.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -207,16 +208,27 @@ pub fn Running(comptime F: type) type {
 
 pub const MedianError = error{ EmptyInput, OutOfMemory };
 
-/// The median of real `xs` as the float `R`. Sorts a copy; `xs` is
-/// untouched. NaN if `xs` holds one, as MATLAB's.
+/// The median of `xs` as `R` (a `Complex` for complex `xs`, in MATLAB's
+/// order, `rstd.sort`'s). Sorts a copy; `xs` is untouched. NaN if `xs`
+/// holds one, as MATLAB's.
 pub fn median(allocator: Allocator, comptime R: type, xs: anytype) MedianError!R {
     const E = Elem(@TypeOf(xs));
-    comptime checkOrdered(E);
-    comptime checkFloat(R);
+    comptime checkPair(R, E);
     if (xs.len == 0) return error.EmptyInput;
     const s = try sortedCopy(allocator, E, xs);
     defer allocator.free(s);
     const n = s.len;
+    if (comptime isComplex(E)) {
+        const F = Real(R);
+        // a NaN, sorted last, is the median
+        const last = s[n - 1];
+        if (std.math.isNan(last.re) or std.math.isNan(last.im)) return .{ .re = to(F, last.re), .im = to(F, last.im) };
+        const hi = s[n / 2];
+        if (n % 2 == 1) return .{ .re = to(F, hi.re), .im = to(F, hi.im) };
+        const lo = s[n / 2 - 1];
+        const t = @as(Wide(F), 0.5);
+        return .{ .re = lerp(F, to(F, lo.re), to(F, hi.re), t), .im = lerp(F, to(F, lo.im), to(F, hi.im), t) };
+    }
     if (comptime @typeInfo(E) == .float) if (std.math.isNan(s[n - 1])) return to(R, s[n - 1]);
     if (n % 2 == 1) return to(R, s[n / 2]);
     return lerp(R, to(R, s[n / 2 - 1]), to(R, s[n / 2]), @as(Wide(R), 0.5));
@@ -332,19 +344,12 @@ fn lerp(comptime F: type, a: F, b: F, t: anytype) F {
     return @floatCast(if (t >= 0.5) bw - d * (1 - t) else aw + d * t);
 }
 
-/// `xs` sorted ascending, NaN last, owned by the caller.
+/// `xs` sorted ascending by `rstd.sort` (NaN last, complex in MATLAB's
+/// order), owned by the caller.
 fn sortedCopy(allocator: Allocator, comptime E: type, xs: anytype) Allocator.Error![]E {
     const s = try allocator.alloc(E, xs.len);
     for (s, xs) |*d, x| d.* = x;
-    std.mem.sort(E, s, {}, struct {
-        fn lt(_: void, a: E, b: E) bool {
-            if (comptime @typeInfo(E) == .float) {
-                if (std.math.isNan(a)) return false;
-                if (std.math.isNan(b)) return true;
-            }
-            return a < b;
-        }
-    }.lt);
+    sort.sort(E, s, .ascend);
     return s;
 }
 
@@ -444,9 +449,9 @@ fn sortedEdges(comptime F: type, edges: []const F) error{EdgesNotSorted}!void {
     for (edges[0 .. edges.len - 1], edges[1..]) |a, b| if (!(a <= b)) return error.EdgesNotSorted;
 }
 
-/// Sortable: integers and floats; `Complex` waits for its order (N32, #76).
+/// The quantiles' elements: integers and floats, as MATLAB's `quantile`.
 fn checkOrdered(comptime E: type) void {
-    if (isComplex(E)) @compileError("rstd.stats: ordering " ++ @typeName(E) ++ " needs MATLAB's complex order (N32, #76)");
+    if (isComplex(E)) @compileError("rstd.stats: quantiles of complex " ++ @typeName(E) ++ " are not defined");
     checkReal(E);
 }
 
@@ -597,4 +602,12 @@ test "type-agnostic: integers and Complex in, the caller's result type out" {
     try testing.expectEqual(0, m.im);
     // |x - mean|²: (1 + 4) and (1 + 4)
     try testing.expectEqual(5, try variance(io, f64, &cs, .population));
+}
+
+test "median of Complex: MATLAB's order" {
+    const C = std.math.Complex(f64);
+    const xs = [_]C{ .init(3, 0), .init(0, 1), .init(-2, 0) };
+    const m = try median(testing.allocator, C, &xs);
+    try testing.expectEqual(-2, m.re);
+    try testing.expectEqual(0, m.im);
 }

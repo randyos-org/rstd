@@ -4,6 +4,7 @@
 //! matches nothing, itself included.
 //!
 //! Floats order NaNs last ascending and first descending, as MATLAB's `sort`;
+//! complex values by magnitude, then angle, a NaN part counting as a NaN;
 //! -0 and +0 compare equal and keep their order. `std.sort.asc` is no strict
 //! weak order once a NaN appears.
 
@@ -83,6 +84,15 @@ fn precedes(comptime T: type, direction: Direction, a: T, b: T) bool {
 
 /// NaNs sort past every number.
 fn less(comptime T: type, a: T, b: T) bool {
+    if (comptime isComplexType(T)) {
+        // MATLAB's order: by magnitude, then angle in (-π, π]; a NaN part last
+        if (isNan(T, a)) return false;
+        if (isNan(T, b)) return true;
+        const ma = std.math.hypot(a.re, a.im);
+        const mb = std.math.hypot(b.re, b.im);
+        if (ma != mb) return ma < mb;
+        return std.math.atan2(a.im, a.re) < std.math.atan2(b.im, b.re);
+    }
     if (comptime @typeInfo(T) == .float) {
         if (std.math.isNan(a)) return false;
         if (std.math.isNan(b)) return true;
@@ -143,7 +153,7 @@ pub fn unique(allocator: Allocator, comptime T: type, xs: []const T, keep: Keep)
 
 /// Equal for the set operations: neither precedes the other, and no NaN.
 fn equal(comptime T: type, a: T, b: T) bool {
-    if (comptime @typeInfo(T) == .float) if (std.math.isNan(a) or std.math.isNan(b)) return false;
+    if (isNan(T, a) or isNan(T, b)) return false;
     return !precedes(T, .ascend, a, b) and !precedes(T, .ascend, b, a);
 }
 
@@ -207,8 +217,15 @@ pub fn intersect(allocator: Allocator, comptime T: type, a: []const T, b: []cons
     return out;
 }
 
+/// A NaN, or for complex `T` a NaN part.
 fn isNan(comptime T: type, x: T) bool {
+    if (comptime isComplexType(T)) return std.math.isNan(x.re) or std.math.isNan(x.im);
     return if (comptime @typeInfo(T) == .float) std.math.isNan(x) else false;
+}
+
+/// `std.math.Complex` and other `re`, `im` structs.
+fn isComplexType(comptime T: type) bool {
+    return @typeInfo(T) == .@"struct" and @hasField(T, "re") and @hasField(T, "im");
 }
 
 /// `values` holds `a[a_index]` and `b[b_index]`, each distinct value once,
@@ -404,4 +421,17 @@ test "set operations: stable order, NaNs distinct, -0 equal to +0" {
     const at = try isMember(al, f64, &.{ nan, 0, 4 }, &b);
     defer al.free(at);
     try testing.expectEqualSlices(?usize, &.{ null, 2, 3 }, at);
+}
+
+test "Complex: MATLAB's order, by magnitude then angle, NaN last" {
+    const C = std.math.Complex(f64);
+    var xs = [_]C{ .init(0, 2), .init(-1, 0), .init(nan, 0), .init(1, 0), .init(0, -1), .init(2, 0) };
+    sort(C, &xs, .ascend);
+    // |1| ties: angles -π/2 (−i), 0 (1), π (−1); then |2|: 0 (2), π/2 (2i)
+    const want = [_]C{ .init(0, -1), .init(1, 0), .init(-1, 0), .init(2, 0), .init(0, 2) };
+    for (want, xs[0..5]) |w, x| try testing.expect(w.re == x.re and w.im == x.im);
+    try testing.expect(std.math.isNan(xs[5].re));
+    var u = try unique(testing.allocator, C, &.{ .init(1, 1), .init(1, 1), .init(nan, 1) }, .sorted);
+    defer u.deinit(testing.allocator);
+    try testing.expectEqual(2, u.values.len);
 }
