@@ -56,6 +56,8 @@ pub const matrixNorm = dense.matrixNorm;
 pub const svd = dense.svd;
 pub const eig = dense.eig;
 pub const pinv = dense.pinv;
+pub const orth = dense.orth;
+pub const nullSpace = dense.nullSpace;
 pub const rank = dense.rank;
 pub const cond = dense.cond;
 
