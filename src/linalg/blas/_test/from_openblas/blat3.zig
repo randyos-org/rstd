@@ -5,6 +5,7 @@
 const std = @import("std");
 const ob = @import("__root__.zig");
 const blas = @import("../../__root__.zig");
+const l3 = @import("../../blas3/core.zig");
 const check = @import("../check.zig");
 const guard = @import("../guard.zig");
 
@@ -300,13 +301,13 @@ fn run(comptime T: type, comptime r: Routine, c: Call, w: anytype) !void {
     const b = w.bb.ptr;
     const cp = w.cc.ptr;
     switch (r) {
-        .gemm, .gemm3m => try @field(blas, @tagName(r))(al, ob.io, T, asTrans(c.transa), asTrans(c.transb), m, n, k, alpha, a, lda, b, ldb, beta, cp, ldc),
-        .symm, .hemm => try @field(blas, @tagName(r))(al, ob.io, T, asSide(c.side), asUplo(c.uplo), m, n, alpha, a, lda, b, ldb, beta, cp, ldc),
-        .trmm, .trsm => try @field(blas, @tagName(r))(al, ob.io, T, asSide(c.side), asUplo(c.uplo), asTrans(c.transa), asDiag(c.diag), m, n, alpha, a, lda, b, ldb),
-        .syrk => try blas.syrk(al, ob.io, T, asUplo(c.uplo), asTrans(c.transa), n, k, alpha, a, lda, beta, cp, ldc),
-        .herk => try blas.herk(al, ob.io, T, asUplo(c.uplo), asTrans(c.transa), n, k, re(alpha), a, lda, re(beta), cp, ldc),
-        .syr2k => try blas.syr2k(al, ob.io, T, asUplo(c.uplo), asTrans(c.transa), n, k, alpha, a, lda, b, ldb, beta, cp, ldc),
-        .her2k => try blas.her2k(al, ob.io, T, asUplo(c.uplo), asTrans(c.transa), n, k, alpha, a, lda, b, ldb, re(beta), cp, ldc),
+        .gemm, .gemm3m => try @field(l3, @tagName(r))(al, ob.io, T, asTrans(c.transa), asTrans(c.transb), m, n, k, alpha, a, lda, b, ldb, beta, cp, ldc),
+        .symm, .hemm => try @field(l3, @tagName(r))(al, ob.io, T, asSide(c.side), asUplo(c.uplo), m, n, alpha, a, lda, b, ldb, beta, cp, ldc),
+        .trmm, .trsm => try @field(l3, @tagName(r))(al, ob.io, T, asSide(c.side), asUplo(c.uplo), asTrans(c.transa), asDiag(c.diag), m, n, alpha, a, lda, b, ldb),
+        .syrk => try l3.syrk(al, ob.io, T, asUplo(c.uplo), asTrans(c.transa), n, k, alpha, a, lda, beta, cp, ldc),
+        .herk => try l3.herk(al, ob.io, T, asUplo(c.uplo), asTrans(c.transa), n, k, re(alpha), a, lda, re(beta), cp, ldc),
+        .syr2k => try l3.syr2k(al, ob.io, T, asUplo(c.uplo), asTrans(c.transa), n, k, alpha, a, lda, b, ldb, beta, cp, ldc),
+        .her2k => try l3.her2k(al, ob.io, T, asUplo(c.uplo), asTrans(c.transa), n, k, alpha, a, lda, b, ldb, re(beta), cp, ldc),
     }
 }
 
@@ -710,7 +711,7 @@ fn errorExits(comptime T: type, comptime r: Routine) !void {
                 .{ .ta = .t, .tb = .n, .m = 2, .n = 0, .k = 0, .lda = 1, .ldb = 1, .ldc = 1, .e = error.InvalidLdc },
                 .{ .ta = .t, .tb = .t, .m = 2, .n = 0, .k = 0, .lda = 1, .ldb = 1, .ldc = 1, .e = error.InvalidLdc },
             };
-            for (cases) |g| try E(g.e, @field(blas, nm)(al, ob.io, T, g.ta, g.tb, g.m, g.n, g.k, z, &a, g.lda, &b, g.ldb, z, &c, g.ldc), nm);
+            for (cases) |g| try E(g.e, @field(l3, nm)(al, ob.io, T, g.ta, g.tb, g.m, g.n, g.k, z, &a, g.lda, &b, g.ldb, z, &c, g.ldc), nm);
         },
         .symm, .hemm => {
             const S = struct { s: u8, u: u8, m: isize, n: isize, lda: isize, ldb: isize, ldc: isize, e: anyerror };
@@ -736,7 +737,7 @@ fn errorExits(comptime T: type, comptime r: Routine) !void {
                 .{ .s = 'L', .u = 'L', .m = 2, .n = 0, .lda = 2, .ldb = 2, .ldc = 1, .e = error.InvalidLdc },
                 .{ .s = 'R', .u = 'L', .m = 2, .n = 0, .lda = 1, .ldb = 2, .ldc = 1, .e = error.InvalidLdc },
             };
-            for (cases) |g| try E(g.e, @field(blas, nm)(al, ob.io, T, asSide(g.s), asUplo(g.u), g.m, g.n, z, &a, g.lda, &b, g.ldb, z, &c, g.ldc), nm);
+            for (cases) |g| try E(g.e, @field(l3, nm)(al, ob.io, T, asSide(g.s), asUplo(g.u), g.m, g.n, z, &a, g.lda, &b, g.ldb, z, &c, g.ldc), nm);
         },
         .trmm, .trsm => {
             const S = struct { s: u8, u: u8, t: u8, m: isize, n: isize, lda: isize, ldb: isize, e: anyerror };
@@ -754,7 +755,7 @@ fn errorExits(comptime T: type, comptime r: Routine) !void {
                 cases[i + 3] = .{ .s = s, .u = u, .t = t, .m = 2, .n = 0, .lda = if (left) 2 else 1, .ldb = 1, .e = error.InvalidLdb };
                 i += 4;
             };
-            for (cases) |g| try E(g.e, @field(blas, nm)(al, ob.io, T, asSide(g.s), asUplo(g.u), asTrans(g.t), .n, g.m, g.n, z, &a, g.lda, &b, g.ldb), nm);
+            for (cases) |g| try E(g.e, @field(l3, nm)(al, ob.io, T, asSide(g.s), asUplo(g.u), asTrans(g.t), .n, g.m, g.n, z, &a, g.lda, &b, g.ldb), nm);
         },
         .syrk, .herk, .syr2k, .her2k => {
             const two = r == .syr2k or r == .her2k;
@@ -792,12 +793,12 @@ fn errorExits(comptime T: type, comptime r: Routine) !void {
 }
 
 /// The rank-k updates with `alpha` and `beta` zero.
-fn call2(comptime T: type, comptime r: Routine, al: std.mem.Allocator, u: u8, t: u8, n: isize, k: isize, lda: isize, ldb: isize, ldc: isize, a: [*]T, b: [*]T, c: [*]T, z: T, rz: Float(T)) blas.Level3Error!void {
+fn call2(comptime T: type, comptime r: Routine, al: std.mem.Allocator, u: u8, t: u8, n: isize, k: isize, lda: isize, ldb: isize, ldc: isize, a: [*]T, b: [*]T, c: [*]T, z: T, rz: Float(T)) l3.Error!void {
     return switch (r) {
-        .syrk => blas.syrk(al, ob.io, T, asUplo(u), asTrans(t), n, k, z, a, lda, z, c, ldc),
-        .herk => blas.herk(al, ob.io, T, asUplo(u), asTrans(t), n, k, rz, a, lda, rz, c, ldc),
-        .syr2k => blas.syr2k(al, ob.io, T, asUplo(u), asTrans(t), n, k, z, a, lda, b, ldb, z, c, ldc),
-        .her2k => blas.her2k(al, ob.io, T, asUplo(u), asTrans(t), n, k, z, a, lda, b, ldb, rz, c, ldc),
+        .syrk => l3.syrk(al, ob.io, T, asUplo(u), asTrans(t), n, k, z, a, lda, z, c, ldc),
+        .herk => l3.herk(al, ob.io, T, asUplo(u), asTrans(t), n, k, rz, a, lda, rz, c, ldc),
+        .syr2k => l3.syr2k(al, ob.io, T, asUplo(u), asTrans(t), n, k, z, a, lda, b, ldb, z, c, ldc),
+        .her2k => l3.her2k(al, ob.io, T, asUplo(u), asTrans(t), n, k, z, a, lda, b, ldb, rz, c, ldc),
         else => unreachable,
     };
 }

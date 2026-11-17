@@ -8,6 +8,7 @@
 const std = @import("std");
 const types = @import("../blas/types.zig");
 const util = @import("../blas/util.zig");
+const interface = @import("interface.zig");
 const ops = @import("ops.zig");
 const blas_calls = @import("blas_calls.zig");
 const hh = @import("householder.zig");
@@ -18,27 +19,27 @@ const Mat = ops.Mat;
 const Float = types.Float;
 const Error = ops.Error;
 
-/// What `geqp3` returns.
-pub const Geqp3Error = error{ InvalidM, InvalidN, InvalidLda } || Allocator.Error || Io.Cancelable;
+/// What `geqp3` returns: a slice too short (`a`, `jpvt` under `n`, or
+/// `tau` under `min(m, n)`) or a leading dimension too small, and the
+/// allocator's and cancellation.
+pub const Geqp3Error = interface.ShapeError || Allocator.Error || Io.Cancelable;
 
 /// `?GEQP3`: `A P = Q R` for the `m x n` `A`: `R` on and above the
 /// diagonal, `Q = H(0) ... H(k-1)` (`k = min(m, n)`) as reflections below
 /// it and their `tau`s in `tau` (`k`). On entry a nonzero `jpvt[j]` fixes
-/// column `j` to the front; on exit `jpvt[j] = i` (1-based) when column `j`
+/// column `j` to the front; on exit `jpvt[j] = i` (0-based) when column `j`
 /// of `A P` was column `i` of `A`.
-pub fn geqp3(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize, a: [*]T, lda: isize, jpvt: [*]isize, tau: [*]T) Geqp3Error!void {
+pub fn geqp3(allocator: Allocator, io: Io, comptime T: type, m: usize, n: usize, a: []T, lda: usize, jpvt: []usize, tau: []T) Geqp3Error!void {
     comptime ops.requireFloat(T, "geqp3");
-    if (m < 0) return error.InvalidM;
-    if (n < 0) return error.InvalidN;
-    if (lda < @max(1, m)) return error.InvalidLda;
+    try util.holds(a.len, m, n, lda);
+    if (jpvt.len < n or tau.len < @min(m, n)) return error.SliceTooShort;
     if (n == 0) return;
-    if (!util.fitsMatrix(m, n, lda, @sizeOf(T))) return error.InvalidLda;
-    const am: Mat(T) = .{ .ptr = a, .rows = @intCast(m), .cols = @intCast(n), .ld = @intCast(lda) };
-    try factor(allocator, io, T, am, jpvt, tau);
+    const am: Mat(T) = .{ .ptr = a.ptr, .rows = m, .cols = n, .ld = lda };
+    try factor(allocator, io, T, am, jpvt[0..n], tau.ptr);
 }
 
 /// `geqp3` after its checks.
-pub fn factor(al: Allocator, io: Io, comptime T: type, a: Mat(T), jpvt: [*]isize, tau: [*]T) Error!void {
+pub fn factor(al: Allocator, io: Io, comptime T: type, a: Mat(T), jpvt: []usize, tau: [*]T) Error!void {
     const n = a.cols;
     // `dgeqp3.f`: the fixed columns to the front
     var nfxd: usize = 0;
@@ -47,13 +48,13 @@ pub fn factor(al: Allocator, io: Io, comptime T: type, a: Mat(T), jpvt: [*]isize
             if (j != nfxd) {
                 ops.swapCols(T, a, j, nfxd);
                 jpvt[j] = jpvt[nfxd];
-                jpvt[nfxd] = @intCast(j + 1);
+                jpvt[nfxd] = j;
             } else {
-                jpvt[j] = @intCast(j + 1);
+                jpvt[j] = j;
             }
             nfxd += 1;
         } else {
-            jpvt[j] = @intCast(j + 1);
+            jpvt[j] = j;
         }
     }
     if (a.rows == 0) return;
@@ -61,7 +62,7 @@ pub fn factor(al: Allocator, io: Io, comptime T: type, a: Mat(T), jpvt: [*]isize
 }
 
 /// `qr_in_place_unblocked`, columns before `nfxd` unpivoted.
-fn unblocked(al: Allocator, io: Io, comptime T: type, a: Mat(T), nfxd: usize, jpvt: [*]isize, tau: [*]T) Error!void {
+fn unblocked(al: Allocator, io: Io, comptime T: type, a: Mat(T), nfxd: usize, jpvt: []usize, tau: [*]T) Error!void {
     const F = Float(T);
     const m = a.rows;
     const n = a.cols;
@@ -106,7 +107,7 @@ fn unblocked(al: Allocator, io: Io, comptime T: type, a: Mat(T), nfxd: usize, jp
             }
         }
         if (best_col != k) {
-            std.mem.swap(isize, &jpvt[best_col], &jpvt[k]);
+            std.mem.swap(usize, &jpvt[best_col], &jpvt[k]);
             ops.swapCols(T, a, best_col, k);
             std.mem.swap(T, &dot[best_col], &dot[k]);
             std.mem.swap(F, &norm[best_col], &norm[k]);
@@ -157,21 +158,21 @@ fn qpCase(comptime T: type, al: Allocator, m: usize, n: usize, rank: usize, fixe
     const a = try ops.alloc(T, al, m, n);
     defer ops.free(T, al, a);
     a.copyFrom(a0);
-    const jpvt = try al.alloc(isize, n);
+    const jpvt = try al.alloc(usize, n);
     defer al.free(jpvt);
     @memset(jpvt, 0);
     for (fixed) |f| jpvt[f] = 1;
     const tau = try al.alloc(T, @max(k, 1));
     defer al.free(tau);
-    try geqp3(al, check.io, T, @intCast(m), @intCast(n), a.ptr, @intCast(a.ld), jpvt.ptr, tau.ptr);
+    try geqp3(al, check.io, T, m, n, a.slice(), a.ld, jpvt, tau);
     // the fixed columns lead, in their order
     var nf: usize = 0;
     for (0..n) |j| if (std.mem.indexOfScalar(usize, fixed, j) != null) {
-        try testing.expectEqual(@as(isize, @intCast(j + 1)), jpvt[nf]);
+        try testing.expectEqual(j, jpvt[nf]);
         nf += 1;
     };
     // jpvt is a permutation
-    for (1..n + 1) |v| try testing.expect(std.mem.indexOfScalar(isize, jpvt, @intCast(v)) != null);
+    for (0..n) |v| try testing.expect(std.mem.indexOfScalar(usize, jpvt, v) != null);
     // Q explicitly, then Q R against A P
     const q = try ops.alloc(T, al, m, m);
     defer ops.free(T, al, q);
@@ -188,7 +189,7 @@ fn qpCase(comptime T: type, al: Allocator, m: usize, n: usize, rank: usize, fixe
     for (0..n) |j| for (0..m) |i| {
         var s = ops.zero(T);
         for (0..@min(j + 1, m)) |p| s = ops.add(T, s, ops.mul(T, q.get(i, p), a.get(p, j)));
-        const d = ops.abs(T, ops.sub(T, s, a0.get(i, @intCast(jpvt[j] - 1))));
+        const d = ops.abs(T, ops.sub(T, s, a0.get(i, jpvt[j])));
         if (!(d <= thresh * mf * eps * @max(anorm, std.math.floatMin(F)))) {
             check.say("geqp3 {s} {d} x {d} rank {d}: A P - Q R at ({d}, {d}) is {e}\n", .{ @typeName(T), m, n, rank, i, j, @as(f64, @floatCast(d)) });
             return error.TestUnexpectedResult;
@@ -222,12 +223,13 @@ test "lapack geqp3: A P = Q R, Q unitary, a non-increasing diagonal, fixed colum
 test "lapack geqp3: empty and bad arguments" {
     const al = testing.allocator;
     var a: [4]f64 = @splat(1);
-    var jpvt = [_]isize{ 5, 5 };
+    var jpvt = [_]usize{ 5, 5 };
     var tau: [2]f64 = undefined;
     try geqp3(al, check.io, f64, 0, 2, &a, 1, &jpvt, &tau);
-    try testing.expectEqualSlices(isize, &.{ 1, 2 }, &jpvt);
+    try testing.expectEqualSlices(usize, &.{ 0, 1 }, &jpvt);
     try geqp3(al, check.io, f64, 2, 0, &a, 2, &jpvt, &tau);
-    try testing.expectError(error.InvalidM, geqp3(al, check.io, f64, -1, 0, &a, 1, &jpvt, &tau));
-    try testing.expectError(error.InvalidN, geqp3(al, check.io, f64, 1, -1, &a, 1, &jpvt, &tau));
-    try testing.expectError(error.InvalidLda, geqp3(al, check.io, f64, 2, 2, &a, 1, &jpvt, &tau));
+    try testing.expectError(error.LeadingDimensionTooSmall, geqp3(al, check.io, f64, 2, 2, &a, 1, &jpvt, &tau));
+    try testing.expectError(error.SliceTooShort, geqp3(al, check.io, f64, 3, 2, &a, 3, &jpvt, &tau));
+    try testing.expectError(error.SliceTooShort, geqp3(al, check.io, f64, 2, 2, &a, 2, jpvt[0..1], &tau));
+    try testing.expectError(error.SliceTooShort, geqp3(al, check.io, f64, 2, 2, &a, 2, &jpvt, tau[0..1]));
 }

@@ -21,10 +21,12 @@ const blas3 = @import("blas3/__root__.zig");
 const ext = @import("ext/__root__.zig");
 const l1 = blas1.api;
 const l2 = blas2.interface;
+const l2api = blas2.api;
 const tri = blas2.triangular;
 const band = blas2.banded;
 const rank = blas2.rank;
 const l3 = blas3.interface;
+const l3api = blas3.api;
 const util = @import("util.zig");
 
 // ---- the BLAS routines ---------------------------------------------------------
@@ -44,21 +46,30 @@ pub const HalfGemm = blas3.half.HalfGemm;
 
 /// Level 1, two vectors: counts that disagree, or `error.Canceled`.
 pub const Level1Error = l1.PairError;
-/// Level 2: bad arguments, `error.OutOfMemory` or `error.Canceled`.
-pub const Level2Error = l2.Error;
+/// Level 2: counts that disagree, a slice too short for its matrix or a
+/// leading dimension too small; `error.OutOfMemory` or `error.Canceled`.
+pub const Level2Error = l2api.Error;
 /// `gemvHalf`, which allocates nothing: `Level2Error` less `OutOfMemory`.
-pub const GemvHalfError = l2.HalfError;
-/// Level 3: bad arguments, `error.OutOfMemory` or `error.Canceled`.
-pub const Level3Error = l3.Error;
+pub const GemvHalfError = l2api.HalfError;
+/// Level 3: a slice too short for its matrix or a leading dimension too
+/// small; `error.OutOfMemory` or `error.Canceled`.
+pub const Level3Error = l3api.Error;
 /// `gemmtHalf`, which allocates nothing: `Level3Error` less `OutOfMemory`.
-pub const GemmtHalfError = blas3.half.HalfError;
-/// The batched gemms: `Level3Error` and `error.InvalidCount`.
-pub const BatchError = blas3.batch.Error;
+pub const GemmtHalfError = l3api.HalfError;
+/// The batched gemms: `Level3Error` and `error.LengthMismatch`.
+pub const BatchError = l3api.BatchError;
 /// One group of `gemmBatch` or `gemmHalfBatch`, by input and output type.
-pub const GemmGroup = blas3.batch.Group;
-/// The extensions (`geadd`, `omatcopy`, `imatcopy`, `laswp`): bad arguments,
-/// `error.OutOfMemory` (`imatcopy`) or `error.Canceled`.
-pub const ExtError = ext.interface.Error;
+pub const GemmGroup = l3api.Group;
+/// `laswp`: a row or pivot outside the matrix, a slice too short or a leading
+/// dimension too small.
+pub const LaswpError = ext.api.LaswpError;
+/// `geadd`: an unsupported letter, a slice too short or a leading dimension
+/// too small.
+pub const GeaddError = ext.api.GeaddError;
+/// `omatcopy`: `GeaddError`, and `error.Overlap` where `A` and `B` share memory.
+pub const OmatcopyError = ext.api.OmatcopyError;
+/// `imatcopy`: `GeaddError`, and `error.OutOfMemory`.
+pub const ImatcopyError = ext.api.ImatcopyError;
 
 pub const copy = l1.copy;
 pub const swap = l1.swap;
@@ -71,6 +82,11 @@ pub const sdsdot = l1.sdsdot;
 pub const nrm2 = l1.nrm2;
 pub const asum = l1.asum;
 pub const sum = l1.sum;
+pub const sumWith = l1.sumWith;
+pub const asumWith = l1.asumWith;
+pub const dotWith = l1.dotWith;
+pub const dotcWith = l1.dotcWith;
+pub const Summation = l1.Summation;
 pub const index = l1.index;
 pub const extreme = l1.extreme;
 pub const rot = l1.rot;
@@ -87,57 +103,57 @@ pub const zrotg = l1.zrotg;
 pub const rotmg = l1.rotmg;
 pub const cabs1 = l1.cabs1;
 
-pub const gemv = l2.gemv;
-pub const gemvHalf = l2.gemvHalf;
-pub const ger = l2.ger;
-pub const gerc = l2.gerc;
-pub const symv = l2.symv;
-pub const hemv = l2.hemv;
-pub const trmv = tri.trmv;
-pub const trsv = tri.trsv;
-pub const tbmv = tri.tbmv;
-pub const tbsv = tri.tbsv;
-pub const tpmv = tri.tpmv;
-pub const tpsv = tri.tpsv;
-pub const gbmv = band.gbmv;
-pub const sbmv = band.sbmv;
-pub const hbmv = band.hbmv;
-pub const spmv = band.spmv;
-pub const hpmv = band.hpmv;
-pub const syr = rank.syr;
-pub const spr = rank.spr;
-pub const her = rank.her;
-pub const hpr = rank.hpr;
-pub const syr2 = rank.syr2;
-pub const spr2 = rank.spr2;
-pub const her2 = rank.her2;
-pub const hpr2 = rank.hpr2;
+pub const gemv = l2api.gemv;
+pub const gemvHalf = l2api.gemvHalf;
+pub const ger = l2api.ger;
+pub const gerc = l2api.gerc;
+pub const symv = l2api.symv;
+pub const hemv = l2api.hemv;
+pub const trmv = l2api.trmv;
+pub const trsv = l2api.trsv;
+pub const tbmv = l2api.tbmv;
+pub const tbsv = l2api.tbsv;
+pub const tpmv = l2api.tpmv;
+pub const tpsv = l2api.tpsv;
+pub const gbmv = l2api.gbmv;
+pub const sbmv = l2api.sbmv;
+pub const hbmv = l2api.hbmv;
+pub const spmv = l2api.spmv;
+pub const hpmv = l2api.hpmv;
+pub const syr = l2api.syr;
+pub const spr = l2api.spr;
+pub const her = l2api.her;
+pub const hpr = l2api.hpr;
+pub const syr2 = l2api.syr2;
+pub const spr2 = l2api.spr2;
+pub const her2 = l2api.her2;
+pub const hpr2 = l2api.hpr2;
 
-pub const gemm = l3.gemm;
-pub const symm = l3.symm;
-pub const hemm = l3.hemm;
-pub const syrk = l3.syrk;
-pub const herk = l3.herk;
-pub const syr2k = l3.syr2k;
-pub const her2k = l3.her2k;
-pub const trmm = l3.trmm;
-pub const trsm = l3.trsm;
-pub const gemmt = l3.gemmt;
-pub const gemm3m = l3.gemm3m;
-pub const symm3m = l3.symm3m;
-pub const hemm3m = l3.hemm3m;
+pub const gemm = l3api.gemm;
+pub const symm = l3api.symm;
+pub const hemm = l3api.hemm;
+pub const syrk = l3api.syrk;
+pub const herk = l3api.herk;
+pub const syr2k = l3api.syr2k;
+pub const her2k = l3api.her2k;
+pub const trmm = l3api.trmm;
+pub const trsm = l3api.trsm;
+pub const gemmt = l3api.gemmt;
+pub const gemm3m = l3api.gemm3m;
+pub const symm3m = l3api.symm3m;
+pub const hemm3m = l3api.hemm3m;
 
-pub const geadd = ext.interface.geadd;
-pub const omatcopy = ext.interface.omatcopy;
-pub const imatcopy = ext.interface.imatcopy;
-pub const laswp = ext.interface.laswp;
+pub const geadd = ext.api.geadd;
+pub const omatcopy = ext.api.omatcopy;
+pub const imatcopy = ext.api.imatcopy;
+pub const laswp = ext.api.laswp;
 
-pub const gemmHalf = blas3.half.gemmHalf;
-pub const gemmtHalf = blas3.half.gemmtHalf;
-pub const gemmBatch = blas3.batch.gemmBatch;
-pub const gemmBatchStrided = blas3.batch.gemmBatchStrided;
-pub const gemmHalfBatch = blas3.batch.gemmHalfBatch;
-pub const gemmHalfBatchStrided = blas3.batch.gemmHalfBatchStrided;
+pub const gemmHalf = l3api.gemmHalf;
+pub const gemmtHalf = l3api.gemmtHalf;
+pub const gemmBatch = l3api.gemmBatch;
+pub const gemmBatchStrided = l3api.gemmBatchStrided;
+pub const gemmHalfBatch = l3api.gemmHalfBatch;
+pub const gemmHalfBatchStrided = l3api.gemmHalfBatchStrided;
 
 // ---- selection and the vtable ----------------------------------------------------
 
@@ -178,6 +194,8 @@ fn initCold() void {
 }
 
 /// The vtable, for code a routine reaches after its own `vtable()` call.
+/// Asserts, in safe builds, that it is installed: reaching a kernel first is
+/// a broken invariant.
 pub inline fn table() *const Vtable {
     if (comptime sysinfo.optimize.runtimeSafety()) std.debug.assert(phase.load(.monotonic) == .ready);
     return &_vtable;

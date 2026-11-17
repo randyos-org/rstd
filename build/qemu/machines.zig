@@ -29,6 +29,10 @@ pub const Machine = struct {
     /// (`-Dtest-host-arch`), unless `-Dtest-host-tcg`; null where the rig
     /// needs a CPU the host lacks.
     hvf: ?[]const []const u8 = null,
+    /// `args` under KVM, with `-Dqemu-kvm` on a Linux host of the rig's
+    /// architecture (CI's runners); null where the rig needs a CPU the host
+    /// lacks, or has not been tried under KVM.
+    kvm: ?[]const []const u8 = null,
     /// The BLAS core a Linux rig must select under `args`, and under `hvf`
     /// (on the M6); its run fails otherwise.
     core: ?[]const u8 = null,
@@ -148,6 +152,7 @@ const base_machines = [_]Machine{
         .args = &.{ "-M", "virt", "-cpu", "cortex-a72" },
         // no semihosting: the boot code falls back to the PL011 and PSCI
         .hvf = &.{ "-accel", "hvf", "-M", "virt", "-cpu", "host" },
+        .kvm = &.{ "-accel", "kvm", "-M", "virt,gic-version=host", "-cpu", "host" },
         .boot = .{ .kernel = .{
             .linker_script = "test/qemu/aarch64.ld",
         } },
@@ -159,6 +164,7 @@ const base_machines = [_]Machine{
         .qemu = "qemu-system-aarch64",
         .args = &.{ "-M", "virt", "-cpu", "cortex-a72" },
         .hvf = &.{ "-accel", "hvf", "-M", "virt", "-cpu", "host" },
+        .kvm = &.{ "-accel", "kvm", "-M", "virt,gic-version=host", "-cpu", "host" },
         .boot = .{ .kernel = .{
             .linker_script = "test/qemu/aarch64.ld",
         } },
@@ -361,6 +367,7 @@ const base_machines = [_]Machine{
         .qemu = "qemu-system-x86_64",
         .args = &.{ "-M", "pc", "-cpu", "max" },
         .hvf = &.{ "-accel", "hvf", "-M", "pc", "-cpu", "host" },
+        .kvm = &.{ "-accel", "kvm", "-M", "pc", "-cpu", "host" },
         .memory = "128M",
         .boot = .{ .kernel = .{
             .linker_script = "test/qemu/x86_64.ld",
@@ -374,6 +381,7 @@ const base_machines = [_]Machine{
         .qemu = "qemu-system-x86_64",
         .args = &.{ "-M", "pc", "-cpu", "max" },
         .hvf = &.{ "-accel", "hvf", "-M", "pc", "-cpu", "host" },
+        .kvm = &.{ "-accel", "kvm", "-M", "pc", "-cpu", "host" },
         .memory = "128M",
         .boot = .{ .kernel = .{
             .linker_script = "test/qemu/x86_64.ld",
@@ -708,6 +716,7 @@ const base_machines = [_]Machine{
         .qemu = "qemu-system-x86_64",
         .args = &.{ "-M", "q35", "-cpu", "max" },
         .hvf = &.{ "-accel", "hvf", "-M", "q35", "-cpu", "host" },
+        .kvm = &.{ "-accel", "kvm", "-M", "q35", "-cpu", "host" },
         .memory = "1G",
         .boot = .{ .kernel = .{
             .linker_script = "",
@@ -721,6 +730,19 @@ const base_machines = [_]Machine{
         .qemu = "qemu-system-aarch64",
         .args = &.{ "-M", "virt", "-cpu", "cortex-a72" },
         .hvf = &.{ "-accel", "hvf", "-M", "virt", "-cpu", "host" },
+        .kvm = &.{ "-accel", "kvm", "-M", "virt,gic-version=host", "-cpu", "host" },
+        .memory = "1G",
+        .boot = .{ .kernel = .{
+            .linker_script = "",
+            .firmware = "edk2-aarch64-code.fd",
+        } },
+    },
+    .{
+        // the SVE and SME cores, linked only for an SVE target; TCG, as `aarch64-sve`
+        .name = "aarch64-uefi-sve",
+        .query = .{ .cpu_arch = .aarch64, .os_tag = .uefi, .cpu_model = .{ .explicit = &std.Target.aarch64.cpu.neoverse_v1 } },
+        .qemu = "qemu-system-aarch64",
+        .args = &.{ "-M", "virt", "-cpu", "max,pauth-impdef=on" },
         .memory = "1G",
         .boot = .{ .kernel = .{
             .linker_script = "",
@@ -754,6 +776,7 @@ const base_machines = [_]Machine{
         .qemu = "qemu-system-x86_64",
         .args = &.{ "-M", "pc", "-cpu", "max", "-smp", "4" },
         .hvf = &.{ "-accel", "hvf", "-M", "pc", "-cpu", "host", "-smp", "4" },
+        .kvm = &.{ "-accel", "kvm", "-M", "pc", "-cpu", "host", "-smp", "4" },
         // the initramfs and its unpacked copy: the test, with every core's
         // kernels and their debug info, is about 700 MB, and `/` (where tests
         // write files) gets half the memory

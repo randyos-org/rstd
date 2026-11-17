@@ -8,7 +8,6 @@ const types = @import("../blas/types.zig");
 const driver = @import("../blas/blas3/driver.zig");
 const ops = @import("ops.zig");
 const interface = @import("interface.zig");
-const lu = @import("lu.zig");
 const relapack = @import("relapack.zig");
 const indefinite = @import("indefinite.zig");
 
@@ -23,73 +22,79 @@ const undoPanel = indefinite.undoPanel;
 
 const Error = driver.Error;
 
-/// What `sytrf`, `hetrf` and their `_rook` forms return: `Singular` when a
-/// diagonal block of `D` is exactly zero.
-pub const SytrfError = interface.SquareError || error{Singular} || Allocator.Error || Io.Cancelable;
+/// One entry of the pivots (`indefinite.zig`).
+pub const Pivot = indefinite.Pivot;
+
+/// What `sytrf`, `hetrf` and their `_rook` forms return: a reversed `uplo`,
+/// a slice too short (`a`, or `ipiv` under `n`) or a leading dimension too
+/// small, and the allocator's and cancellation.
+pub const SytrfError = interface.TriangleError || Allocator.Error || Io.Cancelable;
 
 /// `?SYTRF`: `A = U D Uᵀ` (`u`) or `L D Lᵀ` (`l`) of the symmetric (complex:
 /// complex symmetric) `n x n` `A` in its `uplo` triangle, by Bunch and
-/// Kaufman's diagonal pivoting. `D`, the multipliers and `ipiv` are LAPACK's:
-/// `ipiv[k]` positive for a 1 x 1 block whose rows `k + 1` and `ipiv[k]`
-/// (1-based) were swapped, equal and negative on both rows of a 2 x 2 block.
-/// A zero block of `D` (or a NaN pivot in `tf2`) still completes the
-/// factorization, then returns `error.Singular` with the first met block's
-/// first index (1-based; the lowest for `l`, the highest for `u`) in `pivot`.
+/// Kaufman's diagonal pivoting. `D` and the multipliers are LAPACK's; the
+/// first `n` entries of `ipiv` are 0-based (issue #314): `ipiv[k]` is `.one`
+/// for a 1 x 1 block whose rows `k` and `ipiv[k].row` were swapped, `.two`
+/// on both rows of a 2 x 2 block, each naming the row swapped there.
+///
+/// Returns the first row (0-based; the lowest for `l`, the highest for `u`)
+/// of the first block of `D` met exactly zero (or a NaN pivot in `tf2`), or
+/// null. A singular `D` is a result, not an error, as `getrf`'s `U`: the
+/// factorization completes.
 /// Reference-LAPACK's blocked `xSYTRF` (`dsytrf.f`, `zsytrf.f`, `zhetrf.f`,
 /// the `_rook` forms) over ReLAPACK's `rec2` panels (issues #242, #243).
-pub fn sytrf(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, a: [*]T, lda: isize, ipiv: [*]isize, pivot: ?*usize) SytrfError!void {
+pub fn sytrf(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: usize, a: []T, lda: usize, ipiv: []Pivot) SytrfError!?usize {
     comptime ops.requireFloat(T, "sytrf");
-    return indefiniteImpl(allocator, io, T, false, false, uplo, n, a, lda, ipiv, pivot);
+    return indefiniteImpl(allocator, io, T, false, false, uplo, n, a, lda, ipiv);
 }
 
 /// `?HETRF` (`zhetrf.f`, `chetrf.f`; ReLAPACK's `zhetrf_rec2.c` panels):
 /// `sytrf` for the Hermitian `A`, `A = U D Uᴴ` or `L D Lᴴ`; the diagonal's
 /// imaginary parts are never read and `D`'s diagonal comes out real.
 /// Complex only.
-pub fn hetrf(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, a: [*]T, lda: isize, ipiv: [*]isize, pivot: ?*usize) SytrfError!void {
+pub fn hetrf(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: usize, a: []T, lda: usize, ipiv: []Pivot) SytrfError!?usize {
     comptime ops.requireComplex(T, "hetrf");
-    return indefiniteImpl(allocator, io, T, true, false, uplo, n, a, lda, ipiv, pivot);
+    return indefiniteImpl(allocator, io, T, true, false, uplo, n, a, lda, ipiv);
 }
 
 /// `?SYTRF_ROOK` (`dsytrf_rook.f` and the rest; ReLAPACK's
 /// `dsytrf_rook_rec2.c` panels): `sytrf` by the bounded Bunch-Kaufman
-/// ("rook") pivoting, whose `ipiv` names both interchanges of a 2 x 2 block
-/// (`-ipiv[k]` and `-ipiv[k + 1]` for `l`). No NaN test: only an exactly
-/// zero block is singular, as the reference's.
-pub fn sytrfRook(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, a: [*]T, lda: isize, ipiv: [*]isize, pivot: ?*usize) SytrfError!void {
+/// ("rook") pivoting, which swaps twice for a 2 x 2 block: its two entries
+/// name different rows. No NaN test: only an exactly zero block is
+/// singular, as the reference's.
+pub fn sytrfRook(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: usize, a: []T, lda: usize, ipiv: []Pivot) SytrfError!?usize {
     comptime ops.requireFloat(T, "sytrfRook");
-    return indefiniteImpl(allocator, io, T, false, true, uplo, n, a, lda, ipiv, pivot);
+    return indefiniteImpl(allocator, io, T, false, true, uplo, n, a, lda, ipiv);
 }
 
 /// `?HETRF_ROOK` (`zhetrf_rook.f`, `chetrf_rook.f`; ReLAPACK's
 /// `zhetrf_rook_rec2.c` panels): `sytrfRook` for the Hermitian `A`.
 /// Complex only.
-pub fn hetrfRook(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, a: [*]T, lda: isize, ipiv: [*]isize, pivot: ?*usize) SytrfError!void {
+pub fn hetrfRook(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: usize, a: []T, lda: usize, ipiv: []Pivot) SytrfError!?usize {
     comptime ops.requireComplex(T, "hetrfRook");
-    return indefiniteImpl(allocator, io, T, true, true, uplo, n, a, lda, ipiv, pivot);
+    return indefiniteImpl(allocator, io, T, true, true, uplo, n, a, lda, ipiv);
 }
 
 /// `ILAENV`'s block for `xSYTRF` and `xHETRF` and their `_ROOK` forms
 /// (`lapack-netlib/SRC/ilaenv.f`); at or past `n`, `tf2` takes all of `A`.
 pub const sytrf_nb = 64;
 
-fn indefiniteImpl(al: Allocator, io: Io, comptime T: type, comptime herm: bool, comptime rook: bool, uplo: Uplo, n: isize, a: [*]T, lda: isize, ipiv: [*]isize, pivot: ?*usize) SytrfError!void {
-    if (!try interface.checkSquare(T, uplo, n, lda)) return;
-    const un: usize = @intCast(n);
-    const blocked = sytrf_nb < un;
-    const work = try al.alloc(T, if (blocked) un * sytrf_nb else 0);
+fn indefiniteImpl(al: Allocator, io: Io, comptime T: type, comptime herm: bool, comptime rook: bool, uplo: Uplo, n: usize, a: []T, lda: usize, ipiv: []Pivot) SytrfError!?usize {
+    try interface.holdsTriangle(uplo, n, a.len, lda);
+    if (ipiv.len < n) return error.SliceTooShort;
+    if (n == 0) return null;
+    const work = try al.alloc(T, if (sytrf_nb < n) n * sytrf_nb else 0);
     defer al.free(work);
-    const info = try sytrfBlocked(al, io, T, herm, rook, uplo == .u, un, a, @intCast(lda), ipiv, work.ptr, un);
-    return lu.singular(info, pivot);
+    return sytrfBlocked(al, io, T, herm, rook, uplo == .u, n, a.ptr, lda, ipiv.ptr, work.ptr, n);
 }
 
 /// `xSYTRF`'s loop: panels from the first column (upper: the last), each
-/// `panel`, the update of the rest, `undoPanel`; the reference's `INFO`.
-fn sytrfBlocked(al: Allocator, io: Io, comptime T: type, comptime herm: bool, comptime rook: bool, upper: bool, n: usize, a: [*]T, lda: usize, ipiv: [*]isize, w: [*]T, ldw: usize) Error!usize {
+/// `panel`, the update of the rest, `undoPanel`; the first zero block of `D`.
+fn sytrfBlocked(al: Allocator, io: Io, comptime T: type, comptime herm: bool, comptime rook: bool, upper: bool, n: usize, a: [*]T, lda: usize, ipiv: [*]Pivot, w: [*]T, ldw: usize) Error!?usize {
     const one = scalar(T, 1);
     const minus = scalar(T, -1);
     const nb = sytrf_nb;
-    var info: usize = 0;
+    var info: ?usize = null;
     if (!upper) {
         var k: usize = 0;
         while (k < n) {
@@ -97,7 +102,7 @@ fn sytrfBlocked(al: Allocator, io: Io, comptime T: type, comptime herm: bool, co
             const d = a + k * (lda + 1);
             const p = ipiv + k;
             var kb = m;
-            var iinfo: usize = 0;
+            var iinfo: ?usize = null;
             if (k + nb < n) {
                 const r = panel(T, herm, rook, false, m, nb, d, lda, p, w, ldw);
                 kb = r.kb;
@@ -106,9 +111,8 @@ fn sytrfBlocked(al: Allocator, io: Io, comptime T: type, comptime herm: bool, co
                 try gemmtRec(al, io, T, .l, m - kb, kb, minus, d + kb, lda, w + kb, ldw, one, d + kb * (lda + 1), lda);
                 undoPanel(T, rook, false, m, d, lda, p, kb);
             } else iinfo = tf2(T, herm, rook, false, m, d, lda, p);
-            if (info == 0 and iinfo != 0) info = iinfo + k;
-            const off: isize = @intCast(k);
-            for (p[0..kb]) |*v| v.* += if (v.* > 0) off else -off;
+            info = interface.firstOf(info, iinfo, k);
+            for (p[0..kb]) |*v| v.row += @intCast(k);
             k += kb;
         }
         return info;
@@ -116,7 +120,7 @@ fn sytrfBlocked(al: Allocator, io: Io, comptime T: type, comptime herm: bool, co
     var k = n;
     while (k > 0) {
         var kb = k;
-        var iinfo: usize = 0;
+        var iinfo: ?usize = null;
         if (k > nb) {
             const r = panel(T, herm, rook, true, k, nb, a, lda, ipiv, w, ldw);
             kb = r.kb;
@@ -125,7 +129,7 @@ fn sytrfBlocked(al: Allocator, io: Io, comptime T: type, comptime herm: bool, co
             try gemmtRec(al, io, T, .u, k - kb, kb, minus, a + (k - kb) * lda, lda, w + (nb - kb) * ldw, ldw, one, a, lda);
             undoPanel(T, rook, true, k, a, lda, ipiv, kb);
         } else iinfo = tf2(T, herm, rook, true, k, a, lda, ipiv);
-        if (info == 0 and iinfo != 0) info = iinfo;
+        info = info orelse iinfo;
         k -= kb;
     }
     return info;
@@ -172,7 +176,7 @@ const lcheck = @import("_test/check.zig");
 const symmetric = @import("_test/symmetric.zig");
 
 /// `sytrf`, `hetrf` (`herm`) or a `_rook` form, by its flags.
-pub fn indefiniteRoutine(comptime T: type, comptime herm: bool, comptime rook: bool) fn (Allocator, Io, comptime type, Uplo, isize, [*]T, isize, [*]isize, ?*usize) SytrfError!void {
+pub fn indefiniteRoutine(comptime T: type, comptime herm: bool, comptime rook: bool) fn (Allocator, Io, comptime type, Uplo, usize, []T, usize, []Pivot) SytrfError!?usize {
     return if (herm) (if (rook) hetrfRook else hetrf) else (if (rook) sytrfRook else sytrf);
 }
 
@@ -188,10 +192,11 @@ fn sytrfCases(comptime T: type, comptime herm: bool, comptime rook: bool) !void 
         if ((check.rig() and n > 66) or (zd and n == 1)) continue;
         var p = try symmetric.Indefinite(T, herm).init(al, n, upper, zd, n * 7 + @intFromBool(upper) + 2 * @as(u64, @intFromBool(zd)));
         defer p.deinit(al);
-        f(al, check.io, T, lcheck.uploOf(upper), @intCast(n), p.a.ptr, @intCast(p.lda), p.ipiv.ptr, null) catch |e| {
+        const zero = f(al, check.io, T, lcheck.uploOf(upper), n, p.a, p.lda, p.ipiv) catch |e| {
             check.say("{s} {s} n={d}\n", .{ what, @typeName(T), n });
             return e;
         };
+        try testing.expectEqual(@as(?usize, null), zero);
         try p.expectFactor(rook, al, what);
     };
 }
@@ -213,7 +218,7 @@ test "relapack sytrf and the rest: three panels, f64 and c64" {
             for ([_]bool{ true, false }) |upper| {
                 var p = try symmetric.Indefinite(T, herm).init(al, 150, upper, false, 99);
                 defer p.deinit(al);
-                try f(al, check.io, T, lcheck.uploOf(upper), 150, p.a.ptr, @intCast(p.lda), p.ipiv.ptr, null);
+                _ = try f(al, check.io, T, lcheck.uploOf(upper), 150, p.a, p.lda, p.ipiv);
                 try p.expectFactor(rook, al, "sytrf 150");
             }
         }
@@ -234,11 +239,10 @@ test "relapack sytrf and the rest: a zero row and column is singular there, the 
                     p.w[k + i * n] = reference.wide(T, scalar(T, 0));
                 }
                 p.store();
-                var piv: usize = 0;
-                try testing.expectError(error.Singular, f(al, check.io, T, lcheck.uploOf(upper), n, p.a.ptr, @intCast(p.lda), p.ipiv.ptr, &piv));
+                const piv = (try f(al, check.io, T, lcheck.uploOf(upper), n, p.a, p.lda, p.ipiv)) orelse return error.TestExpectedSingular;
                 // the zero row may move with the interchanges (the reference's rook
-                // search moves it too): `D` is zero where `pivot` says
-                try testing.expect(ops.isZero(T, p.a[(piv - 1) * (p.lda + 1)]));
+                // search moves it too): `D` is zero where the result says
+                try testing.expect(ops.isZero(T, p.a[piv * (p.lda + 1)]));
                 try p.expectFactor(rook, al, "singular");
             };
             // all zero: the first column met, the last for `u`
@@ -247,25 +251,25 @@ test "relapack sytrf and the rest: a zero row and column is singular there, the 
                 defer p.deinit(al);
                 @memset(p.w, reference.wide(T, scalar(T, 0)));
                 p.store();
-                var piv: usize = 0;
-                try testing.expectError(error.Singular, f(al, check.io, T, lcheck.uploOf(upper), @intCast(n), p.a.ptr, @intCast(p.lda), p.ipiv.ptr, &piv));
-                try testing.expectEqual(if (upper) n else 1, piv);
+                try testing.expectEqual(@as(?usize, if (upper) n - 1 else 0), try f(al, check.io, T, lcheck.uploOf(upper), n, p.a, p.lda, p.ipiv));
             };
         }
     };
 }
 
-test "relapack sytrf, hetrf: the first bad argument; nothing read for n = 0" {
+test "relapack sytrf, hetrf: a reversed uplo, short slices, a small leading dimension; nothing read for n = 0" {
     const al = testing.allocator;
     const C = types.Complex64;
     var a: [4]C = @splat(lcheck.poisoned(C));
-    var ipiv: [2]isize = @splat(-7);
-    try testing.expectError(error.InvalidUplo, sytrf(al, check.io, C, .v, 2, &a, 2, &ipiv, null));
-    try testing.expectError(error.InvalidN, hetrf(al, check.io, C, .u, -1, &a, 2, &ipiv, null));
-    try testing.expectError(error.InvalidLda, hetrfRook(al, check.io, C, .l, 2, &a, 1, &ipiv, null));
-    try sytrfRook(al, check.io, C, .l, 0, &a, 1, &ipiv, null);
+    const unset: Pivot = .of(7, .two);
+    var ipiv: [2]Pivot = @splat(unset);
+    try testing.expectError(error.UnsupportedUplo, sytrf(al, check.io, C, .v, 2, &a, 2, &ipiv));
+    try testing.expectError(error.LeadingDimensionTooSmall, hetrfRook(al, check.io, C, .l, 2, &a, 1, &ipiv));
+    try testing.expectError(error.SliceTooShort, hetrf(al, check.io, C, .u, 3, &a, 3, &ipiv));
+    try testing.expectError(error.SliceTooShort, sytrf(al, check.io, C, .u, 2, &a, 2, ipiv[0..1]));
+    try testing.expectEqual(@as(?usize, null), try sytrfRook(al, check.io, C, .l, 0, &a, 1, &ipiv));
     for (a) |x| try testing.expect(lcheck.isNanT(C, x));
-    try testing.expectEqual(-7, ipiv[0]);
+    try testing.expectEqual(unset, ipiv[0]);
 }
 
 const BigSym = struct {
@@ -273,10 +277,10 @@ const BigSym = struct {
 
     fn run(self: BigSym, io: Io, out: []f64) anyerror!void {
         @memcpy(out, self.a);
-        var ipiv: [lcheck.big_n]isize = undefined;
-        try sytrf(testing.allocator, io, f64, .l, lcheck.big_n, out.ptr, lcheck.big_n, &ipiv, null);
+        var ipiv: [lcheck.big_n]Pivot = undefined;
+        _ = try sytrf(testing.allocator, io, f64, .l, lcheck.big_n, out, lcheck.big_n, &ipiv);
         @memcpy(out, self.a);
-        try sytrfRook(testing.allocator, io, f64, .u, lcheck.big_n, out.ptr, lcheck.big_n, &ipiv, null);
+        _ = try sytrfRook(testing.allocator, io, f64, .u, lcheck.big_n, out, lcheck.big_n, &ipiv);
     }
 };
 

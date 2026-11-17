@@ -5,6 +5,8 @@
 const std = @import("std");
 const ob = @import("__root__.zig");
 const blas = @import("../../__root__.zig");
+const l3 = @import("../../blas3/core.zig");
+const l2 = @import("../../blas2/core.zig");
 const l1 = @import("../../blas1/interface.zig");
 const check = @import("../check.zig");
 const types = @import("../../types.zig");
@@ -138,8 +140,8 @@ fn gemvAgainst(comptime kind: blas.HalfGemv, small: bool) !void {
                     @memset(dd, 0);
                     const xi: isize = @intCast(x);
                     const ii: isize = @intCast(inc);
-                    try blas.gemv(al, ob.io, f32, trans, xi, xi, alpha, a.ptr, xi, b.ptr, ii, beta, c.ptr, ii);
-                    try blas.gemvHalf(ob.io, kind, trans, xi, xi, try toHalf(Out, alpha), aa.ptr, xi, bb.ptr, ii, try toHalf(Out, beta), cc.ptr, ii);
+                    try l2.gemv(al, ob.io, f32, trans, xi, xi, alpha, a.ptr, xi, b.ptr, ii, beta, c.ptr, ii);
+                    try l2.gemvHalf(ob.io, kind, trans, xi, xi, try toHalf(Out, alpha), aa.ptr, xi, bb.ptr, ii, try toHalf(Out, beta), cc.ptr, ii);
                     for (dd) |*v| v.* *= beta;
                     for (0..x) |j| for (0..x) |i| {
                         if (trans == .n) {
@@ -252,8 +254,8 @@ fn gemmAgainst(comptime kind: blas.HalfGemm, small: bool) !void {
             @memset(c, c0);
             @memset(cc, try toHalf(Out, c0));
             @memset(dd, c0);
-            try blas.gemm(al, ob.io, f32, tr[0], tr[1], xi, xi, xi, alpha, ops.a.ptr, ld, ops.b.ptr, ld, beta, c.ptr, ld);
-            try blas.gemmHalf(al, ob.io, kind, tr[0], tr[1], xi, xi, xi, try toHalf(Out, alpha), ops.aa.ptr, ld, ops.bb.ptr, ld, try toHalf(Out, beta), cc.ptr, ld);
+            try l3.gemm(al, ob.io, f32, tr[0], tr[1], xi, xi, xi, alpha, ops.a.ptr, ld, ops.b.ptr, ld, beta, c.ptr, ld);
+            try l3.gemmHalf(al, ob.io, kind, tr[0], tr[1], xi, xi, xi, try toHalf(Out, alpha), ops.aa.ptr, ld, ops.bb.ptr, ld, try toHalf(Out, beta), cc.ptr, ld);
             for (0..x) |i| for (0..x) |j| {
                 for (0..x) |l| dd[i * x + j] += ops.product(x, tr[0] == .t, tr[1] == .t, i, j, l);
                 const got = try fromHalf(Out, cc[i * x + j]);
@@ -289,8 +291,8 @@ fn shgemmScalars(small: bool) !void {
                 for (trans_pairs) |tr| {
                     @memset(c, 0);
                     @memset(cc, 0);
-                    try blas.gemm(al, ob.io, f32, tr[0], tr[1], xi, xi, xi, alpha, ops.a.ptr, xi, ops.b.ptr, xi, beta, c.ptr, xi);
-                    try blas.gemmHalf(al, ob.io, .shgemm, tr[0], tr[1], xi, xi, xi, alpha, ops.aa.ptr, xi, ops.bb.ptr, xi, beta, cc.ptr, xi);
+                    try l3.gemm(al, ob.io, f32, tr[0], tr[1], xi, xi, xi, alpha, ops.a.ptr, xi, ops.b.ptr, xi, beta, c.ptr, xi);
+                    try l3.gemmHalf(al, ob.io, .shgemm, tr[0], tr[1], xi, xi, xi, alpha, ops.aa.ptr, xi, ops.bb.ptr, xi, beta, cc.ptr, xi);
                     for (c, cc, 0..) |w, g, at| t.check(isClose(g, w, 0.01, 0.001), "shgemm {s}{s} x={d} alpha={d} beta={d} C[{d}]: {d}, sgemm {d}\n", .{ @tagName(tr[0]), @tagName(tr[1]), x, alpha, beta, at, g, w });
                 }
             }

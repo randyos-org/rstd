@@ -19,6 +19,8 @@ pub const half = @import("half.zig");
 /// `?gemm_batch` and `?gemm_batch_strided`, the half gemms' too.
 pub const batch = @import("batch.zig");
 pub const interface = @import("interface.zig");
+/// The public routines, on slices, over the core files.
+pub const api = @import("api.zig");
 pub const driver = @import("driver.zig");
 /// The 3M drivers (`gemm3m`, `symm3m`, `hemm3m`).
 pub const driver3m = @import("driver3m.zig");
