@@ -188,14 +188,14 @@ pub fn realForwardAxes(allocator, io, out, in: ConstArrayView(T), axes, options)
 - **Frames:** the unordered forms and the `Mdct` take no `io` or layout, one frame at a time. The
   `Mdct` leaves windowing to the caller; its scaling makes windowed overlap-add with a
   Princen-Bradley window (sine, KBD) reconstruct the input (TDAC).
-- **Element types:** every float type through the portable code, f16 to f128. Planned: f32 SIMD
-  first (audio), then f64 (numerics).
+- **Element types:** every float type through the portable code, f16 to f128; f32 at pffft's sizes through its SIMD (below). Planned: f64 SIMD (numerics).
+- **pffft (f32):** `Plan(f32)` takes pffft's complex kernels at `n = 16 2^a 3^b 5^c`, `RealPlan(f32)` its real ones at `n = 32 2^a 3^b 5^c`, both up to `2^26`; other sizes and types stay on PocketFFT. Every target runs pffft's 4-lane algorithm: its SSE header on x86, its NEON header on arm and aarch64, its 4xScalar mode elsewhere (the PowerPC 750), so the unordered layout is the same everywhere. Its multiply-adds fuse where pffft's do: SSE with FMA3, aarch64 NEON, arm NEON with VFPv4. The unordered forms exist only there: `UnsupportedType` for any type but f32 (until f64 SIMD), `UnsupportedSize` for other sizes, never a panic. Matched bit for bit with pffft's C on x86_64; the port reads callers' slices unaligned, where pffft asserts 16-byte alignment.
 - **Bits:** the plan depends on `n`, the type and the core only, never on timing. The SIMD
   kernels change the operation order, so bits may differ between cores, as with the BLAS.
   `StaticPlan` dispatches by size alone, so it gives `Plan`'s bits.
 - **Tests:** a direct DFT in a wider type (as the BLAS's `Wide` reference), round trips,
   Parseval's identity, and every size from 1 to a few hundred (primes take Bluestein's path).
-- **Status:** `Plan` is PocketFFT's `cfftp` and `fftblue` (`plan.zig`, `cfftp/`, `bluestein.zig`), `RealPlan` its `rfftp` and `fftblue`'s real path (`real_plan.zig`, `rfftp/`); a batch runs through `io`, as many transforms at once as the scratch holds (`batch.zig`, on the BLAS's `threading.forEach`). The unordered forms (N10) and the rest are stubs, and `init` already rejects `n = 0`.
+- **Status:** `Plan` is PocketFFT's `cfftp` and `fftblue` (`plan.zig`, `cfftp/`, `bluestein.zig`), `RealPlan` its `rfftp` and `fftblue`'s real path (`real_plan.zig`, `rfftp/`); a batch runs through `io`, as many transforms at once as the scratch holds (`batch.zig`, on the BLAS's `threading.forEach`). f32 at pffft's sizes takes pffft's kernels (`pffft/`, N10), with the unordered forms. The rest are stubs, and `init` already rejects `n = 0`.
 
 ### Planned: signal processing, `rstd.signal`
 

@@ -1,6 +1,6 @@
 //! Fast Fourier transforms (rstd's design.md, "FFT"): PocketFFT's algorithms
-//! in Zig, pffft's SIMD. `Plan` and `RealPlan` are done (`plan.zig`,
-//! `real_plan.zig`; the unordered forms aside); the rest are stubs whose
+//! in Zig, pffft's SIMD (`pffft/`, f32 at its sizes). `Plan` and `RealPlan`
+//! are done (`plan.zig`, `real_plan.zig`); the rest are stubs whose
 //! bodies return `error.NotImplemented`, their tests skip. A plan depends only
 //! on `n`, the element type and the core; immutable, it serves every thread.
 //! Transforms allocate nothing.
@@ -35,16 +35,23 @@ pub const InitError = error{ OutOfMemory, ZeroLength, NotImplemented };
 pub const TransformError = error{ SliceTooShort, Canceled, NotImplemented };
 pub const TransformIntoError = TransformError || error{CountMismatch};
 
-/// One transform at a time, no `io`: audio frames and the unordered forms.
+/// One transform at a time, no `io`: audio frames.
 pub const FrameError = error{ SliceTooShort, NotImplemented };
 
+/// `RealPlan`'s unordered forms, pffft's: f32 only (`UnsupportedType`;
+/// f64 SIMD is later), at pffft's real sizes, `n = 32 2^a 3^b 5^c` up to
+/// `2^26` (`UnsupportedSize`).
+pub const UnorderedError = error{ SliceTooShort, UnsupportedSize, UnsupportedType };
+
 /// Complex, any `n`: PocketFFT's mixed radix (2, 3, 4, 5, 7, 8, 11 and a
-/// generic pass), Bluestein's for large prime factors (`plan.zig`).
+/// generic pass), Bluestein's for large prime factors; f32 at pffft's
+/// sizes, `16 2^a 3^b 5^c`, pffft's SIMD (`plan.zig`).
 pub const Plan = complex_plan.Plan;
 
 /// Real input: `n` reals to the `n / 2 + 1` values of the half spectrum
-/// (NumPy's `rfft`), and back: PocketFFT's `rfftp`, or Bluestein's
-/// (`real_plan.zig`).
+/// (NumPy's `rfft`), and back: PocketFFT's `rfftp`, or Bluestein's; f32 at
+/// pffft's sizes, `32 2^a 3^b 5^c`, pffft's SIMD, with its unordered forms
+/// for fast convolution (`real_plan.zig`).
 pub const RealPlan = real_plan.RealPlan;
 
 /// `Plan` for a comptime `n`: factors and twiddles at comptime, unrolled, no
@@ -501,6 +508,8 @@ test "Plan: short scratch or data, and a count mismatch" {
 
 test {
     _ = @import("util.zig");
+    _ = @import("pffft/__root__.zig");
+    _ = @import("_test/pffft.zig");
 }
 
 test "RealPlan matches the direct DFT's half at every float type, radix 2 to 5, the general passes and Bluestein's" {

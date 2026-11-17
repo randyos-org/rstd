@@ -1,8 +1,9 @@
 //! `fft.Plan`: the complex 1-D FFT of any length, PocketFFT's `pocketfft_c`
 //! (`pocketfft_hdronly.h`, cpp branch, commit 4d865cba, BSD-3, LICENSE):
 //! mixed radix (`cfftp/`) unless its cost model prefers Bluestein's
-//! (`bluestein.zig`) for a large prime factor. A batch runs through `io`
-//! (`batch.zig`).
+//! (`bluestein.zig`) for a large prime factor. For f32 at pffft's sizes
+//! (`n = 16 2^a 3^b 5^c`, at most `2^26`), pffft's SIMD instead
+//! (`pffft/`). A batch runs through `io` (`batch.zig`).
 
 const std = @import("std");
 const fft = @import("__root__.zig");
@@ -10,6 +11,7 @@ const cmplx = @import("cmplx.zig");
 const util = @import("util.zig");
 const cfftp = @import("cfftp/__root__.zig");
 const bluestein = @import("bluestein.zig");
+const pffft = @import("pffft/__root__.zig");
 const batch_ = @import("batch.zig");
 
 const Allocator = std.mem.Allocator;
@@ -28,10 +30,15 @@ pub fn Plan(comptime T: type) type {
         kind: Kind,
 
         const Self = @This();
-        const Kind = union(enum) { pack: cfftp.Cfftp(T), blue: bluestein.Bluestein(T) };
+        const Kind = union(enum) { pack: cfftp.Cfftp(T), blue: bluestein.Bluestein(T), simd: pffft.Simd(T) };
 
         pub fn init(allocator: Allocator, n: usize) fft.InitError!Self {
             if (n == 0) return error.ZeroLength;
+            if (T == f32 and pffft.validSize(n, .complex)) {
+                const s = try pffft.Setup.init(allocator, n, .complex);
+                // one gathered transform and pffft's work buffer
+                return .{ .n = n, .scratch_len = 2 * n, .kind = .{ .simd = s } };
+            }
             // `pocketfft_c`'s choice
             const lpf = if (n < 50) 0 else util.largestPrimeFactor(n);
             if (lpf * lpf > n) blue: {
@@ -127,6 +134,13 @@ pub fn Plan(comptime T: type) type {
             switch (self.kind) {
                 .pack => |*p| p.exec(c, rest, f, fwd),
                 .blue => |*b| b.exec(c, rest, f, fwd),
+                .simd => |*s| if (T == f32) {
+                    const fl: [*]f32 = @ptrCast(c.ptr);
+                    s.transform(fl, fl, @ptrCast(rest.ptr), fwd, true);
+                    if (f != 1) for (c) |*x| {
+                        x.* = cmplx.scale(T, x.*, f);
+                    };
+                } else unreachable,
             }
         }
     };
