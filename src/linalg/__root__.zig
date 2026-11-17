@@ -8,6 +8,14 @@ pub const poly = @import("poly.zig");
 const rref_ = @import("rref.zig");
 pub const Rref = rref_.Rref;
 pub const rref = rref_.rref;
+const structure = @import("structure.zig");
+pub const identity = structure.identity;
+pub const ones = structure.ones;
+pub const tril = structure.tril;
+pub const triu = structure.triu;
+pub const diagMatrix = structure.diagMatrix;
+pub const diagonal = structure.diagonal;
+pub const kron = structure.kron;
 
 // the public layer (design.md, "Planned: the public `rstd.linalg` layer"):
 // its types, and `dense.zig`'s run-time-shape functions, flat
