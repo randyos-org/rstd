@@ -9,6 +9,8 @@ const std = @import("std");
 const types = @import("../types.zig");
 const strided = @import("../strided.zig");
 const core = @import("interface.zig");
+const compensated = @import("compensated.zig");
+const util = @import("../util.zig");
 
 const Io = std.Io;
 const BF16 = types.BF16;
@@ -18,6 +20,8 @@ const ConstStrided = strided.ConstStrided;
 const LengthError = strided.LengthError;
 
 pub const Extreme = core.Extreme;
+/// How a reduction sums: as the kernels do, or compensated (Neumaier).
+pub const Summation = compensated.Summation;
 
 /// What a routine of two vectors that may thread returns.
 pub const PairError = LengthError || Io.Cancelable;
@@ -94,6 +98,21 @@ pub fn dotc(io: Io, comptime T: type, x: ConstStrided(T), y: ConstStrided(T)) Pa
     return core.dotc(io, T, len(x), ptr(T, x), inc(x), ptr(T, y), inc(y)) catch |e| return canceled(e);
 }
 
+/// `dot` summed as `s` says; `.compensated` (Neumaier) bounds the error by
+/// about one rounding of the result, at portable speed.
+pub fn dotWith(io: Io, comptime T: type, x: ConstStrided(T), y: ConstStrided(T), s: Summation) PairError!T {
+    if (s == .plain) return dot(io, T, x, y);
+    try x.sameLength(y);
+    return compensated.dot(io, T, false, x.n, util.first(T, ptr(T, x), len(x), inc(x)), inc(x), util.first(T, ptr(T, y), len(y), inc(y)), inc(y));
+}
+
+/// `dotc` summed as `s` says.
+pub fn dotcWith(io: Io, comptime T: type, x: ConstStrided(T), y: ConstStrided(T), s: Summation) PairError!T {
+    if (s == .plain) return dotc(io, T, x, y);
+    try x.sameLength(y);
+    return compensated.dot(io, T, true, x.n, util.first(T, ptr(T, x), len(x), inc(x)), inc(x), util.first(T, ptr(T, y), len(y), inc(y)), inc(y));
+}
+
 /// The dot of two `f32` vectors, summed and returned in `f64`.
 pub fn dsdot(io: Io, x: ConstStrided(f32), y: ConstStrided(f32)) PairError!f64 {
     try x.sameLength(y);
@@ -121,6 +140,18 @@ pub fn asum(io: Io, comptime T: type, x: ConstStrided(T)) Io.Cancelable!Float(T)
 /// The sum of `x`, of `re + im` for complex; summed in memory order.
 pub fn sum(io: Io, comptime T: type, x: ConstStrided(T)) Io.Cancelable!Float(T) {
     return core.sum(io, T, len(x), ptr(T, x), step(x)) catch |e| return canceled(e);
+}
+
+/// `asum` summed as `s` says.
+pub fn asumWith(io: Io, comptime T: type, x: ConstStrided(T), s: Summation) Io.Cancelable!Float(T) {
+    if (s == .plain) return asum(io, T, x);
+    return compensated.asum(io, T, x.n, ptr(T, x), step(x));
+}
+
+/// `sum` summed as `s` says.
+pub fn sumWith(io: Io, comptime T: type, x: ConstStrided(T), s: Summation) Io.Cancelable!Float(T) {
+    if (s == .plain) return sum(io, T, x);
+    return compensated.sum(io, T, x.n, ptr(T, x), step(x));
 }
 
 // ---- extremes ----------------------------------------------------------------
