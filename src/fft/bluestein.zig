@@ -71,6 +71,36 @@ pub fn Bluestein(comptime T: type) type {
             if (fwd) self.fft(true, c, scratch, fct) else self.fft(false, c, scratch, fct);
         }
 
+        /// Scratch for `execReal`: `n` complex values, then `exec`'s.
+        pub fn realScratchLen(self: Self) usize {
+            return self.n + self.scratchLen();
+        }
+
+        /// `exec_r`: `n` reals to the halfcomplex order (`fwd`) or back.
+        pub fn execReal(self: *const Self, c: []T, scratch: []C(T), fct: T, fwd: bool) void {
+            const n = self.n;
+            const tmp = scratch[0..n];
+            const rest = scratch[n..];
+            const zero = 0 * c[0];
+            if (fwd) {
+                for (tmp, c[0..n]) |*t, x| t.* = .{ .re = x, .im = zero };
+                self.fft(true, tmp, rest, fct);
+                c[0] = tmp[0].re;
+                // `tmp[1..]`'s parts, interleaved (the struct's layout is not)
+                for (1..n) |j| c[j] = if (j & 1 == 1) tmp[(j + 1) / 2].re else tmp[j / 2].im;
+            } else {
+                tmp[0] = .{ .re = c[0], .im = c[0] * 0 };
+                for (1..n) |j| {
+                    if (j & 1 == 1) tmp[(j + 1) / 2].re = c[j] else tmp[j / 2].im = c[j];
+                }
+                if (n & 1 == 0) tmp[n / 2].im = 0 * c[0];
+                var m: usize = 1;
+                while (2 * m < n) : (m += 1) tmp[n - m] = .{ .re = tmp[m].re, .im = -tmp[m].im };
+                self.fft(false, tmp, rest, fct);
+                for (c[0..n], tmp) |*x, t| x.* = t.re;
+            }
+        }
+
         fn fft(self: *const Self, comptime fwd: bool, c: []C(T), scratch: []C(T), fct: T) void {
             const n = self.n;
             const n2 = self.n2;
