@@ -83,9 +83,10 @@ fn fragMain() callconv(.{ .spirv_fragment = .{} }) void {
 
     // Border/fill split is a color mix, not an alpha change.
     const base_color = if (border_width > 0.0) blk: {
-        const inner_dist = dist + border_width; // 0 at the seam
-        const fill_mix = lib.math.smoothstepScalar(-aa_width, aa_width, inner_dist);
-        break :blk lib.math.mix(param_border_color.*, param_fill_color.*, fill_mix);
+        // 0 at the seam, negative inside it: fill there, border past it
+        const inner_dist = dist + border_width;
+        const border_mix = lib.math.smoothstepScalar(-aa_width, aa_width, inner_dist);
+        break :blk lib.math.mix(param_fill_color.*, param_border_color.*, border_mix);
     } else param_fill_color.*;
 
     const alpha = base_color[3] * outer_coverage;
