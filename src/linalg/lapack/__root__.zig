@@ -43,10 +43,9 @@ pub const Trans = types.Trans;
 pub const Diag = types.Diag;
 pub const Side = types.Side;
 
-// Each `...Error` is its routine's bad arguments (the LU, triangular,
-// Cholesky, symmetric-indefinite, QR, eigenvalue, SVD and Sylvester
-// routines' by plain names, issues #313 to #318; the rest in the reference's `xerbla` order, until their own issues), `error.OutOfMemory` and `error.Canceled`
-// where it can meet them, and the failures its doc names.
+// Each `...Error` is its routine's bad arguments by plain names (issues
+// #313 to #319), `error.OutOfMemory` and `error.Canceled` where it can
+// meet them, and the failures its doc names.
 /// `potrf`: `error.NotPositiveDefinite`.
 pub const PotrfError = cholesky.PotrfError;
 /// `potf2`: `error.NotPositiveDefinite`; it allocates nothing.
@@ -221,10 +220,10 @@ pub const gesdd = svd.gesdd;
 
 /// `lange`'s and `gecon`'s `NORM`.
 pub const Norm = norm.Norm;
-/// `lange`: a negative size or short `lda`, or `error.OutOfMemory`.
+/// `lange`: a slice too short or short `lda`, or `error.OutOfMemory`.
 pub const LangeError = norm.LangeError;
-/// `gecon`: a NaN or infinite `anorm` is `error.InvalidAnorm`;
-/// `error.EstimateFailed`.
+/// `gecon`: returns `rcond`; a negative, NaN or infinite `anorm` is
+/// `error.NormOutOfRange`; `error.EstimateFailed`.
 pub const GeconError = norm.GeconError;
 pub const LasetError = auxiliary.LasetError;
 pub const lange = norm.lange;

@@ -1023,7 +1023,7 @@ allows.
 - **Reference-LAPACK's own** (T115; 3.12.0 as OpenBLAS ships it in `lapack-netlib/SRC/`, the
   fallback where neither faer nor libflame has a method of its own): `lange` with Blue's `xLASSQ`
   and `gecon` with `xLACN2` (its reverse communication a callback) and `xLATRS` (`norm.zig`);
-  `gebal` and `gebak`, every job (`balance.zig`, which `geev` calls with job `B`); `trexc` and `trsen` (`schur.zig`: `xLAEXC`
+  `gebal` and `gebak`, every job (`balance.zig`, which `geev` calls with job `B`). Since [Z18](https://github.com/randyos-org/rstd/issues/319) `gecon` returns `rcond` (a negative, NaN or infinite `anorm` is `NormOutOfRange`), `lassq`, `rscl` and `larfg` take strided views (`larfg`'s `x` the reference's `n - 1` tail; `rscl` and `larfg` scale and sum in memory order, as `asum`), `latrs` and `lacn2` slices, and `laset` refuses a reversed `uplo`; `trexc` and `trsen` (`schur.zig`: `xLAEXC`
   with `xLASY2`, `xLARFG`, `xLARFX`, `xLANV2`, `xLARTG`; `trsen`'s solves are ReLAPACK's `trsyl`);
   `gelsy` (`lsq.zig`: `xLAIC1`, and `xTZRZF`, `xORMRZ` by their unblocked `xLATRZ`, `xORMR3`) over
   faer's pivoted QR (`qr_pivot.zig`, `geqp3`, which recomputes every norm where the

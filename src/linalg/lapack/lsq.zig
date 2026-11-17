@@ -8,6 +8,7 @@ const blas = @import("../blas/__root__.zig");
 const l2 = @import("../blas/blas2/core.zig");
 const types = @import("../blas/types.zig");
 const util = @import("../blas/util.zig");
+const strided = @import("../blas/strided.zig");
 const interface = @import("interface.zig");
 const ops = @import("ops.zig");
 const blas_calls = @import("blas_calls.zig");
@@ -22,6 +23,7 @@ const Mat = ops.Mat;
 const Float = types.Float;
 const isComplex = types.isComplex;
 const Error = ops.Error;
+const Strided = strided.Strided;
 
 // ---- xLASCL ------------------------------------------------------------------------
 
@@ -161,6 +163,11 @@ pub fn laic1(io: Io, comptime T: type, job: Extreme, j: usize, x: [*]const T, se
 
 // ---- xLARZ, xLATRZ, xORMR3 ---------------------------------------------------------
 
+/// `l` elements of a row from `row`, `ld` apart, for `larfg`.
+fn rowOf(comptime T: type, row: [*]T, l: usize, ld: usize) Strided(T) {
+    return .{ .data = row[0..if (l == 0) 0 else (l - 1) * ld + 1], .n = l, .stride = @intCast(ld) };
+}
+
 /// `?LARZ` (`dlarz.f`, `zlarz.f`): applies `H = I - tau v vᴴ`, `v = [1; 0;
 /// v(l)]` (`v` with stride `incv`), to the `m x n` `C`: `H C` (`left`, the
 /// last `l` rows with the first) or `C H`. `work` takes `n` (`m`) elements.
@@ -209,12 +216,12 @@ fn latrz(al: Allocator, io: Io, comptime T: type, a: Mat(T), tau: [*]T) Error!vo
         if (comptime isComplex(T)) {
             for (0..l) |k| row[k * a.ld] = ops.conj(T, row[k * a.ld]);
             var alpha = ops.conj(T, a.get(i, i));
-            const t = try auxiliary.larfg(io, T, l + 1, &alpha, row, a.ld);
+            const t = try auxiliary.larfg(io, T, &alpha, rowOf(T, row, l, a.ld));
             tau[i] = ops.conj(T, t);
             try larz(al, io, T, false, i, n - i, l, row, a.ld, t, a.sub(0, i, i, n - i), work.ptr);
             a.at(i, i).* = ops.conj(T, alpha);
         } else {
-            tau[i] = try auxiliary.larfg(io, T, l + 1, a.at(i, i), row, a.ld);
+            tau[i] = try auxiliary.larfg(io, T, a.at(i, i), rowOf(T, row, l, a.ld));
             try larz(al, io, T, false, i, n - i, l, row, a.ld, tau[i], a.sub(0, i, i, n - i), work.ptr);
         }
     }
