@@ -27,7 +27,7 @@ after it. Rig names are `zig build` steps: `qemu-test-<rig>` unless named in ful
 | `arm-freestanding-eabi` | 2 | RandyOS: Raspberry Pi 3, 32-bit | `arm-softfp` (soft-float ABI, A15's VFP), `arm` (`eabihf`); both in CI under TCG |
 | `powerpc-freestanding-eabi` | 2 | RandyOS: iBook G3, PowerPC 750FX | `powerpc-750` (soft float: portable kernels only), `powerpc-750-hf`; both in CI under TCG |
 | `x86_64-uefi-msvc` | 2 | RandyOS's loader | `x86_64-uefi` (OVMF; HVF on the Intel Mac, or KVM in CI), `rstd-check-uefi` (CI too) |
-| `aarch64-uefi-msvc` | 2 | RandyOS's loader (pftf) | `aarch64-uefi` (AAVMF; HVF on the M6, or arm64 runners in CI), `rstd-check-uefi` |
+| `aarch64-uefi-msvc` | 2 | RandyOS's loader (pftf) | `aarch64-uefi` (AAVMF; HVF on the M6, or arm64 runners in CI), `aarch64-uefi-sve` (TCG `max`: the SVE and SME cores; CI too), `rstd-check-uefi` |
 | `x86_64-linux-musl` | 2 | zfls (release, conda, Alpine) | `linux-x86_64` (TCG `max`, HVF on the Intel Mac, or KVM in CI; 4 CPUs), CI's native `x86_64-linux-musl` legs, `rstd-check-zig017` |
 | `aarch64-linux-musl` | 2 | zfls (release, conda, Alpine) | `linux-aarch64` (HVF on the M6, or TCG `max`), `linux-aarch64-sve` (TCG `max`: the SVE and SME cores), both in CI on arm64 runners; CI's native `aarch64-linux-musl` legs, `rstd-check-zig017` |
 | `x86_64-linux-gnu`, `aarch64-linux-gnu` | 2 | zfls | CI's native legs (`ubuntu-24.04`, `ubuntu-24.04-arm`); the Linux rigs above with `-Drstd-tsan` (glibc from Nix) |
@@ -94,7 +94,6 @@ Compiled and symbol-checked, never run:
 | --- | --- | --- | --- |
 | `skylakex`, `cooperlake`, `sapphirerapids` | every x86_64 one | AVX-512: the Zen 3 host lacks it, so WHPX cannot show it; TCG has none | T43, T44 |
 | `bulldozer`, `piledriver`, `steamroller`, `excavator` | every x86_64 one | FMA4 and XOP: the host lacks them; TCG has none | T43 |
-| every SVE and SME core | `aarch64-uefi-msvc` | the UEFI rig has no SVE (`cortex-a72`, or the M6 under HVF) | |
 | every aarch64 core but the runner's | `aarch64-windows` | CI's `windows-11-arm` legs run the cores their CPU can; detection is tested with recorded inputs | T47 |
 
 ### x86_64 (tier 1)

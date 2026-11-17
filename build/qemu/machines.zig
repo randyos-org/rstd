@@ -738,6 +738,18 @@ const base_machines = [_]Machine{
         } },
     },
     .{
+        // the SVE and SME cores, linked only for an SVE target; TCG, as `aarch64-sve`
+        .name = "aarch64-uefi-sve",
+        .query = .{ .cpu_arch = .aarch64, .os_tag = .uefi, .cpu_model = .{ .explicit = &std.Target.aarch64.cpu.neoverse_v1 } },
+        .qemu = "qemu-system-aarch64",
+        .args = &.{ "-M", "virt", "-cpu", "max,pauth-impdef=on" },
+        .memory = "1G",
+        .boot = .{ .kernel = .{
+            .linker_script = "",
+            .firmware = "edk2-aarch64-code.fd",
+        } },
+    },
+    .{
         .name = "linux-aarch64",
         .query = .{ .cpu_arch = .aarch64, .os_tag = .linux },
         .qemu = "qemu-system-aarch64",
