@@ -79,7 +79,7 @@ fn getrfCases(vt: *const Vtable) anyerror!void {
         if (check.rig() and s[0] * s[1] > 3000) continue;
         var p = try fixtures.LuProblem(T).init(al, s[0], s[1], s[0] * 101 + s[1]);
         defer p.deinit(al);
-        try relapack.getrf(al, check.io, T, @intCast(s[0]), @intCast(s[1]), p.a.ptr, @intCast(p.lda), p.ipiv.ptr, null);
+        try testing.expectEqual(@as(?usize, null), try relapack.getrf(al, check.io, T, s[0], s[1], p.a, p.lda, p.ipiv));
         p.expectFactor(al) catch |e| {
             check.say("relapack getrf {s}\n", .{@typeName(T)});
             return e;
@@ -98,9 +98,7 @@ test "relapack getrf: a zero column gives that pivot, the factorization complete
         defer p.deinit(al);
         for (0..50) |i| p.aw[i + k * 50] = reference.wide(T, scalar(T, 0));
         p.store();
-        var piv: usize = 0;
-        try testing.expectError(error.Singular, relapack.getrf(al, check.io, T, 50, 50, p.a.ptr, @intCast(p.lda), p.ipiv.ptr, &piv));
-        try testing.expectEqual(k + 1, piv);
+        try testing.expectEqual(@as(?usize, k), try relapack.getrf(al, check.io, T, 50, 50, p.a, p.lda, p.ipiv));
         try p.expectFactor(al);
     };
 }
@@ -113,11 +111,11 @@ fn triCases(vt: *const Vtable) anyerror!void {
         if (check.rig() and n > 70) continue;
         var t = try fixtures.Tri(T).init(al, n, upper, unit, n * 13 + @intFromBool(upper));
         defer t.deinit(al);
-        try relapack.trtri(al, check.io, T, lcheck.uploOf(upper), if (unit) .u else .n, @intCast(n), t.a.ptr, @intCast(t.lda), null);
+        try relapack.trtri(al, check.io, T, lcheck.uploOf(upper), if (unit) .u else .n, n, t.a, t.lda);
         try t.expectInverse();
         if (unit) continue;
         t.store();
-        try relapack.lauum(al, check.io, T, lcheck.uploOf(upper), @intCast(n), t.a.ptr, @intCast(t.lda));
+        try relapack.lauum(al, check.io, T, lcheck.uploOf(upper), n, t.a, t.lda);
         try t.expectProduct();
     };
 }
@@ -126,16 +124,14 @@ test "relapack trtri and lauum: A X = I and U Uᴴ, Lᴴ L, both triangles, on e
     try check.eachCore(triCases);
 }
 
-test "relapack trtri: a zero first diagonal element is singular at 1, nothing written" {
+test "relapack trtri: a zero first diagonal element is singular, nothing written" {
     const al = testing.allocator;
     var t = try fixtures.Tri(f64).init(al, 30, true, false, 3);
     defer t.deinit(al);
     t.a[0] = 0;
     const before = try al.dupe(f64, t.a);
     defer al.free(before);
-    var piv: usize = 0;
-    try testing.expectError(error.Singular, relapack.trtri(al, check.io, f64, .u, .n, 30, t.a.ptr, @intCast(t.lda), &piv));
-    try testing.expectEqual(1, piv);
+    try testing.expectError(error.Singular, relapack.trtri(al, check.io, f64, .u, .n, 30, t.a, t.lda));
     for (before, t.a) |x, y| try testing.expect(lcheck.sameBits(f64, x, y));
 }
 
@@ -146,14 +142,15 @@ test "relapack potrf, getrf, trtri, lauum: the first bad argument, nothing read 
     try testing.expectError(error.InvalidUplo, relapack.potrf(al, check.io, f64, .v, 2, &a, 2, null));
     try testing.expectError(error.InvalidN, relapack.potrf(al, check.io, f64, .u, -1, &a, 2, null));
     try testing.expectError(error.InvalidLda, relapack.potrf(al, check.io, f64, .u, 2, &a, 1, null));
-    try testing.expectError(error.InvalidM, relapack.getrf(al, check.io, f64, -1, 2, &a, 2, &ipiv, null));
-    try testing.expectError(error.InvalidN, relapack.getrf(al, check.io, f64, 2, -1, &a, 2, &ipiv, null));
-    try testing.expectError(error.InvalidLda, relapack.getrf(al, check.io, f64, 2, 2, &a, 1, &ipiv, null));
-    try testing.expectError(error.InvalidUplo, relapack.trtri(al, check.io, f64, .m, .n, 2, &a, 2, null));
-    try testing.expectError(error.InvalidLda, relapack.lauum(al, check.io, f64, .l, 2, &a, 1));
+    try testing.expectError(error.LeadingDimensionTooSmall, relapack.getrf(al, check.io, f64, 2, 2, &a, 1, &ipiv));
+    try testing.expectError(error.SliceTooShort, relapack.getrf(al, check.io, f64, 2, 3, &a, 2, &ipiv));
+    try testing.expectError(error.SliceTooShort, relapack.getrf(al, check.io, f64, 2, 2, &a, 2, ipiv[0..1]));
+    try testing.expectError(error.UnsupportedUplo, relapack.trtri(al, check.io, f64, .m, .n, 2, &a, 2));
+    try testing.expectError(error.SliceTooShort, relapack.trtri(al, check.io, f64, .u, .n, 3, &a, 3));
+    try testing.expectError(error.LeadingDimensionTooSmall, relapack.lauum(al, check.io, f64, .l, 2, &a, 1));
     try relapack.potrf(al, check.io, f64, .u, 0, &a, 1, null);
-    try relapack.getrf(al, check.io, f64, 0, 2, &a, 1, &ipiv, null);
-    try relapack.trtri(al, check.io, f64, .l, .n, 0, &a, 1, null);
+    try testing.expectEqual(@as(?usize, null), try relapack.getrf(al, check.io, f64, 0, 2, &a, 1, &ipiv));
+    try relapack.trtri(al, check.io, f64, .l, .n, 0, &a, 1);
     try relapack.lauum(al, check.io, f64, .l, 0, &a, 1);
     for (a) |x| try testing.expect(std.math.isNan(x));
     try testing.expectEqual(std.math.maxInt(usize), ipiv[0]);
@@ -179,13 +176,13 @@ test "with -Drelapack, ReLAPACK's potrf, getrf, trtri and lauum agree with OpenB
         defer t.deinit(al);
         const z = try al.dupe(T, t.a);
         defer al.free(z);
-        try root.trtri(al, io, T, uplo, .n, n, z.ptr, @intCast(t.lda), null);
-        try tri.trtri(al, io, T, uplo, .n, n, t.a.ptr, @intCast(t.lda), null);
+        try root.trtri(al, io, T, uplo, .n, n, z, t.lda);
+        try tri.trtri(al, io, T, uplo, .n, n, t.a, t.lda);
         try fixtures.expectAgree(T, "trtri", n, z, t.a);
         t.store();
         @memcpy(z, t.a);
-        try root.lauum(al, io, T, uplo, n, z.ptr, @intCast(t.lda));
-        try tri.lauum(al, io, T, uplo, n, t.a.ptr, @intCast(t.lda));
+        try root.lauum(al, io, T, uplo, n, z, t.lda);
+        try tri.lauum(al, io, T, uplo, n, t.a, t.lda);
         try fixtures.expectAgree(T, "lauum", n, z, t.a);
 
         var g = try fixtures.LuProblem(T).init(al, n, n, 79 + @as(u64, @intFromBool(upper)));
@@ -194,8 +191,8 @@ test "with -Drelapack, ReLAPACK's potrf, getrf, trtri and lauum agree with OpenB
         defer al.free(y);
         const ip = try al.alloc(usize, n);
         defer al.free(ip);
-        try root.getrf(al, io, T, n, n, y.ptr, @intCast(g.lda), ip.ptr, null);
-        try lu.getrf(al, io, T, n, n, g.a.ptr, @intCast(g.lda), g.ipiv.ptr, null);
+        _ = try root.getrf(al, io, T, n, n, y, g.lda, ip);
+        _ = try lu.getrf(al, io, T, n, n, g.a, g.lda, g.ipiv);
         try testing.expectEqualSlices(usize, g.ipiv, ip);
         try fixtures.expectAgree(T, "getrf", n, y, g.a);
     };
@@ -212,7 +209,7 @@ const Big = struct {
     fn getrfRun(self: Big, io: Io, out: []f64) anyerror!void {
         @memcpy(out, self.a);
         var ipiv: [lcheck.big_n]usize = undefined;
-        try relapack.getrf(testing.allocator, io, f64, lcheck.big_n, lcheck.big_n, out.ptr, lcheck.big_n, &ipiv, null);
+        _ = try relapack.getrf(testing.allocator, io, f64, lcheck.big_n, lcheck.big_n, out, lcheck.big_n, &ipiv);
     }
 };
 

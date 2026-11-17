@@ -6,45 +6,37 @@ const std = @import("std");
 const types = @import("../blas/types.zig");
 const util = @import("../blas/util.zig");
 const ops = @import("ops.zig");
-const lu = @import("lu.zig");
+const interface = @import("interface.zig");
 
 const Allocator = std.mem.Allocator;
-const Io = std.Io;
 const Float = types.Float;
 const isComplex = types.isComplex;
 const scalar = ops.scalar;
 
-/// What `gbtrf` returns: bad arguments in the reference's order, `Singular`
-/// (an exactly zero `U(i, i)`, the factorization completed), or
-/// `error.OutOfMemory` and `error.Canceled`.
-pub const GbtrfError = error{ InvalidM, InvalidN, InvalidKl, InvalidKu, InvalidLdab, Singular } || Allocator.Error || Io.Cancelable;
+/// What `gbtrf` returns: a slice too short (`ab`, or `ipiv` under
+/// `min(m, n)`) or a leading dimension under `2 kl + ku + 1`.
+pub const GbtrfError = interface.ShapeError;
 
 /// `?GBTRF`: `A = P L U` of the `m x n` band matrix with `kl` sub- and `ku`
 /// superdiagonals in LAPACK's band storage `ab` (`ldab >= 2 kl + ku + 1`,
 /// `A(i, j)` at row `kl + ku + i - j` of column `j`; the first `kl` rows
-/// take `U`'s fill-in), by partial pivoting; `ipiv` and the multipliers as
-/// LAPACK stores them, each interchange applied to the columns right of its
-/// step only. An exactly zero `U(i, i)` returns `error.Singular` with the
-/// first `i` (1-based) in `pivot`, the factorization completed.
+/// take `U`'s fill-in), by partial pivoting; `ipiv` (0-based) and the
+/// multipliers as LAPACK stores them, each interchange applied to the
+/// columns right of its step only. Returns the first `i` (0-based) whose
+/// `U(i, i)` is exactly zero, or null, the factorization completed either
+/// way, as `getrf`.
 ///
 /// ReLAPACK's (`relapack/src/dgbtrf.c` and the rest; OpenBLAS v0.3.34-317)
 /// runs the reference's `xGBTF2` (`gbtf2`) unless `n <= kl`, where its
 /// recursion gives a wrong factor, as upstream's full recursion does on most
-/// shapes (issue #244); so `gbtrf` is `gbtf2` throughout. `allocator` and
-/// `io` are unused, kept for the blocked form to come.
-pub fn gbtrf(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize, kl: isize, ku: isize, ab: [*]T, ldab: isize, ipiv: [*]usize, pivot: ?*usize) GbtrfError!void {
+/// shapes (issue #244); so `gbtrf` is `gbtf2` throughout, which allocates
+/// nothing and runs on one thread.
+pub fn gbtrf(comptime T: type, m: usize, n: usize, kl: usize, ku: usize, ab: []T, ldab: usize, ipiv: []usize) GbtrfError!?usize {
     comptime ops.requireFloat(T, "gbtrf");
-    _ = allocator;
-    _ = io;
-    if (m < 0) return error.InvalidM;
-    if (n < 0) return error.InvalidN;
-    if (kl < 0) return error.InvalidKl;
-    if (ku < 0) return error.InvalidKu;
-    if (ldab < 2 * kl + ku + 1) return error.InvalidLdab;
-    if (m == 0 or n == 0) return;
-    if (!util.fitsMatrix(2 * kl + ku + 1, n, ldab, @sizeOf(T))) return error.InvalidLdab;
-    const info = gbtf2(T, @intCast(m), @intCast(n), @intCast(kl), @intCast(ku), ab, @intCast(ldab), ipiv);
-    return lu.singular(info, pivot);
+    try util.holds(ab.len, 2 * kl + ku + 1, n, ldab);
+    if (ipiv.len < @min(m, n)) return error.SliceTooShort;
+    if (m == 0 or n == 0) return null;
+    return gbtf2(T, m, n, kl, ku, ab.ptr, ldab, ipiv.ptr);
 }
 
 /// Reference-LAPACK's `xGBTF2` (`lapack-netlib/SRC/dgbtf2.f`, `zgbtf2.f`;
@@ -52,8 +44,8 @@ pub fn gbtrf(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize,
 /// the first largest `|re| + |im|` (rstd's `iamax`), the interchange over the
 /// columns the step reaches (`JU`), the multipliers times the pivot's
 /// reciprocal, and `xGER` (`xGERU`) in the reference's order, skipping a
-/// zero `y(j)`. The first zero pivot (1-based), or 0.
-fn gbtf2(comptime T: type, m: usize, n: usize, kl: usize, ku: usize, ab: [*]T, ldab: usize, ipiv: [*]usize) usize {
+/// zero `y(j)`. The first zero pivot (0-based), or null.
+fn gbtf2(comptime T: type, m: usize, n: usize, kl: usize, ku: usize, ab: [*]T, ldab: usize, ipiv: [*]usize) ?usize {
     const F = Float(T);
     const kv = ku + kl;
     const zero = scalar(T, 0);
@@ -73,7 +65,7 @@ fn gbtf2(comptime T: type, m: usize, n: usize, kl: usize, ku: usize, ab: [*]T, l
     for (ku + 1..@max(ku + 1, @min(kv, n))) |j| for (kv - j..kl) |i| {
         at(ab, ldab, i, j).* = zero;
     };
-    var info: usize = 0;
+    var info: ?usize = null;
     var ju: usize = 0;
     for (0..@min(m, n)) |j| {
         if (j + kv < n) for (0..kl) |i| {
@@ -98,7 +90,7 @@ fn gbtf2(comptime T: type, m: usize, n: usize, kl: usize, ku: usize, ab: [*]T, l
         ipiv[j] = jp + j;
         const piv = at(ab, ldab, kv + jp, j).*;
         if (ops.isZero(T, piv)) {
-            if (info == 0) info = j + 1;
+            if (info == null) info = j;
             continue;
         }
         ju = @max(ju, @min(j + ku + jp, n - 1));
@@ -162,12 +154,9 @@ fn gbCase(comptime T: type, al: Allocator, m: usize, n: usize, kl: usize, ku: us
     };
     const ipiv = try al.alloc(usize, @max(1, @min(m, n)));
     defer al.free(ipiv);
-    var piv: usize = 0;
-    gbtrf(al, check.io, T, @intCast(m), @intCast(n), @intCast(kl), @intCast(ku), ab.ptr, @intCast(ldab), ipiv.ptr, &piv) catch |e| {
-        if (e != error.Singular or zero_col == null) return e;
-    };
+    const piv = try gbtrf(T, m, n, kl, ku, ab, ldab, ipiv);
     const mn = @min(m, n);
-    if (zero_col) |z| try testing.expectEqual(z + 1, piv);
+    try testing.expectEqual(zero_col, piv);
     // X := U, then X := P_j L_j X from the last step back
     const x = try al.alloc(W(T), m * n);
     defer al.free(x);
@@ -237,16 +226,13 @@ test "gbtrf: a zero column is singular there, the factorization completed" {
     };
 }
 
-test "gbtrf: the first bad argument, nothing read when empty" {
-    const al = testing.allocator;
+test "gbtrf: a slice too short or leading dimension too small, nothing read when empty" {
     var ab: [8]f64 = @splat(lcheck.poisoned(f64));
     var ipiv: [2]usize = @splat(std.math.maxInt(usize));
-    try testing.expectError(error.InvalidM, gbtrf(al, check.io, f64, -1, 2, 0, 0, &ab, 1, &ipiv, null));
-    try testing.expectError(error.InvalidN, gbtrf(al, check.io, f64, 2, -1, 0, 0, &ab, 1, &ipiv, null));
-    try testing.expectError(error.InvalidKl, gbtrf(al, check.io, f64, 2, 2, -1, 0, &ab, 1, &ipiv, null));
-    try testing.expectError(error.InvalidKu, gbtrf(al, check.io, f64, 2, 2, 0, -1, &ab, 1, &ipiv, null));
-    try testing.expectError(error.InvalidLdab, gbtrf(al, check.io, f64, 2, 2, 1, 1, &ab, 3, &ipiv, null));
-    try gbtrf(al, check.io, f64, 0, 2, 1, 1, &ab, 4, &ipiv, null);
+    try testing.expectError(error.LeadingDimensionTooSmall, gbtrf(f64, 2, 2, 1, 1, &ab, 3, &ipiv));
+    try testing.expectError(error.SliceTooShort, gbtrf(f64, 2, 3, 1, 1, &ab, 4, &ipiv));
+    try testing.expectError(error.SliceTooShort, gbtrf(f64, 2, 2, 1, 1, &ab, 4, ipiv[0..1]));
+    try testing.expectEqual(@as(?usize, null), try gbtrf(f64, 0, 2, 1, 1, &ab, 4, &ipiv));
     for (ab) |x| try testing.expect(std.math.isNan(x));
     try testing.expectEqual(std.math.maxInt(usize), ipiv[0]);
 }

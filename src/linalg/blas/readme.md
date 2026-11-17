@@ -42,10 +42,10 @@ How the code is structured, and why, is in [`design.md`](../design.md).
   batched gemms (`gemmBatch`, `gemmBatchStrided`, and `gemmHalfBatch`, `gemmHalfBatchStrided`).
 - **LAPACK** (`rstd.linalg.lapack`): `potrs`, and `potrf` and `potf2`, which return
   `error.NotPositiveDefinite` for a leading minor that is not positive definite, a NaN pivot
-  included, and write its order to their last argument; `getrs`, and `getrf` and `gesv`, which
-  complete the factorization, then return `error.Singular` for an exactly zero `U(i, i)` and
-  write the first `i` to their last argument; `potri`, `trtri` and `trtrs`, which return
-  `error.Singular` for a zero on the diagonal; `trti2`, `lauum` and `lauu2`. Ported from faer:
+  included, and write its order to their last argument; `getrs`; `getrf` and `gbtrf`, which
+  complete the factorization and return the first `i` (0-based) of an exactly zero `U(i, i)`,
+  or null; `gesv`, `getri`, `potri`, `trtri` and `trtrs`, which return `error.Singular` for a
+  zero pivot or a zero on the diagonal; `trti2`, `lauum` and `lauu2`. Ported from faer:
   `geqrf`, `orgqr` (`ungqr`), `ormqr` (`unmqr`), `gels` (`error.Singular` for a rank-deficient
   `A`), `gesvd`, `gesdd`, `syevd`, `heevd`, `syev`, `heev` and `geev`, which return
   `error.NoConvergence` for the reference's `INFO > 0` (`gesvd` and `geev` write that `INFO` to

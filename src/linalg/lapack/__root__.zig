@@ -43,9 +43,10 @@ pub const Trans = types.Trans;
 pub const Diag = types.Diag;
 pub const Side = types.Side;
 
-// Each `...Error` is its routine's bad arguments in the reference's `xerbla`
-// order, `error.OutOfMemory` and `error.Canceled` where it can meet them, and
-// the failures its doc names.
+// Each `...Error` is its routine's bad arguments (the LU and triangular
+// routines' by plain names, issue #313; the rest in the reference's `xerbla`
+// order, until their own issues), `error.OutOfMemory` and `error.Canceled`
+// where it can meet them, and the failures its doc names.
 /// `potrf`, `potf2`: `error.NotPositiveDefinite`.
 pub const PotrfError = cholesky.PotrfError;
 pub const PotrsError = cholesky.PotrsError;
@@ -60,15 +61,15 @@ pub const potrs = cholesky.potrs;
 pub const potri = cholesky.potri;
 pub const pbtrf = relapack.pbtrf;
 
-/// `getrf`: `error.Singular`.
+/// `getrf`: returns the first zero `U(i, i)`'s `i` (0-based), or null.
 pub const GetrfError = lu.GetrfError;
-/// `getrs`: a pivot outside `0..n - 1` (0-based) is `error.InvalidIpiv`.
+/// `getrs`: a pivot outside `0..n - 1` (0-based) is `error.PivotOutOfRange`.
 pub const GetrsError = lu.GetrsError;
 /// `gesv`: `error.Singular`.
 pub const GesvError = lu.GesvError;
 /// `getri`: `error.Singular`.
 pub const GetriError = lu.GetriError;
-/// `gbtrf`: `error.Singular`, the first zero `U(i, i)` in the last argument.
+/// `gbtrf`: returns the first zero `U(i, i)`'s `i` (0-based), or null.
 pub const GbtrfError = gbtrf_factor.GbtrfError;
 pub const getrf = if (options.relapack) relapack.getrf else lu.getrf;
 pub const getrs = lu.getrs;
@@ -293,7 +294,7 @@ test "lapack: ReLAPACK's routines through their public names, 2 x 2 smoke tests"
     // gbtrf: [1 2; 3 4] (kl = ku = 1, ldab 4) swaps its rows: U = [3 4; 0 2/3]
     var gb = [_]f64{ 0, 0, 1, 3, 0, 2, 4, 0 };
     var gpiv: [2]usize = undefined;
-    try gbtrf(al, io, f64, 2, 2, 1, 1, &gb, 4, &gpiv, null);
+    try testing.expectEqual(@as(?usize, null), try gbtrf(f64, 2, 2, 1, 1, &gb, 4, &gpiv));
     try testing.expectEqualSlices(usize, &.{ 1, 1 }, &gpiv);
     try near(&.{ 3, 1.0 / 3.0, 4, 2.0 / 3.0 }, &.{ gb[2], gb[3], gb[5], gb[6] });
     // trsyl: 2 x + x 3 = 10

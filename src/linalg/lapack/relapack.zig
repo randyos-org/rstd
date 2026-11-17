@@ -121,35 +121,30 @@ pub fn potrfRec(al: Allocator, io: Io, comptime T: type, uplo: Uplo, n: usize, a
 
 /// `?GETRF` by ReLAPACK's recursion (`relapack/src/zgetrf.c`, `dgetrf.c`
 /// and the rest; OpenBLAS v0.3.34-317), as `lu.getrf` takes it, with its
-/// errors and `pivot`. The base case is `lu.getf2` (ReLAPACK calls
+/// errors and result. The base case is `lu.getf2` (ReLAPACK calls
 /// `xGETRF2`, whose pivots and semantics it shares).
 ///
 /// The reference wins: a zero pivot in the left half does not stop the
 /// recursion, which ReLAPACK's `if (*info) return` does, so the
 /// factorization completes, as `xGETRF`'s.
-pub fn getrf(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize, a: [*]T, lda: isize, ipiv: [*]usize, pivot: ?*usize) lu.GetrfError!void {
+pub fn getrf(allocator: Allocator, io: Io, comptime T: type, m: usize, n: usize, a: []T, lda: usize, ipiv: []usize) lu.GetrfError!?usize {
     comptime ops.requireFloat(T, "getrf");
-    if (m < 0) return error.InvalidM;
-    if (n < 0) return error.InvalidN;
-    if (lda < @max(1, m)) return error.InvalidLda;
-    if (m == 0 or n == 0) return;
-    if (!util.fitsMatrix(m, n, lda, @sizeOf(T))) return error.InvalidLda;
-    const um: usize = @intCast(m);
-    const un: usize = @intCast(n);
-    const la: usize = @intCast(lda);
-    const info = try getrfRec(allocator, io, T, um, @min(um, un), a, la, ipiv);
+    try util.holds(a.len, m, n, lda);
+    if (ipiv.len < @min(m, n)) return error.SliceTooShort;
+    if (m == 0 or n == 0) return null;
+    const zero = try getrfRec(allocator, io, T, m, @min(m, n), a.ptr, lda, ipiv.ptr);
     // the right remainder: `A_R = A_L \ P A_R`
-    if (um < un) {
-        const ar = a + la * um;
-        laswp.swapRows(T, un - um, ar, la, 0, um, ipiv, false);
-        try trsm(allocator, io, T, true, .l, .l, .n, .u, um, un - um, scalar(T, 1), a, la, ar, la);
+    if (m < n) {
+        const ar = a.ptr + lda * m;
+        laswp.swapRows(T, n - m, ar, lda, 0, m, ipiv.ptr, false);
+        try trsm(allocator, io, T, true, .l, .l, .n, .u, m, n - m, scalar(T, 1), a.ptr, lda, ar, lda);
     }
-    return lu.singular(info, pivot);
+    return zero;
 }
 
-/// `RELAPACK_?getrf_rec` on `m x n`, `m >= n`: the first zero pivot, or 0.
-fn getrfRec(al: Allocator, io: Io, comptime T: type, m: usize, n: usize, a: [*]T, lda: usize, ipiv: [*]usize) Error!usize {
-    if (m == 0 or n == 0) return 0;
+/// `RELAPACK_?getrf_rec` on `m x n`, `m >= n`: the first zero pivot, or null.
+fn getrfRec(al: Allocator, io: Io, comptime T: type, m: usize, n: usize, a: [*]T, lda: usize, ipiv: [*]usize) Error!?usize {
+    if (m == 0 or n == 0) return null;
     if (n <= crossover) return lu.getf2(T, interface.table(T), m, n, a, lda, ipiv);
     const n1 = split(T, n);
     const n2 = n - n1;
@@ -157,36 +152,32 @@ fn getrfRec(al: Allocator, io: Io, comptime T: type, m: usize, n: usize, a: [*]T
     const ar = a + lda * n1;
     const bl = a + n1;
     const br = ar + n1;
-    const info = try getrfRec(al, io, T, m, n1, a, lda, ipiv);
+    const zero = try getrfRec(al, io, T, m, n1, a, lda, ipiv);
     laswp.swapRows(T, n2, ar, lda, 0, n1, ipiv, false);
     // A_TR = A_TL \ A_TR; A_BR -= A_BL A_TR
     try trsm(al, io, T, true, .l, .l, .n, .u, n1, n2, scalar(T, 1), a, lda, ar, lda);
     try gemm(al, io, T, .n, .n, m2, n2, n1, scalar(T, -1), bl, lda, ar, lda, scalar(T, 1), br, lda);
-    const info2 = try getrfRec(al, io, T, m2, n2, br, lda, ipiv + n1);
+    const zero2 = try getrfRec(al, io, T, m2, n2, br, lda, ipiv + n1);
     laswp.swapRows(T, n1, bl, lda, 0, n2, ipiv + n1, false);
     for (ipiv[n1..n]) |*p| p.* += n1;
-    return if (info != 0) info else if (info2 != 0) info2 + n1 else 0;
+    return interface.firstOf(zero, zero2, n1);
 }
 
 // ---- trtri, lauum (`-Drelapack`) -------------------------------------------------------
 
 /// `?TRTRI` by ReLAPACK's recursion (`relapack/src/ztrtri.c`, `dtrtri.c`
 /// and the rest; OpenBLAS v0.3.34-317), as `triangular.trtri` takes it,
-/// with its errors and `pivot`. The base case is `trti2`.
+/// with its errors. The base case is `trti2`.
 ///
-/// The reference wins: a zero `A(i, i)` reports `i` 1-based, where
+/// The reference wins: any zero `A(i, i)` is `error.Singular`, where
 /// ReLAPACK's singularity check sets `INFO = i - 1`, so a zero first
 /// diagonal element reports success.
-pub fn trtri(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, diag: Diag, n: isize, a: [*]T, lda: isize, pivot: ?*usize) tri.TrtriError!void {
+pub fn trtri(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, diag: Diag, n: usize, a: []T, lda: usize) tri.TrtriError!void {
     comptime ops.requireFloat(T, "trtri");
-    if (!try interface.checkSquare(T, uplo, n, lda)) return;
-    const un: usize = @intCast(n);
-    const la: usize = @intCast(lda);
-    if (diag == .n) if (tri.firstZero(T, un, a, la)) |k| {
-        if (pivot) |p| p.* = k;
-        return error.Singular;
-    };
-    try trtriRec(allocator, io, T, uplo, diag, un, a, la);
+    try interface.holdsTriangle(uplo, n, a.len, lda);
+    if (n == 0) return;
+    if (diag == .n and tri.firstZero(T, n, a.ptr, lda) != null) return error.Singular;
+    try trtriRec(allocator, io, T, uplo, diag, n, a.ptr, lda);
 }
 
 fn trtriRec(al: Allocator, io: Io, comptime T: type, uplo: Uplo, diag: Diag, n: usize, a: [*]T, lda: usize) Error!void {
@@ -212,10 +203,11 @@ fn trtriRec(al: Allocator, io: Io, comptime T: type, uplo: Uplo, diag: Diag, n: 
 /// `?LAUUM` by ReLAPACK's recursion (`relapack/src/zlauum.c`, `dlauum.c`
 /// and the rest; OpenBLAS v0.3.34-317), as `triangular.lauum` takes it. The
 /// base case is `lauu2`.
-pub fn lauum(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, a: [*]T, lda: isize) tri.LauumError!void {
+pub fn lauum(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: usize, a: []T, lda: usize) tri.LauumError!void {
     comptime ops.requireFloat(T, "lauum");
-    if (!try interface.checkSquare(T, uplo, n, lda)) return;
-    try lauumRec(allocator, io, T, uplo, @intCast(n), a, @intCast(lda));
+    try interface.holdsTriangle(uplo, n, a.len, lda);
+    if (n == 0) return;
+    try lauumRec(allocator, io, T, uplo, n, a.ptr, lda);
 }
 
 fn lauumRec(al: Allocator, io: Io, comptime T: type, uplo: Uplo, n: usize, a: [*]T, lda: usize) Error!void {

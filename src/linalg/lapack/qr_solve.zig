@@ -117,11 +117,16 @@ fn transposeInto(comptime T: type, src: Mat(T), dst: Mat(T)) void {
 /// `trtrs` on `R` (`r`'s upper `k x k`) with `B`'s first `k` rows.
 fn trtrs(al: Allocator, io: Io, comptime T: type, trans: Trans, r: Mat(T), b: Mat(T), pivot: ?*usize) SolveError!void {
     const k = r.cols;
-    tri.trtrs(al, io, T, .u, trans, .n, @intCast(k), @intCast(b.cols), r.ptr, @intCast(r.ld), b.ptr, @intCast(b.ld), pivot) catch |e| return switch (e) {
+    // `gels` reports the zero 1-based until Z14 (issue #315)
+    if (tri.firstZero(T, k, r.ptr, r.ld)) |z| {
+        if (pivot) |p| p.* = z + 1;
+        return error.Singular;
+    }
+    tri.trtrs(al, io, T, .u, trans, .n, k, b.cols, r.sub(0, 0, k, k).slice(), r.ld, b.sub(0, 0, k, b.cols).slice(), b.ld) catch |e| return switch (e) {
         error.Singular => error.Singular,
         error.OutOfMemory => error.OutOfMemory,
         error.Canceled => error.Canceled,
-        else => unreachable,
+        error.UnsupportedUplo, error.UnsupportedTranspose, error.SliceTooShort, error.LeadingDimensionTooSmall => unreachable,
     };
 }
 

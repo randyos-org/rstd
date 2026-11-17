@@ -8,7 +8,6 @@ const types = @import("../blas/types.zig");
 const driver = @import("../blas/blas3/driver.zig");
 const ops = @import("ops.zig");
 const interface = @import("interface.zig");
-const lu = @import("lu.zig");
 const relapack = @import("relapack.zig");
 const indefinite = @import("indefinite.zig");
 
@@ -80,7 +79,9 @@ fn indefiniteImpl(al: Allocator, io: Io, comptime T: type, comptime herm: bool, 
     const work = try al.alloc(T, if (blocked) un * sytrf_nb else 0);
     defer al.free(work);
     const info = try sytrfBlocked(al, io, T, herm, rook, uplo == .u, un, a, @intCast(lda), ipiv, work.ptr, un);
-    return lu.singular(info, pivot);
+    if (info == 0) return;
+    if (pivot) |p| p.* = info;
+    return error.Singular;
 }
 
 /// `xSYTRF`'s loop: panels from the first column (upper: the last), each

@@ -916,7 +916,7 @@ allows.
   interchanges, then `trsm` with `L` and with `U` through the drivers, or for `op(A)`
   transposed the solves first and the interchanges backward; one real right-hand side takes
   `trsv` on the vtable's kernels, as `getrs_single.c:47` does. It takes `trans` `r`, as
-  `interface/lapack/zgetrs.c:96` does, and checks that every pivot is a row of `B` (`error.InvalidIpiv`), as
+  `interface/lapack/zgetrs.c:96` does, and checks that every pivot is a row of `B` (`error.PivotOutOfRange`), as
   rstd's `laswp` does; the reference checks none. Threaded, its `trsm`s split the columns, as
   `getrs_parallel.c` gives each thread a column block.
 - **`gesv`** (`lu.zig`, `interface/lapack/gesv.c`): `getrf`, then `getrs` unless `U` is
@@ -1051,10 +1051,13 @@ allows.
   holds the factor's first `k - 1` columns and the failed pivot at `A(k, k)`, as both upstreams
   leave it. The alternative, returning `INFO` as a value, lets a caller use an unfinished factor
   by forgetting a check; an error cannot carry the order itself.
-- **Singular:** `getrf` (and `gesv`) completes the factorization, as both upstreams do, then
-  returns `error.Singular` with the first zero `U(i, i)`'s `i` in an optional `pivot`. A NaN
-  pivot is not zero, as in the reference's `INFO`: its column fills with NaN, and nothing
-  fails. `trtri`, `trtrs` and `potri` return it for a zero on the diagonal, the same way.
+- **Singular:** `getrf` and `gbtrf` complete the factorization, as both upstreams do, and return
+  the first zero `U(i, i)`'s `i` (0-based), or null: a singular `U` is a result, not an error
+  (user, 2026-11-15, [Z12](https://github.com/randyos-org/rstd/issues/313)). A NaN pivot is not
+  zero, as in the reference's `INFO`: its column fills with NaN. `gesv`, `getri`, `trtri` and
+  `trtrs`, which cannot divide by the zero, return `error.Singular` without its index; `getrf`
+  run first gives it. `potri` still writes the index 1-based to an optional `pivot` until
+  [Z13](https://github.com/randyos-org/rstd/issues/314).
 - **`laed3`:** OpenBLAS's own (`lapack/laed3/`) serves only the reference's `xSTEDC`, which
   rstd does not port: `syevd`'s merge is faer's (`tridiag_evd.zig`), whose `z` from the roots
   takes `sqrt(|prod|)` where `xLAED3` takes `sqrt(-W)` (NaN for a spuriously positive `W`,
@@ -1251,7 +1254,7 @@ views (any mix of `StaticMat`, `Mat` and borrowed storage); errors listed are be
 | `mul(allocator, io, a, b)`, `mulInto(allocator, io, out, a, b)` | `Mat`, or into `out` | `gemm`; `gemv` for a vector; inline up to `L` | `DimensionMismatch` |
 | `transpose`, `ctranspose` (and `...Into(io, out, a)`) | `Mat` | `omatcopy` | `DimensionMismatch` (`...Into`) |
 | `solve(allocator, io, a, b)`, `solveInto(allocator, io, out, a, b)` | `Mat`: `A \ B` | square up to `L`, `B`'s columns too: `linalg.matrix.solve`'s LU; past it, triangular: `trtrs`; Hermitian with a positive real diagonal: `potrf`, `potrs`, LU if not positive definite; square: `gesv`; rectangular: `gelsy` (QR with column pivoting, as MATLAB; rank cut at `max(m, n) eps`) | `DimensionMismatch`, `Singular` (square) |
-| `lu` | `Lu` (`factors`, `ipiv` 0-based, `l()`, `u()`, `zero_pivot: ?usize`) | `getrf` (its `error.Singular` becomes `zero_pivot`) | none; a singular matrix factors completely (decision 5) |
+| `lu` | `Lu` (`factors`, `ipiv` 0-based, `l()`, `u()`, `zero_pivot: ?usize`) | `getrf` (its zero pivot is `zero_pivot`) | none; a singular matrix factors completely (decision 5) |
 | `chol` | `Mat` (upper `R`, `A = Rᴴ R`) | `potrf` | `NotSquare`, `NotPositiveDefinite` |
 | `qr(..., .economy or .full)` | `Qr` (`q`, `r`; `QrMode`) | `geqrf`, `orgqr` | |
 | `svd(..., .values, .economy or .full)` | `Svd` (`s` nonincreasing; `u`, `v` null for `.values`; `SvdMode`); empty with `.full`: identities | values: `gesvd` (QR iteration, `xBDSQR`'s accuracy on graded matrices, M1's E4); with vectors: `gesdd` (divide and conquer), so the two may differ in the last bits | `NoConvergence` (also a NaN) |

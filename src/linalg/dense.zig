@@ -246,10 +246,7 @@ fn detWith(path: Path, allocator: Allocator, io: Io, ca: anytype) (Allocator.Err
     defer f.deinit(allocator);
     const ipiv = try allocator.alloc(usize, n);
     defer allocator.free(ipiv);
-    lapack.getrf(allocator, io, T, toIsize(n), toIsize(n), f.data.ptr, toIsize(n), ipiv.ptr, null) catch |e| switch (e) {
-        error.Singular => return ops.zero(T),
-        else => return narrow(Error, e),
-    };
+    if (lapack.getrf(allocator, io, T, n, n, f.data, n, ipiv) catch |e| return narrow(Error, e)) |_| return ops.zero(T);
     var d = ops.one(T);
     var exp: i64 = 0;
     for (ipiv, 0..) |p, i| {
@@ -299,8 +296,8 @@ fn invWith(path: Path, allocator: Allocator, io: Io, o: anytype, a: ConstView(@T
     defer f.deinit(allocator);
     const ipiv = try allocator.alloc(usize, n);
     defer allocator.free(ipiv);
-    lapack.getrf(allocator, io, T, toIsize(n), toIsize(n), f.data.ptr, toIsize(n), ipiv.ptr, null) catch |e| return narrow(error{Singular} || Error, e);
-    lapack.getri(allocator, io, T, toIsize(n), f.data.ptr, toIsize(n), ipiv.ptr, null) catch |e| return narrow(error{Singular} || Error, e);
+    if (lapack.getrf(allocator, io, T, n, n, f.data, n, ipiv) catch |e| return narrow(Error, e)) |_| return error.Singular;
+    lapack.getri(allocator, io, T, n, f.data, n, ipiv) catch |e| return narrow(error{Singular} || Error, e);
     copyInto(T, o.data, o.ld, f.constView());
 }
 
@@ -368,7 +365,7 @@ fn solveWith(path: Path, allocator: Allocator, io: Io, o: anytype, a: ConstView(
     switch (structureOf(a)) {
         .upper, .lower => |s| {
             const uplo: lapack.Uplo = if (s == .upper) .u else .l;
-            lapack.trtrs(allocator, io, T, uplo, .n, .n, nn, k, a.data.ptr, toIsize(a.ld), x.data.ptr, ld, null) catch |e| return narrow(error{Singular} || Error, e);
+            lapack.trtrs(allocator, io, T, uplo, .n, .n, n, b.cols, a.data, a.ld, x.data, @max(n, 1)) catch |e| return narrow(error{Singular} || Error, e);
         },
         .hermitian, .general => |s| {
             const f = try copyOf(T, allocator, a);
@@ -386,7 +383,7 @@ fn solveWith(path: Path, allocator: Allocator, io: Io, o: anytype, a: ConstView(
             }
             const ipiv = try allocator.alloc(usize, n);
             defer allocator.free(ipiv);
-            lapack.gesv(allocator, io, T, nn, k, f.data.ptr, ld, ipiv.ptr, x.data.ptr, ld, null) catch |e| return narrow(error{Singular} || Error, e);
+            lapack.gesv(allocator, io, T, n, b.cols, f.data, @max(n, 1), ipiv, x.data, @max(n, 1)) catch |e| return narrow(error{Singular} || Error, e);
         },
     }
     copyInto(T, o.data, o.ld, x.constView());
@@ -470,12 +467,7 @@ pub fn lu(allocator: Allocator, io: Io, a: anytype) (Allocator.Error || Io.Cance
     errdefer f.deinit(allocator);
     const ipiv = try allocator.alloc(usize, k);
     errdefer allocator.free(ipiv);
-    var zero: usize = 0;
-    var zero_pivot: ?usize = null;
-    lapack.getrf(allocator, io, T, toIsize(ca.rows), toIsize(ca.cols), f.data.ptr, toIsize(@max(ca.rows, 1)), ipiv.ptr, &zero) catch |e| switch (e) {
-        error.Singular => zero_pivot = zero - 1,
-        else => return narrow(Error, e),
-    };
+    const zero_pivot = lapack.getrf(allocator, io, T, ca.rows, ca.cols, f.data, @max(ca.rows, 1), ipiv) catch |e| return narrow(Error, e);
     return .{ .factors = f, .ipiv = ipiv, .zero_pivot = zero_pivot };
 }
 

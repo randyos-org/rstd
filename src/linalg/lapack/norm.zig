@@ -748,10 +748,10 @@ fn geconCase(comptime T: type, al: Allocator, n: usize, grade: Float(T), seed: u
     defer al.free(f);
     const ni: isize = @intCast(n);
     @memcpy(f, a);
-    try lu.getrf(al, check.io, T, ni, ni, f.ptr, ni, ipiv.ptr, null);
+    _ = try lu.getrf(al, check.io, T, n, n, f, n, ipiv);
     @memset(inv, ops.zero(T));
     for (0..n) |i| inv[i * (n + 1)] = ops.one(T);
-    try lu.getrs(al, check.io, T, .n, ni, ni, f.ptr, ni, ipiv.ptr, inv.ptr, ni);
+    try lu.getrs(al, check.io, T, .n, n, n, f, n, ipiv, inv, n);
     for ([_]Norm{ .o, .i }) |nm| {
         const anorm = try lange(al, check.io, T, nm, ni, ni, a.ptr, ni);
         const ainvnm = try lange(al, check.io, T, nm, ni, ni, inv.ptr, ni);

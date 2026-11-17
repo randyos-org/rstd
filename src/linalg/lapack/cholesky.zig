@@ -230,7 +230,8 @@ pub fn potri(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isiz
     const un: usize = @intCast(n);
     const la: usize = @intCast(lda);
     if (tri.firstZero(T, un, a, la)) |k| {
-        if (pivot) |p| p.* = k;
+        // 1-based until Z13 (issue #314)
+        if (pivot) |p| p.* = k + 1;
         return error.Singular;
     }
     // upstream runs both parallel algorithms, or both single ones

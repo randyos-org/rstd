@@ -1,5 +1,6 @@
-//! The LAPACK routines' interface rules: the reference's argument checks,
-//! the vtable, and upstream's thread counts by size, kept so the bits never
+//! The LAPACK routines' interface rules: the argument checks (the
+//! reference's, and the Zig-idiomatic ones of issue #313 and after), the
+//! vtable, and upstream's thread counts by size, kept so the bits never
 //! depend on the worker count.
 
 const std = @import("std");
@@ -7,6 +8,7 @@ const sysinfo = @import("builtin");
 const blas = @import("../blas/__root__.zig");
 const types = @import("../blas/types.zig");
 const util = @import("../blas/util.zig");
+const strided = @import("../blas/strided.zig");
 const threading = @import("../blas/threading.zig");
 const Vtable = @import("../blas/Vtable.zig");
 
@@ -25,6 +27,43 @@ pub const ArgError = error{
 
 /// The arguments of a routine on one square matrix (`checkSquare`).
 pub const SquareError = error{ InvalidUplo, InvalidN, InvalidLda };
+
+/// A slice too short for its matrix or vector, or a leading dimension below
+/// its rows.
+pub const ShapeError = strided.SliceError || strided.LeadingDimensionError;
+/// A reversed `uplo` (`v`, `m`), which no LAPACK routine takes.
+pub const UploError = error{UnsupportedUplo};
+/// A `trans` letter `o` to `d`, which no LAPACK routine takes.
+pub const TransError = error{UnsupportedTranspose};
+/// A pivot that is not a row of the matrix.
+pub const PivotError = error{PivotOutOfRange};
+/// An exact zero on a triangular factor's diagonal, which a solve or an
+/// inverse cannot divide by.
+pub const SingularError = error{Singular};
+/// The checks of a routine on one triangle of a square matrix.
+pub const TriangleError = UploError || ShapeError;
+
+/// `uplo` is one the routine takes and `a` holds the `n` by `n` matrix.
+pub fn holdsTriangle(uplo: Uplo, n: usize, a_len: usize, lda: usize) TriangleError!void {
+    if (uplo.isRev()) return error.UnsupportedUplo;
+    try util.holds(a_len, n, n, lda);
+}
+
+/// `trans` is one the routine takes.
+pub fn takes(trans: types.Trans) TransError!void {
+    if (trans.conjX()) return error.UnsupportedTranspose;
+}
+
+/// `ipiv` holds `n` pivots, each a row of the order `n` matrix.
+pub fn pivotsIn(ipiv: []const usize, n: usize) (strided.SliceError || PivotError)!void {
+    if (ipiv.len < n) return error.SliceTooShort;
+    for (ipiv[0..n]) |p| if (p >= n) return error.PivotOutOfRange;
+}
+
+/// The first of two zero pivots: `first`, else `later`'s at `offset`.
+pub fn firstOf(first: ?usize, later: ?usize, offset: usize) ?usize {
+    return first orelse if (later) |k| k + offset else null;
+}
 
 /// `dtb_entries` of a hand-built vtable that has none (`blas2/triangular.zig`).
 pub const default_dtb = 64;
