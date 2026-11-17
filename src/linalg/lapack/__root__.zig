@@ -146,16 +146,16 @@ pub const heev = evd.syev;
 /// argument.
 pub const GeevError = evd.GeevError;
 /// `geev`'s eigenvalues: `.{ .re = wr, .im = wi }` real, `w` complex.
-pub const Eigenvalues = evd.Eigenvalues;
+pub const Eigenvalues = schur.Eigenvalues;
 /// `hseqr`: its block `lo..hi` 0-based, `hi` past the end, as `gebal`
 /// returns it; `error.NoConvergence`.
-pub const HseqrError = evd.HseqrError;
-pub const HseqrJob = evd.HseqrJob;
-pub const Compz = evd.Compz;
+pub const HseqrError = schur.HseqrError;
+pub const HseqrJob = schur.HseqrJob;
+pub const Compz = schur.Compz;
 /// `gees`: returns `sdim`; a NaN in `A` is `error.NanInA`;
 /// `error.NoConvergence`, `error.SelectChanged`, `error.SwapRejected`.
-pub const GeesError = evd.GeesError;
-pub const GeesSelect = evd.GeesSelect;
+pub const GeesError = schur.GeesError;
+pub const GeesSelect = schur.GeesSelect;
 /// `trevc3`: returns the columns used (the reference's `m`).
 pub const Trevc3Error = trevc_vectors.Trevc3Error;
 pub const TrevcSide = trevc_vectors.Side;
@@ -194,8 +194,8 @@ pub const TgsylError = tgsyl_solve.TgsylError;
 /// `tgsyl`'s result.
 pub const SolvedWithDif = tgsyl_solve.SolvedWithDif;
 pub const geev = evd.geev;
-pub const hseqr = evd.hseqr;
-pub const gees = evd.gees;
+pub const hseqr = schur.hseqr;
+pub const gees = schur.gees;
 pub const trevc3 = trevc_vectors.trevc3;
 pub const trevc = trevc_vectors.trevc3;
 pub const gebal = balance.gebal;
