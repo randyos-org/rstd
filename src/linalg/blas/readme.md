@@ -6,7 +6,7 @@ on `@Vector`. One build carries kernels for every core the target can run and pi
 time, as OpenBLAS's `DYNAMIC_ARCH` builds do.
 
 It is a Zig library, not a replacement `libopenblas`: there are no CBLAS (`cblas_*`) or
-Fortran-named (`dgemv_`) entry points, no row-major mapping layer and no `xerbla` callback. The
+Fortran-named (`dgemv_`) entry points, no row-major mapping layer and no global error handler. The
 routines are Zig functions over column-major data in the Fortran argument order; bad arguments
 return named errors.
 
@@ -135,20 +135,18 @@ Transposes, triangles, diagonals and sides are the letter enums `blas.Trans`, `U
 const blas = rstd.linalg.blas;
 
 // C := A * B, all f64, column-major
-try blas.gemm(allocator, io, f64, .n, .n, m, n, k, 1.0, a.ptr, lda, b.ptr, ldb, 0.0, c.ptr, ldc);
+try blas.gemm(allocator, io, f64, .n, .n, m, n, k, 1.0, a, lda, b, ldb, 0.0, c, ldc);
 ```
+
+A matrix is a column-major slice and its leading dimension (`lda`, `ldb`, `ldc`): the distance from one column's start to the next, at least the row count, larger when the matrix is a block of a bigger one. A vector's stride is likewise the distance between its elements.
 
 `blas.kernel(.daxpy_k)` reaches a kernel directly, with the reference's kernel arguments.
 
 ### Errors
 
-Bad arguments return an error named after the reference's `xerbla` argument (`InvalidTrans`,
-`InvalidM`, `InvalidLda`, `InvalidIncx`, ...), checked in the reference's order, so the first bad
-argument wins. A vector or matrix too large for the address space returns its stride's or
-leading dimension's error. Routines that allocate also return `error.OutOfMemory`, and every
-routine that takes `io` may return `error.Canceled`. Nothing panics on bad
-input. `laswp` has no `xerbla` checks upstream; rstd checks that its rows and pivots lie in `A`
-before it swaps.
+Bad arguments return plain, exact errors: `SliceTooShort` (a slice shorter than its shape needs), `LeadingDimensionTooSmall` (a leading dimension below the row count), `LengthMismatch` (two vectors of different lengths) and `ZeroStride` (from `Strided.init`). Each routine's error set holds only what it can return. Routines that allocate also return `error.OutOfMemory`, and every routine that takes `io` may return `error.Canceled`. Nothing panics on bad input. `laswp` checks that its rows and pivots lie in `A` before it swaps.
+
+`blas.kernel(...)` and the per-level `interface` files keep the reference's argument checks, with its names (`InvalidTrans`, `InvalidLda`, ...), for code ported from it.
 
 ### Initialization
 
