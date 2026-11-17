@@ -1,9 +1,11 @@
 //! Fast Fourier transforms (rstd's design.md, "FFT"): PocketFFT's algorithms
-//! in Zig, pffft's SIMD. Stubs for now: bodies return `error.NotImplemented`,
-//! their tests skip. A plan depends only on `n`, the element type and the
-//! core; immutable, it serves every thread. Transforms allocate nothing.
+//! in Zig, pffft's SIMD. `Plan` is done (`plan.zig`); the rest are stubs whose
+//! bodies return `error.NotImplemented`, their tests skip. A plan depends only
+//! on `n`, the element type and the core; immutable, it serves every thread.
+//! Transforms allocate nothing.
 
 const std = @import("std");
+const complex_plan = @import("plan.zig");
 
 const Allocator = std.mem.Allocator;
 const Complex = std.math.Complex;
@@ -34,59 +36,9 @@ pub const TransformIntoError = TransformError || error{CountMismatch};
 /// One transform at a time, no `io`: audio frames and the unordered forms.
 pub const FrameError = error{ SliceTooShort, NotImplemented };
 
-/// Complex, any `n`: PocketFFT's mixed radix (2, 3, 4, 5, 7, 11), Bluestein's
-/// for large prime factors.
-pub fn Plan(comptime T: type) type {
-    comptime checkFloat(T);
-    return struct {
-        n: usize,
-        scratch_len: usize,
-
-        const Self = @This();
-        const C = Complex(T);
-
-        pub fn init(allocator: Allocator, n: usize) InitError!Self {
-            _ = allocator;
-            if (n == 0) return error.ZeroLength;
-            return error.NotImplemented;
-        }
-
-        pub fn deinit(self: *Self, allocator: Allocator) void {
-            _ = allocator;
-            self.* = undefined;
-        }
-
-        /// Scratch per transform, any layout. A batch runs as many transforms
-        /// at once as the scratch holds, so the bits never depend on it.
-        pub fn scratchLen(self: Self) usize {
-            return self.scratch_len;
-        }
-
-        pub fn transform(self: *const Self, io: Io, data: []C, scratch: []C, direction: Direction, layout: Layout, options: Options) TransformError!void {
-            _ = self;
-            _ = io;
-            _ = data;
-            _ = scratch;
-            _ = direction;
-            _ = layout;
-            _ = options;
-            return error.NotImplemented;
-        }
-
-        /// `out` and `in` must not overlap.
-        pub fn transformInto(self: *const Self, io: Io, out: []C, in: []const C, scratch: []C, direction: Direction, layouts: Layouts, options: Options) TransformIntoError!void {
-            _ = self;
-            _ = io;
-            _ = out;
-            _ = in;
-            _ = scratch;
-            _ = direction;
-            _ = options;
-            if (layouts.in.count != layouts.out.count) return error.CountMismatch;
-            return error.NotImplemented;
-        }
-    };
-}
+/// Complex, any `n`: PocketFFT's mixed radix (2, 3, 4, 5, 7, 8, 11 and a
+/// generic pass), Bluestein's for large prime factors (`plan.zig`).
+pub const Plan = complex_plan.Plan;
 
 /// Real input: `n` reals to the `n / 2 + 1` values of the half spectrum
 /// (NumPy's `rfft`), and back.
@@ -364,7 +316,7 @@ fn directDft(comptime T: type, out: []Complex(f64), in: []const Complex(T)) void
         for (in, 0..) |x, j| {
             const angle = -2 * std.math.pi * @as(f64, @floatFromInt((j * k) % n)) / @as(f64, @floatFromInt(n));
             const w: Complex(f64) = .init(@cos(angle), @sin(angle));
-            acc = acc.add(w.mul(.init(x.re, x.im)));
+            acc = acc.add(w.mul(.init(@floatCast(x.re), @floatCast(x.im))));
         }
         o.* = acc;
     }
@@ -524,7 +476,7 @@ test "StaticPlan matches Plan" {
     var want: [n]Complex(f64) = undefined;
     var got: [n]Complex(f64) = undefined;
     try plan.transformInto(testing.io, &want, &in, scratch, .forward, .{}, .{});
-    try static.transformInto(testing.io, &got, &in, scratch, .forward, .{}, .{});
+    static.transformInto(testing.io, &got, &in, scratch, .forward, .{}, .{}) catch |e| return skip(e);
     try testing.expectEqualSlices(Complex(f64), &want, &got); // dispatch by size alone: same bits
 }
 
@@ -571,4 +523,58 @@ test "Mdct: TDAC with a sine window" {
         for (frame, window, y[f * n ..][0 .. 2 * n]) |v, w, *o| o.* += w * v;
     }
     for (x[n .. 3 * n], y[n .. 3 * n]) |a, b| try testing.expectApproxEqAbs(a, b, 1e-12);
+}
+
+test "Plan matches a direct DFT at every float type, mixed radix, the generic pass and Bluestein's" {
+    const al = testing.allocator;
+    inline for (.{ f16, f32, f64, f80, f128 }) |T| {
+        const eps: f64 = @floatCast(std.math.floatEps(T));
+        const sizes: []const usize = if (T == f16) &.{ 1, 2, 3, 5, 8, 12, 13, 32 } else &.{ 1, 2, 3, 5, 7, 8, 11, 12, 13, 16, 30, 97, 128, 360, 1009 };
+        for (sizes) |n| {
+            var p = try Plan(T).init(al, n);
+            defer p.deinit(al);
+            const scratch = try al.alloc(Complex(T), p.scratchLen());
+            defer al.free(scratch);
+            const in = try al.alloc(Complex(T), n);
+            defer al.free(in);
+            const out = try al.alloc(Complex(T), n);
+            defer al.free(out);
+            const want = try al.alloc(Complex(f64), n);
+            defer al.free(want);
+            signal(T, in);
+            directDft(T, want, in);
+            try p.transformInto(testing.io, out, in, scratch, .forward, .{}, .{});
+            const nf: f64 = @floatFromInt(n);
+            // the f64 reference bounds the wider types
+            try expectNear(T, want, out, @max(8 * eps * nf, 1e-13 * nf));
+        }
+    }
+}
+
+test "Plan: 97 takes the generic pass, 1009 Bluestein's" {
+    var a = try Plan(f64).init(testing.allocator, 97);
+    defer a.deinit(testing.allocator);
+    try testing.expect(a.kind == .pack);
+    var b = try Plan(f64).init(testing.allocator, 1009);
+    defer b.deinit(testing.allocator);
+    try testing.expect(b.kind == .blue);
+}
+
+test "Plan: short scratch or data, and a count mismatch" {
+    const al = testing.allocator;
+    var p = try Plan(f64).init(al, 8);
+    defer p.deinit(al);
+    const scratch = try al.alloc(Complex(f64), p.scratchLen());
+    defer al.free(scratch);
+    var data: [16]Complex(f64) = @splat(.init(0, 0));
+    try testing.expectError(error.SliceTooShort, p.transform(testing.io, &data, scratch[1..], .forward, .{}, .{}));
+    try testing.expectError(error.SliceTooShort, p.transform(testing.io, data[0..7], scratch, .forward, .{}, .{}));
+    try testing.expectError(error.SliceTooShort, p.transform(testing.io, &data, scratch, .forward, .{ .count = 3 }, .{}));
+    try p.transform(testing.io, &data, scratch, .forward, .{ .count = 2 }, .{});
+    try p.transform(testing.io, &data, scratch, .forward, .{ .count = 0 }, .{});
+    try testing.expectError(error.CountMismatch, p.transformInto(testing.io, &data, &data, scratch, .forward, .{ .in = .{ .count = 2 } }, .{}));
+}
+
+test {
+    _ = @import("util.zig");
 }

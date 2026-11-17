@@ -195,7 +195,7 @@ pub fn realForwardAxes(allocator, io, out, in: ConstArrayView(T), axes, options)
   `StaticPlan` dispatches by size alone, so it gives `Plan`'s bits.
 - **Tests:** a direct DFT in a wider type (as the BLAS's `Wide` reference), round trips,
   Parseval's identity, and every size from 1 to a few hundred (primes take Bluestein's path).
-- **Status:** stubs; `init` already rejects `n = 0`.
+- **Status:** `Plan` is PocketFFT's `cfftp` and `fftblue` (`plan.zig`, `cfftp/`, `bluestein.zig`), batches run one after another until N9; the rest are stubs, and `init` already rejects `n = 0`.
 
 ### Planned: signal processing, `rstd.signal`
 
