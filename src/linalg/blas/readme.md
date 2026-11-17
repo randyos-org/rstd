@@ -63,7 +63,7 @@ How the code is structured, and why, is in [`design.md`](../design.md).
   `error.EstimateFailed` for the reference's `INFO = 1`), `gebal` (which returns its block `lo..hi`, 0-based, `hi` past the end, as `gebak`, `gehrd`, `orghr` and `hseqr` take it), `gebak`, `trexc` (`ifst`, `ilst` 0-based) and `trsen`
   (`error.SwapRejected` for a swap too ill-conditioned to make) and `gelsy` over faer's `geqp3`;
   and `gelqf`, `orglq`, `ormlq` by libflame's method over faer's reflections.
-  And for the matlab port's `inv`, `hess` and `schur` (T123): `getri` (faer's LU inverse);
+  And for `inv`, `hess` and `schur` (T123, for the matlab port then, the public layer since M33): `getri` (faer's LU inverse);
   `gehrd`, `orghr`/`unghr` and `hseqr` (LAPACK's interfaces over faer's Hessenberg reduction
   and `lahqr`); `trevc3`/`trevc` (every `SIDE` and `HOWMNY`); `gees` (`dgees.f`'s sort, by
   `trsen`; it returns `sdim`); `laset` and `lapy2`.

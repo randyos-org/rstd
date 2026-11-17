@@ -1271,8 +1271,8 @@ views (any mix of `StaticMat`, `Mat` and borrowed storage); errors listed are be
 
 `solve`'s structure tests read only the values, so the same input always takes the same route.
 `solve` and `inv` return `error.Singular` with no partial result: a singular matrix has neither.
-The 1980s port, `linalg.matlab`, keeps its own API (split complex) until M2; this layer does not
-depend on it. `linalg.blas` and `linalg.lapack` stay public for tools, tests and experts, the docs
+The 1980s port, `linalg.matlab`, is gone (M33, #337): its routines moved into this layer or were
+rewritten by modern methods; matlab88's source stays in `src/linalg/ref/matlab88/` for reference. `linalg.blas` and `linalg.lapack` stay public for tools, tests and experts, the docs
 pointing everyone else here (decision 7).
 
 #### `rstd.simd`, removed
@@ -1353,7 +1353,7 @@ checks of the tier-2 rigs, `zig build shader-probes -Dvulkan` for SPIR-V).
    `linalg.matrix`'s `det`, `inv` and `outer`, are their instructions (table above), each
    checked by a probe (`src/rgl/shaders/lib/readme.md`); shaderlib's aliases stay S2's.
 6. **Float-slice reductions** to `linalg` (the NaN change); `rstd.simd` is gone already. Done 2026-11-12 (M13): M10 had already made `sum`, `max` and `min` take slices and views, inline up to `L` and the BLAS past it, with the first-NaN rule on both paths; M13 tests that rule on plain slices on both paths.
-7. **M2** moves the matlab port onto this layer.
+7. **M2** moved the matlab port onto this layer; M19 to M33 (#322 to #337, plan in #60) then dissolved it into the layer's own routines and deleted it.
 
 #### Decisions
 
@@ -2132,8 +2132,8 @@ Questions decided once, with the reason, so they are not reopened without new ev
   SPIR-V's own instruction where one exists (`OpDot`, GLSL.std.450 `Length`, `Fma`: GLSL.std.450
   1.00 revision 17, <https://registry.khronos.org/SPIR-V/specs/unified1/GLSL.std.450.html>), used as is,
   not rebuilt or tuned: the goal is one API, not GPU speed.
-- **The matlab port defers to modern BLAS and LAPACK** (2026-10-29). `rstd.linalg.matlab`
-  ports 1980s LINPACK and EISPACK algorithms. Where rstd's BLAS or LAPACK (chosen per routine,
+- **The matlab port defers to modern BLAS and LAPACK** (2026-10-29; ended 2026-11-17 by M33, which deleted `rstd.linalg.matlab`, its routines in the public layer, matlab88's source in `src/linalg/ref/matlab88/`). `rstd.linalg.matlab`
+  ported 1980s LINPACK and EISPACK algorithms. Where rstd's BLAS or LAPACK (chosen per routine,
   as the next decision says) has the operation, the modern routine replaces the old one; the old one
   stays only where a test shows it better (more accurate, or right on an edge case the modern
   one gets wrong), and that test is kept with it. M1's audit ("The matlab port against the
