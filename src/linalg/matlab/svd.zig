@@ -128,12 +128,10 @@ pub fn orth(allocator: Allocator, io: Io, a: CxMat) (Allocator.Error || Io.Cance
             defer allocator.free(x);
             const tau = try allocator.alloc(T, n);
             defer allocator.free(tau);
-            const mi: isize = @intCast(m);
-            const ni: isize = @intCast(n);
-            const lda: isize = @intCast(@max(1, m));
-            lapack.geqrf(allocator, io, T, mi, ni, x.ptr, lda, tau.ptr) catch |e| return ops.narrow(Allocator.Error || Io.Cancelable, e);
+            const lda = @max(1, m);
+            lapack.geqrf(allocator, io, T, m, n, x, lda, tau) catch |e| return ops.narrow(Allocator.Error || Io.Cancelable, e);
             // `n <= m` is the caller's
-            lapack.orgqr(allocator, io, T, mi, ni, ni, x.ptr, lda, tau.ptr) catch |e| return ops.narrow(Allocator.Error || Io.Cancelable, e);
+            lapack.orgqr(allocator, io, T, m, n, n, x, lda, tau) catch |e| return ops.narrow(Allocator.Error || Io.Cancelable, e);
             CxMat.initPacked(result_r, result_i, m, n).fromPacked(T, x);
         },
     }

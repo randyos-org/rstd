@@ -7,6 +7,7 @@
 const std = @import("std");
 const types = @import("../blas/types.zig");
 const util = @import("../blas/util.zig");
+const interface = @import("interface.zig");
 const ops = @import("ops.zig");
 const blas_calls = @import("blas_calls.zig");
 const hh = @import("householder.zig");
@@ -21,30 +22,31 @@ const Trans = types.Trans;
 const Side = types.Side;
 const Error = ops.Error;
 
-/// What `gelqf` returns.
-pub const GelqfError = error{ InvalidM, InvalidN, InvalidLda } || Allocator.Error || Io.Cancelable;
-/// What `orglq` returns: `InvalidN` unless `n >= m`, `InvalidK` unless
-/// `0 <= k <= m`.
-pub const OrglqError = error{ InvalidM, InvalidN, InvalidK, InvalidLda } || Allocator.Error || Io.Cancelable;
-/// What `ormlq` returns: `InvalidTrans` for other than `n`, `t` or `c`
-/// (complex: `n` or `c`), `InvalidK` unless `0 <= k <=` the side's order.
-pub const OrmlqError = error{ InvalidTrans, InvalidM, InvalidN, InvalidK, InvalidLda, InvalidLdc } || Allocator.Error || Io.Cancelable;
+/// What `gelqf` returns: a slice too short (`a`, or `tau` under
+/// `min(m, n)`) or a leading dimension too small, and the allocator's and
+/// cancellation.
+pub const GelqfError = interface.ShapeError || Allocator.Error || Io.Cancelable;
+/// What `orglq` returns: `TooManyRows` for `m > n`, `TooManyReflections`
+/// for `k > m`, and `GelqfError`'s.
+pub const OrglqError = error{TooManyRows} || interface.ReflectionsError || GelqfError;
+/// What `ormlq` returns: a `trans` other than `n`, `t` or `c` (complex: `n`
+/// or `c`), `TooManyReflections` for `k` past the side's order, and
+/// `GelqfError`'s.
+pub const OrmlqError = interface.TransError || interface.ReflectionsError || GelqfError;
 
 /// `?GELQF`: `A = L Q` for the `m x n` `A`: `L` on and below the diagonal,
 /// `Q = H(k-1)ᴴ ... H(0)ᴴ` (`k = min(m, n)`) as reflections right of it
 /// (`conj(v)` in row `i` past column `i`) and their `tau`s in `tau` (`k`).
-pub fn gelqf(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize, a: [*]T, lda: isize, tau: [*]T) GelqfError!void {
+pub fn gelqf(allocator: Allocator, io: Io, comptime T: type, m: usize, n: usize, a: []T, lda: usize, tau: []T) GelqfError!void {
     comptime ops.requireFloat(T, "gelqf");
-    if (m < 0) return error.InvalidM;
-    if (n < 0) return error.InvalidN;
-    if (lda < @max(1, m)) return error.InvalidLda;
+    try util.holds(a.len, m, n, lda);
+    if (tau.len < @min(m, n)) return error.SliceTooShort;
     if (m == 0 or n == 0) return;
-    if (!util.fitsMatrix(m, n, lda, @sizeOf(T))) return error.InvalidLda;
-    const am: Mat(T) = .{ .ptr = a, .rows = @intCast(m), .cols = @intCast(n), .ld = @intCast(lda) };
+    const am: Mat(T) = .{ .ptr = a.ptr, .rows = m, .cols = n, .ld = lda };
     const b = try ops.alloc(T, allocator, am.cols, am.rows);
     defer ops.free(T, allocator, b);
     adjoint(T, am, b);
-    try factor(allocator, io, T, b, tau);
+    try factor(allocator, io, T, b, tau.ptr);
     adjoint(T, b, am);
 }
 
@@ -110,20 +112,18 @@ fn basisOf(al: Allocator, comptime T: type, a: Mat(T), k: usize) Allocator.Error
 /// `?ORGLQ`, `?UNGLQ`: the `m x n` `Q` with orthonormal rows, the first `m`
 /// of `H(k-1)ᴴ ... H(0)ᴴ`, over the reflections `gelqf` left in `A`'s first
 /// `k` rows.
-pub fn orglq(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize, k: isize, a: [*]T, lda: isize, tau: [*]const T) OrglqError!void {
+pub fn orglq(allocator: Allocator, io: Io, comptime T: type, m: usize, n: usize, k: usize, a: []T, lda: usize, tau: []const T) OrglqError!void {
     comptime ops.requireFloat(T, "orglq");
-    if (m < 0) return error.InvalidM;
-    if (n < m) return error.InvalidN;
-    if (k < 0 or k > m) return error.InvalidK;
-    if (lda < @max(1, m)) return error.InvalidLda;
+    if (m > n) return error.TooManyRows;
+    if (k > m) return error.TooManyReflections;
+    try util.holds(a.len, m, n, lda);
+    if (tau.len < k) return error.SliceTooShort;
     if (m == 0) return;
-    if (!util.fitsMatrix(m, n, lda, @sizeOf(T))) return error.InvalidLda;
-    const am: Mat(T) = .{ .ptr = a, .rows = @intCast(m), .cols = @intCast(n), .ld = @intCast(lda) };
-    const uk: usize = @intCast(k);
-    if (uk == 0) return am.identity();
-    const v = try basisOf(allocator, T, am, uk);
+    const am: Mat(T) = .{ .ptr = a.ptr, .rows = m, .cols = n, .ld = lda };
+    if (k == 0) return am.identity();
+    const v = try basisOf(allocator, T, am, k);
     defer ops.free(T, allocator, v);
-    const h = try qr.factorsOf(allocator, io, T, v, tau);
+    const h = try qr.factorsOf(allocator, io, T, v, tau.ptr);
     defer ops.free(T, allocator, h);
     // Qᴴ's first m columns: Q_b I, Q_b = H(0) ... H(k-1)
     const g = try ops.alloc(T, allocator, am.cols, am.rows);
@@ -138,27 +138,20 @@ pub fn orglq(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize,
 /// `Q` of `k` reflections in `A`'s first `k` rows (`m` columns for `l`, `n`
 /// for `r`). Only `A`'s strictly upper part is read. A right-side product
 /// works on `Cᴴ`, so takes `m n` elements of workspace.
-pub fn ormlq(allocator: Allocator, io: Io, comptime T: type, side: Side, trans: Trans, m: isize, n: isize, k: isize, a: [*]const T, lda: isize, tau: [*]const T, c: [*]T, ldc: isize) OrmlqError!void {
+pub fn ormlq(allocator: Allocator, io: Io, comptime T: type, side: Side, trans: Trans, m: usize, n: usize, k: usize, a: []const T, lda: usize, tau: []const T, c: []T, ldc: usize) OrmlqError!void {
     comptime ops.requireFloat(T, "ormlq");
-    switch (trans) {
-        .n, .c => {},
-        .t => if (comptime isComplex(T)) return error.InvalidTrans,
-        .r, .o, .u, .s, .d => return error.InvalidTrans,
-    }
-    if (m < 0) return error.InvalidM;
-    if (n < 0) return error.InvalidN;
+    try interface.takesAdjoint(T, trans);
     const nq = if (side == .l) m else n;
-    if (k < 0 or k > nq) return error.InvalidK;
-    if (lda < @max(1, k)) return error.InvalidLda;
-    if (ldc < @max(1, m)) return error.InvalidLdc;
+    if (k > nq) return error.TooManyReflections;
+    try util.holds(a.len, k, nq, lda);
+    try util.holds(c.len, m, n, ldc);
+    if (tau.len < k) return error.SliceTooShort;
     if (m == 0 or n == 0 or k == 0) return;
-    if (!util.fitsMatrix(k, nq, lda, @sizeOf(T))) return error.InvalidLda;
-    if (!util.fitsMatrix(m, n, ldc, @sizeOf(T))) return error.InvalidLdc;
-    const am: Mat(T) = .{ .ptr = @constCast(a), .rows = @intCast(k), .cols = @intCast(nq), .ld = @intCast(lda) };
-    const cm: Mat(T) = .{ .ptr = c, .rows = @intCast(m), .cols = @intCast(n), .ld = @intCast(ldc) };
-    const v = try basisOf(allocator, T, am, @intCast(k));
+    const am: Mat(T) = .{ .ptr = @constCast(a.ptr), .rows = k, .cols = nq, .ld = lda };
+    const cm: Mat(T) = .{ .ptr = c.ptr, .rows = m, .cols = n, .ld = ldc };
+    const v = try basisOf(allocator, T, am, k);
     defer ops.free(T, allocator, v);
-    const h = try qr.factorsOf(allocator, io, T, v, tau);
+    const h = try qr.factorsOf(allocator, io, T, v, tau.ptr);
     defer ops.free(T, allocator, h);
     // Q = Q_bᴴ; Q C = Q_bᴴ C; C Q = (Q_b Cᴴ)ᴴ
     const adj = trans != .n;
@@ -215,10 +208,7 @@ fn lqCase(comptime T: type, al: Allocator, m: usize, n: usize, seed: u64) !void 
     a.copyFrom(a0);
     const tau = try al.alloc(T, @max(k, 1));
     defer al.free(tau);
-    const mi: isize = @intCast(m);
-    const ni: isize = @intCast(n);
-    const ki: isize = @intCast(k);
-    try gelqf(al, check.io, T, mi, ni, a.ptr, @intCast(a.ld), tau.ptr);
+    try gelqf(al, check.io, T, m, n, a.slice(), a.ld, tau);
     var anorm: F = 0;
     for (a0.ptr[0 .. m * n]) |v| anorm = @max(anorm, ops.abs(T, v));
     const q = try ops.alloc(T, al, n, n);
@@ -227,7 +217,7 @@ fn lqCase(comptime T: type, al: Allocator, m: usize, n: usize, seed: u64) !void 
     for (0..n) |j| for (0..k) |i| {
         q.at(i, j).* = a.get(i, j);
     };
-    try orglq(al, check.io, T, ni, ni, ki, q.ptr, ni, tau.ptr);
+    try orglq(al, check.io, T, n, n, k, q.slice(), n, tau);
     const nf: F = @floatFromInt(@max(n, 1));
     // L = A Qᴴ, zero right of its diagonal
     const l = try ops.alloc(T, al, m, n);
@@ -259,7 +249,7 @@ fn lqCase(comptime T: type, al: Allocator, m: usize, n: usize, seed: u64) !void 
         defer ops.free(T, al, r);
         // Q here is orglq's full n x n, op(Q) = Q or Qᴴ
         if (side == .l) mul(T, tr != .n, q, false, c, r) else mul(T, false, c, tr != .n, q, r);
-        try ormlq(al, check.io, T, side, tr, @intCast(cr), @intCast(cc), ki, a.ptr, @intCast(a.ld), tau.ptr, c.ptr, @intCast(c.ld));
+        try ormlq(al, check.io, T, side, tr, cr, cc, k, a.slice(), a.ld, tau, c.slice(), c.ld);
         try lcheck.expectNear(T, "ormlq", c, r, thresh * nf * eps * 4);
     };
 }
@@ -285,17 +275,17 @@ test "lapack gelqf: a zero row and a zero matrix give tau = 0; empty; bad argume
     }
     var a: [4]f64 = undefined;
     var tau: [2]f64 = undefined;
-    try testing.expectError(error.InvalidM, gelqf(al, check.io, f64, -1, 1, &a, 1, &tau));
-    try testing.expectError(error.InvalidN, gelqf(al, check.io, f64, 1, -1, &a, 1, &tau));
-    try testing.expectError(error.InvalidLda, gelqf(al, check.io, f64, 2, 2, &a, 1, &tau));
-    try testing.expectError(error.InvalidN, orglq(al, check.io, f64, 2, 1, 1, &a, 2, &tau));
-    try testing.expectError(error.InvalidK, orglq(al, check.io, f64, 2, 2, 3, &a, 2, &tau));
-    try testing.expectError(error.InvalidLda, orglq(al, check.io, f64, 2, 2, 1, &a, 1, &tau));
-    try testing.expectError(error.InvalidTrans, ormlq(al, check.io, f64, .l, .r, 2, 2, 1, &a, 1, &tau, &a, 2));
-    try testing.expectError(error.InvalidTrans, ormlq(al, check.io, types.Complex64, .l, .t, 0, 0, 0, @ptrCast(&a), 1, @ptrCast(&tau), @ptrCast(&a), 1));
-    try testing.expectError(error.InvalidK, ormlq(al, check.io, f64, .r, .n, 2, 1, 2, &a, 2, &tau, &a, 2));
-    try testing.expectError(error.InvalidLda, ormlq(al, check.io, f64, .l, .n, 2, 2, 2, &a, 1, &tau, &a, 2));
-    try testing.expectError(error.InvalidLdc, ormlq(al, check.io, f64, .l, .n, 2, 2, 1, &a, 1, &tau, &a, 1));
+    try testing.expectError(error.LeadingDimensionTooSmall, gelqf(al, check.io, f64, 2, 2, &a, 1, &tau));
+    try testing.expectError(error.SliceTooShort, gelqf(al, check.io, f64, 2, 3, &a, 2, &tau));
+    try testing.expectError(error.SliceTooShort, gelqf(al, check.io, f64, 2, 2, &a, 2, tau[0..1]));
+    try testing.expectError(error.TooManyRows, orglq(al, check.io, f64, 2, 1, 1, &a, 2, &tau));
+    try testing.expectError(error.TooManyReflections, orglq(al, check.io, f64, 2, 2, 3, &a, 2, &tau));
+    try testing.expectError(error.LeadingDimensionTooSmall, orglq(al, check.io, f64, 2, 2, 1, &a, 1, &tau));
+    try testing.expectError(error.UnsupportedTranspose, ormlq(al, check.io, f64, .l, .r, 2, 2, 1, &a, 1, &tau, &a, 2));
+    try testing.expectError(error.UnsupportedTranspose, ormlq(al, check.io, types.Complex64, .l, .t, 0, 0, 0, @ptrCast(&a), 1, @ptrCast(&tau), @ptrCast(&a), 1));
+    try testing.expectError(error.TooManyReflections, ormlq(al, check.io, f64, .r, .n, 2, 1, 2, &a, 2, &tau, &a, 2));
+    try testing.expectError(error.LeadingDimensionTooSmall, ormlq(al, check.io, f64, .l, .n, 2, 2, 2, &a, 1, &tau, &a, 2));
+    try testing.expectError(error.LeadingDimensionTooSmall, ormlq(al, check.io, f64, .l, .n, 2, 2, 1, &a, 1, &tau, &a, 1));
 }
 
 test "lapack gelqf: one worker's bits at any worker count" {
@@ -316,7 +306,7 @@ test "lapack gelqf: one worker's bits at any worker count" {
         for (0..test_io.worker_runs.len) |c| {
             const io = runs.io(c);
             @memcpy(outs[c][0 .. m * n], a0);
-            try gelqf(al, io, T, m, n, outs[c].ptr, m, outs[c].ptr + m * n);
+            try gelqf(al, io, T, m, n, outs[c][0 .. m * n], m, outs[c][m * n ..]);
         }
         try test_io.expectSameBytes(outs);
     }

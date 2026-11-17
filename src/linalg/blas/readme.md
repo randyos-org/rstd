@@ -48,7 +48,7 @@ How the code is structured, and why, is in [`design.md`](../design.md).
   or null; `gesv`, `getri`, `potri`, `trtri` and `trtrs`, which return `error.Singular` for a
   zero pivot or a zero on the diagonal; `trti2`, `lauum` and `lauu2`. Ported from faer:
   `geqrf`, `orgqr` (`ungqr`), `ormqr` (`unmqr`), `gels` (`error.Singular` for a rank-deficient
-  `A`), `gesvd`, `gesdd`, `syevd`, `heevd`, `syev`, `heev` and `geev`, which return
+  `A`), `geqp3` (its `jpvt` 0-based on exit), `gesvd`, `gesdd`, `syevd`, `heevd`, `syev`, `heev` and `geev`, which return
   `error.NoConvergence` for the reference's `INFO > 0` (`gesvd` and `geev` write that `INFO` to
   their last argument: the unconverged superdiagonals, or the eigenvalues not found). `geev`'s
   eigenvectors come from Reference-LAPACK's `xTREVC3`, which scales against overflow. Past
