@@ -6,6 +6,7 @@ const sysinfo = @import("builtin");
 const dll = @import("../../../dll.zig");
 const types = @import("../types.zig");
 const blas = @import("../__root__.zig");
+const l3 = @import("../blas3/core.zig");
 const l2 = @import("../blas2/core.zig");
 const l1 = @import("../blas1/interface.zig");
 const threading = @import("../threading.zig");
@@ -217,7 +218,7 @@ test "ddot, dgemm, zdotu_sub and isamax agree with rstd" {
             @memcpy(c1, c0);
             // A^T, stored k by m
             t.cblas_dgemm.?(.col_major, .trans, .no_trans, m, n, k, 1.5, a.ptr, k, bm.ptr, k, -0.5, c0.ptr, m);
-            try blas.gemm(gpa, check.io, f64, .t, .n, m, n, k, 1.5, a.ptr, k, bm.ptr, k, -0.5, c1.ptr, m);
+            try l3.gemm(gpa, check.io, f64, .t, .n, m, n, k, 1.5, a.ptr, k, bm.ptr, k, -0.5, c1.ptr, m);
             for (c0, c1) |g, w| try zigstd.testExpectApproxEqAbs(w, g, 1e-12 * k);
         },
     }
@@ -471,27 +472,27 @@ fn everyRoutine(comptime T: type, on_: bool) !void {
     try l2.tpsv(al, io, T, .l, .n, .u, n, &a, &x, 1);
     try p.saw(true, "tpsv");
 
-    try blas.gemm(al, io, T, .n, if (cx) .c else .t, n, n, n, al1, &a, n, &bm, n, be1, &c, n);
+    try l3.gemm(al, io, T, .n, if (cx) .c else .t, n, n, n, al1, &a, n, &bm, n, be1, &c, n);
     try p.saw(true, "gemm");
-    try blas.gemm(al, io, T, .r, .n, n, n, n, al1, &a, n, &bm, n, be1, &c, n);
+    try l3.gemm(al, io, T, .r, .n, n, n, n, al1, &a, n, &bm, n, be1, &c, n);
     try p.saw(real, "gemm r");
-    try blas.symm(al, io, T, .l, .u, n, n, al1, &a, n, &bm, n, be1, &c, n);
+    try l3.symm(al, io, T, .l, .u, n, n, al1, &a, n, &bm, n, be1, &c, n);
     try p.saw(true, "symm");
-    try blas.syrk(al, io, T, .u, .n, n, n, al1, &a, n, be1, &c, n);
+    try l3.syrk(al, io, T, .u, .n, n, n, al1, &a, n, be1, &c, n);
     try p.saw(true, "syrk");
-    try blas.syr2k(al, io, T, .l, .t, n, n, al1, &a, n, &bm, n, be1, &c, n);
+    try l3.syr2k(al, io, T, .l, .t, n, n, al1, &a, n, &bm, n, be1, &c, n);
     try p.saw(true, "syr2k");
     if (cx) {
-        try blas.hemm(al, io, T, .r, .l, n, n, al1, &a, n, &bm, n, be1, &c, n);
+        try l3.hemm(al, io, T, .r, .l, n, n, al1, &a, n, &bm, n, be1, &c, n);
         try p.saw(true, "hemm");
-        try blas.herk(al, io, T, .l, .c, n, n, 1.5, &a, n, 0.5, &c, n);
+        try l3.herk(al, io, T, .l, .c, n, n, 1.5, &a, n, 0.5, &c, n);
         try p.saw(true, "herk");
-        try blas.her2k(al, io, T, .u, .n, n, n, al1, &a, n, &bm, n, 0.5, &c, n);
+        try l3.her2k(al, io, T, .u, .n, n, n, al1, &a, n, &bm, n, 0.5, &c, n);
         try p.saw(true, "her2k");
     }
-    try blas.trmm(al, io, T, .r, .u, .t, .n, n, n, al1, &a, n, &c, n);
+    try l3.trmm(al, io, T, .r, .u, .t, .n, n, n, al1, &a, n, &c, n);
     try p.saw(true, "trmm");
-    try blas.trsm(al, io, T, .l, .l, .n, .u, n, n, al1, &a, n, &c, n);
+    try l3.trsm(al, io, T, .l, .l, .n, .u, n, n, al1, &a, n, &c, n);
     try p.saw(true, "trsm");
 }
 
@@ -652,23 +653,23 @@ fn splitRun(comptime T: type, al: std.mem.Allocator, io: Io, o: *Outputs(T)) !vo
         try o.add(al, c);
         for ([_][2]types.Trans{ .{ .n, .n }, .{ .t, if (cx) .c else .t } }) |tt| {
             @memcpy(c, b0);
-            try blas.gemm(al, io, T, tt[0], tt[1], m, n, small, al1, a.ptr, l, a.ptr + 1, l, be1, c.ptr, l);
+            try l3.gemm(al, io, T, tt[0], tt[1], m, n, small, al1, a.ptr, l, a.ptr + 1, l, be1, c.ptr, l);
             try o.add(al, c);
         }
         for ([_]types.Side{ .l, .r }) |sd| {
             @memcpy(c, b0);
-            try blas.symm(al, io, T, sd, .u, m, n, al1, a.ptr, l, a.ptr + 1, l, be1, c.ptr, l);
+            try l3.symm(al, io, T, sd, .u, m, n, al1, a.ptr, l, a.ptr + 1, l, be1, c.ptr, l);
             try o.add(al, c);
             if (cx) {
                 @memcpy(c, b0);
-                try blas.hemm(al, io, T, sd, .l, m, n, al1, a.ptr, l, a.ptr + 1, l, be1, c.ptr, l);
+                try l3.hemm(al, io, T, sd, .l, m, n, al1, a.ptr, l, a.ptr + 1, l, be1, c.ptr, l);
                 try o.add(al, c);
             }
             @memcpy(c, b0);
-            try blas.trmm(al, io, T, sd, .u, .t, .n, m, n, al1, a.ptr, l, c.ptr, l);
+            try l3.trmm(al, io, T, sd, .u, .t, .n, m, n, al1, a.ptr, l, c.ptr, l);
             try o.add(al, c);
             @memcpy(c, b0);
-            try blas.trsm(al, io, T, sd, .l, .n, .n, m, n, al1, a.ptr, l, c.ptr, l);
+            try l3.trsm(al, io, T, sd, .l, .n, .n, m, n, al1, a.ptr, l, c.ptr, l);
             try o.add(al, c);
         }
     }
@@ -756,7 +757,7 @@ test "on the 32-bit table, what does not fit c_int runs rstd's kernels" {
     var c = [_]f64{ 1, 1, 1 };
     try l2.gemv(al, io, f64, .n, 3, 1, 2, &x, big, &y, 1, 1, &c, 1);
     try zigstd.testExpectEqualSlices(f64, &.{ 2, -1, 4 }, &c);
-    try blas.gemm(al, io, f64, .n, .n, 3, 1, 1, 1, &x, 3, &y, big, 0, &c, big);
+    try l3.gemm(al, io, f64, .n, .n, 3, 1, 1, 1, &x, 3, &y, big, 0, &c, big);
     try zigstd.testExpectEqualSlices(f64, &.{ 0.5, -1, 1.5 }, &c);
     try expectCalled(false, before, "past c_int");
     // an operand whose span is past `c_int`, though each argument fits
@@ -1104,7 +1105,7 @@ test "quirk cases run rstd's kernels, and the Hermitian diagonal comes out real"
     sy[3] = 1;
     try l2.syr2(al, io, f64, .u, 4, 1, &sx, -1, &sy, 1, &a, 4);
     try p.saw(true, "syr2, no j with both zero");
-    try blas.trmm(al, io, f64, .l, .l, .n, .n, 4, 4, 1, &a, 4, &b, 4);
+    try l3.trmm(al, io, f64, .l, .l, .n, .n, 4, 4, 1, &a, 4, &b, 4);
     try p.saw(false, "trmm, B not finite");
     // the same cases, finite, call it
     x = .{ 1, 3, -1, 2 };
@@ -1112,7 +1113,7 @@ test "quirk cases run rstd's kernels, and the Hermitian diagonal comes out real"
     try l2.trmv(al, io, f64, .u, .n, .n, 4, &a, 4, &x, 1);
     try p.saw(true, "trmv");
     @memset(&b, 0.5);
-    try blas.trmm(al, io, f64, .l, .l, .n, .n, 4, 4, 1, &a, 4, &b, 4);
+    try l3.trmm(al, io, f64, .l, .l, .n, .n, 4, 4, 1, &a, 4, &b, 4);
     try p.saw(true, "trmm");
 
     // `herk` and `her2k` make the diagonal real; the reference never reads it
@@ -1124,9 +1125,9 @@ test "quirk cases run rstd's kernels, and the Hermitian diagonal comes out real"
         check.fill(Complex64, &c, 4);
         for (0..3) |i| c[i * 4].im = 3;
         if (two) {
-            try blas.her2k(al, io, Complex64, .u, .n, 3, 4, .init(0.5, 0.25), &h, 3, &h, 3, 0.5, &c, 3);
+            try l3.her2k(al, io, Complex64, .u, .n, 3, 4, .init(0.5, 0.25), &h, 3, &h, 3, 0.5, &c, 3);
         } else {
-            try blas.herk(al, io, Complex64, .l, .n, 3, 4, 1.5, &h, 3, 0.5, &c, 3);
+            try l3.herk(al, io, Complex64, .l, .n, 3, 4, 1.5, &h, 3, 0.5, &c, 3);
         }
         try p.saw(true, "herk and her2k");
         for (0..3) |i| try zigstd.testExpectEqual(@as(f64, 0), c[i * 4].im);
@@ -1144,17 +1145,17 @@ test "quirk cases run rstd's kernels, and the Hermitian diagonal comes out real"
     // `beta` 1 and nothing added leaves `C` as it was, through rstd
     check.fill(Complex64, &c, 4);
     for (0..3) |i| c[i * 4].im = 3;
-    try blas.herk(al, io, Complex64, .l, .n, 3, 0, 1.5, &h, 3, 1, &c, 3);
+    try l3.herk(al, io, Complex64, .l, .n, 3, 0, 1.5, &h, 3, 1, &c, 3);
     try p.saw(false, "herk, beta 1 and k 0");
     for (0..3) |i| try zigstd.testExpectEqual(@as(f64, 3), c[i * 4].im);
     // a non-finite `C` with a nonzero `beta`, through rstd; with a zero one, Accelerate
     check.fill(Complex64, &h, 3);
     check.fill(Complex64, &c, 4);
     c[1] = .init(1, inf);
-    try blas.herk(al, io, Complex64, .l, .n, 3, 4, 1.5, &h, 3, 0.5, &c, 3);
+    try l3.herk(al, io, Complex64, .l, .n, 3, 4, 1.5, &h, 3, 0.5, &c, 3);
     try p.saw(false, "herk, C not finite");
     try zigstd.testExpectTrue(!std.math.isNan(c[1].re));
     c[1] = .init(1, inf);
-    try blas.herk(al, io, Complex64, .l, .n, 3, 4, 1.5, &h, 3, 0, &c, 3);
+    try l3.herk(al, io, Complex64, .l, .n, 3, 4, 1.5, &h, 3, 0, &c, 3);
     try p.saw(true, "herk, beta 0");
 }

@@ -5,6 +5,7 @@
 const std = @import("std");
 const ob = @import("__root__.zig");
 const blas = @import("../../__root__.zig");
+const l3 = @import("../../blas3/core.zig");
 const l2 = @import("../../blas2/core.zig");
 const l1 = @import("../../blas1/interface.zig");
 const lapack = @import("../../../lapack/__root__.zig");
@@ -491,7 +492,7 @@ fn potrfSmoke() !void {
         const zero: T = if (complex) .init(0, 0) else 0;
         const t1: blas.Trans = if (uplo == .l) .n else .c;
         const t2: blas.Trans = if (uplo == .l) .c else .n;
-        try blas.gemm(al, ob.io, T, t1, t2, 2, 2, 2, one, &a, 2, &a, 2, zero, &b, 2);
+        try l3.gemm(al, ob.io, T, t1, t2, 2, 2, 2, one, &a, 2, &a, 2, zero, &b, 2);
         const tol: f64 = if (ob.Float(T) == f32) 1e-5 else 1e-12;
         for (a1, b) |w, g| {
             const err: f64 = if (complex) std.math.hypot(@as(f64, w.re - g.re), @as(f64, w.im - g.im)) else @abs(@as(f64, w - g));
@@ -570,7 +571,7 @@ fn kernelRegress() !void {
     for (0..n) |j| for (0..n) |i| {
         u[i + j * n] *= s[j];
     };
-    try blas.gemm(al, ob.io, f64, .n, .n, n, n, n, 1, u.ptr, n, vt.ptr, n, 0, x.ptr, n);
+    try l3.gemm(al, ob.io, f64, .n, .n, n, n, n, 1, u.ptr, n, vt.ptr, n, 0, x.ptr, n);
     for (x, tmp) |*a, t| a.* -= t;
     const norm = try l1.nrm2(ob.io, f64, n * n, x.ptr, 1);
     try near(0, norm, 1e-10, "kernel_regress skx_avx: |U S Vt - A|");

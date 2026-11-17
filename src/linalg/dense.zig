@@ -12,6 +12,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
 const blas = @import("blas/__root__.zig");
+const l3 = @import("blas/blas3/core.zig");
 const l2 = @import("blas/blas2/core.zig");
 const l1 = @import("blas/blas1/interface.zig");
 const lapack = @import("lapack/__root__.zig");
@@ -177,7 +178,7 @@ fn mulWith(path: Path, allocator: Allocator, io: Io, o: anytype, ca: ConstView(@
         l2.gemv(allocator, io, T, .n, toIsize(m), toIsize(k), one, pa, toIsize(ca.ld), pb, 1, ops.zero(T), o.data.ptr, 1) catch |e| return narrow(Error, e);
         return;
     }
-    blas.gemm(allocator, io, T, .n, .n, toIsize(m), toIsize(n), toIsize(k), one, pa, toIsize(ca.ld), pb, toIsize(cb.ld), ops.zero(T), o.data.ptr, toIsize(o.ld)) catch |e| return narrow(Error, e);
+    l3.gemm(allocator, io, T, .n, .n, toIsize(m), toIsize(n), toIsize(k), one, pa, toIsize(ca.ld), pb, toIsize(cb.ld), ops.zero(T), o.data.ptr, toIsize(o.ld)) catch |e| return narrow(Error, e);
 }
 
 pub const TransposeError = error{DimensionMismatch} || Io.Cancelable;
@@ -690,7 +691,7 @@ pub fn pinv(allocator: Allocator, io: Io, a: anytype, tol: ?Real(ElementOf(@Type
         e.* = if (comptime isComplex(T)) T.init(e.re / sj, e.im / sj) else e.* / sj;
     };
     const t: blas.Trans = if (comptime isComplex(T)) .c else .t;
-    blas.gemm(allocator, io, T, .n, t, toIsize(n), toIsize(m), toIsize(r), ops.one(T), v.data.ptr, toIsize(n), u.data.ptr, toIsize(m), ops.zero(T), x.data.ptr, toIsize(n)) catch |e| return narrow(Error, e);
+    l3.gemm(allocator, io, T, .n, t, toIsize(n), toIsize(m), toIsize(r), ops.one(T), v.data.ptr, toIsize(n), u.data.ptr, toIsize(m), ops.zero(T), x.data.ptr, toIsize(n)) catch |e| return narrow(Error, e);
     return x;
 }
 

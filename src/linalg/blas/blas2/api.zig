@@ -13,6 +13,7 @@ const iface = @import("interface.zig");
 const tri = @import("triangular.zig");
 const band = @import("banded.zig");
 const rank = @import("rank.zig");
+const util = @import("../util.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -22,6 +23,8 @@ const Uplo = types.Uplo;
 const Diag = types.Diag;
 const Strided = strided.Strided;
 const ConstStrided = strided.ConstStrided;
+const holds = util.holds;
+const holdsPacked = util.holdsPacked;
 
 pub const HalfGemv = iface.HalfGemv;
 
@@ -47,22 +50,6 @@ fn ptr(comptime T: type, v: anytype) [*]T {
 
 fn mat(comptime T: type, a: []const T) [*]T {
     return @constCast(a.ptr);
-}
-
-/// `a` holds a column-major `rows` by `cols` matrix at leading dimension
-/// `lda`, which must be at least `rows` (and 1).
-fn holds(a_len: usize, rows: usize, cols: usize, lda: usize) (strided.SliceError || strided.LeadingDimensionError)!void {
-    if (lda < @max(rows, 1)) return error.LeadingDimensionTooSmall;
-    if (rows == 0 or cols == 0) return;
-    const span = std.math.mul(usize, cols - 1, lda) catch return error.SliceTooShort;
-    const need = std.math.add(usize, span, rows) catch return error.SliceTooShort;
-    if (need > a_len) return error.SliceTooShort;
-}
-
-/// `ap` holds a packed triangle of order `n`, `n (n + 1) / 2` elements.
-fn holdsPacked(ap_len: usize, n: usize) strided.SliceError!void {
-    const need = std.math.mul(usize, n, n + 1) catch return error.SliceTooShort;
-    if (need / 2 > ap_len) return error.SliceTooShort;
 }
 
 /// `op(A)`'s rows and columns from `y` and `x`: `y.n` by `x.n`.

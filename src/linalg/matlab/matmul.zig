@@ -5,6 +5,7 @@ const std = @import("std");
 const scalar = @import("scalar.zig");
 const CxMat = @import("CxMat.zig");
 const blas = @import("../blas/__root__.zig");
+const l3 = @import("../blas/blas3/core.zig");
 const ops = @import("../lapack/ops.zig");
 const Cx = scalar.Cx;
 const Allocator = std.mem.Allocator;
@@ -20,7 +21,7 @@ pub fn matmul(a: CxMat, b: CxMat, out: CxMat, allocator: Allocator, io: Io) Erro
     const n: isize = @intCast(a.n);
     const p: isize = @intCast(b.n);
     if (a.isReal() and b.isReal()) {
-        try multiplied(blas.gemm(allocator, io, f64, .n, .n, m, p, n, 1, a.r.ptr, @intCast(@max(1, a.lda)), b.r.ptr, @intCast(@max(1, b.lda)), 0, out.r.ptr, @intCast(@max(1, out.lda))));
+        try multiplied(l3.gemm(allocator, io, f64, .n, .n, m, p, n, 1, a.r.ptr, @intCast(@max(1, a.lda)), b.r.ptr, @intCast(@max(1, b.lda)), 0, out.r.ptr, @intCast(@max(1, out.lda))));
         for (1..out.n + 1) |j| @memset(out.col(j).i, 0);
         return;
     }
@@ -30,11 +31,11 @@ pub fn matmul(a: CxMat, b: CxMat, out: CxMat, allocator: Allocator, io: Io) Erro
     defer allocator.free(y);
     const z = try allocator.alloc(Cx, out.m * out.n);
     defer allocator.free(z);
-    try multiplied(blas.gemm(allocator, io, Cx, .n, .n, m, p, n, Cx.init(1, 0), x.ptr, @max(1, m), y.ptr, @max(1, n), Cx.init(0, 0), z.ptr, @max(1, m)));
+    try multiplied(l3.gemm(allocator, io, Cx, .n, .n, m, p, n, Cx.init(1, 0), x.ptr, @max(1, m), y.ptr, @max(1, n), Cx.init(0, 0), z.ptr, @max(1, m)));
     out.fromPacked(Cx, z);
 }
 
-fn multiplied(r: blas.Level3Error!void) Error!void {
+fn multiplied(r: l3.Error!void) Error!void {
     // the shapes come from the `CxMat`s
     r catch |e| return ops.narrow(Error, e);
 }
