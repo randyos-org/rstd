@@ -145,7 +145,11 @@ Conventions shared by every interface:
   sizes from the views; `Level2Error` adds `SliceTooShort` and `LeadingDimensionTooSmall`.
   Level 3's (`blas3/api.zig`, Z10; `blas3/core.zig`) take matrices the same way, sizes as
   `usize`, every slice checked by `util.holds`; `Level3Error` has those two errors, and the
-  batched routines' `BatchError` adds `LengthMismatch` for lists that differ in length.
+  batched routines' `BatchError` adds `LengthMismatch` for lists that differ in length. The
+  extensions' (`ext/api.zig`, Z11) likewise, with `UnsupportedTranspose` for a letter one
+  does not take and `Overlap` for `omatcopy`'s `A` and `B` sharing memory; `laswp` takes
+  0-based pivots (user, 2026-11-15), converting to the core's 1-based ones until H159 makes
+  the core 0-based too.
   A vector or matrix that could not fit the address space (`util.fits`, `util.fitsMatrix`)
   returns its stride's or leading dimension's error, so no index computation overflows.
 - **Letters.** Transposes, triangles, sides and diagonals are one set of letter enums for every

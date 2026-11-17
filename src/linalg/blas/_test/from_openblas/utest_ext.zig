@@ -5,6 +5,7 @@
 const std = @import("std");
 const ob = @import("__root__.zig");
 const blas = @import("../../__root__.zig");
+const ext = @import("../../ext/interface.zig");
 const l3 = @import("../../blas3/core.zig");
 const l2 = @import("../../blas2/core.zig");
 const l1 = @import("../../blas1/interface.zig");
@@ -641,7 +642,7 @@ fn geaddCase(comptime T: type, c: Case, r: std.Random) !void {
             5 => error.InvalidLda,
             else => error.InvalidLdc,
         };
-        return ob.expectError(want, blas.geadd(ob.io, T, c.m, c.n, val(T, .{ 1, 1 }), &a, c.lda, val(T, .{ 1, 1 }), &x, c.ldc, transOf(c.transa), transOf(c.transb)), c.name);
+        return ob.expectError(want, ext.geadd(ob.io, T, c.m, c.n, val(T, .{ 1, 1 }), &a, c.lda, val(T, .{ 1, 1 }), &x, c.ldc, transOf(c.transa), transOf(c.transb)), c.name);
     }
     const m: usize = @intCast(c.m);
     const n: usize = @intCast(c.n);
@@ -663,7 +664,7 @@ fn geaddCase(comptime T: type, c: Case, r: std.Random) !void {
         const x = if (ta) a[j + i * lda] else a[i + j * lda];
         want[k] = ob.add(ob.mul(alpha, x), ob.mul(beta, want[k]));
     };
-    try blas.geadd(ob.io, T, c.m, c.n, alpha, a.ptr, c.lda, beta, cm.ptr, c.ldc, transOf(c.transa), transOf(c.transb));
+    try ext.geadd(ob.io, T, c.m, c.n, alpha, a.ptr, c.lda, beta, cm.ptr, c.ldc, transOf(c.transa), transOf(c.transb));
     try expectNorm(c.name, T, matDiff(T, if (tc) n else m, if (tc) m else n, cm, want, ldc), tol(T, single_eps, double_eps));
 }
 
@@ -678,7 +679,7 @@ fn geaddFixed(comptime T: type) !void {
     }
     inline for (.{ .{ .n, [_]usize{ 0, 2, 1, 3 } }, .{ .t, [_]usize{ 0, 1, 2, 3 } } }) |p| {
         var c: [4]T = @splat(ob.zero(T));
-        try blas.geadd(ob.io, T, 2, 2, val(T, .{ 1, 0 }), &a, 2, ob.zero(T), &c, 2, .t, p[0]);
+        try ext.geadd(ob.io, T, 2, 2, val(T, .{ 1, 0 }), &a, 2, ob.zero(T), &c, 2, .t, p[0]);
         for (c, p[1]) |got, from| try ob.expect(ob.eql(got, a[from]), "c_api_matrix_2x2_transA");
     }
 }
@@ -712,7 +713,7 @@ fn matcopyCase(comptime T: type, comptime in_place: bool, c: Case, r: std.Random
             else => error.InvalidLdb,
         };
         const one = val(T, .{ 1, 1 });
-        const res = if (in_place) blas.imatcopy(al, ob.io, T, tr, c.m, c.n, one, &a, c.lda, c.ldb) else blas.omatcopy(ob.io, T, tr, c.m, c.n, one, &a, c.lda, &b, c.ldb);
+        const res = if (in_place) ext.imatcopy(al, ob.io, T, tr, c.m, c.n, one, &a, c.lda, c.ldb) else ext.omatcopy(ob.io, T, tr, c.m, c.n, one, &a, c.lda, &b, c.ldb);
         return ob.expectError(want, res, c.name);
     }
     const rows: usize = @intCast(c.m);
@@ -736,9 +737,9 @@ fn matcopyCase(comptime T: type, comptime in_place: bool, c: Case, r: std.Random
         want[i + j * ldb] = ob.mul(alpha, if (c.trans == 'R' or c.trans == 'C') ob.conj(x) else x);
     };
     if (in_place) {
-        try blas.imatcopy(al, ob.io, T, tr, c.m, c.n, alpha, a.ptr, c.lda, c.ldb);
+        try ext.imatcopy(al, ob.io, T, tr, c.m, c.n, alpha, a.ptr, c.lda, c.ldb);
         @memcpy(b, a[0..b.len]);
-    } else try blas.omatcopy(ob.io, T, tr, c.m, c.n, alpha, a.ptr, c.lda, b.ptr, c.ldb);
+    } else try ext.omatcopy(ob.io, T, tr, c.m, c.n, alpha, a.ptr, c.lda, b.ptr, c.ldb);
     try expectNorm(c.name, T, matDiff(T, out_rows, out_cols, b, want, ldb), tol(T, single_eps, double_eps));
 }
 
@@ -798,11 +799,11 @@ fn complexGemm() !void {
         var tav = transOf(c.transa);
         var tbv = transOf(c.transb);
         if (c.transa == 'R') {
-            try blas.imatcopy(al, ob.io, T, .r, rows_a, cols_a, one, av.ptr, c.lda, c.lda);
+            try ext.imatcopy(al, ob.io, T, .r, rows_a, cols_a, one, av.ptr, c.lda, c.lda);
             tav = .n;
         }
         if (c.transb == 'R') {
-            try blas.imatcopy(al, ob.io, T, .r, rows_b, cols_b, one, bv.ptr, c.ldb, c.ldb);
+            try ext.imatcopy(al, ob.io, T, .r, rows_b, cols_b, one, bv.ptr, c.ldb, c.ldb);
             tbv = .n;
         }
         const alpha = val(T, c.alpha);

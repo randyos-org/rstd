@@ -60,9 +60,16 @@ pub const GemmtHalfError = l3api.HalfError;
 pub const BatchError = l3api.BatchError;
 /// One group of `gemmBatch` or `gemmHalfBatch`, by input and output type.
 pub const GemmGroup = l3api.Group;
-/// The extensions (`geadd`, `omatcopy`, `imatcopy`, `laswp`): bad arguments,
-/// `error.OutOfMemory` (`imatcopy`) or `error.Canceled`.
-pub const ExtError = ext.interface.Error;
+/// `laswp`: a row or pivot outside the matrix, a slice too short or a leading
+/// dimension too small.
+pub const LaswpError = ext.api.LaswpError;
+/// `geadd`: an unsupported letter, a slice too short or a leading dimension
+/// too small.
+pub const GeaddError = ext.api.GeaddError;
+/// `omatcopy`: `GeaddError`, and `error.Overlap` where `A` and `B` share memory.
+pub const OmatcopyError = ext.api.OmatcopyError;
+/// `imatcopy`: `GeaddError`, and `error.OutOfMemory`.
+pub const ImatcopyError = ext.api.ImatcopyError;
 
 pub const copy = l1.copy;
 pub const swap = l1.swap;
@@ -131,10 +138,10 @@ pub const gemm3m = l3api.gemm3m;
 pub const symm3m = l3api.symm3m;
 pub const hemm3m = l3api.hemm3m;
 
-pub const geadd = ext.interface.geadd;
-pub const omatcopy = ext.interface.omatcopy;
-pub const imatcopy = ext.interface.imatcopy;
-pub const laswp = ext.interface.laswp;
+pub const geadd = ext.api.geadd;
+pub const omatcopy = ext.api.omatcopy;
+pub const imatcopy = ext.api.imatcopy;
+pub const laswp = ext.api.laswp;
 
 pub const gemmHalf = l3api.gemmHalf;
 pub const gemmtHalf = l3api.gemmtHalf;
