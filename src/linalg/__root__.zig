@@ -5,8 +5,8 @@ pub const blas = @import("blas/__root__.zig");
 pub const lapack = @import("lapack/__root__.zig");
 
 // the public layer (design.md, "Planned: the public `rstd.linalg` layer"):
-// its types, and `dense.zig`'s run-time-shape functions, flat
-const dense = @import("dense.zig");
+// its types, and `dense/`'s run-time-shape functions, flat
+const dense = @import("dense/__root__.zig");
 pub const Vec = vector.Vec;
 pub const StaticMat = matrix.StaticMat;
 pub const Mat = matrix.Mat;

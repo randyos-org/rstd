@@ -1245,7 +1245,7 @@ No BLAS and no limit; each operation is its native instruction, used as is.
 
 ##### Functions
 
-Re-exported flat at `rstd.linalg` from `src/linalg/dense.zig` (`matrix.zig` holds the types). Each takes
+Re-exported flat at `rstd.linalg` from `src/linalg/dense/` (`matrix.zig` holds the types; one file per family: reductions, products, inverse, factor, singular, eigen). Each takes
 views (any mix of `StaticMat`, `Mat` and borrowed storage); errors listed are beyond
 `OutOfMemory` and `Canceled`.
 
