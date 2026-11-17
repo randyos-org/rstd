@@ -67,7 +67,12 @@ const subspace = @import("subspace.zig");
 pub const orth = subspace.orth;
 pub const nullSpace = subspace.nullSpace;
 
+const condition = @import("condition.zig");
+pub const RcondError = condition.RcondError;
+pub const rcond = condition.rcond;
+
 test {
+    _ = @import("condition.zig");
     _ = @import("subspace.zig");
     _ = @import("reductions.zig");
     _ = @import("products.zig");

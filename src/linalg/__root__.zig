@@ -58,6 +58,8 @@ pub const eig = dense.eig;
 pub const pinv = dense.pinv;
 pub const orth = dense.orth;
 pub const nullSpace = dense.nullSpace;
+pub const RcondError = dense.RcondError;
+pub const rcond = dense.rcond;
 pub const rank = dense.rank;
 pub const cond = dense.cond;
 
