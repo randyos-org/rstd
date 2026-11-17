@@ -3,6 +3,7 @@ pub const matrix = @import("matrix.zig");
 pub const blas = @import("blas/__root__.zig");
 pub const lapack = @import("lapack/__root__.zig");
 pub const gallery = @import("gallery.zig");
+pub const poly = @import("poly.zig");
 
 // the public layer (design.md, "Planned: the public `rstd.linalg` layer"):
 // its types, and `dense/`'s run-time-shape functions, flat
