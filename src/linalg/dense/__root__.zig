@@ -94,7 +94,17 @@ pub const realPart = elementwise.realPart;
 pub const imagPart = elementwise.imagPart;
 pub const conj = elementwise.conj;
 
+const schur_form = @import("schur_form.zig");
+pub const HessError = schur_form.HessError;
+pub const Hess = schur_form.Hess;
+pub const hess = schur_form.hess;
+pub const SchurError = schur_form.SchurError;
+pub const Schur = schur_form.Schur;
+pub const schur = schur_form.schur;
+pub const schurComplex = schur_form.schurComplex;
+
 test {
+    _ = @import("schur_form.zig");
     _ = @import("elementwise.zig");
     _ = @import("vector_norm.zig");
     _ = @import("condition.zig");

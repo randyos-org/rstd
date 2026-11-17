@@ -79,6 +79,13 @@ pub const mapInto = dense.mapInto;
 pub const realPart = dense.realPart;
 pub const imagPart = dense.imagPart;
 pub const conj = dense.conj;
+pub const HessError = dense.HessError;
+pub const Hess = dense.Hess;
+pub const hess = dense.hess;
+pub const SchurError = dense.SchurError;
+pub const Schur = dense.Schur;
+pub const schur = dense.schur;
+pub const schurComplex = dense.schurComplex;
 pub const rank = dense.rank;
 pub const cond = dense.cond;
 
