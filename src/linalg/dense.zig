@@ -403,12 +403,11 @@ fn leastSquares(allocator: Allocator, io: Io, o: anytype, a: ConstView(@TypeOf(o
     const x = try allocator.alloc(T, ldx * b.cols);
     defer allocator.free(x);
     copyInto(T, x, ldx, b);
-    const jpvt = try allocator.alloc(isize, n);
+    const jpvt = try allocator.alloc(usize, n);
     defer allocator.free(jpvt);
     @memset(jpvt, 0);
     const rcond = @as(F, @floatFromInt(ldx)) * std.math.floatEps(F);
-    var got_rank: isize = undefined;
-    lapack.gelsy(allocator, io, T, toIsize(m), toIsize(n), toIsize(b.cols), f.data.ptr, toIsize(m), x.ptr, toIsize(ldx), jpvt.ptr, rcond, &got_rank) catch |e| return narrow(Error, e);
+    _ = lapack.gelsy(allocator, io, T, m, n, b.cols, f.data, m, x, ldx, jpvt, rcond) catch |e| return narrow(Error, e);
     for (0..o.cols) |j| @memcpy(o.col(j), x[j * ldx ..][0..n]);
 }
 
@@ -517,8 +516,8 @@ pub fn qr(allocator: Allocator, io: Io, a: anytype, mode: QrMode) (Allocator.Err
     defer f.deinit(allocator);
     const tau = try allocator.alloc(T, k);
     defer allocator.free(tau);
-    const ld = toIsize(@max(m, 1));
-    lapack.geqrf(allocator, io, T, toIsize(m), toIsize(n), f.data.ptr, ld, tau.ptr) catch |e| return narrow(Error, e);
+    const ld = @max(m, 1);
+    lapack.geqrf(allocator, io, T, m, n, f.data, ld, tau) catch |e| return narrow(Error, e);
     const r = try Mat(T).zeros(allocator, qc, n);
     errdefer r.deinit(allocator);
     for (0..n) |j| for (0..@min(j + 1, k)) |i| {
@@ -527,7 +526,7 @@ pub fn qr(allocator: Allocator, io: Io, a: anytype, mode: QrMode) (Allocator.Err
     const q = try Mat(T).zeros(allocator, m, qc);
     errdefer q.deinit(allocator);
     for (0..k) |j| @memcpy(q.data[j * m ..][0..m], f.data[j * m ..][0..m]);
-    if (m > 0) lapack.orgqr(allocator, io, T, toIsize(m), toIsize(qc), toIsize(k), q.data.ptr, ld, tau.ptr) catch |e| return narrow(Error, e);
+    if (m > 0) lapack.orgqr(allocator, io, T, m, qc, k, q.data, ld, tau) catch |e| return narrow(Error, e);
     return .{ .q = q, .r = r };
 }
 

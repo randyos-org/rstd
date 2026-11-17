@@ -54,6 +54,19 @@ pub fn takes(trans: types.Trans) TransError!void {
     if (trans.conjX()) return error.UnsupportedTranspose;
 }
 
+/// More reflections than the matrix they act on holds.
+pub const ReflectionsError = error{TooManyReflections};
+
+/// `trans` is `n`, `t` or `c` (complex: `n` or `c`), as the orthogonal and
+/// unitary routines take it.
+pub fn takesAdjoint(comptime T: type, trans: types.Trans) TransError!void {
+    switch (trans) {
+        .n, .c => {},
+        .t => if (comptime types.isComplex(T)) return error.UnsupportedTranspose,
+        .r, .o, .u, .s, .d => return error.UnsupportedTranspose,
+    }
+}
+
 /// `ipiv` holds `n` pivots, each a row of the order `n` matrix.
 pub fn pivotsIn(ipiv: []const usize, n: usize) (strided.SliceError || PivotError)!void {
     if (ipiv.len < n) return error.SliceTooShort;

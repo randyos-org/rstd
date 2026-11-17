@@ -11,6 +11,7 @@ const auxiliary = @import("auxiliary.zig");
 const hh = @import("householder.zig");
 const qr = @import("qr.zig");
 const util = @import("../blas/util.zig");
+const interface = @import("interface.zig");
 const tri = @import("triangular.zig");
 const types = @import("../blas/types.zig");
 
@@ -21,10 +22,11 @@ const Float = ops.Float;
 const isComplex = ops.isComplex;
 const Trans = types.Trans;
 
-/// What `gels` returns: `InvalidTrans` for other than `n`, `t` or `c`
-/// (complex: `n` or `c`); `Singular` when `A`'s triangular factor has a
-/// zero on its diagonal (`A` is rank deficient).
-pub const GelsError = error{ InvalidTrans, InvalidM, InvalidN, InvalidNrhs, InvalidLda, InvalidLdb, Singular } || Allocator.Error || Io.Cancelable;
+/// What `gels` returns: a `trans` other than `n`, `t` or `c` (complex: `n`
+/// or `c`); a slice too short or a leading dimension too small; `Singular`
+/// when `A`'s triangular factor has a zero on its diagonal (`A` is rank
+/// deficient); and the allocator's and cancellation.
+pub const GelsError = interface.TransError || interface.ShapeError || interface.SingularError || Allocator.Error || Io.Cancelable;
 
 /// `?GELS`: for the `m x n` `A` of full rank, the least-squares solution of
 /// `op(A) X = B` where it is overdetermined, the minimum-norm one where
@@ -32,28 +34,17 @@ pub const GelsError = error{ InvalidTrans, InvalidM, InvalidN, InvalidNrhs, Inva
 /// nrhs` and takes `X` in its first `n` rows (`m` for `Aᴴ`); for an
 /// overdetermined system the rows past them hold each column's residual,
 /// whose norm is the residual's. `A` takes `geqrf`'s factor (`m >= n`) or
-/// `gelqf`'s (`m < n`). `Singular` (with the zero's 1-based index in
-/// `pivot`) leaves `B` part solved, as the reference's `INFO > 0`.
-pub fn gels(allocator: Allocator, io: Io, comptime T: type, trans: Trans, m: isize, n: isize, nrhs: isize, a: [*]T, lda: isize, b: [*]T, ldb: isize, pivot: ?*usize) GelsError!void {
+/// `gelqf`'s (`m < n`). `Singular` leaves `B` part solved, as the
+/// reference's `INFO > 0`.
+pub fn gels(allocator: Allocator, io: Io, comptime T: type, trans: Trans, m: usize, n: usize, nrhs: usize, a: []T, lda: usize, b: []T, ldb: usize) GelsError!void {
     comptime ops.requireFloat(T, "gels");
-    switch (trans) {
-        .n, .c => {},
-        .t => if (comptime isComplex(T)) return error.InvalidTrans,
-        .r, .o, .u, .s, .d => return error.InvalidTrans,
-    }
-    if (m < 0) return error.InvalidM;
-    if (n < 0) return error.InvalidN;
-    if (nrhs < 0) return error.InvalidNrhs;
-    if (lda < @max(1, m)) return error.InvalidLda;
-    if (ldb < @max(1, @max(m, n))) return error.InvalidLdb;
-    if (!util.fitsMatrix(m, n, lda, @sizeOf(T))) return error.InvalidLda;
-    if (!util.fitsMatrix(@max(m, n), nrhs, ldb, @sizeOf(T))) return error.InvalidLdb;
-    const um: usize = @intCast(m);
-    const un: usize = @intCast(n);
-    const bm: Mat(T) = .{ .ptr = b, .rows = @max(um, un), .cols = @intCast(nrhs), .ld = @intCast(ldb) };
-    if (um == 0 or un == 0 or bm.cols == 0) return bm.fill(ops.zero(T));
-    const am: Mat(T) = .{ .ptr = a, .rows = um, .cols = un, .ld = @intCast(lda) };
-    solve(allocator, io, T, trans != .n, am, bm, pivot) catch |e| return switch (e) {
+    try interface.takesAdjoint(T, trans);
+    try util.holds(a.len, m, n, lda);
+    try util.holds(b.len, @max(m, n), nrhs, ldb);
+    const bm: Mat(T) = .{ .ptr = b.ptr, .rows = @max(m, n), .cols = nrhs, .ld = ldb };
+    if (m == 0 or n == 0 or nrhs == 0) return bm.fill(ops.zero(T));
+    const am: Mat(T) = .{ .ptr = a.ptr, .rows = m, .cols = n, .ld = lda };
+    solve(allocator, io, T, trans != .n, am, bm) catch |e| return switch (e) {
         error.Singular => error.Singular,
         error.OutOfMemory => error.OutOfMemory,
         error.Canceled => error.Canceled,
@@ -63,7 +54,7 @@ pub fn gels(allocator: Allocator, io: Io, comptime T: type, trans: Trans, m: isi
 const SolveError = error{Singular} || ops.Error;
 
 /// `gels` after its checks; `adjoint` solves with `Aᴴ`.
-fn solve(al: Allocator, io: Io, comptime T: type, adjoint: bool, a: Mat(T), b: Mat(T), pivot: ?*usize) SolveError!void {
+fn solve(al: Allocator, io: Io, comptime T: type, adjoint: bool, a: Mat(T), b: Mat(T)) SolveError!void {
     const F = Float(T);
     const m = a.rows;
     const n = a.cols;
@@ -95,9 +86,9 @@ fn solve(al: Allocator, io: Io, comptime T: type, adjoint: bool, a: Mat(T), b: M
     const big = fm.rows;
     if (over) {
         try hh.applySequenceTransposed(al, io, T, fm, h, true, b.sub(0, 0, big, nrhs));
-        try trtrs(al, io, T, .n, fm, b, pivot);
+        try trtrs(al, io, T, .n, fm, b);
     } else {
-        try trtrs(al, io, T, ct, fm, b, pivot);
+        try trtrs(al, io, T, ct, fm, b);
         b.sub(k, 0, big - k, nrhs).fill(ops.zero(T));
         try hh.applySequence(al, io, T, fm, h, false, b.sub(0, 0, big, nrhs));
     }
@@ -115,13 +106,9 @@ fn transposeInto(comptime T: type, src: Mat(T), dst: Mat(T)) void {
 }
 
 /// `trtrs` on `R` (`r`'s upper `k x k`) with `B`'s first `k` rows.
-fn trtrs(al: Allocator, io: Io, comptime T: type, trans: Trans, r: Mat(T), b: Mat(T), pivot: ?*usize) SolveError!void {
+fn trtrs(al: Allocator, io: Io, comptime T: type, trans: Trans, r: Mat(T), b: Mat(T)) SolveError!void {
     const k = r.cols;
-    // `gels` reports the zero 1-based until Z14 (issue #315)
-    if (tri.firstZero(T, k, r.ptr, r.ld)) |z| {
-        if (pivot) |p| p.* = z + 1;
-        return error.Singular;
-    }
+    if (tri.firstZero(T, k, r.ptr, r.ld) != null) return error.Singular;
     tri.trtrs(al, io, T, .u, trans, .n, k, b.cols, r.sub(0, 0, k, k).slice(), r.ld, b.sub(0, 0, k, b.cols).slice(), b.ld) catch |e| return switch (e) {
         error.Singular => error.Singular,
         error.OutOfMemory => error.OutOfMemory,
@@ -207,7 +194,7 @@ test "faer gels: tall and wide, A and Aᴴ, least squares and minimum norm" {
             const b = try ops.alloc(T, al, big, nrhs);
             defer ops.free(T, al, b);
             b.copyFrom(b0);
-            try gels(al, check.io, T, if (adj) .c else .n, @intCast(m), @intCast(n), nrhs, a.ptr, @intCast(m), b.ptr, @intCast(big), null);
+            try gels(al, check.io, T, if (adj) .c else .n, m, n, nrhs, a.slice(), m, b.slice(), big);
             const x = b.sub(0, 0, cols, nrhs);
             const tol = 10 * thresh * @as(F, @floatFromInt(big)) * eps * @max(auxiliary.normMax(T, x0), 1);
             for (0..nrhs) |j| for (0..cols) |i| {
@@ -245,7 +232,7 @@ test "faer gels: an inconsistent tall system's residual is orthogonal to A (dqrt
         const b = try ops.alloc(T, al, m, nrhs);
         defer ops.free(T, al, b);
         b.copyFrom(b0);
-        try gels(al, check.io, T, .n, m, n, nrhs, a.ptr, m, b.ptr, m, null);
+        try gels(al, check.io, T, .n, m, n, nrhs, a.slice(), m, b.slice(), m);
         // r = B - A X; ‖Aᴴ r‖ / (max(m, n, nrhs) ‖A‖ ‖B‖ eps) < thresh
         const r = b0;
         try blas_calls.gemm(al, check.io, T, .n, .n, ops.neg(T, ops.one(T)), a0, b.sub(0, 0, n, nrhs), ops.one(T), r);
@@ -269,15 +256,13 @@ test "faer gels: rank deficient is Singular, a zero A zeroes B, empty zeroes B, 
         check.fill(T, &a, 1);
         check.fill(T, &b, 2);
         @memset(a[2 * m .. 3 * m], ops.zero(T));
-        var piv: usize = 0;
-        try testing.expectError(error.Singular, gels(al, check.io, T, .n, m, n, 2, &a, m, &b, m, &piv));
-        try testing.expectEqual(@as(usize, 3), piv);
+        try testing.expectError(error.Singular, gels(al, check.io, T, .n, m, n, 2, &a, m, &b, m));
         @memset(&a, ops.zero(T));
-        try gels(al, check.io, T, .n, m, n, 2, &a, m, &b, m, null);
+        try gels(al, check.io, T, .n, m, n, 2, &a, m, &b, m);
         for (b) |x| try testing.expect(ops.isZero(T, x));
         // m = 0: B's max(m, n) rows zeroed
         check.fill(T, &b, 3);
-        try gels(al, check.io, T, .n, 0, 3, 2, &a, 1, &b, 3, null);
+        try gels(al, check.io, T, .n, 0, 3, 2, &a, 1, &b, 3);
         for (b[0..6]) |x| try testing.expect(ops.isZero(T, x));
         // scaled past SMLNUM and BIGNUM: the unscaled answer, scaled back
         for ([_]F{ std.math.floatMin(F) * 16, std.math.floatMax(F) / 16 }) |sc| {
@@ -288,8 +273,8 @@ test "faer gels: rank deficient is Singular, a zero A zeroes B, empty zeroes B, 
             var a2 = a1;
             var b2 = b1;
             for (&a2) |*x| x.* = ops.mulReal(T, x.*, sc);
-            try gels(al, check.io, T, .n, m, n, 1, &a1, m, &b1, m, null);
-            try gels(al, check.io, T, .n, m, n, 1, &a2, m, &b2, m, null);
+            try gels(al, check.io, T, .n, m, n, 1, &a1, m, &b1, m);
+            try gels(al, check.io, T, .n, m, n, 1, &a2, m, &b2, m);
             // relative to the answer's largest entry: 10 thresh eps
             var big: F = 0;
             for (b1[0..n]) |x| big = @max(big, ops.abs(T, x));
@@ -302,20 +287,19 @@ test "faer gels: rank deficient is Singular, a zero A zeroes B, empty zeroes B, 
         check.fill(T, &a, 6);
         check.fill(T, &b, 7);
         a[4] = ops.scalar(T, std.math.nan(F));
-        try gels(al, check.io, T, .n, m, n, 2, &a, m, &b, m, null);
+        try gels(al, check.io, T, .n, m, n, 2, &a, m, &b, m);
         try testing.expect(std.math.isNan(ops.re(T, b[0])));
     }
 }
 
-test "faer gels: reports the first bad argument" {
+test "faer gels: bad arguments" {
     const fa = testing.failing_allocator;
     var a: [4]f64 = @splat(0);
     var b: [4]f64 = @splat(0);
-    try testing.expectError(error.InvalidTrans, gels(fa, check.io, f64, .r, -1, -1, -1, &a, 0, &b, 0, null));
-    try testing.expectError(error.InvalidTrans, gels(fa, check.io, types.Complex64, .t, 1, 1, 1, @ptrCast(&a), 1, @ptrCast(&b), 1, null));
-    try testing.expectError(error.InvalidM, gels(fa, check.io, f64, .n, -1, -1, -1, &a, 0, &b, 0, null));
-    try testing.expectError(error.InvalidN, gels(fa, check.io, f64, .n, 1, -1, -1, &a, 0, &b, 0, null));
-    try testing.expectError(error.InvalidNrhs, gels(fa, check.io, f64, .n, 1, 1, -1, &a, 0, &b, 0, null));
-    try testing.expectError(error.InvalidLda, gels(fa, check.io, f64, .n, 2, 1, 1, &a, 1, &b, 0, null));
-    try testing.expectError(error.InvalidLdb, gels(fa, check.io, f64, .n, 1, 2, 1, &a, 1, &b, 1, null));
+    try testing.expectError(error.UnsupportedTranspose, gels(fa, check.io, f64, .r, 1, 1, 1, &a, 1, &b, 1));
+    try testing.expectError(error.UnsupportedTranspose, gels(fa, check.io, types.Complex64, .t, 1, 1, 1, @ptrCast(&a), 1, @ptrCast(&b), 1));
+    try testing.expectError(error.LeadingDimensionTooSmall, gels(fa, check.io, f64, .n, 2, 1, 1, &a, 1, &b, 2));
+    try testing.expectError(error.LeadingDimensionTooSmall, gels(fa, check.io, f64, .n, 1, 2, 1, &a, 1, &b, 1));
+    try testing.expectError(error.SliceTooShort, gels(fa, check.io, f64, .n, 2, 3, 1, &a, 2, &b, 3));
+    try testing.expectError(error.SliceTooShort, gels(fa, check.io, f64, .n, 2, 2, 3, &a, 2, &b, 2));
 }

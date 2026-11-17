@@ -8,6 +8,7 @@ const blas = @import("../blas/__root__.zig");
 const l2 = @import("../blas/blas2/core.zig");
 const types = @import("../blas/types.zig");
 const util = @import("../blas/util.zig");
+const interface = @import("interface.zig");
 const ops = @import("ops.zig");
 const blas_calls = @import("blas_calls.zig");
 const auxiliary = @import("auxiliary.zig");
@@ -237,39 +238,35 @@ fn ormr3(al: Allocator, io: Io, comptime T: type, k: usize, l: usize, a: Mat(T),
 
 // ---- xGELSY ------------------------------------------------------------------------
 
-/// What `gelsy` returns.
-pub const GelsyError = error{ InvalidM, InvalidN, InvalidNrhs, InvalidLda, InvalidLdb } || Allocator.Error || Io.Cancelable;
+/// What `gelsy` returns: a slice too short (`a`, `b`, or `jpvt` under `n`)
+/// or a leading dimension too small, and the allocator's and cancellation.
+pub const GelsyError = interface.ShapeError || Allocator.Error || Io.Cancelable;
 
 /// `?GELSY` (`dgelsy.f`, `zgelsy.f`): the minimum-norm solution of
 /// `min ‖A X - B‖` for the `m x n` `A` of any rank, by the complete
-/// orthogonal factorization. The effective rank, written to `rank`, is the
-/// largest leading `R11` of `A P = Q R` whose condition estimate stays
-/// below `1 / rcond`. `B` is `max(m, n) x nrhs`; `X` replaces its first `n`
-/// rows. `jpvt` as `geqp3`'s: nonzero entries fix columns to the front; on
-/// exit, `A P`'s columns. `A` is overwritten by the factorization.
-pub fn gelsy(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize, nrhs: isize, a: [*]T, lda: isize, b: [*]T, ldb: isize, jpvt: [*]isize, rcond: Float(T), rank: *isize) GelsyError!void {
+/// orthogonal factorization. Returns the effective rank: the largest
+/// leading `R11` of `A P = Q R` whose condition estimate stays below
+/// `1 / rcond`. `B` is `max(m, n) x nrhs`; `X` replaces its first `n` rows.
+/// `jpvt` as `geqp3`'s: nonzero entries fix columns to the front; on exit,
+/// `A P`'s columns, 0-based. `A` is overwritten by the factorization.
+pub fn gelsy(allocator: Allocator, io: Io, comptime T: type, m: usize, n: usize, nrhs: usize, a: []T, lda: usize, b: []T, ldb: usize, jpvt: []usize, rcond: Float(T)) GelsyError!usize {
     comptime ops.requireFloat(T, "gelsy");
     const F = Float(T);
-    if (m < 0) return error.InvalidM;
-    if (n < 0) return error.InvalidN;
-    if (nrhs < 0) return error.InvalidNrhs;
-    if (lda < @max(1, m)) return error.InvalidLda;
-    if (ldb < @max(1, m, n)) return error.InvalidLdb;
+    try util.holds(a.len, m, n, lda);
+    try util.holds(b.len, @max(m, n), nrhs, ldb);
+    if (jpvt.len < n) return error.SliceTooShort;
     const mn = @min(m, n);
-    rank.* = 0;
-    if (mn == 0 or nrhs == 0) return;
-    if (!util.fitsMatrix(m, n, lda, @sizeOf(T))) return error.InvalidLda;
-    if (!util.fitsMatrix(@max(m, n), nrhs, ldb, @sizeOf(T))) return error.InvalidLdb;
+    if (mn == 0 or nrhs == 0) return 0;
     const al = allocator;
-    const um: usize = @intCast(m);
-    const un: usize = @intCast(n);
-    const umn: usize = @intCast(mn);
-    const am: Mat(T) = .{ .ptr = a, .rows = um, .cols = un, .ld = @intCast(lda) };
-    const bm: Mat(T) = .{ .ptr = b, .rows = @max(um, un), .cols = @intCast(nrhs), .ld = @intCast(ldb) };
+    const um = m;
+    const un = n;
+    const umn = mn;
+    const am: Mat(T) = .{ .ptr = a.ptr, .rows = um, .cols = un, .ld = lda };
+    const bm: Mat(T) = .{ .ptr = b.ptr, .rows = @max(um, un), .cols = nrhs, .ld = ldb };
     const smlnum = std.math.floatMin(F) / std.math.floatEps(F);
     const bignum = 1 / smlnum;
     // scale A and B into [smlnum, bignum]
-    const anrm = try norm.matNorm(al, T, .m, um, un, a, am.ld);
+    const anrm = try norm.matNorm(al, T, .m, um, un, a.ptr, am.ld);
     var iascl: F = 0;
     if (anrm > 0 and anrm < smlnum) {
         auxiliary.lascl(T, false, anrm, smlnum, am);
@@ -279,10 +276,10 @@ pub fn gelsy(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize,
         iascl = bignum;
     } else if (anrm == 0) {
         bm.fill(ops.zero(T));
-        return;
+        return 0;
     }
     const brows = bm.sub(0, 0, um, bm.cols);
-    const bnrm = try norm.matNorm(al, T, .m, um, bm.cols, b, bm.ld);
+    const bnrm = try norm.matNorm(al, T, .m, um, bm.cols, b.ptr, bm.ld);
     var ibscl: F = 0;
     if (bnrm > 0 and bnrm < smlnum) {
         auxiliary.lascl(T, false, bnrm, smlnum, brows);
@@ -293,7 +290,7 @@ pub fn gelsy(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize,
     }
     const tau = try al.alloc(T, umn);
     defer al.free(tau);
-    try qr_pivot.factor(al, io, T, am, jpvt, tau.ptr);
+    try qr_pivot.factor(al, io, T, am, jpvt[0..un], tau.ptr);
     // the rank, by incremental condition estimation on R
     const xmin = try al.alloc(T, umn);
     defer al.free(xmin);
@@ -305,7 +302,7 @@ pub fn gelsy(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize,
     var smin = smax;
     if (smax == 0) {
         bm.fill(ops.zero(T));
-        return;
+        return 0;
     }
     var r: usize = 1;
     while (r < umn) {
@@ -323,7 +320,6 @@ pub fn gelsy(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize,
         smax = hi.sestpr;
         r += 1;
     }
-    rank.* = @intCast(r);
     // [R11 R12] = [T11 0] Z
     const ztau = try al.alloc(T, r);
     defer al.free(ztau);
@@ -338,7 +334,7 @@ pub fn gelsy(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize,
     defer al.free(work);
     for (0..bm.cols) |j| {
         const col = bm.col(j);
-        for (0..un) |i| work[@intCast(jpvt[i] - 1)] = col[i];
+        for (0..un) |i| work[jpvt[i]] = col[i];
         @memcpy(col[0..un], work);
     }
     // undo the scaling
@@ -348,6 +344,7 @@ pub fn gelsy(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize,
         auxiliary.lascl(T, true, iascl, anrm, am.sub(0, 0, r, r));
     }
     if (ibscl != 0) auxiliary.lascl(T, false, ibscl, bnrm, xrows);
+    return r;
 }
 
 // ---- tests -----------------------------------------------------------------------
@@ -415,13 +412,12 @@ fn gelsyCase(comptime T: type, al: Allocator, m: usize, n: usize, r: usize, nrhs
         }
         for (0..n) |j| wmax = @max(wmax, ops.abs(T, want.get(j, c)));
     }
-    const jpvt = try al.alloc(isize, n);
+    const jpvt = try al.alloc(usize, n);
     defer al.free(jpvt);
     @memset(jpvt, 0);
-    var rank: isize = -1;
     const rcond = 1000 * eps;
-    try gelsy(al, check.io, T, @intCast(m), @intCast(n), @intCast(nrhs), p.a.ptr, @intCast(p.a.ld), p.b.ptr, @intCast(p.b.ld), jpvt.ptr, rcond, &rank);
-    try testing.expectEqual(@as(isize, @intCast(r)), rank);
+    const rank = try gelsy(al, check.io, T, m, n, nrhs, p.a.slice(), p.a.ld, p.b.slice(), p.b.ld, jpvt, rcond);
+    try testing.expectEqual(r, rank);
     const cond = if (r > 0) sv[0] / sv[r - 1] else 1;
     const tol = thresh * @as(F, @floatFromInt(@max(m, n))) * eps * cond * @max(wmax, 1);
     for (0..nrhs) |c| for (0..n) |j| {
@@ -456,33 +452,26 @@ test "lapack gelsy: a zero A, a fixed column, empty, bad arguments" {
     inline for (test_types) |T| {
         var a: [6]T = @splat(ops.zero(T));
         var b: [3]T = @splat(ops.one(T));
-        var jpvt = [_]isize{ 0, 0 };
-        var rank: isize = -1;
-        try gelsy(al, check.io, T, 3, 2, 1, &a, 3, &b, 3, &jpvt, 0.01, &rank);
-        try testing.expectEqual(@as(isize, 0), rank);
+        var jpvt = [_]usize{ 0, 0 };
+        try testing.expectEqual(0, try gelsy(al, check.io, T, 3, 2, 1, &a, 3, &b, 3, &jpvt, 0.01));
         for (b) |v| try testing.expect(ops.isZero(T, v));
-        // column 2 fixed first; the solution of a square, well-conditioned A
+        // column 1 fixed first; the solution of a square, well-conditioned A
         var c = [_]T{ ops.scalar(T, 4), ops.scalar(T, 1), ops.scalar(T, 1), ops.scalar(T, 3) };
         var d = [_]T{ ops.scalar(T, 5), ops.scalar(T, 4) };
         jpvt = .{ 0, 1 };
-        try gelsy(al, check.io, T, 2, 2, 1, &c, 2, &d, 2, &jpvt, 0.01, &rank);
-        try testing.expectEqual(@as(isize, 2), rank);
-        try testing.expectEqualSlices(isize, &.{ 2, 1 }, &jpvt);
+        try testing.expectEqual(2, try gelsy(al, check.io, T, 2, 2, 1, &c, 2, &d, 2, &jpvt, 0.01));
+        try testing.expectEqualSlices(usize, &.{ 1, 0 }, &jpvt);
         const tol = 16 * std.math.floatEps(Float(T));
         try testing.expect(ops.abs(T, ops.sub(T, d[0], ops.one(T))) <= tol);
         try testing.expect(ops.abs(T, ops.sub(T, d[1], ops.one(T))) <= tol);
-        rank = -1;
-        try gelsy(al, check.io, T, 0, 2, 1, &a, 1, &b, 2, &jpvt, 0.01, &rank);
-        try testing.expectEqual(@as(isize, 0), rank);
+        try testing.expectEqual(0, try gelsy(al, check.io, T, 0, 2, 1, &a, 1, &b, 2, &jpvt, 0.01));
     }
     var a: [4]f64 = undefined;
-    var jp: [2]isize = undefined;
-    var rank: isize = 0;
-    try testing.expectError(error.InvalidM, gelsy(al, check.io, f64, -1, 0, 0, &a, 1, &a, 1, &jp, 0, &rank));
-    try testing.expectError(error.InvalidN, gelsy(al, check.io, f64, 1, -1, 0, &a, 1, &a, 1, &jp, 0, &rank));
-    try testing.expectError(error.InvalidNrhs, gelsy(al, check.io, f64, 1, 1, -1, &a, 1, &a, 1, &jp, 0, &rank));
-    try testing.expectError(error.InvalidLda, gelsy(al, check.io, f64, 2, 1, 1, &a, 1, &a, 2, &jp, 0, &rank));
-    try testing.expectError(error.InvalidLdb, gelsy(al, check.io, f64, 1, 2, 1, &a, 1, &a, 1, &jp, 0, &rank));
+    var jp: [2]usize = undefined;
+    try testing.expectError(error.LeadingDimensionTooSmall, gelsy(al, check.io, f64, 2, 1, 1, &a, 1, &a, 2, &jp, 0));
+    try testing.expectError(error.LeadingDimensionTooSmall, gelsy(al, check.io, f64, 1, 2, 1, &a, 1, &a, 1, &jp, 0));
+    try testing.expectError(error.SliceTooShort, gelsy(al, check.io, f64, 2, 3, 1, &a, 2, &a, 3, &jp, 0));
+    try testing.expectError(error.SliceTooShort, gelsy(al, check.io, f64, 1, 3, 1, &a, 1, &a, 3, &jp, 0));
 }
 
 test "lapack gelsy: one worker's bits at any worker count" {
@@ -505,9 +494,8 @@ test "lapack gelsy: one worker's bits at any worker count" {
             const io = runs.io(c);
             @memcpy(outs[c][0 .. m * n], p.a.ptr[0 .. m * n]);
             @memcpy(outs[c][m * n ..], p.b.ptr[0 .. m * nrhs]);
-            var jpvt: [n]isize = @splat(0);
-            var rank: isize = 0;
-            try gelsy(al, io, T, m, n, nrhs, outs[c].ptr, m, outs[c].ptr + m * n, m, &jpvt, 1e-5, &rank);
+            var jpvt: [n]usize = @splat(0);
+            _ = try gelsy(al, io, T, m, n, nrhs, outs[c][0 .. m * n], m, outs[c][m * n ..], m, &jpvt, 1e-5);
         }
         try test_io.expectSameBytes(outs);
     }
