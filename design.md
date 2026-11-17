@@ -205,7 +205,7 @@ Built on `rstd.fft`, for audio first:
   `Mdct` needs (sine, KBD); symmetric or periodic (MATLAB's `'symmetric'`, `'periodic'`). Done (`src/signal/window.zig`): MATLAB's definitions, SciPy's for the sine and KBD windows, which are even-length and symmetric only.
 - **STFT** and its inverse by weighted overlap-add, over `RealPlan`; hop, window and FFT size
   free.
-- **Partitioned convolution:** uniform-partitioned overlap-add over the unordered forms, for long
+- **Partitioned convolution:** uniformly partitioned overlap-save (`signal.Convolver`) over the unordered forms, for long
   filters (reverb) in real time: fixed latency, no allocation per block.
 
 ### Planned: N-d arrays
