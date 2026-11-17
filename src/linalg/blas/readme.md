@@ -28,7 +28,7 @@ How the code is structured, and why, is in [`design.md`](../design.md).
 
 - **Level 1:** `copy`, `swap`, `scal`, `dot`, `dotc`, `dsdot`, `sdsdot`, `nrm2`, `asum`, `sum`,
   the index and value extremes (`i?amax`, `i?amin`, `i?max`, `i?min`, `?amax`, `?amin`, `?max`,
-  `?min`), `rot`, `rotm`, `rotg`, `zrotg`, `rotmg`, `axpy`, `axpyc`, `axpby`, `cabs1`.
+  `?min`), `rot`, `rotm`, `rotg`, `zrotg`, `rotmg`, `axpy`, `axpyc`, `axpby`, `cabs1`. `sumWith`, `asumWith`, `dotWith` and `dotcWith` take a `Summation`: `.plain`, as the kernels sum, or `.compensated` (Neumaier's, portable, still one worker's bits at any worker count; `blas1/compensated.zig`). The plain forms stay the default until the benchmarks T138 asks for choose.
 - **Level 2:** `gemv`, `ger`, `gerc`, `symv`, `hemv`, `trmv`, `trsv`, `tbmv`, `tbsv`, `tpmv`,
   `tpsv`, `gbmv`, `sbmv`, `hbmv`, `spmv`, `hpmv`, `spr`, `spr2`, `syr`, `syr2`, `hpr`, `hpr2`,
   `her`, `her2`, including OpenBLAS's complex symmetric forms and `hemv`'s and `hbmv`'s
