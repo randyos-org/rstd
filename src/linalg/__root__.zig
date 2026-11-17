@@ -88,6 +88,8 @@ pub const schur = dense.schur;
 pub const schurComplex = dense.schurComplex;
 pub const ExpmError = dense.ExpmError;
 pub const expm = dense.expm;
+pub const SqrtmError = dense.SqrtmError;
+pub const sqrtm = dense.sqrtm;
 pub const rank = dense.rank;
 pub const cond = dense.cond;
 

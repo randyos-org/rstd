@@ -107,7 +107,12 @@ const expm_ = @import("expm.zig");
 pub const ExpmError = expm_.ExpmError;
 pub const expm = expm_.expm;
 
+const sqrtm_ = @import("sqrtm.zig");
+pub const SqrtmError = sqrtm_.SqrtmError;
+pub const sqrtm = sqrtm_.sqrtm;
+
 test {
+    _ = @import("sqrtm.zig");
     _ = @import("expm.zig");
     _ = @import("schur_form.zig");
     _ = @import("elementwise.zig");
