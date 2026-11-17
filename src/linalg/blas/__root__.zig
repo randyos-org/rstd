@@ -189,6 +189,8 @@ fn initCold() void {
 }
 
 /// The vtable, for code a routine reaches after its own `vtable()` call.
+/// Asserts, in safe builds, that it is installed: reaching a kernel first is
+/// a broken invariant.
 pub inline fn table() *const Vtable {
     if (comptime sysinfo.optimize.runtimeSafety()) std.debug.assert(phase.load(.monotonic) == .ready);
     return &_vtable;
