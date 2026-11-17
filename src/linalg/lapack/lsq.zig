@@ -397,7 +397,7 @@ fn gelsyCase(comptime T: type, al: Allocator, m: usize, n: usize, r: usize, nrhs
     defer ops.free(T, al, u);
     const vt = try ops.alloc(T, al, n, n);
     defer ops.free(T, al, vt);
-    try svd.gesvd(al, check.io, T, .a, .a, @intCast(m), @intCast(n), sa.ptr, @intCast(m), sv.ptr, u.ptr, @intCast(m), vt.ptr, @intCast(n), null);
+    try svd.gesvd(al, check.io, T, .a, .a, m, n, sa.slice(), m, sv, u.slice(), m, vt.slice(), n, null);
     const want = try ops.alloc(T, al, n, nrhs);
     defer ops.free(T, al, want);
     want.fill(ops.zero(T));
