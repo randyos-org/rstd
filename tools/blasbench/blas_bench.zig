@@ -13,6 +13,7 @@ const l3thread = @import("l3thread.zig");
 const libs = @import("libs.zig");
 const ext = @import("ext.zig");
 const sparse_bench = @import("sparse_bench.zig");
+const inline_bench = @import("inline_bench.zig");
 
 const blas = rstd.linalg.blas;
 const Vtable = blas.Vtable;
@@ -174,6 +175,7 @@ pub fn main(init: std.process.Init) !void {
     if (!alone and want(sections.items, "kern3")) try ownLevel3(io, gpa);
     if (!alone and want(sections.items, "l3thread")) try l3thread.run(gpa);
     if (!alone and want(sections.items, "sparse")) try sparse_bench.run(io, gpa);
+    if (!alone and want(sections.items, "inline")) try inline_bench.run(io, gpa);
     const lib_sections = want(sections.items, "lib1") or want(sections.items, "lib2") or want(sections.items, "lib3") or want(sections.items, "lapack");
     if (lib_sections or (all and (opts.paths.get(.openblas) != null or alone))) {
         try loadLibs(opts);
