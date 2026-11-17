@@ -2,8 +2,9 @@
 //! (NumPy's `rfft`) and back, PocketFFT's `pocketfft_r`
 //! (`pocketfft_hdronly.h`, cpp branch, commit 4d865cba, BSD-3, LICENSE):
 //! `rfftp/` unless its cost model prefers Bluestein's on complex values,
-//! through FFTPACK's halfcomplex order either way. The unordered forms are
-//! pffft's, still stubs (N10).
+//! through FFTPACK's halfcomplex order either way. For f32 at pffft's sizes
+//! (`n = 32 2^a 3^b 5^c`, at most `2^26`), pffft's SIMD instead
+//! (`pffft/`), which alone has the unordered forms.
 
 const std = @import("std");
 const fft = @import("__root__.zig");
@@ -12,6 +13,7 @@ const util = @import("util.zig");
 const complex_plan = @import("plan.zig");
 const rfftp = @import("rfftp/__root__.zig");
 const bluestein = @import("bluestein.zig");
+const pffft = @import("pffft/__root__.zig");
 const batch = @import("batch.zig");
 
 const Allocator = std.mem.Allocator;
@@ -29,10 +31,15 @@ pub fn RealPlan(comptime T: type) type {
         kind: Kind,
 
         const Self = @This();
-        const Kind = union(enum) { pack: rfftp.Rfftp(T), blue: bluestein.Bluestein(T) };
+        const Kind = union(enum) { pack: rfftp.Rfftp(T), blue: bluestein.Bluestein(T), simd: pffft.Simd(T) };
 
         pub fn init(allocator: Allocator, n: usize) fft.InitError!Self {
             if (n == 0) return error.ZeroLength;
+            if (T == f32 and pffft.validSize(n, .real)) {
+                const s = try pffft.Setup.init(allocator, n, .real);
+                // the gathered reals and pffft's work buffer
+                return .{ .n = n, .scratch_len = 2 * n, .kind = .{ .simd = s } };
+            }
             // `pocketfft_r`'s choice
             const lpf = if (n < 50) 0 else util.largestPrimeFactor(n);
             if (lpf * lpf > n) blue: {
@@ -171,37 +178,61 @@ pub fn RealPlan(comptime T: type) type {
                     const cs: []C(T) = @alignCast(std.mem.bytesAsSlice(C(T), bytes[0 .. bytes.len / @sizeOf(C(T)) * @sizeOf(C(T))]));
                     b.execReal(buf, cs, f, fwd);
                 },
+                .simd => |*s| if (T == f32) {
+                    const n = self.n;
+                    if (fwd) {
+                        s.transform(buf.ptr, buf.ptr, rest.ptr, true, true);
+                        // pffft's `r0, r(n/2), r1, i1, ...` to the halfcomplex order
+                        const nyquist = buf[1];
+                        std.mem.copyForwards(T, buf[1 .. n - 1], buf[2..n]);
+                        buf[n - 1] = nyquist;
+                    } else {
+                        const nyquist = buf[n - 1];
+                        std.mem.copyBackwards(T, buf[2..n], buf[1 .. n - 1]);
+                        buf[1] = nyquist;
+                        s.transform(buf.ptr, buf.ptr, rest.ptr, false, true);
+                    }
+                    if (f != 1) for (buf) |*x| {
+                        x.* *= f;
+                    };
+                } else unreachable,
             }
         }
 
+        /// pffft's setup, which alone has the unordered forms.
+        fn unordered(self: *const Self) error{UnsupportedSize}!*const pffft.Setup {
+            return switch (self.kind) {
+                .simd => |*s| s,
+                .pack, .blue => error.UnsupportedSize,
+            };
+        }
+
         /// The spectrum as `n` reals in the plan's own order (pffft's), for
-        /// fast convolution: no reordering either way. Unnormalized.
-        pub fn forwardUnordered(self: *const Self, out: []T, in: []const T, scratch: []T) fft.FrameError!void {
-            _ = self;
-            _ = out;
-            _ = in;
-            _ = scratch;
-            return error.NotImplemented;
+        /// fast convolution: no reordering either way. Unnormalized. `out`
+        /// may be `in`; the scratch overlaps neither.
+        pub fn forwardUnordered(self: *const Self, out: []T, in: []const T, scratch: []T) fft.UnorderedError!void {
+            if (T != f32) return error.UnsupportedType;
+            const s = try self.unordered();
+            if (out.len < self.n or in.len < self.n or scratch.len < self.scratch_len) return error.SliceTooShort;
+            s.transform(in.ptr, out.ptr, scratch.ptr, true, false);
         }
 
         /// `acc += scale * a * b`, element-wise in the unordered spectrum.
-        /// `scale` 1 / n makes a round trip a circular convolution.
-        pub fn convolveAccumulate(self: *const Self, acc: []T, a: []const T, b: []const T, scale: T) fft.FrameError!void {
-            _ = self;
-            _ = acc;
-            _ = a;
-            _ = b;
-            _ = scale;
-            return error.NotImplemented;
+        /// `scale` 1 / n makes a round trip a circular convolution. The
+        /// three may alias.
+        pub fn convolveAccumulate(self: *const Self, acc: []T, a: []const T, b: []const T, scale: T) fft.UnorderedError!void {
+            if (T != f32) return error.UnsupportedType;
+            const s = try self.unordered();
+            if (acc.len < self.n or a.len < self.n or b.len < self.n) return error.SliceTooShort;
+            s.convolveAccumulate(a.ptr, b.ptr, acc.ptr, scale);
         }
 
-        /// Unnormalized.
-        pub fn backwardUnordered(self: *const Self, out: []T, in: []const T, scratch: []T) fft.FrameError!void {
-            _ = self;
-            _ = out;
-            _ = in;
-            _ = scratch;
-            return error.NotImplemented;
+        /// `forwardUnordered` undone. Unnormalized.
+        pub fn backwardUnordered(self: *const Self, out: []T, in: []const T, scratch: []T) fft.UnorderedError!void {
+            if (T != f32) return error.UnsupportedType;
+            const s = try self.unordered();
+            if (out.len < self.n or in.len < self.n or scratch.len < self.scratch_len) return error.SliceTooShort;
+            s.transform(in.ptr, out.ptr, scratch.ptr, false, false);
         }
     };
 }
