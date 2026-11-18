@@ -513,10 +513,26 @@ jobs:
       - uses: randyos-org/zig-toolchain/setup@main
 
       - uses: cachix/install-nix-action@v31
+        with:
+          # the runner may name the QEMU cache below as a substituter
+          extra_nix_config: trusted-users = root runner
+
+      # the PowerPC rigs' QEMU, patched (#223): no binary cache has it, so it is
+      # built once per pin and kept as a file binary cache in the Actions cache
+      - name: QEMU cache
+        id: qemu-cache
+        if: ${{ contains(matrix.rig, 'powerpc') }}
+        uses: actions/cache@v6
+        with:
+          path: ~/qemu-ppc-cache
+          key: qemu-ppc-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('tools/nix/flake.nix', 'tools/nix/flake.lock', 'tools/nix/qemu-xststdcsp.patch') }}
 
       # KVM for the runner's user: GitHub's documented udev rule. qemu_watch
       # finds the firmware in share/qemu beside the binary on PATH.
       - name: QEMU and KVM
+        env:
+          RIG: ${{ matrix.rig }}
+          CACHED: ${{ steps.qemu-cache.outputs.cache-hit }}
         run: |
           # arm64 runners have no /dev/kvm, where udevadm fails: TCG there
           if [ -e /dev/kvm ]; then
@@ -527,7 +543,17 @@ jobs:
           # -Dqemu-kvm only where the runner has KVM; the rigs without KVM arguments
           # run under TCG either way
           if [ -w /dev/kvm ]; then echo "KVM=-Dqemu-kvm" >> "$GITHUB_ENV"; else echo "::notice::no /dev/kvm on this runner: TCG"; fi
-          nix build ./tools/nix#qemu --out-link "$RUNNER_TEMP/qemu"
+          # the PowerPC rigs' emulators with xststdcsp fixed (#223), from the
+          # QEMU cache, or built here and kept there
+          if [[ "$RIG" == *powerpc* ]]; then
+            cache="file://$HOME/qemu-ppc-cache"
+            mkdir -p ~/qemu-ppc-cache
+            nix build --extra-substituters "$cache?trusted=1" ./tools/nix#qemu-ppc --out-link "$RUNNER_TEMP/qemu"
+            # the patched build alone (63 MB); cache.nixos.org has the rest
+            [ "$CACHED" = true ] || nix copy --no-recursive --to "$cache" ./tools/nix#qemu-ppc-patched
+          else
+            nix build ./tools/nix#qemu --out-link "$RUNNER_TEMP/qemu"
+          fi
           echo "$RUNNER_TEMP/qemu/bin" >> "$GITHUB_PATH"
           "$RUNNER_TEMP/qemu/bin/qemu-system-x86_64" --version
 

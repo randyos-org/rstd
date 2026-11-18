@@ -16,10 +16,25 @@
         system:
         let
           pkgs = (if system == "x86_64-darwin" then nixpkgs-x86_64-darwin else nixpkgs).legacyPackages.${system};
+          qemu-ppc-patched = (pkgs.qemu.override { hostCpuTargets = [ "ppc-softmmu" "ppc64-softmmu" ]; }).overrideAttrs (o: {
+            patches = (o.patches or [ ]) ++ [ ./qemu-xststdcsp.patch ];
+            # the host's emulator, which `qemu-kvm` names, is not built
+            postInstall = (o.postInstall or "") + ''
+              rm -f $out/bin/qemu-kvm
+            '';
+          });
         in
         {
           # every system target, with its firmware
           inherit (pkgs) qemu;
+          # the PowerPC rigs': `qemu` with its ppc and ppc64 emulators built with
+          # xststdcsp fixed (rstd issue #223), the first path winning
+          qemu-ppc = pkgs.symlinkJoin {
+            name = "qemu-ppc";
+            paths = [ qemu-ppc-patched pkgs.qemu ];
+          };
+          # those two emulators alone, which CI keeps in its cache
+          inherit qemu-ppc-patched;
           # run.sh's slots
           inherit (pkgs) flock;
           default = pkgs.qemu;

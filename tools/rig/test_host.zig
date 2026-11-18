@@ -73,7 +73,9 @@ fn run(init: std.process.Init) !u8 {
     // a Mac sleeps through an ssh session without a tty, and in a dark wake only
     // `-s` holds it: `caffeinate -is` there
     const awake = if (std.mem.startsWith(u8, kind, "Darwin ")) "caffeinate -is " else "";
-    try command.print(arena, "cd '{0s}' && exec {3s}nix shell ./{1s}#qemu ./{1s}#flock -c bash {1s}/run.sh '{2s}'", .{ dir, nix, jobs, awake });
+    // the PowerPC emulators with QEMU's xststdcsp fixed (issue #223)
+    const pkg = if (std.mem.startsWith(u8, std.Io.Dir.path.basename(qemu), "qemu-system-ppc")) "qemu-ppc" else "qemu";
+    try command.print(arena, "cd '{0s}' && exec {3s}nix shell ./{1s}#{4s} ./{1s}#flock -c bash {1s}/run.sh '{2s}'", .{ dir, nix, jobs, awake, pkg });
     for (qemu_argv.items) |a| {
         if (std.mem.findScalar(u8, a, '\'') != null) return error.QuoteInArgument;
         try command.print(arena, " '{s}'", .{a});
