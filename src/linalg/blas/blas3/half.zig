@@ -145,8 +145,8 @@ fn Problem(comptime kind: HalfGemm) type {
         c: [*]O,
         ldc: usize,
 
-        fn slot(p: *const Self, comptime name: []const u8) @typeInfo(@FieldType(Vtable, @tagName(kind) ++ name)).optional.child {
-            return @field(p.vt, @tagName(kind) ++ name).?;
+        fn slot(p: *const Self, comptime s: portable.GemmSlot) util.SlotFn(portable.gemmSlotTag(kind.gemm(), s)) {
+            return portable.gemmSlotPtr(p.vt, comptime kind.gemm(), s).*.?;
         }
 
         /// The part of `C` at rows `[r0, r0 + m)`, columns `[c0, c0 + n)`.
@@ -161,18 +161,18 @@ fn Problem(comptime kind: HalfGemm) type {
         /// Packs rows `is..` of `op(A)` over depth `ls..` (`ICOPY_OPERATION`).
         fn packRows(p: *const Self, min_l: usize, min_i: usize, ls: usize, is: usize, dst: [*]I) void {
             if (p.ta) {
-                _ = p.slot("_incopy")(@intCast(min_l), @intCast(min_i), p.a + ls + is * p.lda, @intCast(p.lda), dst);
+                _ = p.slot(.incopy)(@intCast(min_l), @intCast(min_i), p.a + ls + is * p.lda, @intCast(p.lda), dst);
             } else {
-                _ = p.slot("_itcopy")(@intCast(min_l), @intCast(min_i), p.a + is + ls * p.lda, @intCast(p.lda), dst);
+                _ = p.slot(.itcopy)(@intCast(min_l), @intCast(min_i), p.a + is + ls * p.lda, @intCast(p.lda), dst);
             }
         }
 
         /// Packs columns `jjs..` of `op(B)` over depth `ls..` (`OCOPY_OPERATION`).
         fn packCols(p: *const Self, min_l: usize, min_jj: usize, ls: usize, jjs: usize, dst: [*]I) void {
             if (p.tb) {
-                _ = p.slot("_otcopy")(@intCast(min_l), @intCast(min_jj), p.b + jjs + ls * p.ldb, @intCast(p.ldb), dst);
+                _ = p.slot(.otcopy)(@intCast(min_l), @intCast(min_jj), p.b + jjs + ls * p.ldb, @intCast(p.ldb), dst);
             } else {
-                _ = p.slot("_oncopy")(@intCast(min_l), @intCast(min_jj), p.b + ls + jjs * p.ldb, @intCast(p.ldb), dst);
+                _ = p.slot(.oncopy)(@intCast(min_l), @intCast(min_jj), p.b + ls + jjs * p.ldb, @intCast(p.ldb), dst);
             }
         }
 
@@ -180,8 +180,8 @@ fn Problem(comptime kind: HalfGemm) type {
         /// nj)`, the block scaled by `s` first unless null.
         fn block(p: *const Self, ib: usize, mi: usize, jb: usize, nj: usize, kl: usize, s: ?O, pa: [*]I, pb: [*]I) void {
             const at = p.c + ib + jb * p.ldc;
-            if (s) |v| _ = p.slot("_beta")(@intCast(mi), @intCast(nj), 0, v, pa, 0, pb, 0, at, @intCast(p.ldc));
-            _ = p.slot("_kernel")(@intCast(mi), @intCast(nj), @intCast(kl), p.alpha, pa, pb, at, @intCast(p.ldc));
+            if (s) |v| _ = p.slot(.beta)(@intCast(mi), @intCast(nj), 0, v, pa, 0, pb, 0, at, @intCast(p.ldc));
+            _ = p.slot(.kernel)(@intCast(mi), @intCast(nj), @intCast(kl), p.alpha, pa, pb, at, @intCast(p.ldc));
         }
 
         /// `level3.c`'s js / ls / is loops over `C`'s `m x n` (`loops.zig`).
@@ -267,7 +267,7 @@ pub fn gemm(allocator: Allocator, io: Io, comptime kind: HalfGemm, vt: *const Vt
     const O = kind.Out();
     const beta_f = toF32(O, beta);
     if (k == 0 or toF32(O, alpha) == 0) {
-        if (beta_f != 1) _ = @field(vt, @tagName(kind) ++ "_beta").?(@intCast(m), @intCast(n), 0, beta, @constCast(a), 0, @constCast(b), 0, c, @intCast(ldc));
+        if (beta_f != 1) _ = portable.gemmSlotPtr(vt, comptime kind.gemm(), .beta).*.?(@intCast(m), @intCast(n), 0, beta, @constCast(a), 0, @constCast(b), 0, c, @intCast(ldc));
         return;
     }
     // `SMALL_MATRIX_OPT`, which upstream builds for `sbgemm` alone of these

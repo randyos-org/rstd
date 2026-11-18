@@ -261,7 +261,15 @@ pub const Gemm = enum {
 
     /// `T`'s gemm, its 3M one for `three`.
     pub fn of(comptime T: type, comptime three: bool) Gemm {
-        return comptime @field(Gemm, letter(T).? ++ if (three) "3m" else "");
+        const g: Gemm = comptime switch (Prec.from(letter(T).?)) {
+            .s => .s,
+            .d => .d,
+            .q => .q,
+            .c => .c,
+            .z => .z,
+            .x => .x,
+        };
+        return comptime if (three) g.threeM() else g;
     }
 
     /// Its vtable fields' prefix: `sgemm`, `cgemm3m`, `sbgemm`.
@@ -277,9 +285,38 @@ pub const Gemm = enum {
 /// for `.c3m`.
 pub const Param = enum { p, q, r, unroll_m, unroll_n, unroll_mn, align_k };
 
+/// A gemm's parameter slots; only the bfloat16 gemms have `align_k`.
+const Params = struct { p: util.Slot, q: util.Slot, r: util.Slot, unroll_m: util.Slot, unroll_n: util.Slot, unroll_mn: util.Slot, align_k: ?util.Slot = null };
+
+fn params(comptime g: Gemm) Params {
+    return switch (g) {
+        .s => .{ .p = .sgemm_p, .q = .sgemm_q, .r = .sgemm_r, .unroll_m = .sgemm_unroll_m, .unroll_n = .sgemm_unroll_n, .unroll_mn = .sgemm_unroll_mn },
+        .d => .{ .p = .dgemm_p, .q = .dgemm_q, .r = .dgemm_r, .unroll_m = .dgemm_unroll_m, .unroll_n = .dgemm_unroll_n, .unroll_mn = .dgemm_unroll_mn },
+        .q => .{ .p = .qgemm_p, .q = .qgemm_q, .r = .qgemm_r, .unroll_m = .qgemm_unroll_m, .unroll_n = .qgemm_unroll_n, .unroll_mn = .qgemm_unroll_mn },
+        .c => .{ .p = .cgemm_p, .q = .cgemm_q, .r = .cgemm_r, .unroll_m = .cgemm_unroll_m, .unroll_n = .cgemm_unroll_n, .unroll_mn = .cgemm_unroll_mn },
+        .z => .{ .p = .zgemm_p, .q = .zgemm_q, .r = .zgemm_r, .unroll_m = .zgemm_unroll_m, .unroll_n = .zgemm_unroll_n, .unroll_mn = .zgemm_unroll_mn },
+        .x => .{ .p = .xgemm_p, .q = .xgemm_q, .r = .xgemm_r, .unroll_m = .xgemm_unroll_m, .unroll_n = .xgemm_unroll_n, .unroll_mn = .xgemm_unroll_mn },
+        .sh => .{ .p = .shgemm_p, .q = .shgemm_q, .r = .shgemm_r, .unroll_m = .shgemm_unroll_m, .unroll_n = .shgemm_unroll_n, .unroll_mn = .shgemm_unroll_mn },
+        .b => .{ .p = .bgemm_p, .q = .bgemm_q, .r = .bgemm_r, .unroll_m = .bgemm_unroll_m, .unroll_n = .bgemm_unroll_n, .unroll_mn = .bgemm_unroll_mn, .align_k = .bgemm_align_k },
+        .sb => .{ .p = .sbgemm_p, .q = .sbgemm_q, .r = .sbgemm_r, .unroll_m = .sbgemm_unroll_m, .unroll_n = .sbgemm_unroll_n, .unroll_mn = .sbgemm_unroll_mn, .align_k = .sbgemm_align_k },
+        .c3m => .{ .p = .cgemm3m_p, .q = .cgemm3m_q, .r = .cgemm3m_r, .unroll_m = .cgemm3m_unroll_m, .unroll_n = .cgemm3m_unroll_n, .unroll_mn = .cgemm3m_unroll_mn },
+        .z3m => .{ .p = .zgemm3m_p, .q = .zgemm3m_q, .r = .zgemm3m_r, .unroll_m = .zgemm3m_unroll_m, .unroll_n = .zgemm3m_unroll_n, .unroll_mn = .zgemm3m_unroll_mn },
+        .x3m => .{ .p = .xgemm3m_p, .q = .xgemm3m_q, .r = .xgemm3m_r, .unroll_m = .xgemm3m_unroll_m, .unroll_n = .xgemm3m_unroll_n, .unroll_mn = .xgemm3m_unroll_mn },
+    };
+}
+
 /// `paramPtr`'s `Slot`, for a kernel object's symbol.
 pub fn paramTag(comptime g: Gemm, comptime param: Param) util.Slot {
-    return comptime @field(util.Slot, g.prefix() ++ "_" ++ @tagName(param));
+    const s = comptime params(g);
+    return comptime switch (param) {
+        .p => s.p,
+        .q => s.q,
+        .r => s.r,
+        .unroll_m => s.unroll_m,
+        .unroll_n => s.unroll_n,
+        .unroll_mn => s.unroll_mn,
+        .align_k => s.align_k orelse @compileError(@tagName(g) ++ " has no align_k"),
+    };
 }
 
 /// The slot of precision `g`'s level-3 kernel `name`, as a kernel set
@@ -296,8 +333,8 @@ pub inline fn fieldPtr(vt: anytype, comptime s: util.Slot) @TypeOf(&@field(vt, @
 }
 
 /// `vt`'s parameter `param` of `g`, by pointer; `vt` points to a `Vtable`.
-pub inline fn paramPtr(vt: anytype, comptime g: Gemm, comptime param: Param) @TypeOf(&@field(vt, g.prefix() ++ "_" ++ @tagName(param))) {
-    return &@field(vt, g.prefix() ++ "_" ++ @tagName(param));
+pub inline fn paramPtr(vt: anytype, comptime g: Gemm, comptime param: Param) @TypeOf(&@field(vt, @tagName(paramTag(g, param)))) {
+    return &@field(vt, @tagName(paramTag(g, param)));
 }
 
 /// A gemm's kernel slot, less its gemm's prefix: `.kernel` is

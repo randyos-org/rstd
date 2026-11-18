@@ -742,7 +742,12 @@ fn checkConj(comptime T: type, comptime geo: Geometry, comptime conjs: []const C
             }
             if (complex) {
                 const f = inline for (conjs) |kc| {
-                    if (kc == cj) break &@field(K, "gemm_kernel_" ++ @tagName(kc));
+                    if (kc == cj) break switch (kc) {
+                        .n => &K.gemm_kernel_n,
+                        .l => &K.gemm_kernel_l,
+                        .r => &K.gemm_kernel_r,
+                        .b => &K.gemm_kernel_b,
+                    };
                 } else unreachable;
                 _ = f(@intCast(m), @intCast(n), @intCast(k), 2, -1, pa.ptr, pb.ptr, got.ptr, lm);
             } else {

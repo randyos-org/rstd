@@ -362,17 +362,17 @@ fn Ger(comptime T: type, comptime op: Op) type {
 /// symmetric `S` whose `uplo` triangle (`u` or `l`) is stored in `a`.
 pub fn symv(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) Error!void {
     if (uplo == .v or uplo == .m) return error.InvalidUplo;
-    return mv(allocator, io, T, "symv_", uplo, n, alpha, a, lda, x, incx, beta, y, incy);
+    return mv(allocator, io, T, false, uplo, n, alpha, a, lda, x, incx, beta, y, incy);
 }
 
 /// `?HEMV` (`interface/zhemv.c`): the same for the Hermitian `S`; `v` and
 /// `m` use the upper and lower triangles for `conj(S)`. Complex only.
 pub fn hemv(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) Error!void {
     comptime util.requireComplex(T, "hemv");
-    return mv(allocator, io, T, "hemv_", uplo, n, alpha, a, lda, x, incx, beta, y, incy);
+    return mv(allocator, io, T, true, uplo, n, alpha, a, lda, x, incx, beta, y, incy);
 }
 
-fn mv(allocator: Allocator, io: Io, comptime T: type, comptime base: []const u8, uplo: Uplo, n: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) Error!void {
+fn mv(allocator: Allocator, io: Io, comptime T: type, comptime herm: bool, uplo: Uplo, n: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) Error!void {
     if (n < 0) return error.InvalidN;
     if (lda < @max(1, n)) return error.InvalidLda;
     if (incx == 0) return error.InvalidIncx;
@@ -381,38 +381,39 @@ fn mv(allocator: Allocator, io: Io, comptime T: type, comptime base: []const u8,
     if (!util.fitsMatrix(n, n, lda, @sizeOf(T))) return error.InvalidLda;
     if (!util.fits(n, incx, @sizeOf(T))) return error.InvalidIncx;
     if (!util.fits(n, incy, @sizeOf(T))) return error.InvalidIncy;
-    if (accel.symv(T, base[0] == 'h', uplo, n, alpha, a, lda, x, incx, beta, y, incy)) return;
+    if (accel.symv(T, herm, uplo, n, alpha, a, lda, x, incx, beta, y, incy)) return;
     if (!isOne(T, beta)) Ops(T).init().scal(n, beta, y, @intCast(@abs(incy)));
     if (isZero(T, alpha)) return;
     const px = first(T, x, n, incx);
     const py = first(T, y, n, incy);
     switch (uplo) {
-        inline else => |u| try mvRun(allocator, io, T, base ++ switch (u) {
-            .u => "U",
-            .l => "L",
-            .v => "V",
-            .m => "M",
-        }, n, alpha, a, lda, px, incx, py, incy),
+        inline else => |u| try mvRun(allocator, io, T, herm, u, n, alpha, a, lda, px, incx, py, incy),
     }
 }
 
-fn mvRun(allocator: Allocator, io: Io, comptime T: type, comptime name: []const u8, n: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) (Allocator.Error || Io.Cancelable)!void {
+fn mvRun(allocator: Allocator, io: Io, comptime T: type, comptime herm: bool, comptime uplo: Uplo, n: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) (Allocator.Error || Io.Cancelable)!void {
     const F = Float(T);
     const complex = comptime isComplex(T);
     // symv has no `V` and `M` kernels; `symv` returned above for those
-    if (comptime !@hasField(Op, name)) unreachable;
-    const op = @field(Op, name);
-    const lower = comptime name[name.len - 1] == 'L' or name[name.len - 1] == 'M';
+    const rev = comptime uplo == .v or uplo == .m;
+    if (comptime !herm and rev) unreachable;
+    const op: Op = comptime switch (uplo) {
+        .u => if (herm) .hemv_U else .symv_U,
+        .l => if (herm) .hemv_L else .symv_L,
+        .v => .hemv_V,
+        .m => .hemv_M,
+    };
+    const lower = comptime uplo == .l or uplo == .m;
     // the portable kernel on a core without its own gemv runs plain loops,
     // which need no buffer (`symmetric.Auto`), as does any type without slots
     const direct = if (comptime portable.slot(T, op)) |s| blk: {
-        const kind: sym.Kind = comptime if (name[0] == 's') .symmetric else if (name[name.len - 1] == 'V' or name[name.len - 1] == 'M') .hermitian_rev else .hermitian;
+        const kind: sym.Kind = comptime if (!herm) .symmetric else if (rev) .hermitian_rev else .hermitian;
         const auto = sym.Auto(portable.letter(T).?, T, lower, kind);
         break :blk @field(blas.table().*, s) == (if (complex) &auto.cplx else &auto.real) and !auto.native();
     } else true;
     const nu: usize = @intCast(n);
     // `symv_thread.c` splits the columns on multiples of 4, balanced by area
-    const p = threading.plan(if (name[0] == 'h') .hemv else .symv, T, nu, nu, if (lower) .falling else .rising, 4);
+    const p = threading.plan(if (herm) .hemv else .symv, T, nu, nu, if (lower) .falling else .rising, 4);
     if (p.chunks.count > 1) return mvChunks(allocator, io, T, op, lower, direct, &p, n, alpha, a, lda, x, incx, y, incy);
     var none: [1]F = undefined;
     const sc: Scratch(F) = if (direct) .{ .ptr = &none, .len = 0 } else blk: {

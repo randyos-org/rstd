@@ -4,6 +4,7 @@
 
 const std = @import("std");
 const types = @import("../../types.zig");
+const slots = @import("../../slots.zig");
 const gk = @import("../gemm/kernel.zig");
 const symm = @import("../symm/kernel.zig");
 const loops = @import("../gemm/loops.zig");
@@ -13,6 +14,46 @@ const isComplex = types.isComplex;
 
 /// What a 3M copy packs of each element: both parts summed, or one.
 pub const Part = enum { b, r, i };
+
+/// A 3M copy less its part: gemm's, and the symmetric and Hermitian ones
+/// by side (`i`, `o`) and triangle.
+pub const Copy = enum {
+    itcopy,
+    incopy,
+    oncopy,
+    otcopy,
+    symm_iu,
+    symm_il,
+    symm_ou,
+    symm_ol,
+    hemm_iu,
+    hemm_il,
+    hemm_ou,
+    hemm_ol,
+
+    /// Its op for part `p`: `gemm3m_itcopyb`, `symm3m_iucopyr`.
+    pub fn op(c: Copy, p: Part) slots.Op {
+        const ops: [3]slots.Op = switch (c) {
+            .itcopy => .{ .gemm3m_itcopyb, .gemm3m_itcopyr, .gemm3m_itcopyi },
+            .incopy => .{ .gemm3m_incopyb, .gemm3m_incopyr, .gemm3m_incopyi },
+            .oncopy => .{ .gemm3m_oncopyb, .gemm3m_oncopyr, .gemm3m_oncopyi },
+            .otcopy => .{ .gemm3m_otcopyb, .gemm3m_otcopyr, .gemm3m_otcopyi },
+            .symm_iu => .{ .symm3m_iucopyb, .symm3m_iucopyr, .symm3m_iucopyi },
+            .symm_il => .{ .symm3m_ilcopyb, .symm3m_ilcopyr, .symm3m_ilcopyi },
+            .symm_ou => .{ .symm3m_oucopyb, .symm3m_oucopyr, .symm3m_oucopyi },
+            .symm_ol => .{ .symm3m_olcopyb, .symm3m_olcopyr, .symm3m_olcopyi },
+            .hemm_iu => .{ .hemm3m_iucopyb, .hemm3m_iucopyr, .hemm3m_iucopyi },
+            .hemm_il => .{ .hemm3m_ilcopyb, .hemm3m_ilcopyr, .hemm3m_ilcopyi },
+            .hemm_ou => .{ .hemm3m_oucopyb, .hemm3m_oucopyr, .hemm3m_oucopyi },
+            .hemm_ol => .{ .hemm3m_olcopyb, .hemm3m_olcopyr, .hemm3m_olcopyi },
+        };
+        return switch (p) {
+            .b => ops[0],
+            .r => ops[1],
+            .i => ops[2],
+        };
+    }
+};
 
 /// The real tile under complex tile `geo`: the target's real tile for its
 /// own complex one (every build but the tests' `installTile`), else `geo`'s
@@ -333,14 +374,14 @@ fn checkProduct(comptime T: type, comptime geo: gk.Geometry) !void {
         inline for (.{ false, true }) |trans| {
             @memcpy(got, c);
             const lm: BlasLong = @intCast(ld);
-            const passes = .{ .{ "b", 0, 1 }, .{ "r", 1, -1 }, .{ "i", -1, -1 } };
+            const passes = .{ .{ Part.b, 0, 1 }, .{ Part.r, 1, -1 }, .{ Part.i, -1, -1 } };
             inline for (passes) |p| {
                 if (trans) {
-                    _ = @field(K, "gemm3m_incopy" ++ p[0])(@intCast(k), @intCast(m), at.ptr, kmax, pa.ptr);
-                    _ = @field(K, "gemm3m_otcopy" ++ p[0])(@intCast(k), @intCast(n), bt.ptr, lm, ar, ai, pb.ptr);
+                    _ = @field(K, @tagName(Copy.incopy.op(p[0])))(@intCast(k), @intCast(m), at.ptr, kmax, pa.ptr);
+                    _ = @field(K, @tagName(Copy.otcopy.op(p[0])))(@intCast(k), @intCast(n), bt.ptr, lm, ar, ai, pb.ptr);
                 } else {
-                    _ = @field(K, "gemm3m_itcopy" ++ p[0])(@intCast(k), @intCast(m), a.ptr, lm, pa.ptr);
-                    _ = @field(K, "gemm3m_oncopy" ++ p[0])(@intCast(k), @intCast(n), b.ptr, kmax, ar, ai, pb.ptr);
+                    _ = @field(K, @tagName(Copy.itcopy.op(p[0])))(@intCast(k), @intCast(m), a.ptr, lm, pa.ptr);
+                    _ = @field(K, @tagName(Copy.oncopy.op(p[0])))(@intCast(k), @intCast(n), b.ptr, kmax, ar, ai, pb.ptr);
                 }
                 _ = K.gemm3m_kernel(@intCast(m), @intCast(n), @intCast(k), p[1], p[2], pa.ptr, pb.ptr, got.ptr, lm);
             }
@@ -373,14 +414,17 @@ test "3m: symmetric and Hermitian copies pack the whole matrix's element, scaled
     var out: [n * n]f64 = undefined;
     const ar: f64 = 2;
     const ai: f64 = -3;
-    inline for (.{ false, true }) |herm| inline for (.{ true, false }) |upper| inline for (.{ "b", "r", "i" }) |part| inline for (.{ "i", "o" }) |io| {
-        const name = (if (herm) "hemm3m_" else "symm3m_") ++ io ++ (if (upper) "u" else "l") ++ "copy" ++ part;
-        const f = @field(K, name);
+    inline for (.{ false, true }) |herm| inline for (.{ true, false }) |upper| inline for (comptime std.enums.values(Part)) |part| inline for (.{ true, false }) |inner| {
+        const copy: Copy = if (herm)
+            (if (inner) (if (upper) .hemm_iu else .hemm_il) else (if (upper) .hemm_ou else .hemm_ol))
+        else
+            (if (inner) (if (upper) .symm_iu else .symm_il) else (if (upper) .symm_ou else .symm_ol));
+        const f = @field(K, @tagName(copy.op(part)));
         // the block from line 1, depth 2: 3 lines of depth 3
-        if (comptime io[0] == 'i') _ = f(3, 3, &a, n, 1, 2, &out) else _ = f(3, 3, &a, n, 1, 2, ar, ai, &out);
+        if (inner) _ = f(3, 3, &a, n, 1, 2, &out) else _ = f(3, 3, &a, n, 1, 2, ar, ai, &out);
         // packed in panels of the unroll, which `packWith` lays out as the
         // gemm copies do: check each element by recomputing its offset
-        const u: usize = if (io[0] == 'i') K.unroll_m else K.unroll_n;
+        const u: usize = if (inner) K.unroll_m else K.unroll_n;
         var c0: usize = 0;
         while (c0 < 3) {
             const w = gk.panelWidth(3 - c0, u);
@@ -394,7 +438,7 @@ test "3m: symmetric and Hermitian copies pack the whole matrix's element, scaled
                 if (herm) {
                     if (x == y) im = 0 else if (mirrored) im = -im;
                 }
-                if (io[0] == 'o') {
+                if (!inner) {
                     // `o` packs `alpha` times the element of `op(B)`: for
                     // `hemm` the conjugate of the row copy's
                     if (herm) im = -im;
@@ -402,7 +446,11 @@ test "3m: symmetric and Hermitian copies pack the whole matrix's element, scaled
                     im = ai * re + ar * im;
                     re = r2;
                 }
-                const want = if (part[0] == 'b') re + im else if (part[0] == 'r') re else im;
+                const want = switch (part) {
+                    .b => re + im,
+                    .r => re,
+                    .i => im,
+                };
                 try std.testing.expectEqual(want, out[3 * c0 + l * w + cj]);
             };
             c0 += w;

@@ -503,7 +503,7 @@ fn vectorSlots(arena: std.mem.Allocator) ![]const []const u8 {
         const open = std.mem.findScalarPos(u8, text, at, '{').? + 1;
         const body = text[open..std.mem.findScalarPos(u8, text, open, '}').?];
         for (list[1]) |l| {
-            var names = std.mem.tokenizeAny(u8, body, "\", \t\r\n");
+            var names = std.mem.tokenizeAny(u8, body, "., \t\r\n");
             while (names.next()) |name| {
                 if (std.mem.eql(u8, name, "dsdot")) {
                     if (std.mem.eql(u8, l, "s")) try out.append(arena, "dsdot_k");

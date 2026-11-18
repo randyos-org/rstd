@@ -110,8 +110,7 @@ pub fn Ops(comptime T: type) type {
 
         /// `gemvK` of `op`, unit stride, a real `alpha`.
         pub fn gemv(s: Self, comptime op: Trans, m: BlasLong, n: BlasLong, alpha: F, a: [*]T, lda: BlasLong, x: [*]T, y: [*]T, buf: [*]F) void {
-            const k = comptime @field(Op, "gemv_" ++ @tagName(op));
-            s.gemvK(k, m, n, if (comptime isComplex(T)) .init(alpha, 0) else alpha, a, lda, x, 1, y, 1, buf);
+            s.gemvK(comptime portable.gemvOp(op), m, n, if (comptime isComplex(T)) .init(alpha, 0) else alpha, a, lda, x, 1, y, 1, buf);
         }
 
         /// The symv or hemv kernel `op` on the columns `offset` selects of an

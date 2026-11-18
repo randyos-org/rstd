@@ -490,8 +490,15 @@ fn checkSkylakex(comptime T: type) !void {
         };
         const alpha: T = if (exact) 2 else 0.7;
         const beta: T = if (exact) -3 else 1.3;
-        inline for (.{ "nn", "nt", "tn", "tt" }) |op| inline for (.{ false, true }) |b0| {
-            const f = @field(K, "gemm_small_kernel_" ++ (if (b0) "b0_" else "") ++ op);
+        const fns = .{
+            .{ "nn", K.gemm_small_kernel_nn, K.gemm_small_kernel_b0_nn },
+            .{ "nt", K.gemm_small_kernel_nt, K.gemm_small_kernel_b0_nt },
+            .{ "tn", K.gemm_small_kernel_tn, K.gemm_small_kernel_b0_tn },
+            .{ "tt", K.gemm_small_kernel_tt, K.gemm_small_kernel_b0_tt },
+        };
+        inline for (fns) |e| inline for (.{ false, true }) |b0| {
+            const op = e[0];
+            const f = if (b0) e[2] else e[1];
             for ([_][]const usize{ &ms, &ms_wide }, [_][]const usize{ &ns, &ns_wide }) |mlist, nlist| for (mlist) |m| for (nlist) |n| for (ks) |k| {
                 @memcpy(want, c);
                 @memcpy(got, c);
@@ -526,10 +533,18 @@ test "Skylake-X small kernels match the wide reference through gemm" {
     portable.install(&vt);
     inline for (.{ .{ portable.Gemm.s, f32 }, .{ portable.Gemm.d, f64 } }) |p| {
         const K = skylakex.Kernels(p[1], gk.geometry(p[1]));
-        inline for (.{ false, true }) |b0| inline for (0..2) |xa| inline for (0..2) |xb| {
-            const s = comptime portable.GemmSlot.small(b0, xa, xb);
-            portable.gemmSlotPtr(&vt, p[0], s).* = &@field(K, "gemm_" ++ @tagName(s));
+        const S = portable.GemmSlot;
+        const kernels = .{
+            .{ S.small_kernel_nn, &K.gemm_small_kernel_nn },
+            .{ S.small_kernel_nt, &K.gemm_small_kernel_nt },
+            .{ S.small_kernel_tn, &K.gemm_small_kernel_tn },
+            .{ S.small_kernel_tt, &K.gemm_small_kernel_tt },
+            .{ S.small_kernel_b0_nn, &K.gemm_small_kernel_b0_nn },
+            .{ S.small_kernel_b0_nt, &K.gemm_small_kernel_b0_nt },
+            .{ S.small_kernel_b0_tn, &K.gemm_small_kernel_b0_tn },
+            .{ S.small_kernel_b0_tt, &K.gemm_small_kernel_b0_tt },
         };
+        inline for (kernels) |e| portable.gemmSlotPtr(&vt, p[0], e[0]).* = e[1];
     }
     try cases(&vt);
 }
