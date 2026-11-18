@@ -302,6 +302,8 @@ const intel6 = [_]Row{
     .{ .exmodel = 9, .models = &.{14}, .to = .{ .ladder = .{ .start = .haswell } } },
     .{ .exmodel = 10, .models = &.{ 5, 6 }, .to = .{ .ladder = .{ .start = .haswell } } },
     .{ .exmodel = 10, .models = &.{7}, .to = .{ .ladder = .{ .start = .skx } } },
+    // Emerald Rapids
+    .{ .exmodel = 12, .models = &.{15}, .to = .{ .ladder = .{ .start = .sapphire } } },
 };
 
 fn zen(c: Caps, start: Rung) Decision {
@@ -411,6 +413,7 @@ pub fn modelCore(c: Caps) ?Decision {
 /// model tables do not know: the richest core the CPU and OS support. The
 /// reference climbs it in 64-bit builds only; 32-bit builds take Katmai.
 fn capsCore(c: Caps, is64: bool) CoreType {
+    if (c.has(.amx_bf16)) return .sapphirerapids;
     if (c.has(.avx512_bf16)) return .cooperlake;
     if (c.has(.avx512)) return .skylakex;
     if (c.has(.avx2)) return .haswell;
@@ -484,6 +487,9 @@ test "Intel models map to their cores" {
     try expectCore(.skylakex, cpu(.intel, 0x806c1, .avx512)); // Tiger Lake
     try expectCore(.sapphirerapids, cpu(.intel, 0x806f8, .amx)); // Sapphire Rapids
     try expectCore(.cooperlake, cpu(.intel, 0x806f8, .bf16)); // ... without AMX
+    try expectCore(.sapphirerapids, cpu(.intel, 0xc06f2, .amx)); // Emerald Rapids
+    try expectCore(.cooperlake, cpu(.intel, 0xc06f2, .bf16)); // ... without AMX
+    try expectCore(.skylakex, cpu(.intel, 0xc06f2, .avx512));
     try expectCore(.cooperlake, cpu(.intel, 0x90672, .bf16)); // Alder Lake with bf16
     try expectCore(.haswell, cpu(.intel, 0x90672, .avx2)); // Alder Lake
     try expectCore(.sandybridge, cpu(.intel, 0x206a7, .avx)); // Sandy Bridge
@@ -598,6 +604,9 @@ test "an unknown model takes the richest core the CPU and OS support" {
     try expectCore(.haswell, cpu(.intel, 0xb06a2, .avx2));
     try expectCore(.skylakex, cpu(.intel, 0xb06a2, .avx512));
     try expectCore(.cooperlake, cpu(.intel, 0xb06a2, .bf16));
+    try expectCore(.sapphirerapids, cpu(.intel, 0xb06a2, .amx));
+    // Granite Rapids: exmodel 0xa, model 13
+    try expectCore(.sapphirerapids, cpu(.intel, 0xa06d1, .amx));
     try expectCore(.sandybridge, cpu(.unknown, 0, .avx));
     try expectCore(.prescott, cpu(.unknown, 0, .sse3));
     // no SSE3 at all: a 64-bit build still gets a core it can run
