@@ -19,12 +19,14 @@ const s390x_vxeh: S390x = @field(S390x, if (@hasField(S390x, "vxeh")) "vxeh" els
 
 /// A kernel set's tile: `mv` vectors of `vl` lanes (`mr` rows) by `nr`
 /// columns; `mr` and `nr` are also the copies' unrolls. For complex, `vl`
-/// counts elements, and `split` holds their parts in scalars.
+/// counts elements, and `split` holds their parts in scalars. `contracted`
+/// complex tiles keep one accumulator per vector and column (`contractedTile`).
 pub const Geometry = struct {
     vl: u16,
     mv: u16,
     nr: u16,
     split: bool = false,
+    contracted: bool = false,
 
     pub fn mr(g: Geometry) u16 {
         return g.vl * g.mv;
@@ -69,24 +71,6 @@ fn vectorBits(comptime T: type, comptime cpu: std.Target.Cpu) u16 {
     };
 }
 
-/// Registers that hold one such vector (or one scalar where `bits` is 0).
-fn registers(comptime bits: u16, comptime cpu: std.Target.Cpu) u16 {
-    return switch (cpu.arch) {
-        .x86_64 => if (bits == 512) 32 else 16,
-        .x86 => 8,
-        .arm, .armeb, .thumb, .thumbeb => if (bits == 0 and cpu.has(.arm, .d32)) 32 else 16,
-        .powerpc, .powerpcle, .powerpc64, .powerpc64le => if (cpu.has(.powerpc, .vsx)) 64 else 32,
-        .s390x => if (bits == 0) 16 else 32,
-        // wasm has locals, not registers: ours, an x86_64 engine's 16 XMM
-        .wasm32, .wasm64 => 16,
-        // o32's 32-bit FPU registers pair up for doubles; MSA has 32 of 128 bits
-        // (and Zig builds it with 64-bit FPU registers, `-mfp64`)
-        .mips, .mipsel => if (cpu.has(.mips, .msa)) 32 else 16,
-        .sparc => 16,
-        else => 32,
-    };
-}
-
 /// Whether LLVM multiplies by a lane of a register (AArch64 `fmla .s[i]`,
 /// NEON `vmla` by scalar): B then comes as whole vectors, `nr / vl` registers,
 /// rather than one broadcast at a time.
@@ -104,6 +88,9 @@ fn byLane(comptime cpu: std.Target.Cpu, comptime bits: u16) bool {
 /// go to fewer loads, then to wider `nr`. Without the spare, LLVM spills
 /// accumulators in the loop (`notes.md`). Complex counts two accumulators
 /// per element and two broadcasts of B, and twice the registers where split.
+/// With FMA3 on 256-bit vectors, complex tiles are contracted, as OpenBLAS's
+/// Haswell `cgemm` and `zgemm` (T21): one accumulator per vector and column,
+/// one broadcast of B at a time, A then A swapped.
 pub fn geometryFor(comptime T: type, comptime cpu: std.Target.Cpu) Geometry {
     const complex = isComplex(T);
     const F = types.Float(T);
@@ -112,19 +99,20 @@ pub fn geometryFor(comptime T: type, comptime cpu: std.Target.Cpu) Geometry {
     const split = complex and raw_bits < 2 * @bitSizeOf(F);
     const bits: u16 = if (split) 0 else raw_bits;
     const vl: u16 = if (bits == 0) 1 else bits / @bitSizeOf(F) / @as(u16, if (complex) 2 else 1);
-    const regs = registers(bits, cpu);
+    const regs = util.registers(bits, cpu);
+    const contracted = complex and !split and bits == 256 and (cpu.arch == .x86_64 or cpu.arch == .x86) and cpu.has(.x86, .fma);
     @setEvalBranchQuota(100_000);
     inline for (.{ true, false }) |strict| {
         var best: ?Geometry = null;
         var best_loads: usize = 0;
         for (1..5) |mv| for (1..17) |nr| {
-            const g: Geometry = .{ .vl = vl, .mv = mv, .nr = nr, .split = split };
+            const g: Geometry = .{ .vl = vl, .mv = mv, .nr = nr, .split = split, .contracted = contracted };
             // accumulators, registers, loads and multiply-adds per step
-            const acc = if (complex) 2 * mv * nr else mv * nr;
+            const acc = if (complex and !contracted) 2 * mv * nr else mv * nr;
             const a_regs = if (split) 2 * mv else mv;
-            const b_regs = if (complex) 2 else if (byLane(cpu, bits)) (nr + vl - 1) / vl else 1;
-            const loads = a_regs + if (complex) 2 * nr else nr;
-            const madds = if (split) 4 * mv * nr else acc;
+            const b_regs = if (contracted) 1 else if (complex) 2 else if (byLane(cpu, bits)) (nr + vl - 1) / vl else 1;
+            const loads = (if (contracted) 2 * a_regs else a_regs) + if (complex) 2 * nr else nr;
+            const madds = if (split) 4 * mv * nr else if (contracted) 2 * acc else acc;
             if (acc + a_regs + b_regs + 1 > regs) continue;
             if (strict and 4 * loads > 3 * madds) continue;
             if (best) |b| {
@@ -492,7 +480,85 @@ fn ComplexKernels(comptime T: type, comptime geo: Geometry) type {
 
         fn tile(comptime conj: Conj, comptime wm: usize, comptime wn: usize, k: usize, ar: F, ai: F, pa: [*]const F, pb: [*]const F, c: [*]F, ld: usize) void {
             if (geo.split) unreachable;
-            vectorTile(conj, wm, wn, k, ar, ai, pa, pb, c, ld);
+            if (geo.contracted) contractedTile(conj, wm, wn, k, ar, ai, pa, pb, c, ld) else vectorTile(conj, wm, wn, k, ar, ai, pa, pb, c, ld);
+        }
+
+        /// One `wm x wn` tile with one accumulator per vector of A and column,
+        /// as `cgemm_kernel_8x2_haswell.c` and `zgemm_kernel_4x2_haswell.c`
+        /// (OpenBLAS a69062524, BSD-3, LICENSE): A times B's real parts, then A
+        /// with its parts swapped times B's imaginary ones, each by `fmaddsub`
+        /// (`fmsubadd` where one operand conjugates), which leaves the parts'
+        /// sums with the signs `vectorTile`'s `sb` sets right.
+        fn contractedTile(comptime conj: Conj, comptime wm: usize, comptime wn: usize, k: usize, ar: F, ai: F, pa: [*]const F, pb: [*]const F, c: [*]F, ld: usize) void {
+            @setEvalBranchQuota(100_000);
+            const lanes: usize = 2 * @as(usize, @min(vl, wm));
+            const nv = 2 * wm / lanes;
+            const V = @Vector(lanes, F);
+            const same = comptime conj.ofA() == conj.ofB();
+            const swap = comptime swapMask(lanes);
+            var acc: [wn][nv]V = undefined;
+            inline for (0..wn) |j| inline for (0..nv) |v| {
+                acc[j][v] = @splat(0);
+            };
+            var a = pa;
+            var b = pb;
+            for (0..k) |_| {
+                var av: [nv]V = undefined;
+                inline for (0..nv) |v| av[v] = a[v * lanes ..][0..lanes].*;
+                inline for (0..wn) |j| {
+                    const br: V = @splat(b[2 * j]);
+                    inline for (0..nv) |v| acc[j][v] = addSub(same, lanes, av[v], br, acc[j][v]);
+                }
+                inline for (0..nv) |v| av[v] = @shuffle(F, av[v], undefined, swap);
+                inline for (0..wn) |j| {
+                    const bi: V = @splat(b[2 * j + 1]);
+                    inline for (0..nv) |v| acc[j][v] = addSub(same, lanes, av[v], bi, acc[j][v]);
+                }
+                a += 2 * wm;
+                b += 2 * wn;
+            }
+            const sb = signs(conj, lanes);
+            inline for (0..wn) |j| inline for (0..nv) |v| {
+                put(lanes, acc[j][v] * sb, ar, ai, c + 2 * j * ld + v * lanes);
+            };
+        }
+
+        /// `fmaddsub` where `same` (`a b - c` in the real parts, `a b + c` in
+        /// the imaginary ones), else `fmsubadd`: LLVM's x86 backend fuses this
+        /// shuffle of two fused multiply-adds into one.
+        inline fn addSub(comptime same: bool, comptime lanes: usize, a: @Vector(lanes, F), b: @Vector(lanes, F), c: @Vector(lanes, F)) @Vector(lanes, F) {
+            const plus = @mulAdd(@Vector(lanes, F), a, b, c);
+            const minus = @mulAdd(@Vector(lanes, F), a, b, -c);
+            const mask = comptime blk: {
+                var m: [lanes]i32 = undefined;
+                for (0..lanes) |i| m[i] = if (i % 2 == 0) @intCast(i) else ~@as(i32, @intCast(i));
+                break :blk m;
+            };
+            return if (same) @shuffle(F, minus, plus, mask) else @shuffle(F, plus, minus, mask);
+        }
+
+        /// The signs that make a tile's sums `op(A) op(B)`: with x, y from A
+        /// and u, v from B, `vectorTile`'s swapped imaginary sums are (yv, xv),
+        /// `contractedTile`'s real parts hold `-(xu - yv)` or `xu + yv`.
+        fn signs(comptime conj: Conj, comptime lanes: usize) @Vector(lanes, F) {
+            return switch (conj) {
+                .n => alternate(lanes, -1, 1),
+                .l => alternate(lanes, 1, 1),
+                .r => alternate(lanes, 1, -1),
+                .b => alternate(lanes, -1, -1),
+            };
+        }
+
+        /// `C += alpha res` on one vector of elements at `p`.
+        inline fn put(comptime lanes: usize, res: @Vector(lanes, F), ar: F, ai: F, p: [*]F) void {
+            const V = @Vector(lanes, F);
+            const alr: V = @splat(ar);
+            const ali = alternate(lanes, -ai, ai);
+            const rs = @shuffle(F, res, undefined, swapMask(lanes));
+            // whole arrays, not `util.store`: the self-hosted x86_64 backend
+            // stores a two-lane `f32` vector as sixteen bytes
+            const cv: V = p[0..lanes].*;
+            p[0..lanes].* = madd(F, lanes, res, alr, madd(F, lanes, rs, ali, cv));
         }
 
         /// `[1, 0, 3, 2, ...]`: each element's parts swapped.
@@ -542,25 +608,12 @@ fn ComplexKernels(comptime T: type, comptime geo: Geometry) type {
             const swap = comptime swapMask(lanes);
             // `(x + iy)(u + iv)` with x, y from A and u, v from B: acc1 holds
             // (xu, yu), the swapped acc2 (yv, xv)
-            const sb = switch (conj) {
-                .n => alternate(lanes, -1, 1),
-                .l => alternate(lanes, 1, 1),
-                .r => alternate(lanes, 1, -1),
-                .b => alternate(lanes, -1, -1),
-            };
+            const sb = signs(conj, lanes);
             const sa = comptime alternate(lanes, 1, -1);
-            const alr: V = @splat(ar);
-            const ali = alternate(lanes, -ai, ai);
             inline for (0..wn) |j| inline for (0..nv) |v| {
                 const s = @shuffle(F, acc2[j][v], undefined, swap);
                 const first = if (conj.ofA()) acc1[j][v] * sa else acc1[j][v];
-                const res = madd(F, lanes, s, sb, first);
-                const p = c + 2 * j * ld + v * lanes;
-                const rs = @shuffle(F, res, undefined, swap);
-                // whole arrays, not `util.store`: the self-hosted x86_64 backend
-                // stores a two-lane `f32` vector as sixteen bytes
-                const cv: V = p[0..lanes].*;
-                p[0..lanes].* = madd(F, lanes, res, alr, madd(F, lanes, rs, ali, cv));
+                put(lanes, madd(F, lanes, s, sb, first), ar, ai, c + 2 * j * ld + v * lanes);
             };
         }
 
@@ -715,6 +768,9 @@ test "complex packed kernels match plain arithmetic for every panel remainder an
     try checkLayout(types.Complex32, geometry(types.Complex32));
     try checkLayout(types.Complex64, .{ .vl = 1, .mv = 3, .nr = 5, .split = true });
     try checkLayout(types.Complex32, .{ .vl = 2, .mv = 3, .nr = 3 });
+    // Haswell's and Zen's contracted tiles (T21)
+    try checkLayout(types.Complex32, .{ .vl = 4, .mv = 2, .nr = 6, .contracted = true });
+    try checkLayout(types.Complex64, .{ .vl = 2, .mv = 2, .nr = 6, .contracted = true });
 }
 
 test "complex packed kernels of an 8-lane tile match plain arithmetic, A plain" {
@@ -723,6 +779,11 @@ test "complex packed kernels of an 8-lane tile match plain arithmetic, A plain" 
 
 test "complex packed kernels of an 8-lane tile match plain arithmetic, A conjugated" {
     try checkConj(types.Complex32, .{ .vl = 8, .mv = 2, .nr = 6 }, &.{ .l, .b });
+}
+
+test "contracted complex tiles match plain arithmetic under every conjugation" {
+    try checkConj(types.Complex32, .{ .vl = 4, .mv = 2, .nr = 6, .contracted = true }, &.{ .n, .l, .r, .b });
+    try checkConj(types.Complex64, .{ .vl = 2, .mv = 2, .nr = 6, .contracted = true }, &.{ .n, .l, .r, .b });
 }
 
 test "geometry: the most accumulators the registers hold" {
@@ -736,6 +797,14 @@ test "geometry: the most accumulators the registers hold" {
     try std.testing.expectEqual(Geometry{ .vl = 4, .mv = 2, .nr = 6 }, comptime geometryFor(f64, cpu));
     // the Haswell `zgemm` tile, 4 x 2
     try std.testing.expectEqual(Geometry{ .vl = 2, .mv = 2, .nr = 2 }, comptime geometryFor(types.Complex64, cpu));
+    // with FMA3, OpenBLAS's contracted Haswell tiles, `cgemm` 8 x 6 and `zgemm` 4 x 6
+    const fma3 = comptime blk: {
+        var c = cpu;
+        c.features.addFeature(@backingInt(std.Target.x86.Feature.fma));
+        break :blk c;
+    };
+    try std.testing.expectEqual(Geometry{ .vl = 4, .mv = 2, .nr = 6, .contracted = true }, comptime geometryFor(types.Complex32, fma3));
+    try std.testing.expectEqual(Geometry{ .vl = 2, .mv = 2, .nr = 6, .contracted = true }, comptime geometryFor(types.Complex64, fma3));
     const arm64 = comptime std.Target.Cpu.baseline(.aarch64, sysinfo.target.os);
     try std.testing.expectEqual(Geometry{ .vl = 4, .mv = 4, .nr = 6 }, comptime geometryFor(f32, arm64));
     try std.testing.expectEqual(Geometry{ .vl = 2, .mv = 4, .nr = 6 }, comptime geometryFor(f64, arm64));

@@ -110,12 +110,12 @@ test "every linked core's sum kernels match a plain loop, where this machine run
 
 /// `vector.zig`'s `sum` order written out plainly over the `w * n` floats
 /// (`w` 2 for complex): unit stride, float `i` of each full `2 * W` into
-/// lane `i % W` of sum `i / W % 2`; strided, element `i` of each full group
+/// lane `i % W` of sum `i / W % 2`, `W` the accumulators' width (`AW`); strided, element `i` of each full group
 /// into lane `i % 4` (real), or into sum `i % 2` by parts (complex). Then the sums lane by lane, the lanes and
 /// the rest in order, in `f64` for `f32`.
 fn vectorOrder(comptime F: type, comptime w: comptime_int, n: usize, x: []const F, inc: usize) F {
     const D = if (F == f32) f64 else F;
-    const W = blas.vector.Real(F, 4).W;
+    const W = blas.vector.Real(F, 4).AW;
     if (inc == 1) {
         const len = w * n;
         var acc: [2][W]D = @splat(@splat(0));
