@@ -6,6 +6,7 @@
 //! reference takes `ZLADIV` or `DLADIV`.
 
 const std = @import("std");
+const mem = @import("../../mem.zig");
 const types = @import("../blas/types.zig");
 const ops = @import("ops.zig");
 const blas_calls = @import("blas_calls.zig");
@@ -253,7 +254,7 @@ pub fn laln2(comptime F: type, ltrans: bool, na: usize, nw: usize, smin: F, a: [
     }
     // `CR`, `CI` column-major as `CRV`, `CIV`
     var crv: [4]F = .{ a[0] - wr, a[1], a[lda], a[1 + lda] - wr };
-    if (ltrans) std.mem.swap(F, &crv[1], &crv[2]);
+    if (ltrans) mem.swap(F, &crv[1], &crv[2]);
     const civ: [4]F = if (nw == 1) @splat(0) else .{ -wi, 0, 0, -wi };
     var cmax: F = 0;
     var icmax: usize = 0;
@@ -459,7 +460,7 @@ pub fn lasy2(comptime F: type, ltranl: bool, ltranr: bool, sgn: F, n1: usize, n2
     var x2: [2]F = undefined;
     x2[1] = btmp[1] / p22;
     x2[0] = btmp[0] / p11 - (p12 / p11) * x2[1];
-    if (xswpiv[ipiv]) std.mem.swap(F, &x2[0], &x2[1]);
+    if (xswpiv[ipiv]) mem.swap(F, &x2[0], &x2[1]);
     out.x[0] = x2[0];
     if (n1 == 1) out.x[2] = x2[1] else out.x[1] = x2[1];
     return out;
@@ -521,10 +522,10 @@ fn lasy2Square(comptime F: type, ltranl: bool, ltranr: bool, sgn: F, tl: [*]cons
             jpsv = jp;
         };
         if (ipsv != i) {
-            std.mem.swap([4]F, &t[ipsv], &t[i]);
-            std.mem.swap(F, &bt[i], &bt[ipsv]);
+            mem.swap([4]F, &t[ipsv], &t[i]);
+            mem.swap(F, &bt[i], &bt[ipsv]);
         }
-        if (jpsv != i) for (0..4) |r| std.mem.swap(F, &t[r][jpsv], &t[r][i]);
+        if (jpsv != i) for (0..4) |r| mem.swap(F, &t[r][jpsv], &t[r][i]);
         jpiv[i] = jpsv;
         if (@abs(t[i][i]) < smin) {
             out.perturbed = true;
@@ -555,7 +556,7 @@ fn lasy2Square(comptime F: type, ltranl: bool, ltranr: bool, sgn: F, tl: [*]cons
     }
     for (0..3) |ii| {
         const i = 2 - ii;
-        if (jpiv[i] != i) std.mem.swap(F, &tmp[i], &tmp[jpiv[i]]);
+        if (jpiv[i] != i) mem.swap(F, &tmp[i], &tmp[jpiv[i]]);
     }
     out.x = tmp;
     return out;
@@ -736,9 +737,9 @@ fn getc2(comptime T: type, n: usize, z: *[64]T, ipiv: *[8]usize, jpiv: *[8]usize
             jpv = jp;
         };
         if (i == 0) smin = @max(eps * xmax, smlnum);
-        if (ipv != i) for (0..n) |col| std.mem.swap(T, &z[ipv + 8 * col], &z[i + 8 * col]);
+        if (ipv != i) for (0..n) |col| mem.swap(T, &z[ipv + 8 * col], &z[i + 8 * col]);
         ipiv[i] = ipv;
-        if (jpv != i) for (0..n) |row| std.mem.swap(T, &z[row + 8 * jpv], &z[row + 8 * i]);
+        if (jpv != i) for (0..n) |row| mem.swap(T, &z[row + 8 * jpv], &z[row + 8 * i]);
         jpiv[i] = jpv;
         if (absT(T, z[i + 8 * i]) < smin) {
             info = i + 1;
@@ -763,7 +764,7 @@ fn getc2(comptime T: type, n: usize, z: *[64]T, ipiv: *[8]usize, jpiv: *[8]usize
 fn gesc2(comptime T: type, n: usize, z: *const [64]T, rhs: *[8]T, ipiv: *const [8]usize, jpiv: *const [8]usize) Float(T) {
     const F = Float(T);
     const smlnum = std.math.floatMin(F) / std.math.floatEps(F);
-    for (0..n - 1) |i| std.mem.swap(T, &rhs[i], &rhs[ipiv[i]]);
+    for (0..n - 1) |i| mem.swap(T, &rhs[i], &rhs[ipiv[i]]);
     for (0..n - 1) |i| for (i + 1..n) |j| {
         rhs[j] = sub(T, rhs[j], mul(T, z[j + 8 * i], rhs[i]));
     };
@@ -788,7 +789,7 @@ fn unswap(comptime T: type, n: usize, x: *[8]T, piv: *const [8]usize) void {
     var i = n - 1;
     while (i > 0) {
         i -= 1;
-        std.mem.swap(T, &x[i], &x[piv[i]]);
+        mem.swap(T, &x[i], &x[piv[i]]);
     }
 }
 
@@ -841,7 +842,7 @@ fn latdf(al: Allocator, io: Io, comptime T: type, ijob: u2, n: usize, z: *const 
         norm.lassq(T, .of(rhs[0..n]), &dif.scale, &dif.sum);
         return;
     }
-    for (0..n - 1) |i| std.mem.swap(T, &rhs[i], &rhs[ipiv[i]]);
+    for (0..n - 1) |i| mem.swap(T, &rhs[i], &rhs[ipiv[i]]);
     // the L part, each `b(j)` +1 or -1 by look-ahead
     var pmone: F = -1;
     for (0..n - 1) |j| {

@@ -6,6 +6,7 @@
 //! lower algorithm on the matrix read backwards (design.md's LAPACK section).
 
 const std = @import("std");
+const mem = @import("../../mem.zig");
 const types = @import("../blas/types.zig");
 const ops = @import("ops.zig");
 
@@ -44,7 +45,7 @@ pub fn View(comptime T: type) type {
 
         /// Rows `r` and `s` over columns `[0, cols)`.
         fn swapRows(v: Self, r: usize, s: usize, cols: usize) void {
-            for (0..cols) |c| std.mem.swap(T, v.at(r, c), v.at(s, c));
+            for (0..cols) |c| mem.swap(T, v.at(r, c), v.at(s, c));
         }
     };
 }
@@ -170,7 +171,7 @@ fn El(comptime T: type, comptime herm_: bool) type {
         /// interchanged (`xSYTF2`'s or `xHETF2`'s swaps).
         fn swapSym(a: View(T), kk: usize, kp: usize) void {
             const n = a.rows;
-            for (kp + 1..n) |i| std.mem.swap(T, a.at(i, kk), a.at(i, kp));
+            for (kp + 1..n) |i| mem.swap(T, a.at(i, kk), a.at(i, kp));
             for (kk + 1..kp) |j| {
                 const t = cj(a.get(j, kk));
                 a.set(j, kk, cj(a.get(kp, j)));
@@ -181,7 +182,7 @@ fn El(comptime T: type, comptime herm_: bool) type {
                 const r = real(a.get(kk, kk));
                 a.set(kk, kk, real(a.get(kp, kp)));
                 a.set(kp, kp, r);
-            } else std.mem.swap(T, a.at(kk, kk), a.at(kp, kp));
+            } else mem.swap(T, a.at(kk, kk), a.at(kp, kp));
         }
     };
 }
@@ -271,7 +272,7 @@ pub fn tf2(comptime T: type, comptime herm: bool, comptime rook: bool, upper: bo
                 E.swapSym(a, kk, kp);
                 if (kstep == 2) {
                     if (comptime E.herm) a.set(k, k, E.real(a.get(k, k)));
-                    std.mem.swap(T, a.at(k + 1, k), a.at(kp, k));
+                    mem.swap(T, a.at(k + 1, k), a.at(kp, k));
                 }
             } else if (comptime E.herm) {
                 a.set(k, k, E.real(a.get(k, k)));

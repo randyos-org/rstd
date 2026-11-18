@@ -167,7 +167,7 @@ pub fn rotmg(comptime T: type, d1: *T, d2: *T, x1: *T, y1: T, param: *[5]T) void
         h12 = 1;
         h21 = -1;
         x1.* = y1;
-        std.mem.swap(T, d1, d2);
+        util.swap(T, d1, d2);
     } else {
         const p2 = d2.* * y1;
         const p1 = d1.* * x1.*;

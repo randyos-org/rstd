@@ -3,6 +3,7 @@
 //! `trsyl` and `tgsyl` solve on.
 
 const std = @import("std");
+const mem = @import("../../../mem.zig");
 const types = @import("../../blas/types.zig");
 const check = @import("../../blas/_test/check.zig");
 const reference = @import("../../blas/_test/reference.zig");
@@ -202,7 +203,7 @@ pub fn LuProblem(comptime T: type) type {
             const pa = try al.dupe(W(T), self.aw);
             for (0..@min(self.m, self.n)) |k| {
                 const p = self.ipiv[k];
-                for (0..self.n) |j| std.mem.swap(W(T), &pa[k + j * self.m], &pa[p + j * self.m]);
+                for (0..self.n) |j| mem.swap(W(T), &pa[k + j * self.m], &pa[p + j * self.m]);
             }
             return pa;
         }

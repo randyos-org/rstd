@@ -2,6 +2,7 @@
 
 const sysinfo = @import("builtin");
 const std = @import("std");
+const mem = @import("../../../mem.zig");
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
 const blas = @import("../../blas/__root__.zig");
@@ -95,7 +96,7 @@ pub fn wideDet(comptime T: type, a: ConstView(T)) !Wide(T) {
         }
         if (p != k) {
             d = ops.neg(W, d);
-            for (0..n) |j| std.mem.swap(W, &f[k + j * n], &f[p + j * n]);
+            for (0..n) |j| mem.swap(W, &f[k + j * n], &f[p + j * n]);
         }
         const piv = f[k + k * n];
         d = if (comptime isComplex(W)) d.mul(piv) else d * piv;

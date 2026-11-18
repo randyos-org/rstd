@@ -6,6 +6,7 @@
 //! `xLAQPS` downdates them.
 
 const std = @import("std");
+const mem = @import("../../mem.zig");
 const types = @import("../blas/types.zig");
 const util = @import("../blas/util.zig");
 const interface = @import("interface.zig");
@@ -107,10 +108,10 @@ fn unblocked(al: Allocator, io: Io, comptime T: type, a: Mat(T), nfxd: usize, jp
             }
         }
         if (best_col != k) {
-            std.mem.swap(usize, &jpvt[best_col], &jpvt[k]);
+            mem.swap(usize, &jpvt[best_col], &jpvt[k]);
             ops.swapCols(T, a, best_col, k);
-            std.mem.swap(T, &dot[best_col], &dot[k]);
-            std.mem.swap(F, &norm[best_col], &norm[k]);
+            mem.swap(T, &dot[best_col], &dot[k]);
+            mem.swap(F, &norm[best_col], &norm[k]);
         }
         const tail = m - k - 1;
         const v = a.col(k) + k + 1;

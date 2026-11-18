@@ -4,6 +4,7 @@
 //! ping-pong buffer from the caller, where PocketFFT allocates one.
 
 const std = @import("std");
+const mem = @import("../../mem.zig");
 const cmplx = @import("../cmplx.zig");
 const twiddle = @import("../twiddle.zig");
 const passes = @import("passes.zig");
@@ -70,10 +71,10 @@ pub fn Cfftp(comptime T: type) type {
                     11 => P.passOdd(11, fwd, ido, l1, p1, p2, tw),
                     else => {
                         passg_.passg(T, fwd, ido, ip, l1, p1, p2, tw, self.mem.ptr + f.tws);
-                        std.mem.swap([*]C(T), &p1, &p2);
+                        mem.swap([*]C(T), &p1, &p2);
                     },
                 }
-                std.mem.swap([*]C(T), &p1, &p2);
+                mem.swap([*]C(T), &p1, &p2);
                 l1 = l2;
             }
             if (p1 != c.ptr) {
@@ -104,7 +105,7 @@ pub fn Cfftp(comptime T: type) type {
                 len >>= 1;
                 // factor 2 should be at the front of the factor list
                 self.addFactor(2);
-                std.mem.swap(usize, &self.fact[0].fct, &self.fact[self.nfact - 1].fct);
+                mem.swap(usize, &self.fact[0].fct, &self.fact[self.nfact - 1].fct);
             }
             var divisor: usize = 3;
             while (divisor * divisor <= len) : (divisor += 2) {

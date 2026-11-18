@@ -3,6 +3,7 @@
 //! of ReLAPACK's recursion (`gbtrf`'s doc).
 
 const std = @import("std");
+const mem = @import("../../mem.zig");
 const types = @import("../blas/types.zig");
 const util = @import("../blas/util.zig");
 const ops = @import("ops.zig");
@@ -96,7 +97,7 @@ fn gbtf2(comptime T: type, m: usize, n: usize, kl: usize, ku: usize, ab: [*]T, l
         ju = @max(ju, @min(j + ku + jp, n - 1));
         // rows `j` and `j + jp` over columns `j..ju`, along the band's diagonals
         if (jp != 0) for (j..ju + 1) |c| {
-            std.mem.swap(T, el(ab, ldab, kv, j + jp, c), el(ab, ldab, kv, j, c));
+            mem.swap(T, el(ab, ldab, kv, j + jp, c), el(ab, ldab, kv, j, c));
         };
         if (km == 0) continue;
         const r = ops.recip(T, at(ab, ldab, kv, j).*);
@@ -186,8 +187,8 @@ fn gbCase(comptime T: type, al: Allocator, m: usize, n: usize, kl: usize, ku: us
         }
         const p = ipiv[s];
         if (p != s) for (0..n) |j| {
-            std.mem.swap(W(T), &x[s + j * m], &x[p + j * m]);
-            std.mem.swap(f128, &g[s + j * m], &g[p + j * m]);
+            mem.swap(W(T), &x[s + j * m], &x[p + j * m]);
+            mem.swap(f128, &g[s + j * m], &g[p + j * m]);
         };
     }
     const eps: f128 = std.math.floatEps(Float(T));

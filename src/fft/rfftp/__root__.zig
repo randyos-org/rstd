@@ -4,6 +4,7 @@
 //! takes its ping-pong buffer from the caller, where PocketFFT allocates one.
 
 const std = @import("std");
+const mem = @import("../../mem.zig");
 const twiddle = @import("../twiddle.zig");
 const forward = @import("forward.zig");
 const backward = @import("backward.zig");
@@ -66,10 +67,10 @@ pub fn Rfftp(comptime T: type) type {
                         5 => F.radf5(ido, l1, p1, p2, tw),
                         else => {
                             general.radfg(T, ido, ip, l1, p1, p2, tw, self.mem.ptr + f.tws);
-                            std.mem.swap([*]T, &p1, &p2);
+                            mem.swap([*]T, &p1, &p2);
                         },
                     }
-                    std.mem.swap([*]T, &p1, &p2);
+                    mem.swap([*]T, &p1, &p2);
                 }
             } else {
                 var l1: usize = 1;
@@ -84,7 +85,7 @@ pub fn Rfftp(comptime T: type) type {
                         5 => B.radb5(ido, l1, p1, p2, tw),
                         else => general.radbg(T, ido, ip, l1, p1, p2, tw, self.mem.ptr + f.tws),
                     }
-                    std.mem.swap([*]T, &p1, &p2);
+                    mem.swap([*]T, &p1, &p2);
                     l1 *= ip;
                 }
             }
@@ -113,7 +114,7 @@ pub fn Rfftp(comptime T: type) type {
                 len >>= 1;
                 // factor 2 should be at the front of the factor list
                 self.addFactor(2);
-                std.mem.swap(usize, &self.fact[0].fct, &self.fact[self.nfact - 1].fct);
+                mem.swap(usize, &self.fact[0].fct, &self.fact[self.nfact - 1].fct);
             }
             var divisor: usize = 3;
             while (divisor * divisor <= len) : (divisor += 2) {

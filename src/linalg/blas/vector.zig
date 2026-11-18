@@ -374,11 +374,11 @@ pub fn Real(comptime F: type, comptime U: comptime_int) type {
                     st(x + i, ld(y + i));
                     st(y + i, t);
                 }
-                while (i < len) : (i += 1) std.mem.swap(F, &x[i], &y[i]);
+                while (i < len) : (i += 1) util.swap(F, &x[i], &y[i]);
                 return 0;
             }
             var i: BlasLong = 0;
-            while (i < n) : (i += 1) std.mem.swap(F, at(F, x, i * incx), at(F, y, i * incy));
+            while (i < n) : (i += 1) util.swap(F, at(F, x, i * incx), at(F, y, i * incy));
             return 0;
         }
 
