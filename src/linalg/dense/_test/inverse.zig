@@ -152,7 +152,7 @@ pub fn expectSolveRoutes(comptime T: type, n: usize, rnd: std.Random) !void {
 
 test "past the inline limit, solve routes by structure, each to a solution" {
     var prng: std.Random.DefaultPrng = .init(0x501e);
-    inline for (.{ f32, f64, C64 }) |T| for ([_]usize{ 9, 30 }) |n| try expectSolveRoutes(T, n, prng.random());
+    inline for (.{ f32, f64, C64 }) |T| for ([_]usize{ matrix.inline_limit + 1, 30 }) |n| try expectSolveRoutes(T, n, prng.random());
     // a small square with many right-hand sides is past the limit too
     const al = testing.allocator;
     const a = try randomMat(f64, prng.random(), 3, 3);
@@ -167,7 +167,7 @@ test "past the inline limit, solve routes by structure, each to a solution" {
 
 test "solve and inv: error.Singular leaves out untouched" {
     const al = testing.allocator;
-    inline for (.{ 3, 10 }) |n| {
+    inline for (.{ 3, matrix.inline_limit + 1 }) |n| {
         // ones: Hermitian, not positive definite, LU's second pivot exactly 0
         const ones = try Mat(f64).init(al, n, n);
         defer ones.deinit(al);
@@ -231,36 +231,40 @@ test "rectangular solve is gelsy's least-norm least squares" {
 
 test "det past the inline limit: exact cases, scaled past the range, against inv" {
     const al = testing.allocator;
+    // one past the limit
+    const n = matrix.inline_limit + 1;
     // `diag(1e200, 1e200, -3e-100, 1, ...)` (design.md, M1's E1)
-    const e1 = try Mat(f64).zeros(al, 10, 10);
+    const e1 = try Mat(f64).zeros(al, n, n);
     defer e1.deinit(al);
     shiftDiag(f64, e1, 1);
     e1.data[0] = 1e200;
-    e1.data[11] = 1e200;
-    e1.data[22] = -3e-100;
+    e1.data[n + 1] = 1e200;
+    e1.data[2 * (n + 1)] = -3e-100;
     const d = try det(al, test_io, e1);
     try testing.expect(@abs(d + 3e300) <= 1e-14 * 3e300);
     // `2 I` and a row swap, exact
-    const two = try Mat(f64).zeros(al, 12, 12);
+    const two = try Mat(f64).zeros(al, n, n);
     defer two.deinit(al);
     shiftDiag(f64, two, 2);
-    try testing.expectEqual(@as(f64, 4096), try det(al, test_io, two));
-    const swap = try Mat(f64).zeros(al, 9, 9);
+    try testing.expectEqual(@as(f64, 1 << n), try det(al, test_io, two));
+    const swap = try Mat(f64).zeros(al, n, n);
     defer swap.deinit(al);
     shiftDiag(f64, swap, 1);
     swap.data[0] = 0;
-    swap.data[10] = 0;
+    swap.data[n + 1] = 0;
     swap.data[1] = 1;
-    swap.data[9] = 1;
+    swap.data[n] = 1;
     try testing.expectEqual(@as(f64, -1), try det(al, test_io, swap));
-    var zi: [81]C64 = @splat(.init(0, 0));
-    for (0..9) |i| zi[i * 10] = .init(0, 1);
-    try testing.expectEqual(C64.init(0, 1), try det(al, test_io, try ConstView(C64).init(&zi, 9, 9, 9)));
+    // `det(i I) = i^n`
+    var zi: [n * n]C64 = @splat(.init(0, 0));
+    for (0..n) |i| zi[i * (n + 1)] = .init(0, 1);
+    const i_pow = [4]C64{ .init(1, 0), .init(0, 1), .init(-1, 0), .init(0, -1) };
+    try testing.expectEqual(i_pow[n % 4], try det(al, test_io, try ConstView(C64).init(&zi, n, n, n)));
     try testing.expectEqual(@as(f64, 1), try det(al, test_io, try ConstView(f64).init(&.{}, 0, 0, 1)));
 
     var prng: std.Random.DefaultPrng = .init(0xde7);
     inline for (.{ f64, C64 }) |T| {
-        const a = try randomMat(T, prng.random(), 12, 12);
+        const a = try randomMat(T, prng.random(), n, n);
         defer a.deinit(al);
         shiftDiag(T, a, 1);
         const ai = try inv(al, test_io, a);
@@ -273,7 +277,7 @@ test "det past the inline limit: exact cases, scaled past the range, against inv
 test "inv past the inline limit: a a⁻¹ is I" {
     const al = testing.allocator;
     var prng: std.Random.DefaultPrng = .init(0x1a7);
-    inline for (.{ f32, f64, C64 }) |T| for ([_]usize{ 9, 25 }) |n| {
+    inline for (.{ f32, f64, C64 }) |T| for ([_]usize{ matrix.inline_limit + 1, 25 }) |n| {
         const a = try randomMat(T, prng.random(), n, n);
         defer a.deinit(al);
         shiftDiag(T, a, 2);

@@ -1080,7 +1080,7 @@ allows.
 
 Decided, being built (M8 to M16; settled in M5's review with the user, 2026-10-30, of M3's
 proposal): the MATLAB-like layer above the BLAS and LAPACK (Settled decisions: `rstd.linalg`
-is the public API). M4 confirms the inline limit; S1's results for SPIR-V are in
+is the public API). M4 raised the inline limit to 12 ([#79](https://github.com/randyos-org/rstd/issues/79)); S1's results for SPIR-V are in
 `src/rgl/shaders/lib/readme.md`.
 
 **Reopened (user, 2026-10-31) and settled in M7 (2026-11-01):** this toolchain has `@Matrix`,
@@ -1172,7 +1172,7 @@ By size alone, never by type (decision 2): the same numbers take the same path, 
 bits, whether a `StaticMat` or a `Mat` holds them.
 
 1. **SPIR-V:** the native instruction where one exists (table below), else inline code.
-2. **CPU, every dimension at or below the inline limit `L` (8):** inline `@Vector` code, blocked
+2. **CPU, every dimension at or below the inline limit `L` (12):** inline `@Vector` code, blocked
    internally (a 6x6 as 3x3 blocks, register-sized tiles); no allocator, no `Io`, no BLAS call. A
    `StaticMat` picks it at comptime; a `Mat` by a run-time test of its shape, into inline
    kernels with the same operation order, so a run-time 3x3 skips the BLAS's overhead too.
@@ -1184,16 +1184,13 @@ bits, whether a `StaticMat` or a `Mat` holds them.
 Element-wise operations (`+`, `mix`, `mulAdd`, `splat`, `cross`, `outer`, `transpose`, `scale`,
 `add`) are inline at every size: a BLAS call would only store and reload the data.
 
-- **The limit.** `L = 8` per dimension covers the 6-DOF work (6x6) with room, keeps an inline
-  product near 512 multiply-adds, and keeps operands far inside L1 (an 8x8 `f64` is 512 bytes); a
-  4x4 `f64` product fits AVX2's 16 vector registers, and spills start around 6 to 8, where the
-  blocking takes over. Practice agrees: Eigen keeps fixed sizes inline "typically up to 4x4,
+- **The limit.** `L = 12` per dimension (M4, [#79](https://github.com/randyos-org/rstd/issues/79); 8 until 2026-11-18): `blas_bench`'s `inline` section put the inline forms ahead of the BLAS and LAPACK at every size from 4 to 12 on Zen 3, each op at least 1.26 times as fast at 12, with `det` and `solve` near parity from about 12 on. It covers the 6-DOF work (6x6) with room and keeps operands inside L1 (a 12x12 `f64` is 1152 bytes); a 4x4 `f64` product fits AVX2's 16 vector registers, and past that the blocking takes over. Practice agrees: Eigen keeps fixed sizes inline "typically up to 4x4,
   sometimes up to 16x16"; LIBXSMM's small kernels reach `(M N K)^(1/3) <= 64`, which rstd's BLAS
   serves with its own small-matrix kernels (T119) behind the `...Into` forms.
 - **Override.** A root declaration, read at comptime as `std_float_options` is (decision 3):
 
   ```zig
-  pub const rstd_linalg_options: rstd.linalg.Options = .{ .inline_limit = 12 };
+  pub const rstd_linalg_options: rstd.linalg.Options = .{ .inline_limit = 16 };
   ```
 
   At least 4, a compile error below, so that shaderlib's `Mat2` to `Mat4` stay inline.
@@ -1366,7 +1363,7 @@ M5's review with the user (2026-10-30), of M3's proposal (9274e27c):
    request as of 2026-10-30; the proposals are GitHub #4960, a matrix type, and #35240, SPIR-V
    types as builtins). Z6 revisits it. Kept by M7 (decision 14).
 2. **Fixed sizes and the BLAS:** two types by when the shape is known, one operation set over
-   views, dispatch by size alone: inline up to 8, the BLAS and LAPACK above with that core's bits.
+   views, dispatch by size alone: inline up to `L` (8, 12 from M4), the BLAS and LAPACK above with that core's bits.
 3. **Override:** a root declaration (`rstd_linalg_options.inline_limit`).
 4. **Normalize:** one function, `norm(v)`, `error.ZeroVector` for 0; shaderlib keeps GLSL's.
 5. **`lu`:** a singular matrix factors completely, `zero_pivot` set; `solve` and `inv` fail.

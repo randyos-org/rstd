@@ -2,7 +2,7 @@
 //! inline `@Vector` forms (`vector.dot` and `length`, `matrix.any_size`'s
 //! `mul`, `det` and `solve`) against the BLAS and LAPACK calls that serve
 //! past the inline limit, at sizes 4 to 16, `f32` and `f64`, one worker:
-//! where the inline code stops winning, to confirm the limit of 8 or move it
+//! where the inline code stops winning, which set the limit (12; 8 before, M4)
 //! (`src/linalg/design.md`, Dispatch).
 
 const std = @import("std");
