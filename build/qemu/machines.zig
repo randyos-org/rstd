@@ -115,6 +115,15 @@ pub const Boot = union(enum) {
     };
 };
 
+/// The Linux rigs' ThreadSanitizer runs, each part a VM: in one, TCG on CI's
+/// arm64 runners passes the job's time limit, and x86_64 runs out of memory
+/// after hours (issue #412); split as the kernel rigs' default set.
+const tsan_parts = [_]Part{
+    .{ .name = "blas1-2", .filters = &.{ "linalg.blas.blas1.", "linalg.blas.blas2.", "linalg.blas._test.blas1.", "linalg.blas._test.blas2." } },
+    .{ .name = "blas3", .filters = &.{ "linalg.blas.blas3.", "linalg.blas._test.blas3." } },
+    .{ .name = "lapack", .filters = &.{"linalg.lapack."} },
+};
+
 /// Tier 4 (user, 2026-11-01): the images outgrow OpenBIOS's window faster
 /// than parts split them (rstd issue #131).
 const sparc64_stub = "tier 4: its images outgrow OpenBIOS's 4 MiB window (rstd issue #131)";
@@ -765,13 +774,7 @@ const base_machines = [_]Machine{
         .hvf_core = "vortexm4",
         .memory = "1G",
         .tsan_memory = "8G",
-        // TCG on CI's arm64 runners: one ThreadSanitizer run passes the job's
-        // time limit (issue #412); split as the kernel rigs' default set
-        .tsan_parts = &.{
-            .{ .name = "blas1-2", .filters = &.{ "linalg.blas.blas1.", "linalg.blas.blas2.", "linalg.blas._test.blas1.", "linalg.blas._test.blas2." } },
-            .{ .name = "blas3", .filters = &.{ "linalg.blas.blas3.", "linalg.blas._test.blas3." } },
-            .{ .name = "lapack", .filters = &.{"linalg.lapack."} },
-        },
+        .tsan_parts = &tsan_parts,
         .boot = .{ .linux = .{ .dep = "debian_netboot_arm64", .kernel = "debian-installer/arm64/linux", .console = "ttyAMA0" } },
     },
     .{
@@ -796,6 +799,7 @@ const base_machines = [_]Machine{
         // write files) gets half the memory
         .memory = "3G",
         .tsan_memory = "12G",
+        .tsan_parts = &tsan_parts,
         .boot = .{ .linux = .{ .dep = "debian_netboot_amd64", .kernel = "debian-installer/amd64/linux", .console = "ttyS0" } },
     },
     .{

@@ -510,8 +510,11 @@ jobs:
           - { rig: linux-aarch64, runner: ubuntu-24.04-arm }
           - { rig: linux-aarch64-sve, runner: ubuntu-24.04-arm }
           # the glibc targets: ThreadSanitizer, glibc from the runner's Nix (#408)
-          - { rig: linux-x86_64, runner: ubuntu-24.04, tsan: true }
-          # TCG: past the job limit in one run, so in parts (#412)
+          # in parts: past the job limit in one run under TCG, out of memory under KVM (#412)
+          - { rig: linux-x86_64, runner: ubuntu-24.04, tsan: true, part: blas1-2 }
+          - { rig: linux-x86_64, runner: ubuntu-24.04, tsan: true, part: blas3 }
+          - { rig: linux-x86_64, runner: ubuntu-24.04, tsan: true, part: lapack }
+          - { rig: linux-x86_64, runner: ubuntu-24.04, tsan: true, part: rest }
           - { rig: linux-aarch64, runner: ubuntu-24.04-arm, tsan: true, part: blas1-2 }
           - { rig: linux-aarch64, runner: ubuntu-24.04-arm, tsan: true, part: blas3 }
           - { rig: linux-aarch64, runner: ubuntu-24.04-arm, tsan: true, part: lapack }
