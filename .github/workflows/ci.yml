@@ -547,10 +547,15 @@ jobs:
           # QEMU cache, or built here and kept there
           if [[ "$RIG" == *powerpc* ]]; then
             cache="file://$HOME/qemu-ppc-cache"
-            mkdir -p ~/qemu-ppc-cache
-            nix build --extra-substituters "$cache?trusted=1" ./tools/nix#qemu-ppc --out-link "$RUNNER_TEMP/qemu"
-            # the patched build alone (63 MB); cache.nixos.org has the rest
-            [ "$CACHED" = true ] || nix copy --no-recursive --to "$cache" ./tools/nix#qemu-ppc-patched
+            if [ "$CACHED" = true ]; then
+              nix build --extra-substituters "$cache?trusted=1" ./tools/nix#qemu-ppc --out-link "$RUNNER_TEMP/qemu"
+            else
+              # a miss: built here, then the patched build alone (63 MB) kept;
+              # cache.nixos.org has the rest. Not a substituter yet, as the
+              # daemon would make the directory root's
+              nix build ./tools/nix#qemu-ppc --out-link "$RUNNER_TEMP/qemu"
+              nix copy --no-recursive --to "$cache" ./tools/nix#qemu-ppc-patched
+            fi
           else
             nix build ./tools/nix#qemu --out-link "$RUNNER_TEMP/qemu"
           fi
