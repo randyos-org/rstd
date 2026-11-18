@@ -168,12 +168,12 @@ fn qpCase(comptime T: type, al: Allocator, m: usize, n: usize, rank: usize, fixe
     try geqp3(al, check.io, T, m, n, a.slice(), a.ld, jpvt, tau);
     // the fixed columns lead, in their order
     var nf: usize = 0;
-    for (0..n) |j| if (std.mem.indexOfScalar(usize, fixed, j) != null) {
+    for (0..n) |j| if (std.mem.findScalar(usize, fixed, j) != null) {
         try testing.expectEqual(j, jpvt[nf]);
         nf += 1;
     };
     // jpvt is a permutation
-    for (0..n) |v| try testing.expect(std.mem.indexOfScalar(usize, jpvt, v) != null);
+    for (0..n) |v| try testing.expect(std.mem.findScalar(usize, jpvt, v) != null);
     // Q explicitly, then Q R against A P
     const q = try ops.alloc(T, al, m, m);
     defer ops.free(T, al, q);

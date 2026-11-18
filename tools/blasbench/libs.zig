@@ -252,9 +252,9 @@ pub fn loadLibs(opts: LibOptions) !void {
     const ceiling = blas.config.threadCeiling();
     std.debug.print("rstd core: {s}, accelerate: {}, io: {s}, ceiling: {?d}, cpus: {d}\n", .{ blas.coreName(), routed, io_name, ceiling, blas.config.cpu_count });
     io_note = if (ceiling) |c|
-        try std.fmt.bufPrint(&io_note_buf, "rstd runs on `{s}`, thread ceiling {d}.", .{ io_name, c })
+        try std.mem.print(&io_note_buf, "rstd runs on `{s}`, thread ceiling {d}.", .{ io_name, c })
     else
-        try std.fmt.bufPrint(&io_note_buf, "rstd runs on `{s}`, threads up to the CPUs.", .{io_name});
+        try std.mem.print(&io_note_buf, "rstd runs on `{s}`, threads up to the CPUs.", .{io_name});
     // rstd's own load of Accelerate makes this thread single-threaded
     if (loaded(.accelerate)) std.debug.print("accelerate after rstd's init: BLASGetThreading: {s}\n", .{accelThreading()});
 }
@@ -264,7 +264,7 @@ fn lapackVersion(comptime src: Src, buf: []u8) []const u8 {
     const f = lookupF(src, *const fn (*c_int, *c_int, *c_int) callconv(.c) void, "ilaver") orelse return "-";
     var v: [3]c_int = undefined;
     f(&v[0], &v[1], &v[2]);
-    return std.fmt.bufPrint(buf, "{d}.{d}.{d}", .{ v[0], v[1], v[2] }) catch "?";
+    return std.mem.print(buf, "{d}.{d}.{d}", .{ v[0], v[1], v[2] }) catch "?";
 }
 
 /// The calling thread's `BLASGetThreading`, as words.

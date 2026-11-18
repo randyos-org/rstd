@@ -184,11 +184,11 @@ pub fn RealPlan(comptime T: type) type {
                         s.transform(buf.ptr, buf.ptr, rest.ptr, true, true);
                         // pffft's `r0, r(n/2), r1, i1, ...` to the halfcomplex order
                         const nyquist = buf[1];
-                        std.mem.copyForwards(T, buf[1 .. n - 1], buf[2..n]);
+                        @memmove(buf[1 .. n - 1], buf[2..n]);
                         buf[n - 1] = nyquist;
                     } else {
                         const nyquist = buf[n - 1];
-                        std.mem.copyBackwards(T, buf[2..n], buf[1 .. n - 1]);
+                        @memmove(buf[2..n], buf[1 .. n - 1]);
                         buf[1] = nyquist;
                         s.transform(buf.ptr, buf.ptr, rest.ptr, false, true);
                     }

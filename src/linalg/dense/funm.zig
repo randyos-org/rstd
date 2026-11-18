@@ -83,7 +83,7 @@ pub fn funm(allocator: Allocator, io: Io, a: anytype, f: Derivatives(Complex(Ele
                 var ilst = pos + 1;
                 lapack.trexc(io, C, .v, n, t.data, n, u.data, n, &ifst, &ilst) catch return error.NoConvergence;
                 const moved = cluster[next];
-                std.mem.copyBackwards(usize, cluster[pos + 2 .. next + 1], cluster[pos + 1 .. next]);
+                @memmove(cluster[pos + 2 .. next + 1], cluster[pos + 1 .. next]);
                 cluster[pos + 1] = moved;
             }
             pos += 1;

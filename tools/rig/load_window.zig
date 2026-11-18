@@ -35,5 +35,5 @@ pub fn main(init: std.process.Init) !void {
     const file = try Io.Dir.cwd().createFile(io, args[5], .{});
     defer file.close(io);
     var buf: [32]u8 = undefined;
-    try file.writeStreamingAll(io, try std.fmt.bufPrint(&buf, "0x{x}\n", .{hi - lo}));
+    try file.writeStreamingAll(io, try std.mem.print(&buf, "0x{x}\n", .{hi - lo}));
 }

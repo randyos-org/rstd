@@ -157,7 +157,7 @@ fn mergeTable(arena: Allocator, base: *const Table, runs: []const []const Item, 
                 const v = num(c[j]) orelse continue;
                 top = if (top) |t| @max(t, v) else v;
             }
-            if (top) |t| row[j] = try std.fmt.allocPrint(arena, "{d:.1}", .{t});
+            if (top) |t| row[j] = try arena.print("{d:.1}", .{t});
         }
         // ratios `x/ob` over the merged rates
         for (h, 0..) |name, j| {
@@ -166,10 +166,10 @@ fn mergeTable(arena: Allocator, base: *const Table, runs: []const []const Item, 
             const dj = column(h, labels, name[slash + 1 ..]) orelse continue;
             const x = num(row[nj]) orelse continue;
             const y = num(row[dj]) orelse continue;
-            if (y != 0) row[j] = try std.fmt.allocPrint(arena, "{d:.2}", .{x / y});
+            if (y != 0) row[j] = try arena.print("{d:.2}", .{x / y});
         }
         if (noisy) {
-            row[0] = try std.fmt.allocPrint(arena, "{s} (noisy)", .{row[0]});
+            row[0] = try arena.print("{s} (noisy)", .{row[0]});
             if (best == null)
                 try report.print(arena, "NOISY {s} {s}: dev n/a over {d} runs\n", .{ base.section, key, cand.items.len })
             else

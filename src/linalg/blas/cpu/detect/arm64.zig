@@ -765,7 +765,7 @@ const FakeLinux = struct {
     fn read(f: FakeLinux, path: []const u8, buf: []u8) []const u8 {
         const out = struct {
             fn print(b: []u8, comptime fmt: []const u8, args: anytype) []const u8 {
-                return std.fmt.bufPrint(b, fmt, args) catch b[0..0];
+                return std.mem.print(b, fmt, args) catch b[0..0];
             }
         }.print;
         if (std.mem.eql(u8, path, dir ++ "possible")) {
