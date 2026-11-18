@@ -41,11 +41,12 @@ pub fn gbtrf(comptime T: type, m: usize, n: usize, kl: usize, ku: usize, ab: []T
 }
 
 /// Reference-LAPACK's `xGBTF2` (`lapack-netlib/SRC/dgbtf2.f`, `zgbtf2.f`;
-/// OpenBLAS v0.3.34-317): column by column, the pivot the first NaN or else
+/// OpenBLAS `48c7b639c`): column by column, the pivot the first NaN or else
 /// the first largest `|re| + |im|` (rstd's `iamax`), the interchange over the
 /// columns the step reaches (`JU`), the multipliers times the pivot's
-/// reciprocal, and `xGER` (`xGERU`) in the reference's order, skipping a
-/// zero `y(j)`. The first zero pivot (0-based), or null.
+/// reciprocal or, under the safe minimum, divided by it (`ops.scaleBelow`),
+/// and `xGER` (`xGERU`) in the reference's order, skipping a zero `y(j)`.
+/// The first zero pivot (0-based), or null.
 fn gbtf2(comptime T: type, m: usize, n: usize, kl: usize, ku: usize, ab: [*]T, ldab: usize, ipiv: [*]usize) ?usize {
     const F = Float(T);
     const kv = ku + kl;
@@ -100,8 +101,7 @@ fn gbtf2(comptime T: type, m: usize, n: usize, kl: usize, ku: usize, ab: [*]T, l
             mem.swap(T, el(ab, ldab, kv, j + jp, c), el(ab, ldab, kv, j, c));
         };
         if (km == 0) continue;
-        const r = ops.recip(T, at(ab, ldab, kv, j).*);
-        for (1..km + 1) |i| at(ab, ldab, kv + i, j).* = ops.mul(T, at(ab, ldab, kv + i, j).*, r);
+        ops.scaleBelow(T, (ab + kv + 1 + j * ldab)[0..km], at(ab, ldab, kv, j).*);
         // A(j+1:, j+1:ju) -= l u, `xGER` with -1
         for (j + 1..ju + 1) |c| {
             const y = el(ab, ldab, kv, j, c).*;
@@ -225,6 +225,26 @@ test "gbtrf: a zero column is singular there, the factorization completed" {
     inline for (.{ f64, types.Complex64 }) |T| for ([_]usize{ 0, 7, 39 }) |z| {
         try gbCase(T, al, 40, 40, 6, 4, 3, z);
     };
+}
+
+test "gbtrf: a denormal pivot is swapped in and divided by" {
+    inline for (test_types) |T| {
+        const tm = std.math.floatTrueMin(Float(T));
+        const nan = lcheck.poisoned(T);
+        var ipiv: [2]usize = @splat(std.math.maxInt(usize));
+        // [[4tm, 1], [8tm, 3]], kl = ku = 1: rows swapped, L(2, 1) = 1/2,
+        // U(2, 2) = -1/2
+        var ab: [8]T = .{ nan, nan, scalar(T, 4 * tm), scalar(T, 8 * tm), nan, scalar(T, 1), scalar(T, 3), nan };
+        try testing.expectEqual(@as(?usize, null), try gbtrf(T, 2, 2, 1, 1, &ab, 4, &ipiv));
+        try testing.expectEqual([2]usize{ 1, 1 }, ipiv);
+        try testing.expectEqual([4]T{ scalar(T, 8 * tm), scalar(T, 0.5), scalar(T, 3), scalar(T, -0.5) }, .{ ab[2], ab[3], ab[5], ab[6] });
+        if (comptime isComplex(T)) {
+            // 4tm over 8tm i: -i/2
+            ab = .{ nan, nan, .init(4 * tm, 0), .init(0, 8 * tm), nan, scalar(T, 1), scalar(T, 3), nan };
+            try testing.expectEqual(@as(?usize, null), try gbtrf(T, 2, 2, 1, 1, &ab, 4, &ipiv));
+            try testing.expectEqual(T.init(0, -0.5), ab[3]);
+        }
+    }
 }
 
 test "gbtrf: a slice too short or leading dimension too small, nothing read when empty" {

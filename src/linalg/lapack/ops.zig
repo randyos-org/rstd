@@ -229,6 +229,32 @@ pub fn scaleDown(comptime F: type, x: []F, max: F) void {
     }
 }
 
+/// `x /= p`, as `xGETRF2`'s base case and `xGBTF2`: times `1 / p` where
+/// `|p|` is at least the safe minimum, else divided by `p`, whose reciprocal
+/// may overflow. Complex quotients by Smith's algorithm, as `util.cdiv` and
+/// upstream.
+pub fn scaleBelow(comptime T: type, x: []T, p: T) void {
+    const F = Float(T);
+    const sfmin = std.math.floatMin(F);
+    if (comptime isComplex(T)) {
+        if (std.math.hypot(p.re, p.im) >= sfmin) {
+            const r = util.cdiv(F, 1, 0, p.re, p.im);
+            for (x) |*v| {
+                const z = util.cmul(F, r[0], r[1], v.re, v.im);
+                v.* = .init(z[0], z[1]);
+            }
+        } else for (x) |*v| {
+            const z = util.cdiv(F, v.re, v.im, p.re, p.im);
+            v.* = .init(z[0], z[1]);
+        }
+    } else if (@abs(p) >= sfmin) {
+        const r = 1 / p;
+        for (x) |*v| v.* *= r;
+    } else for (x) |*v| {
+        v.* /= p;
+    }
+}
+
 /// Columns `i` and `j` of `m` swapped.
 pub fn swapCols(comptime T: type, m: Mat(T), i: usize, j: usize) void {
     for (0..m.rows) |r| mem.swap(T, m.at(r, i), m.at(r, j));
