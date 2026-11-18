@@ -139,26 +139,18 @@ pub fn requireReal(comptime T: type, comptime name: []const u8) void {
     if (isComplex(T)) @compileError(name ++ ": " ++ @typeName(T) ++ " is not real");
 }
 
-/// `@abs(v)` of a float or float vector; on MIPS MSA by a mask LLVM cannot
-/// see, as its `@abs` there keeps the sign (issue #197). For any `|x|` MSA may vectorize.
+/// `@abs(v)` of a float or float vector; on MIPS MSA by compare and negate,
+/// as LLVM's `@abs` there keeps the sign (issue #197) and a sign mask through
+/// an integer cast lands in the wrong word on big-endian (issue #107). `+ 0`
+/// makes `-0` `+0`; a NaN keeps its sign. For any `|x|` MSA may vectorize.
 pub fn abs(v: anytype) @TypeOf(v) {
     const T = @TypeOf(v);
     const F = if (@typeInfo(T) == .vector) @typeInfo(T).vector.child else T;
     if (comptime !msa or (F != f32 and F != f64)) return @abs(v);
-    const lanes = comptime if (@typeInfo(T) == .vector) @typeInfo(T).vector.len else 1;
-    const words = @sizeOf(F) / 4;
-    const n = lanes * words;
-    const k = asm (""
-        : [k] "=r" (-> u32),
-        : [x] "0" (@as(u32, 0x7fff_ffff)),
-    );
-    // the sign's word of each float: its last, or on big-endian its first
-    const top = comptime if (sysinfo.target.cpu.arch.endian() == .little) words - 1 else 0;
-    var mask: [n]u32 = @splat(0xffff_ffff);
-    inline for (0..n) |i| {
-        if (i % words == top) mask[i] = k;
-    }
-    return @bitCast(@as(@Vector(n, u32), @bitCast(v)) & @as(@Vector(n, u32), mask));
+    // a scalar in a lane: R6 cannot select between floats (issue #192)
+    if (@typeInfo(T) != .vector) return abs(@as(@Vector(2, F), @splat(v)))[0];
+    const z: T = @splat(0);
+    return @select(F, v < z, -v, v) + z;
 }
 
 /// Whether this target is x86 with `feature`.
