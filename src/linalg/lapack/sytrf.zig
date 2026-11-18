@@ -257,6 +257,40 @@ test "relapack sytrf and the rest: a zero row and column is singular there, the 
     };
 }
 
+test "relapack sytrf and the rest: a pivot the panel's update zeroes leaves a zero column" {
+    const al = testing.allocator;
+    const n = sytrf_nb + 16;
+    const k = 10;
+    inline for (.{ f64, types.Complex64 }) |T| inline for (.{ false, true }) |herm| inline for (.{ false, true }) |rook| {
+        if (comptime !herm or isComplex(T)) {
+            const f = comptime indefiniteRoutine(T, herm, rook);
+            for ([_]bool{ true, false }) |upper| {
+                const a = try al.alloc(T, n * n);
+                defer al.free(a);
+                var ipiv: [n]Pivot = undefined;
+                // lower (upper: read backwards): column 0's step cancels
+                // A(k, k) and A(k + 1, k) exactly
+                @memset(a, scalar(T, 0));
+                const at = struct {
+                    fn idx(i: usize, j: usize, up: bool) usize {
+                        return if (up) (n - 1 - i) + (n - 1 - j) * n else i + j * n;
+                    }
+                }.idx;
+                for (0..n) |i| a[at(i, i, upper)] = scalar(T, 8);
+                a[at(0, 0, upper)] = scalar(T, 4);
+                a[at(k, 0, upper)] = scalar(T, 2);
+                a[at(k + 1, 0, upper)] = scalar(T, 2);
+                a[at(k, k, upper)] = scalar(T, 1);
+                a[at(k + 1, k, upper)] = scalar(T, 1);
+                const zero = try f(al, check.io, T, lcheck.uploOf(upper), n, a, n, &ipiv);
+                try testing.expectEqual(@as(?usize, if (upper) n - 1 - k else k), zero);
+                for (k..n) |i| try testing.expect(ops.isZero(T, a[at(i, k, upper)]));
+                try testing.expectEqual(scalar(T, 7), a[at(k + 1, k + 1, upper)]);
+            }
+        }
+    };
+}
+
 test "relapack sytrf, hetrf: a reversed uplo, short slices, a small leading dimension; nothing read for n = 0" {
     const al = testing.allocator;
     const C = types.Complex64;
