@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # `flyoff.sh zen3 <OpenBLAS dll>` or `flyoff.sh m6 [--collect]`: the flyoff's timing runs under the timing rule (readme.md), from the
 # rstd root under MSYS2's bash ($ZIG, $MAC default macmini-m6). `flyoff.sh run <macos|windows> <dir> <name>:<sections>:<command>...`
-# is each host's engine: <command> in <dir> with `@` as the sections, output to runs/<name>-<i>.log. `FLYOFF_OWN="inline sparse"` adds those sections to `m6`, on macOS first. From the R4 runs' script (2026-10-29).
+# is each host's engine: <command> in <dir> with `@` as the sections, output to runs/<name>-<i>.log. `FLYOFF_OWN="inline sparse"` makes `m6` run those sections, threaded `lapack` with and without Accelerate and `l1`, in place of the flyoff. From the R4 runs' script (2026-10-29).
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
 zig=${ZIG:-zig}
@@ -219,12 +219,21 @@ mac-run)
   L=/tmp/rstd-blas/aarch64-darwin
   bench="./blas_bench --openblas=$L/openblasCompat/lib/libopenblas.dylib --reference=$L/lapack-reference/lib/liblapack.dylib --eigen=$L/eigen/lib/libeigen_shim.dylib"
   qemu="nix shell ./nix#qemu -c"
-  # $FLYOFF_OWN's sections first (`own`, from `m6`): rstd against itself
-  own=()
+  # $FLYOFF_OWN (`own`, from `m6`): only those sections of rstd against
+  # itself, `lapack` threaded with and without Accelerate, and the kernel
+  # race (`l1`) here and in the VM, not the library flyoff
   if [ -s "$D/own" ]; then
-    own=("mac-own:$(cat "$D/own"):$bench --threads=1 @" "mac-own-thr:$(cat "$D/own"):$bench --threads=default @")
+    own=$(cat "$D/own")
+    engine macos "$D" \
+      "mac-own:$own:$bench --threads=1 @" \
+      "mac-own-thr:$own:$bench --threads=default @" \
+      "mac-lapack-accel:lapack:$bench --threads=default @" \
+      "mac-lapack-kern:lapack:$bench --threads=default --rstd-accelerate=0 @" \
+      "mac-l1:l1:$bench --threads=1 @" \
+      "lx-l1:l1:$(vm_cmd "$qemu" 1)"
+    exit
   fi
-  engine macos "$D" "${own[@]}" \
+  engine macos "$D" \
     "mac-accel:$all_secs:$bench --threads=1 @" \
     "mac-kern:$all_secs:$bench --threads=1 --rstd-accelerate=0 @" \
     "mac-thr:$thr_secs:$bench --threads=default @" \
