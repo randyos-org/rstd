@@ -4,6 +4,7 @@
 //! `generators.magic`, `hilber` and `random.Urand` (issue #330).
 
 const std = @import("std");
+const mem = @import("../mem.zig");
 const matrix = @import("matrix.zig");
 const vector = @import("vector.zig");
 
@@ -59,9 +60,9 @@ fn fillMagic(comptime T: type, m: Mat(T), n: usize) void {
         const k = (n - 2) / 4;
         for (0..n) |j| {
             if (j >= k and j < n - k + 1) continue;
-            for (0..p) |i| std.mem.swap(T, &m.data[i + j * n], &m.data[i + p + j * n]);
+            for (0..p) |i| mem.swap(T, &m.data[i + j * n], &m.data[i + p + j * n]);
         }
-        for ([_]usize{ 0, k }) |j| std.mem.swap(T, &m.data[k + j * n], &m.data[k + p + j * n]);
+        for ([_]usize{ 0, k }) |j| mem.swap(T, &m.data[k + j * n], &m.data[k + p + j * n]);
     }
 }
 

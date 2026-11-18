@@ -2,6 +2,7 @@
 //! `ldlProduct`, and `sygst`'s `sandwich`.
 
 const std = @import("std");
+const mem = @import("../../../mem.zig");
 const types = @import("../../blas/types.zig");
 const check = @import("../../blas/_test/check.zig");
 const reference = @import("../../blas/_test/reference.zig");
@@ -66,8 +67,8 @@ pub fn ldlProduct(comptime T: type, comptime herm: bool, comptime rook: bool, al
         fn swap(c: @This(), r: usize, s: usize) void {
             if (r == s) return;
             for (0..c.n) |j| {
-                std.mem.swap(F, &c.x[r + j * c.n], &c.x[s + j * c.n]);
-                std.mem.swap(f128, &c.m[r + j * c.n], &c.m[s + j * c.n]);
+                mem.swap(F, &c.x[r + j * c.n], &c.x[s + j * c.n]);
+                mem.swap(f128, &c.m[r + j * c.n], &c.m[s + j * c.n]);
             }
         }
     };

@@ -3,6 +3,7 @@
 //! (`matlab/generators.zig`, issue #329).
 
 const std = @import("std");
+const mem = @import("../mem.zig");
 const matrix = @import("matrix.zig");
 const vector = @import("vector.zig");
 
@@ -73,7 +74,7 @@ pub fn rref(allocator: Allocator, comptime T: type, a: ConstView(T), tol: ?Real(
             continue;
         }
         pivots.appendAssumeCapacity(j);
-        for (j..n) |c| std.mem.swap(T, at(r, i, c), at(r, k, c));
+        for (j..n) |c| mem.swap(T, at(r, i, c), at(r, k, c));
         const d = at(r, i, j).*;
         for (j..n) |c| at(r, i, c).* = div(T, at(r, i, c).*, d);
         for (0..m) |q| {

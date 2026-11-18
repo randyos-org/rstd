@@ -272,6 +272,15 @@ pub inline fn scalar(comptime T: type, x: T) T {
     );
 }
 
+/// `a` and `b` exchanged as values: `std.mem.swap` loops over bytes, which
+/// LLVM turns into a `v1i128` bitcast of an `f128` it cannot select on POWER9
+/// and later (issue #185).
+pub inline fn swap(comptime T: type, a: *T, b: *T) void {
+    const t = a.*;
+    a.* = b.*;
+    b.* = t;
+}
+
 /// `x` rounded to `F` through memory where `F` computes on the x87, which
 /// keeps a result wider until it is stored; `x` itself elsewhere. For a
 /// value compared with one that was stored.

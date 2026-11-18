@@ -4,6 +4,7 @@
 //! are `linalg.vector`'s. Shaderlib re-exports them under GLSL names.
 
 const std = @import("std");
+const mem = @import("../mem.zig");
 const rstd_matrix = @import("rstd_matrix");
 const vector = @import("vector.zig");
 const ops = @import("lapack/ops.zig");
@@ -458,8 +459,8 @@ pub fn luInPlace(comptime n: comptime_int, comptime T: type, a: *[n][n]T, perm: 
         }
         if (big == 0) return error.Singular;
         if (p != k) {
-            for (a) |*c| std.mem.swap(T, &c[k], &c[p]);
-            std.mem.swap(usize, &perm[k], &perm[p]);
+            for (a) |*c| mem.swap(T, &c[k], &c[p]);
+            mem.swap(usize, &perm[k], &perm[p]);
             odd.* = !odd.*;
         }
         for (k + 1..n) |i| a[k][i] = eDiv(a[k][i], a[k][k]);

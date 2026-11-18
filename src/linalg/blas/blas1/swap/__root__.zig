@@ -85,7 +85,7 @@ fn checkSwap(comptime T: type, kern: anytype) !void {
             check.fill(T, &y, n + 7);
             var want_x = x;
             var want_y = y;
-            for (0..n) |i| std.mem.swap(T, &want_x[check.pos(n, inc[0], i)], &want_y[check.pos(n, inc[1], i)]);
+            for (0..n) |i| util.swap(T, &want_x[check.pos(n, inc[0], i)], &want_y[check.pos(n, inc[1], i)]);
             const px: [*]F = @ptrCast(&x[check.pos(n, inc[0], 0)]);
             const py: [*]F = @ptrCast(&y[check.pos(n, inc[1], 0)]);
             if (comptime complex) {

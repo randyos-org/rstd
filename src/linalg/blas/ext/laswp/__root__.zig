@@ -2,6 +2,7 @@
 //! kernels' sets install (`gemm/kernel.zig`).
 
 const std = @import("std");
+const util = @import("../../util.zig");
 const types = @import("../../types.zig");
 const Vtable = @import("../../Vtable.zig");
 const portable = @import("../../portable.zig");
@@ -27,7 +28,7 @@ pub fn laswpRef(comptime T: type, n: usize, a: []T, lda: usize, k1: isize, k2: i
         var i = if (incx > 0) k1 else k2;
         while (if (incx > 0) i <= k2 else i >= k1) : (i += inc) {
             const ip = ipiv[@intCast(ix - 1)];
-            if (ip != i) std.mem.swap(T, &a[@as(usize, @intCast(i - 1)) + j * lda], &a[@as(usize, @intCast(ip - 1)) + j * lda]);
+            if (ip != i) util.swap(T, &a[@as(usize, @intCast(i - 1)) + j * lda], &a[@as(usize, @intCast(ip - 1)) + j * lda]);
             ix += incx;
         }
     }

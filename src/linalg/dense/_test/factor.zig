@@ -2,6 +2,7 @@
 
 const sysinfo = @import("builtin");
 const std = @import("std");
+const mem = @import("../../../mem.zig");
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
 const blas = @import("../../blas/__root__.zig");
@@ -72,7 +73,7 @@ pub fn expectLu(comptime T: type, a: Mat(T)) !Lu(T) {
     defer pa.deinit(al);
     for (f.ipiv, 0..) |r, i| {
         if (r == i) continue;
-        for (0..pa.cols) |j| std.mem.swap(T, &pa.data[i + j * pa.rows], &pa.data[r + j * pa.rows]);
+        for (0..pa.cols) |j| mem.swap(T, &pa.data[i + j * pa.rows], &pa.data[r + j * pa.rows]);
     }
     try testing.expect(maxDiff(T, pa.constView(), p.constView()) <= tolOf(T, a.cols) * maxAbs(T, a.constView()));
     return f;

@@ -4,6 +4,7 @@
 //! `schur_swap` and `schur_move` translate the same `dlaexc.f` and `dtrexc.f`.
 
 const std = @import("std");
+const mem = @import("../../mem.zig");
 const blas = @import("../blas/__root__.zig");
 const types = @import("../blas/types.zig");
 const util = @import("../blas/util.zig");
@@ -80,7 +81,7 @@ pub fn lanv2(comptime F: type, a: *F, b: *F, c: *F, d: *F) struct { rt1r: F, rt1
     if (c.* == 0) {} else if (b.* == 0) {
         cs = 0;
         sn = 1;
-        std.mem.swap(F, a, d);
+        mem.swap(F, a, d);
         b.* = -c.*;
         c.* = 0;
     } else if (a.* - d.* == 0 and std.math.signbit(b.*) != std.math.signbit(c.*)) {} else {

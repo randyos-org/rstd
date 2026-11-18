@@ -4,6 +4,7 @@
 //! solver, with Reference-LAPACK's `xBDSQR` as `qrAlgorithm` (T126).
 
 const std = @import("std");
+const mem = @import("../../mem.zig");
 const ops = @import("ops.zig");
 const blas_calls = @import("blas_calls.zig");
 const auxiliary = @import("auxiliary.zig");
@@ -352,8 +353,8 @@ fn lasv2(comptime F: type, f: F, g: F, h: F) struct { ssmin: F, ssmax: F, snr: F
     const swap = ha > fa;
     if (swap) {
         pmax = 3;
-        std.mem.swap(F, &ft, &ht);
-        std.mem.swap(F, &fa, &ha);
+        mem.swap(F, &ft, &ht);
+        mem.swap(F, &fa, &ha);
     }
     const gt = g;
     const ga = @abs(gt);
@@ -715,8 +716,8 @@ fn sortAscending(comptime F: type, s: []F, perm: []usize) void {
     for (1..s.len) |i| {
         var j = i;
         while (j > 0 and s[j - 1] > s[j]) : (j -= 1) {
-            std.mem.swap(F, &s[j - 1], &s[j]);
-            std.mem.swap(usize, &perm[j - 1], &perm[j]);
+            mem.swap(F, &s[j - 1], &s[j]);
+            mem.swap(usize, &perm[j - 1], &perm[j]);
         }
     }
 }
@@ -974,8 +975,8 @@ fn secant(comptime F: type, sec: anytype, shift: F, left: F, right: F, mu_cur_in
     var f_cur = f_cur_in;
     var f_prev = f_prev_in;
     if (@abs(f_prev) < @abs(f_cur)) {
-        std.mem.swap(F, &f_prev, &f_cur);
-        std.mem.swap(F, &mu_prev, &mu_cur);
+        mem.swap(F, &f_prev, &f_cur);
+        mem.swap(F, &mu_prev, &mu_cur);
     }
     var left_candidate: ?F = null;
     var right_candidate: ?F = null;
@@ -1113,8 +1114,8 @@ fn deflate(al: Allocator, comptime F: type, diag: []F, col0: []F, jacobi_coeff: 
     for ((if (total_deflation) @as(usize, 0) else 1)..n) |i| {
         const pi = perm[n - if (total_deflation) i + 1 else i];
         const j = real_col[pi];
-        std.mem.swap(F, &diag[i], &diag[j]);
-        if (i != 0 and j != 0) std.mem.swap(F, &col0[i], &col0[j]);
+        mem.swap(F, &diag[i], &diag[j]);
+        if (i != 0 and j != 0) mem.swap(F, &col0[i], &col0[j]);
         transpositions[i] = j;
         const real_i = real_ind[i];
         real_col[real_i] = j;
@@ -1124,7 +1125,7 @@ fn deflate(al: Allocator, comptime F: type, diag: []F, col0: []F, jacobi_coeff: 
     }
     col0[0] = diag[0];
     for (perm, 0..) |*x, i| x.* = i;
-    for (transpositions, 0..) |j, i| std.mem.swap(usize, &perm[i], &perm[j]);
+    for (transpositions, 0..) |j, i| mem.swap(usize, &perm[i], &perm[j]);
     var i = n - 1;
     while (i > 0 and (@abs(diag[i]) < sml or @abs(col0[i]) < sml)) i -= 1;
     while (i > 1) {

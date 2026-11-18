@@ -4,6 +4,7 @@
 //! double-shift QR); `multishift_qr` is not ported yet.
 
 const std = @import("std");
+const mem = @import("../../mem.zig");
 const ops = @import("ops.zig");
 const auxiliary = @import("auxiliary.zig");
 const hh = @import("householder.zig");
@@ -56,7 +57,7 @@ pub fn schur22(comptime F: type, a_: F, b_: F, c_: F, d_: F) Schur22(F) {
     } else if (b == 0) {
         cs = 0;
         sn = 1;
-        std.mem.swap(F, &d, &a);
+        mem.swap(F, &d, &a);
         b = -c;
         c = 0;
     } else if (a == d and (b > 0) != (c > 0)) {

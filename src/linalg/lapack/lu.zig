@@ -7,6 +7,7 @@
 //! LAPACK section.
 
 const std = @import("std");
+const mem = @import("../../mem.zig");
 const types = @import("../blas/types.zig");
 const util = @import("../blas/util.zig");
 const portable = @import("../blas/portable.zig");
@@ -366,7 +367,7 @@ pub fn getri(allocator: Allocator, io: Io, comptime T: type, n: usize, a: []T, l
     while (j > 0) {
         j -= 1;
         const p = ipiv[j];
-        if (p != j) for (0..m) |i| std.mem.swap(T, &a[i + j * la], &a[i + p * la]);
+        if (p != j) for (0..m) |i| mem.swap(T, &a[i + j * la], &a[i + p * la]);
     }
 }
 
@@ -381,7 +382,7 @@ pub fn getf2(comptime T: type, vt: *const Vtable, m: usize, n: usize, a: [*]T, l
         const len = @min(j, m);
         for (0..len) |i| {
             const ip = ipiv[i];
-            if (ip != i) std.mem.swap(T, &b[i], &b[ip]);
+            if (ip != i) mem.swap(T, &b[i], &b[ip]);
         }
         for (1..@max(1, len)) |i| {
             var s = scalar(T, 0);
@@ -401,7 +402,7 @@ pub fn getf2(comptime T: type, vt: *const Vtable, m: usize, n: usize, a: [*]T, l
             if (info == null) info = j;
             continue;
         }
-        if (p != j) for (0..j + 1) |k| std.mem.swap(T, &a[j + k * lda], &a[p + k * lda]);
+        if (p != j) for (0..j + 1) |k| mem.swap(T, &a[j + k * lda], &a[p + k * lda]);
         scaleBelow(T, b[j + 1 .. m], piv);
     }
     return info;
@@ -738,7 +739,7 @@ fn solveCase(comptime T: type, al: Allocator, p: *const fixtures.LuProblem(T), t
         // `P` on the residual, or on `|X|`
         for (0..n) |k| {
             const q = p.ipiv[k];
-            if (t) std.mem.swap(f128, &xm[k], &xm[q]) else std.mem.swap(W(T), &res[k], &res[q]);
+            if (t) mem.swap(f128, &xm[k], &xm[q]) else mem.swap(W(T), &res[k], &res[q]);
         }
         for (0..n) |i| {
             var bound: f128 = 0;

@@ -9,6 +9,7 @@
 //! Replaces `matrixfun.sqrtm` (issue #333).
 
 const std = @import("std");
+const mem = @import("../../mem.zig");
 const matrix = @import("../matrix.zig");
 const vector = @import("../vector.zig");
 const util = @import("util.zig");
@@ -165,7 +166,7 @@ fn gauss(comptime T: type, m: usize, sys: *[4][5]T) [4]T {
         for (k + 1..m) |r| {
             if (absOf(T, sys[r][k]) > absOf(T, sys[piv][k])) piv = r;
         }
-        std.mem.swap([5]T, &sys[k], &sys[piv]);
+        mem.swap([5]T, &sys[k], &sys[piv]);
         for (k + 1..m) |r| {
             const f = div(T, sys[r][k], sys[k][k]);
             for (k..m + 1) |c| sys[r][c] = sub(T, sys[r][c], mul(T, f, sys[k][c]));

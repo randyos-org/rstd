@@ -4,6 +4,7 @@
 //! method) and Gu and Eisenstat's divide and conquer (`xSTEDC`'s).
 
 const std = @import("std");
+const mem = @import("../../mem.zig");
 const ops = @import("ops.zig");
 const blas_calls = @import("blas_calls.zig");
 const hh = @import("householder.zig");
@@ -130,7 +131,7 @@ pub fn qrAlgorithm(comptime F: type, diag: []F, offdiag: []F, u: ?Mat(F)) error{
             min = diag[kk];
         };
         if (idx != i) {
-            std.mem.swap(F, &diag[i], &diag[idx]);
+            mem.swap(F, &diag[i], &diag[idx]);
             if (u) |um| ops.swapCols(F, um, i, idx);
         }
     }
@@ -404,7 +405,7 @@ fn recurse(al: Allocator, io: Io, comptime F: type, diag: []F, offdiag: []F, u: 
         for (0..n) |j| for (w.pl_before, 0..) |p, i| {
             tmp.at(p, j).* = repaired_u.get(i, j);
         };
-        std.mem.swap(Mat(F), &repaired_u, &tmp);
+        mem.swap(Mat(F), &repaired_u, &tmp);
     }
     try blas_calls.gemm(al, io, F, .n, .n, 1, ua, repaired_u.sub(0, 0, n1, n), 0, tmp.sub(0, 0, n1, n));
     try blas_calls.gemm(al, io, F, .n, .n, 1, ub, repaired_u.sub(n1, 0, n - n1, n), 0, tmp.sub(n1, 0, n - n1, n));

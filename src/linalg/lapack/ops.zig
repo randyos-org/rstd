@@ -4,6 +4,7 @@
 //! `blas_calls.zig`'s, the LAPACK auxiliaries `auxiliary.zig`'s.
 
 const std = @import("std");
+const mem = @import("../../mem.zig");
 const types = @import("../blas/types.zig");
 const util = @import("../blas/util.zig");
 
@@ -230,7 +231,7 @@ pub fn scaleDown(comptime F: type, x: []F, max: F) void {
 
 /// Columns `i` and `j` of `m` swapped.
 pub fn swapCols(comptime T: type, m: Mat(T), i: usize, j: usize) void {
-    for (0..m.rows) |r| std.mem.swap(T, m.at(r, i), m.at(r, j));
+    for (0..m.rows) |r| mem.swap(T, m.at(r, i), m.at(r, j));
 }
 
 /// `x / |x|` (1 for 0), complex `x`, scaled first so `|x|` cannot overflow.
