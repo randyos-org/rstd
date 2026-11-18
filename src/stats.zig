@@ -8,6 +8,7 @@
 const std = @import("std");
 const blas = @import("linalg/blas/__root__.zig");
 const blas_types = @import("linalg/blas/types.zig");
+const math = @import("math.zig");
 const sort = @import("sort.zig");
 const matrix = @import("linalg/matrix.zig");
 const l3 = @import("linalg/blas/blas3/interface.zig");
@@ -288,6 +289,7 @@ fn quantiles(allocator: Allocator, comptime R: type, out: []R, xs: anytype, p: [
 
 /// NumPy's `_quantile` on the sorted `s` (numpy/lib/_function_base_impl.py,
 /// v2.1): the method's virtual index, then the two neighbors and `gamma`.
+/// `math.floor`, as `@floor` keeps fractions on x87 (issue #481).
 fn quantileOf(comptime R: type, comptime E: type, s: []const E, p: R, method: QuantileMethod) R {
     const W = Wide(R);
     const n: W = @floatFromInt(s.len);
@@ -297,7 +299,7 @@ fn quantileOf(comptime R: type, comptime E: type, s: []const E, p: R, method: Qu
         .inverted_cdf, .closest_observation => {
             // the discontinuous ones pick an order statistic
             const vi = if (method == .inverted_cdf) n * q - 1 else n * q - 1 - 0.5;
-            const prev = @floor(vi);
+            const prev = math.floor(vi);
             const exact = vi == prev;
             const take_prev = if (method == .inverted_cdf) exact else exact and @mod(prev, 2) == 0;
             const k = if (take_prev) prev else prev + 1;
@@ -305,7 +307,7 @@ fn quantileOf(comptime R: type, comptime E: type, s: []const E, p: R, method: Qu
         },
         .averaged_inverted_cdf => {
             const vi = n * q - 1;
-            const prev = @floor(vi);
+            const prev = math.floor(vi);
             const gamma: W = if (vi == prev) 0.5 else 1;
             return lerp(R, to(R, s[index(W, prev, last)]), to(R, s[index(W, prev + 1, last)]), gamma);
         },
@@ -323,7 +325,7 @@ fn quantileOf(comptime R: type, comptime E: type, s: []const E, p: R, method: Qu
             // `_get_indexes`: past either end, that end
             if (vi < 0) return to(R, s[0]);
             if (vi >= @as(W, @floatFromInt(last))) return to(R, s[last]);
-            const prev = @floor(vi);
+            const prev = math.floor(vi);
             return lerp(R, to(R, s[index(W, prev, last)]), to(R, s[index(W, prev + 1, last)]), vi - prev);
         },
     }
