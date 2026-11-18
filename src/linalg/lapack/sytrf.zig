@@ -291,6 +291,49 @@ test "relapack sytrf and the rest: a pivot the panel's update zeroes leaves a ze
     };
 }
 
+test "relapack sytrf and the rest: a 2 x 2 pivot with a subnormal off-diagonal stays finite" {
+    const al = testing.allocator;
+    // 27 blocks of 3: the panel's 2 x 2 steps, then `tf2`'s
+    const n = sytrf_nb + 17;
+    inline for (.{ f64, types.Complex64 }) |T| inline for (.{ false, true }) |herm| inline for (.{ false, true }) |rook| {
+        if (comptime !herm or isComplex(T)) {
+            const f = comptime indefiniteRoutine(T, herm, rook);
+            // 1 / (2 s) overflows
+            const s = 16 * std.math.floatTrueMin(types.Float(T));
+            for ([_]bool{ true, false }) |upper| {
+                const a = try al.alloc(T, n * n);
+                defer al.free(a);
+                var ipiv: [n]Pivot = undefined;
+                @memset(a, scalar(T, 0));
+                const at = struct {
+                    fn idx(i: usize, j: usize, up: bool) usize {
+                        return if (up) (n - 1 - i) + (n - 1 - j) * n else i + j * n;
+                    }
+                }.idx;
+                // lower (upper: read backwards), per block:
+                // [0 . .; 2s 0 .; s s 1], D = [0 2s; 2s 0], L = [1/2 1/2]
+                var b: usize = 0;
+                while (b < n) : (b += 3) {
+                    a[at(b + 1, b, upper)] = scalar(T, 2 * s);
+                    a[at(b + 2, b, upper)] = scalar(T, s);
+                    a[at(b + 2, b + 1, upper)] = scalar(T, s);
+                    a[at(b + 2, b + 2, upper)] = scalar(T, 1);
+                }
+                try testing.expectEqual(@as(?usize, null), try f(al, check.io, T, lcheck.uploOf(upper), n, a, n, &ipiv));
+                for (a) |x| try testing.expect(ops.isFinite(T, x));
+                b = 0;
+                while (b < n) : (b += 3) {
+                    try testing.expectEqual(Pivot.Block.two, ipiv[if (upper) n - 1 - b else b].block);
+                    try testing.expectEqual(scalar(T, 2 * s), a[at(b + 1, b, upper)]);
+                    try testing.expectEqual(scalar(T, 0.5), a[at(b + 2, b, upper)]);
+                    try testing.expectEqual(scalar(T, 0.5), a[at(b + 2, b + 1, upper)]);
+                    try testing.expectEqual(scalar(T, 1), a[at(b + 2, b + 2, upper)]);
+                }
+            }
+        }
+    };
+}
+
 test "relapack sytrf, hetrf: a reversed uplo, short slices, a small leading dimension; nothing read for n = 0" {
     const al = testing.allocator;
     const C = types.Complex64;
