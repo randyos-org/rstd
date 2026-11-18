@@ -2,10 +2,10 @@
 //! `pffft_cplx_preprocess`, `pffft_real_finalize` and
 //! `pffft_real_preprocess`, and the reordering, `pffft_zreorder`
 //! (`src/pffft_priv_impl.h`, marton78/pffft efc1dd2d, UCAR, LICENSE), in
-//! its operation order.
+//! its operation order. The 4-lane steps; `finalize8.zig` has the 8-lane ones.
 
 const std = @import("std");
-const simd = @import("simd.zig");
+const simd = @import("simd.zig").For(4);
 
 const V = simd.V;
 const Ptr = simd.Ptr;
