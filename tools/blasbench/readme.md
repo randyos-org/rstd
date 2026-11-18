@@ -1,10 +1,11 @@
 # blasbench
 
-Races rstd's BLAS and LAPACK against other libraries, and its arm64 kernels against OpenBLAS's assembly. `blas_bench.zig` is the bench (`kernels.zig`, `libs.zig`, `ext.zig` and `l3thread.zig` hold the sections), `bench.zig` the timing loop, `merge.zig` the merge of repeated runs, `flyoff.sh` the timed reruns, `nix/` the Eigen shim. Results: [`results-flyoff.md`](results/results-flyoff.md) (every OS and CPU at hand), [`results-m6.md`](results/results-m6.md) and [`results-m6-libraries.md`](results/results-m6-libraries.md) (the M6).
+Races rstd's BLAS and LAPACK against other libraries, and its kernels against OpenBLAS's own (arm64's assembly, x86_64's level 1). `blas_bench.zig` is the bench (`kernels.zig`, `libs.zig`, `ext.zig` and `l3thread.zig` hold the sections), `bench.zig` the timing loop, `merge.zig` the merge of repeated runs, `flyoff.sh` the timed reruns, `nix/` the Eigen shim. Results: [`results-flyoff.md`](results/results-flyoff.md) (every OS and CPU at hand), [`results-m6.md`](results/results-m6.md) and [`results-m6-libraries.md`](results/results-m6-libraries.md) (the M6).
 
 ## Sections
 
 - `probe`, `l1`, `l2`, `l3`: arm64 kernels in their vtable slots' ABI (`l3` needs `-Dopenblas`).
+- `l1` on x86_64 (unnamed only with `-Dopenblas`): the selected core's level-1 kernels (`core`) against OpenBLAS's own for HASWELL or ZEN (`asm`), its `.c` microkernels and `.S` as `kernel/x86_64/KERNEL.<core>` picks them, compiled from the `-Dopenblas` checkout (`obx86.zig`; T173); without it, or on another core, `asm` is `none`.
 - `kern3` (only when named, any host): the selected core's gemm kernel alone, on a `P` by 64 block of depth `Q` its own copies packed, against rstd's whole `gemm` at n = 128 to 1024 on one worker, every type: how much of the kernel's rate the driver keeps (T21).
 - `l3thread` (only when named, any host): rstd's public `gemm` at n = 256 to 2000, `f64` and `f32`, serial and at 2, 4, 8 and 16 workers (`l3thread.zig`), medians in GFLOPS: how level 3 scales with workers ([`threading.md`](../../src/linalg/blas/threading.md)).
 - `sparse` (only when named, any host): CSC `A x` and `Aᵀ y` against dense `gemv` on the same `f64` matrix, one worker, over fill (1% to 60%), size (100 to 3000; 10 000 with `--max-n=10000`, whose dense matrix is 800 MB) and pattern (random, banded): the crossover for a dense-or-sparse switch (`sparse_bench.zig`, T151).
@@ -55,7 +56,7 @@ The reference binaries (design.md, the anthology decision) are baselines only:
 
 | step | what |
 | ---- | ---- |
-| `bench-native -Dopenblas-lib=<library>` | here; `-Dblis-lib`, `-Dreference-lib`, `-Deigen-lib`, `-Daocl-libflame-lib` add the others |
+| `bench-native -Dopenblas-lib=<library>` | here; `-Dblis-lib`, `-Dreference-lib`, `-Deigen-lib`, `-Daocl-libflame-lib` add the others; `-Dopenblas=<checkout>` the x86_64 `l1` references |
 | `ssh-bench-aarch64-macos` | on the Mac, nixpkgs' libraries and the reference binaries through its Nix |
 | `qemu-bench-linux-<arch>` | in a Linux VM on the host's CPU (`-Dvm-bench-arg` for the bench) |
 | `bench-check` | compiles the bench for Windows x86_64, Linux and macOS on x86_64 and arm64, and tests `merge.zig` |
