@@ -25,8 +25,11 @@ fn Acc(comptime W: type) type {
 
         const Self = @This();
 
-        inline fn add(a: *Self, x: W) void {
-            const t = a.s + x;
+        // the error-free sum needs `x` and `t` rounded to `W`, which the
+        // x87 holds wider until stored (issue #476)
+        inline fn add(a: *Self, x_wide: W) void {
+            const x = util.rounded(W, x_wide);
+            const t = util.rounded(W, a.s + x);
             if (@abs(a.s) >= @abs(x)) a.c += (a.s - t) + x else a.c += (x - t) + a.s;
             a.s = t;
         }
