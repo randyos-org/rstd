@@ -9,6 +9,7 @@
 //! weak order once a NaN appears.
 
 const std = @import("std");
+const blas_util = @import("linalg/blas/util.zig");
 
 const Allocator = std.mem.Allocator;
 
@@ -88,10 +89,12 @@ fn less(comptime T: type, a: T, b: T) bool {
         // MATLAB's order: by magnitude, then angle in (-π, π]; a NaN part last
         if (isNan(T, a)) return false;
         if (isNan(T, b)) return true;
-        const ma = std.math.hypot(a.re, a.im);
-        const mb = std.math.hypot(b.re, b.im);
+        // rounded, or the x87 compares one stored and one wider (issue #478)
+        const R = @TypeOf(a.re);
+        const ma = blas_util.rounded(R, std.math.hypot(a.re, a.im));
+        const mb = blas_util.rounded(R, std.math.hypot(b.re, b.im));
         if (ma != mb) return ma < mb;
-        return std.math.atan2(a.im, a.re) < std.math.atan2(b.im, b.re);
+        return blas_util.rounded(R, std.math.atan2(a.im, a.re)) < blas_util.rounded(R, std.math.atan2(b.im, b.re));
     }
     if (comptime @typeInfo(T) == .float) {
         if (std.math.isNan(a)) return false;
