@@ -262,26 +262,31 @@ pub fn sumDim(allocator, io, v, dim: u8) error{ ... }!Array(T) // and prod, max,
   chunks combined in order elsewhere.
 - num.zig's `core/shape.zig`, `core/iterator.zig`, `ops/broadcast.zig` and `manip/` informed this.
 
-### Planned: sparse matrices
+### Sparse matrices
 
-In `rstd.linalg.sparse`, with 0-based indices.
+In `rstd.linalg.sparse`, with 0-based indices. The kernels landed in T150 ([#84](https://github.com/randyos-org/rstd/issues/84)); the iterative solvers are stubs (N2), and [`src/linalg/sparse/`](src/linalg/sparse/__root__.zig) is the reference.
 
 ```zig
 pub fn Csc(comptime T: type) type; // rows, cols: u32, col_start: []u32, row: []u32, value: []T
 pub fn Csr(comptime T: type) type; // the row-major twin: a Csc of A is a Csr of Aᵀ, same arrays
-pub fn Triplets(comptime T: type) type; // builder: append(allocator, i, j, x), then toCsc
-fn toCsc(allocator, t) error{OutOfMemory}!Csc(T) // sums duplicates in insertion order
-fn fromDense(allocator, a: ConstView(T), drop_below: F) error{OutOfMemory}!Csc(T)
-fn toDense(allocator, a) error{OutOfMemory}!Mat(T)
-fn mulVec(io, a, trans: Trans, alpha: T, x: []const T, beta: T, y: []T) error{ ... }!void
-fn mulDense(allocator, io, a, b: ConstView(T)) error{ ... }!Mat(T)
+pub fn Triplets(comptime T: type) type; // init(rows, cols), append(allocator, i, j, x), toCsc
+pub fn Vector(comptime T: type) type; // one column or row: axpy, dot, dotc into dense slices
+
+// Csc(T)'s methods
+fn fromDense(allocator, a: ConstView(T), drop_below: Float(T)) Error!Csc(T)
+fn toDense(a, allocator) error{OutOfMemory}!Mat(T)
+fn mulVec(a, allocator, io, trans: Trans, alpha: T, x: []const T, beta: T, y: []T) MulError!void
+fn mulDense(a, allocator, io, b: ConstView(T)) MulError!Mat(T)
+fn spgemm(a, allocator, b) SpgemmError!Csc(T) // also spgemmSymbolic, then spgemmNumeric
+fn solveTri(a, uplo: Uplo, trans: Trans, diag: Diag, x: []T) TriSolveError!void
+fn scal, sub, selectCols, transpose, ctranspose, toCsr, asCsrOfTranspose, col, nonzeros
 
 // iterative solvers, matrix-free: anything with apply
 pub fn Operator(comptime T: type) type; // context plus apply(io, x: []const T, y: []T)
 pub fn Options(comptime T: type) type; // tol (relative residual), max_iterations, preconditioner
 pub const Stats = struct { iterations: usize, residual: f64 };
-pub fn cg(allocator, io, a: Operator(T), b: []const T, x: []T, options) error{ ... }!Stats
-pub fn gmres(allocator, io, a, b, x, options, restart: usize) error{ ... }!Stats
+pub fn cg(allocator, io, comptime T, a: Operator(T), b: []const T, x: []T, options) SolveError!Stats
+pub fn gmres(allocator, io, comptime T, a, b, x, options, restart: usize) SolveError!Stats
 ```
 
 - **Indices:** `u32` throughout (shape, column starts, rows), so under 2³² rows, columns and
@@ -290,7 +295,9 @@ pub fn gmres(allocator, io, a, b, x, options, restart: usize) error{ ... }!Stats
   costs 12 bytes, not 16, and `A x` is bandwidth-bound.
 - **CSC comes first**, as in MATLAB and SuiteSparse. A threaded `A x` on CSC combines per-chunk
   partial vectors in chunk order (the BLAS's ordered combine); on CSR each row's sum stays whole.
-- **Errors** beyond `OutOfMemory` and `Canceled`: `DimensionMismatch`, `NoConvergence`,
+- **Errors:** exact sets per operation (`csc.zig`); beyond `OutOfMemory` and `Canceled`,
+  `DimensionMismatch`, `TooLarge`, `IndexOutOfRange`, `PatternMismatch` (a numeric `spgemm`
+  into another product's pattern), `Singular`, and the solvers' `NoConvergence` and
   `NotPositiveDefinite` (CG's breakdown).
 - num.zig's `core/sparse.zig` and `linalg/sparse_solve.zig` (CG, restarted GMRES, no
   preconditioner) informed this.

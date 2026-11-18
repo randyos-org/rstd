@@ -1408,36 +1408,20 @@ randy-matrix: padded `@Vector` columns, float elements, `+ - *`, `@transpose`):
 
 M16 (2026-11-12): pffft's lane shuffles, for its FFT kernels ([#65](https://github.com/randyos-org/rstd/issues/65)), are `linalg.vector`'s `interleave`, `uninterleave`, `swapHalves`, `reverse` and `reversePairs` on any even `@Vector` length, and its `VTRANSPOSE4` is `linalg.matrix.transposeVecs` over `transpose` (`@Matrix`'s where the compiler has it).
 
-### Planned: sparse matrices
+### Sparse matrices
 
-Not scheduled ([#84](https://github.com/randyos-org/rstd/issues/84) and [#85](https://github.com/randyos-org/rstd/issues/85)): the 2025 linear-algebra discussions, as corrected on
-review (Randy ChatGPT discussions).
+`rstd.linalg.sparse` (`src/linalg/sparse/`), T150 ([#84](https://github.com/randyos-org/rstd/issues/84)): the 2025 linear-algebra discussions, as corrected on review (Randy ChatGPT discussions). The iterative solvers `cg` and `gmres` are still stubs ([#85](https://github.com/randyos-org/rstd/issues/85)).
 
-- **Scope.** The kernels a sparse SQP solver needs, not the Sparse BLAS interface: `A x` and
-  `Aᵀ y`, sparse `axpy` and `dot` against a dense vector, `scal`, submatrix extraction,
-  symbolic and numeric `spgemm`, and triangular solves with sparse `L` and `U`. NIST's Sparse
-  BLAS reference calls no dense BLAS, so the dense kernels are not reused.
-- **Storage: CSC.** Sorted row indices per column and `n + 1` column pointers; the index type is
-  a comptime parameter. `A x` is one `axpy` per column, scattering into `y`; `Aᵀ y` is one dot
-  per column, gathering, the form an active-set method's pricing (`g_N - Nᵀ π`) uses.
-- **SIMD.** Only the contiguous value runs vectorize. AVX2 gathers but cannot scatter, NEON does
-  neither: scatters stay scalar, and a gather is used where measured faster than scalar loads.
-- **Threads.** `Aᵀ y` splits by columns without conflict. `A x` races on `y`, so its column
-  split is fixed by the problem size and the partial `y`s are summed in a fixed order, as level 3
-  fixes its partition ([Requirements](#requirements), reproducibility).
-- **`spgemm`.** Gustavson's column form, `C(:, j) = Σ_k B(k, j) A(:, k)`, reads only columns,
-  so neither operand is transposed. A symbolic pass (the Boolean product of the patterns) sizes
-  `C`; the numeric pass reuses it while the patterns hold, as a solver's Jacobian does.
-- **Dense or sparse.** `f64` values with `u32` indices cost 12 bytes per nonzero, so memory
-  breaks even at two-thirds fill; time breaks even far lower, at a fill to be measured before
-  any automatic switch.
-- **Bucketed linear COO, not chosen.** One linear index `row + col * nrows` per entry, sorted
-  column-major, with `{col, start}` every 128 columns instead of column pointers. Both store one
-  index per nonzero, so it saves only the `n + 1` pointers; a `u32` linear index caps
-  `nrows * ncols` below 2³², past which `u64` doubles every index; a row costs a division per
-  entry; finding column `k` scans a bucket. Its target, columns far outnumbering nonzeros, is
-  hypersparse storage (DCSC; Buluç and Gilbert, IPDPS 2008), one of SuiteSparse:GraphBLAS's
-  formats, as is the whole-matrix bitmap also considered.
+- **Scope.** The kernels a sparse SQP solver needs, not the Sparse BLAS interface: `A x` and `Aᵀ y` (`mulVec`, all eight `Trans` letters), `A B` with `B` dense (`mulDense`), sparse `axpy`, `dot` and `dotc` against a dense vector (`Vector`, a column's view), `scal`, submatrix extraction (`sub`, `selectCols`), `transpose` and `ctranspose`, symbolic and numeric `spgemm`, and triangular solves with sparse `L` and `U` (`solveTri`). NIST's Sparse BLAS reference calls no dense BLAS, so the dense kernels are not reused; only the BLAS's threading is.
+- **Storage: CSC.** `u32` row indices, ascending and unique within each column, and `n + 1` `u32` column starts; explicit zeros may be stored. Constructors narrow with `error.TooLarge`. `Triplets.toCsc` sorts stably by row, then by column, and sums duplicates in insertion order; `fromDense` drops entries of magnitude at most `drop_below`. `Csr` is the row-major twin: the CSC of `A` is the CSR of `Aᵀ`, the same arrays (`asCsrOfTranspose`, `asCscOfTranspose`), and `Csr.mulVec` is the CSC one on that view with the transpose flipped.
+- **`A x`** is one `axpy` per column, scattering into `y`; **`Aᵀ y`** is one dot per column, gathering, the form an active-set method's pricing (`g_N - Nᵀ π`) uses.
+- **Threads.** `Aᵀ y` splits by output entries (columns) without conflict, so its chunks cannot change a bit. `A x` races on `y`: its columns split into chunks of about equal nonzeros, as many as the `gemv` rule's chunk count for `nnz` work, capped so each chunk has at least `m` nonzeros (its partial vector then costs no more than its work); each chunk sums into a partial vector over the rows it reaches, and `threading.Partials` adds those to `y` in chunk order. The split follows the size and pattern alone, so the bits are the same at any worker count. `mulDense` splits `B`'s columns, each output column scattered whole.
+- **SIMD.** Only the contiguous value runs could vectorize. AVX2 gathers but cannot scatter, NEON does neither; the kernels are scalar for now, and a gather is to be used only where measured faster than scalar loads.
+- **`spgemm`.** Gustavson's column form, `C(:, j) = Σ_k B(k, j) A(:, k)`, reads only columns, so neither operand is transposed. The symbolic pass (the Boolean product of the patterns, each column's rows sorted) sizes `C` with zero values; the numeric pass sums into `C`'s own slots, `k` ascending, and is reused while the patterns hold, as a solver's Jacobian does; an entry outside `C`'s pattern is `error.PatternMismatch`. Serial.
+- **Triangular solves.** `solveTri(uplo, trans, diag, x)` takes `x := op(A)⁻¹ x` with `uplo` `u` or `l` and `trans` `n`, `t`, `r` or `c`; entries off the triangle are never read, nor the diagonal when `diag` is `u`. A zero or missing diagonal entry is `error.Singular`, found before `x` is touched. Column forms (Davis, *Direct Methods for Sparse Linear Systems*, 3.1): scatter without a transpose, a dot per column with one. Serial.
+- **Errors.** Exact sets per routine: `DimensionMismatch`, `IndexOutOfRange`, `TooLarge`, `OutOfMemory`, `Canceled` (threaded products only), `Singular`, `PatternMismatch`, and `InvalidUplo` and `InvalidTrans` for the letters a routine does not take, as the BLAS's.
+- **Dense or sparse.** `f64` values with `u32` indices cost 12 bytes per nonzero, so memory breaks even at two-thirds fill; time breaks even far lower, at a fill to be measured before any automatic switch.
+- **Bucketed linear COO, not chosen.** One linear index `row + col * nrows` per entry, sorted column-major, with `{col, start}` every 128 columns instead of column pointers. Both store one index per nonzero, so it saves only the `n + 1` pointers; a `u32` linear index caps `nrows * ncols` below 2³², past which `u64` doubles every index; a row costs a division per entry; finding column `k` scans a bucket. Its target, columns far outnumbering nonzeros, is hypersparse storage (DCSC; Buluç and Gilbert, IPDPS 2008), one of SuiteSparse:GraphBLAS's formats, as is the whole-matrix bitmap also considered.
 
 ### The matlab port against the modern BLAS and LAPACK
 
