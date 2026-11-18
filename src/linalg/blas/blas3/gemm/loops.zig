@@ -118,7 +118,10 @@ pub fn Loops(comptime T: type, comptime geo: Geometry, comptime Out: type) type 
             }
             const al = Out.prep(lanes, alpha);
             inline for (0..wn) |j| inline for (0..nv) |v| {
-                Out.putLanes(lanes, c + s * (j * ld + v * lanes), acc[j][v], al);
+                // column 0 without `0 * ld + v * lanes`: its overflow check is one LLVM
+                // miscompiles for MIPS R6 in debug code (issue #487)
+                const at = if (j == 0) v * lanes else j * ld + v * lanes;
+                Out.putLanes(lanes, c + s * at, acc[j][v], al);
             };
         }
 
