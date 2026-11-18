@@ -476,10 +476,15 @@ jobs:
   # ones under TCG (#347, #348), and the Linux rigs of zfls's targets (#356). The
   # tier 3 rigs are rig-tier34's.
   rig:
-    name: Rig (${{ matrix.rig }})
+    name: Rig (${{ matrix.rig }}${{ matrix.tsan && ', tsan' || '' }}${{ matrix.part && format(', {0}', matrix.part) || '' }})
     needs: version
     if: ${{ needs.version.outputs.ci == 'true' }}
     runs-on: ${{ matrix.runner }}
+    # the steps' (shared with rig-tier34, where it is unset)
+    env:
+      TSAN: ${{ matrix.tsan && '-Drstd-tsan -Dqemu-nix-here' || '' }}
+      # one of a rig's parts (build/qemu/machines.zig), if set
+      PART: ${{ matrix.part }}
     timeout-minutes: 350
     strategy:
       fail-fast: false
@@ -504,6 +509,16 @@ jobs:
           - { rig: linux-x86_64, runner: ubuntu-24.04 }
           - { rig: linux-aarch64, runner: ubuntu-24.04-arm }
           - { rig: linux-aarch64-sve, runner: ubuntu-24.04-arm }
+          # the glibc targets: ThreadSanitizer, glibc from the runner's Nix (#408)
+          # in parts: past the job limit in one run under TCG, out of memory under KVM (#412)
+          - { rig: linux-x86_64, runner: ubuntu-24.04, tsan: true, part: blas1-2 }
+          - { rig: linux-x86_64, runner: ubuntu-24.04, tsan: true, part: blas3 }
+          - { rig: linux-x86_64, runner: ubuntu-24.04, tsan: true, part: lapack }
+          - { rig: linux-x86_64, runner: ubuntu-24.04, tsan: true, part: rest }
+          - { rig: linux-aarch64, runner: ubuntu-24.04-arm, tsan: true, part: blas1-2 }
+          - { rig: linux-aarch64, runner: ubuntu-24.04-arm, tsan: true, part: blas3 }
+          - { rig: linux-aarch64, runner: ubuntu-24.04-arm, tsan: true, part: lapack }
+          - { rig: linux-aarch64, runner: ubuntu-24.04-arm, tsan: true, part: rest }
     steps: &rig-steps
       - uses: actions/checkout@v7
         with:
@@ -543,8 +558,8 @@ jobs:
       - name: Rig
         env:
           RIG: ${{ matrix.rig }}
-        # KVM splits into words on purpose, and may be empty
-        run: zig build "qemu-test-$RIG" $KVM -Dfail-fast=true -Dtest-host-off --summary line
+        # KVM and TSAN split into words on purpose, and may be empty
+        run: zig build "qemu-test-$RIG" $KVM $TSAN ${PART:+"-Dqemu-test-part=$PART"} -Dfail-fast=true -Dtest-host-off --summary line
 
       # every OS-free test built for UEFI, x86_64 and aarch64, beside the rig
       - name: rstd-check-uefi
@@ -556,7 +571,7 @@ jobs:
         if: ${{ failure() }}
         env:
           RIG: ${{ matrix.rig }}
-        run: tail -c 300000 ".zig-cache/qemu-test-$RIG.log" || true
+        run: tail -c 300000 ".zig-cache/qemu-test-$RIG${PART:+-$PART}.log" || true
 
   # The tier 3 rigs (support.md), picked as the tier 3 and 4 legs are (see the
   # top; a leg is `<rig> rig`), on the rig job's steps; their failures only

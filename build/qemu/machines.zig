@@ -19,6 +19,12 @@ pub const Machine = struct {
     /// parameter test (an LLVM `-Oz` miscompile on sparc64, it appears; issue #183).
     optimize: ?Optimize = null,
     memory: []const u8 = "128M",
+    /// `memory` under `-Drstd-tsan`, whose shadow memory and bigger test
+    /// outgrow it (ENOMEM in faer's evd tests at 3G, issue #408)
+    tsan_memory: ?[]const u8 = null,
+    /// A Linux rig's `parts` under `-Drstd-tsan`, each a VM of its own, and a
+    /// `rest` part of every test they leave out.
+    tsan_parts: []const Part = &.{},
     boot: Boot,
     /// Why this rig is not wired up yet; a stub gets no step.
     stub: ?[]const u8 = null,
@@ -107,6 +113,15 @@ pub const Boot = union(enum) {
             return b.fmt("console={s} rdinit=/init panic=-1 quiet loglevel=3", .{l.console});
         }
     };
+};
+
+/// The Linux rigs' ThreadSanitizer runs, each part a VM: in one, TCG on CI's
+/// arm64 runners passes the job's time limit, and x86_64 runs out of memory
+/// after hours (issue #412); split as the kernel rigs' default set.
+const tsan_parts = [_]Part{
+    .{ .name = "blas1-2", .filters = &.{ "linalg.blas.blas1.", "linalg.blas.blas2.", "linalg.blas._test.blas1.", "linalg.blas._test.blas2." } },
+    .{ .name = "blas3", .filters = &.{ "linalg.blas.blas3.", "linalg.blas._test.blas3." } },
+    .{ .name = "lapack", .filters = &.{"linalg.lapack."} },
 };
 
 /// Tier 4 (user, 2026-11-01): the images outgrow OpenBIOS's window faster
@@ -758,6 +773,8 @@ const base_machines = [_]Machine{
         .hvf = &.{ "-accel", "hvf", "-M", "virt", "-cpu", "host", "-smp", "4" },
         .hvf_core = "vortexm4",
         .memory = "1G",
+        .tsan_memory = "8G",
+        .tsan_parts = &tsan_parts,
         .boot = .{ .linux = .{ .dep = "debian_netboot_arm64", .kernel = "debian-installer/arm64/linux", .console = "ttyAMA0" } },
     },
     .{
@@ -781,6 +798,8 @@ const base_machines = [_]Machine{
         // kernels and their debug info, is about 700 MB, and `/` (where tests
         // write files) gets half the memory
         .memory = "3G",
+        .tsan_memory = "12G",
+        .tsan_parts = &tsan_parts,
         .boot = .{ .linux = .{ .dep = "debian_netboot_amd64", .kernel = "debian-installer/amd64/linux", .console = "ttyS0" } },
     },
     .{

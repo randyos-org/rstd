@@ -30,7 +30,7 @@ after it. Rig names are `zig build` steps: `qemu-test-<rig>` unless named in ful
 | `aarch64-uefi-msvc` | 2 | RandyOS's loader (pftf) | `aarch64-uefi` (AAVMF; HVF on the M6, or arm64 runners in CI), `aarch64-uefi-sve` (TCG `max`: the SVE and SME cores; CI too), `rstd-check-uefi` |
 | `x86_64-linux-musl` | 2 | zfls (release, conda, Alpine) | `linux-x86_64` (TCG `max`, HVF on the Intel Mac, or KVM in CI; 4 CPUs), CI's native `x86_64-linux-musl` legs, `rstd-check-zig017` |
 | `aarch64-linux-musl` | 2 | zfls (release, conda, Alpine) | `linux-aarch64` (HVF on the M6, or TCG `max`), `linux-aarch64-sve` (TCG `max`: the SVE and SME cores), both in CI on arm64 runners; CI's native `aarch64-linux-musl` legs, `rstd-check-zig017` |
-| `x86_64-linux-gnu`, `aarch64-linux-gnu` | 2 | zfls | CI's native legs (`ubuntu-24.04`, `ubuntu-24.04-arm`); the Linux rigs above with `-Drstd-tsan` (glibc from Nix) |
+| `x86_64-linux-gnu`, `aarch64-linux-gnu` | 2 | zfls | CI's native legs (`ubuntu-24.04`, `ubuntu-24.04-arm`); the Linux rigs above with `-Drstd-tsan` (glibc from Nix: `-Dtest-host`'s, or in CI the runner's with `-Dqemu-nix-here`) |
 | `aarch64-windows` | 2 | zfls | CI's native legs (`windows-11-arm`), `rstd-check-zig017` |
 | `x86_64-macos` 11.0+ | 2 | zfls | `ssh-test-x86_64-macos` (Intel Mac, i5-8500B, macOS 15.8), CI's native legs (`macos-15-intel`), `ssh-test-x86_64-macos-rosetta` (Rosetta 2 on the M6, for comparison), `rstd-check-macho`, `rstd-check-zig017` |
 | `aarch64-macos` 11.0+ | 2 | zfls | `ssh-test-aarch64-macos` (M6, macOS 27.2), CI's native legs (`macos-15`), `rstd-check-macho`, `rstd-check-zig017` |

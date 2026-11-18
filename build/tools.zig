@@ -38,19 +38,24 @@ pub fn hostTool(b: *Build, comptime tool: Tool) *Compile {
     return slot.*.?;
 }
 
-/// `tools/nix/blas.sh <system>` on `host` (`ssh_test`), at the nixpkgs of
+/// `tools/nix/blas.sh <system>` on `host` (`ssh_test`), or with none on
+/// this machine's Nix (CI's runners, issue #408), at the nixpkgs of
 /// `tools/nix/flake.lock`: nixpkgs' OpenBLAS and BLIS for `system`, and with
 /// `reference` the bench's reference binaries (`tools/blasbench/nix`).
-pub fn nixBlas(b: *Build, host: []const u8, system: []const u8, reference: bool) !*Build.Step.Run {
+pub fn nixBlas(b: *Build, host: ?[]const u8, system: []const u8, reference: bool) !*Build.Step.Run {
     const lock = try std.Io.Dir.cwd().readFileAlloc(b.graph.io, try b.root.joinString(b.allocator, "tools/nix/flake.lock"), b.allocator, .limited(1 << 16));
     const Lock = struct { nodes: struct { nixpkgs: struct { locked: struct { rev: []const u8 } } } };
     const parsed = try std.json.parseFromSliceLeaky(Lock, b.allocator, lock, .{ .ignore_unknown_fields = true });
-    const run = b.addRunArtifact(hostTool(b, .ssh_test));
-    run.addArg(host);
+    const run = if (host) |h| blk: {
+        const r = b.addRunArtifact(hostTool(b, .ssh_test));
+        r.addArg(h);
+        break :blk r;
+    } else b.addSystemCommand(&.{"bash"});
     run.addFileArg(b.path("tools/nix/blas.sh"));
     run.addArgs(&.{ system, parsed.nodes.nixpkgs.locked.rev });
     if (reference) {
-        run.addPrefixedDirectoryArg("local:", b.path("tools/blasbench/nix"));
+        // `ssh_test` copies a `local:` directory over
+        if (host != null) run.addPrefixedDirectoryArg("local:", b.path("tools/blasbench/nix")) else run.addDirectoryArg(b.path("tools/blasbench/nix"));
         // a directory argument's contents are not hashed
         for ([_][]const u8{ "eigen.nix", "eigen_shim.cpp" }) |f| run.addFileInput(b.path(b.fmt("tools/blasbench/nix/{s}", .{f})));
     }
