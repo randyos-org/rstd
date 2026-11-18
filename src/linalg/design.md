@@ -1998,7 +1998,6 @@ Outside `src/linalg/blas/`:
 | `build/blaskern.zig` | the per-core objects |
 | `build/qemutest.zig` | the qemu rigs' steps |
 | `build/qemu/machines.zig` | the qemu rigs and their test filters |
-| `build/qemu/macos.zig` | the macOS VM |
 | `build/sshtest.zig` | the SSH test steps on a Mac |
 | `build/bench.zig` | the benchmark steps: on the Mac, here and in a Linux VM |
 | `build/wasmtest.zig` | the WASI test step |
@@ -2324,7 +2323,6 @@ here can.
 | `qemu-test-<arch>-uefi` | the freestanding rigs' tests and runner as a UEFI application (`test/qemu/uefi.zig`) under QEMU's OVMF and AAVMF, on rstd's UEFI `std.Io`; x86_64 and aarch64 | RandyOS's loader's platforms: PE/COFF, the Microsoft ABI on x86_64, UEFI's CPU state |
 | `qemu-test-x86_64-whpx` | the x86_64 kernel on the host CPU under WHPX, `SapphireRapids,+fma4,+xop`; x86_64 Windows hosts only | the AVX-512 cores and the Bulldozer family, which TCG cannot run |
 | `qemu-test-linux-<machine>` | a Debian netboot kernel with the hosted test executable as PID 1 (`test/linux/init.zig`), `-smp 4` | auxiliary-vector detection, threads, files; the machines below |
-| `qemu-test-x86_64-macos` | an installed x86_64 macOS VM under TCG, tests over SSH; not run until an Intel Mac replaces it (T141) | Mach-O at run time on an x86 CPU model |
 | `ssh-test-aarch64-macos` | the full suite on an Apple Silicon Mac over SSH (`-Dssh-mac`, default `macmini-m6`) | `vortex`, `vortexm4`, SME without SVE, which QEMU's `-cpu max` cannot show; Accelerate |
 | `ssh-test-x86_64-macos` | the x86_64 macOS suite on an Intel Mac over SSH (`-Dssh-mac-intel`, default `macmini-intel`) | Mach-O x86_64 on real hardware: the cores its CPU runs; Accelerate's AVX2 path |
 | `ssh-test-x86_64-macos-rosetta` | the x86_64 macOS suite on the Apple Silicon Mac under Rosetta 2 | a comparison with the Intel Mac; the SSE cores only, since Rosetta hides AVX |
@@ -2392,7 +2390,7 @@ Rig mechanics:
 - **Results.** Where the machine has semihosting (aarch64, arm, riscv64, MIPS) the runner exits
   with the number of failed tests; elsewhere the step checks the printed summary for
   "0 failed". Consoles log live to `.zig-cache/qemu-test-<name>.log`. `-Dfail-fast` ends a rig
-  at its first failing test (`tools/rig/qemu_watch.zig`, the SSH steps too; not the macOS VM).
+  at its first failing test (`tools/rig/qemu_watch.zig`, the SSH steps too).
 - **Images.** OpenBIOS on `sun4u` maps 0x400000 to 0x800000 only (seen on the rig, `build/qemu/machines.zig`; OpenBIOS's source not checked), so the sparc64 rigs (stubs now) split
   their tests into images by filter (`parts` in `build/qemu/machines.zig`), and the build, under
   `qemu-check` too, fails an image whose loaded span is past that window (`load_window`,
@@ -2414,19 +2412,13 @@ Rig mechanics:
   streams the console back to the watchdog and live log. At most `-Dtest-host-jobs` (8, our default) rigs run
   there at once, across builds. On an arm64 Mac, `aarch64`, `aarch64-uefi` and `linux-aarch64` run under HVF on
   the host's CPU (Apple, SME2, no SVE: the `vortexm4` kernels run too); `-Dtest-host-tcg` keeps
-  them on TCG. `x86_64-whpx` and the macOS VM rig stay local.
+  them on TCG. `x86_64-whpx` stays local.
 - **KVM and CI.** `-Dqemu-kvm` runs the rigs that have KVM arguments (`Machine.kvm`; `x86_64`, `x86_64-smp` and `x86_64-uefi` so far, `-cpu host`) under KVM on a Linux host of their architecture; the rest stay on TCG. CI's rig job runs them so on GitHub's Linux runners, the latest Zig only, with tools/nix's QEMU and firmware ([#343](https://github.com/randyos-org/rstd/issues/343), [#344](https://github.com/randyos-org/rstd/issues/344); the aarch64 rigs on arm64 runners, KVM where they offer it, [#345](https://github.com/randyos-org/rstd/issues/345) and [#346](https://github.com/randyos-org/rstd/issues/346); #347 to #349 add the rest). Run here, not on a test host, `tools/rig/qemu_watch.zig` fills in `@qemu-data@` from the QEMU on `PATH`, so the UEFI rigs run on any machine whose QEMU has the firmware.
 - **WHPX.** QEMU's model plus FMA4 and XOP, of which WHPX keeps what the host has; `host` and
   `max` stop in SeaBIOS. TCG implements no AVX-512, FMA4 or XOP (QEMU v10.1.0
   `target/i386/cpu.c`: neither `TCG_7_0_EBX_FEATURES` nor `TCG_EXT3_FEATURES` has them), so the `skylakex`,
   `cooperlake` and `sapphirerapids` kernels, and the Bulldozer family's, run only there, on a
   host that has them.
-- **macOS VM.** Set up once (`qemu-setup-`, `qemu-install-x86_64-macos`; `tools/macos/readme.md`
-  has the steps). It runs under emulation, since WHPX on an AMD host shows
-  macOS the AMD CPU, which it does not boot on. If the VM does not answer SSH, the test step
-  starts it headless (log in `.macos-vm/x86_64-macos/qemu.log`, VNC on 127.0.0.1:5901), prints
-  its serial console (`serial.log`) while it boots, and shuts it down after the tests, pass or
-  fail, unless `-Dmac-keep`. `qemu-kill-x86_64-macos` kills a VM a build step started.
 - **SSH Mac.** `build/sshtest.zig` cross-compiles and copies the tests to the SSH alias; the
   Mac's address and login stay in the SSH config. `ssh-bench-aarch64-macos
   -Dopenblas=<checkout>` races the kernels there (`build/bench.zig`, `tools/blasbench/`); the results are in

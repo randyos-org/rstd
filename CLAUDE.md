@@ -62,7 +62,7 @@ Rules and lessons for agents. The RandyOS repo's `CLAUDE.md` applies too when rs
 ## Testing and runs
 
 - Cheap checks per change: native filtered tests (`zig build rstd-test -Drstd-test-filter=<name>`, repeatable; `-Dblas-cores=all` for every core the host runs), `qemu-check-<rig>` for touched arches (never the all-rigs `qemu-check`, up to 80 minutes), `zig build -h` on 0.18 and 0.17 for build changes. Test only what a change reaches. Rig and Mac runs come in batches after a section of work.
-- Foreign targets run on the QEMU rigs (`build/qemu/`; `zig build -h` lists them), never WSL, and never in the trunk. Never run a state-changing step (the macOS VM's snapshot or install steps) to check that it compiles; `zig build -h` does that.
+- Foreign targets run on the QEMU rigs (`build/qemu/`; `zig build -h` lists them), never WSL, and never in the trunk. Never run a state-changing step (one that starts a rig or reaches a Mac) to check that it compiles; `zig build -h` does that.
 - A rig's live log is `.zig-cache/qemu-test-<rig>.log` in its tree. Rigs print `[core]` as each core starts; a watchdog ends a rig after 60 minutes without output. In debug builds every `inline for` iteration keeps its own frame, so per-core loops call a helper per iteration.
 - A backgrounded `(build; echo exit $?)` always reports success: read the log's own exit line and `: error:` lines.
 - Interrupt runs of code about to change. Kill only processes you started, matched by their own command line; never `taskkill /T` or a tree kill from a parent PID (Windows reuses PIDs), and never an `ssh` session or anything interactive.

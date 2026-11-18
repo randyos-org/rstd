@@ -1,4 +1,4 @@
-//! The ssh and spawn code of `ssh_test`, `test_host` and `macos_vm`.
+//! The ssh and spawn code of `ssh_test` and `test_host`.
 
 const std = @import("std");
 const Io = std.Io;
