@@ -10,7 +10,7 @@ Rules and lessons for agents. The RandyOS repo's `CLAUDE.md` applies too when rs
 - IDs never change. A new issue takes the next number of its prefix: M, S, T and Z are linear algebra's, H housekeeping's, N the rest's. At the move from `todo.md` (2026-11-08) the highest were H149, M18, N52, S2, T164 and Z6. A split issue's ID is retired: M3 became M8 to M16, and older docs and commits still say M3.
 - `**Needs:**` links the issues that must land first; `**Blocked:**` names an outside cause (hardware, an upstream fix, a decision), with the `blocked` label.
 - Labels: `backlog` for what is outside the milestone (tier 3 and 4 bugs, follow-ups, tuning, optional and blocked work); `awaiting input` for a decision the user makes, mentioning `@emanspeaks`; `housekeeping` for readability and structure work; `blocked`. Pull requests take the release-note labels of `.github/release.yml` (`fix`, `feature`, `performance`, `tests`, `refactor`, `ci`, `skip-changelog`).
-- Tiers ([`support.md`](support.md)): tier 1 and 2 bugs go in the milestone; the rest are `backlog`. Don't open issues for other architectures, follow-ups or tuning on your own; report them.
+- Tiers ([`support.md`](support.md)): tier 1 and 2 bugs go in the milestone. Open an issue for each tier 3 or 4 failure as it is found, labeled `backlog` with its tier and ISA labels (user, 2026-11-18). Don't open issues for follow-ups or tuning on your own; report them.
 - Background agents don't edit issues or the pull request's list; they report what to check off or open.
 
 ## Git
