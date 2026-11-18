@@ -243,11 +243,13 @@ test "expm: diagonal, nilpotent, rotation, large norm, complex" {
     defer nil.deinit(al);
     try testing.expectEqualSlices(f64, &.{ 1, 0, 1, 1 }, nil.data);
     // t [0 -1; 1 0]: a rotation by t, through the scaling for t = 30
-    for ([_]f64{ 0.5, 30 }) |t| {
+    // `cos t`, `sin t` as literals: `@cos(30)` is wrong on x87 (issue #481)
+    for ([_][3]f64{ .{ 0.5, 0.8775825618903728, 0.479425538604203 }, .{ 30, 0.15425144988758405, -0.9880316240928618 } }) |tcs| {
+        const t = tcs[0];
         const r = try expm(al, io, try V.init(&[_]f64{ 0, t, -t, 0 }, 2, 2, 2));
         defer r.deinit(al);
-        try testing.expectApproxEqAbs(@cos(t), r.data[0], 1e-12);
-        try testing.expectApproxEqAbs(@sin(t), r.data[1], 1e-12);
+        try testing.expectApproxEqAbs(tcs[1], r.data[0], 1e-12);
+        try testing.expectApproxEqAbs(tcs[2], r.data[1], 1e-12);
     }
     const C = std.math.Complex(f64);
     const z = try expm(al, io, try ConstView(C).init(&[_]C{.init(0, std.math.pi)}, 1, 1, 1));
