@@ -94,8 +94,14 @@ fn solve(al: Allocator, io: Io, comptime T: type, adjoint: bool, a: Mat(T), b: M
     }
     const scllen = if (over) k else big;
     const x = b.sub(0, 0, scllen, nrhs);
-    if (to_a) |t| auxiliary.lascl(T, false, anrm, t, x);
-    if (to_b) |t| auxiliary.lascl(T, false, t, bnrm, x);
+    // scaled to the same end, the constants cancel: one step, as two may
+    // flush or overflow an entry (`dgels.f`, OpenBLAS `6b01b70dc`)
+    if (to_a != null and to_b != null and to_a.? == to_b.?) {
+        auxiliary.lascl(T, false, anrm, bnrm, x);
+    } else {
+        if (to_a) |t| auxiliary.lascl(T, false, anrm, t, x);
+        if (to_b) |t| auxiliary.lascl(T, false, t, bnrm, x);
+    }
 }
 
 /// `dst := srcᴴ`.
@@ -289,6 +295,27 @@ test "faer gels: rank deficient is Singular, a zero A zeroes B, empty zeroes B, 
         a[4] = ops.scalar(T, std.math.nan(F));
         try gels(al, check.io, T, .n, m, n, 2, &a, m, &b, m);
         try testing.expect(std.math.isNan(ops.re(T, b[0])));
+    }
+}
+
+test "faer gels: A and B both past BIGNUM, a small column of X is not flushed" {
+    const al = testing.allocator;
+    inline for (test_types) |T| {
+        const F = Float(T);
+        const tm = std.math.floatTrueMin(F);
+        const bignum = std.math.floatEps(F) / std.math.floatMin(F);
+        // X = B / a: 2^12, and 2^16 tm where the scaled solve has 16 tm,
+        // which A's step back alone (2^-8) flushes
+        const av = bignum * 256;
+        const bv = av * 4096;
+        const tv = 16 * tm * bv;
+        var a = [_]T{ ops.scalar(T, av), ops.zero(T), ops.zero(T), ops.zero(T), ops.scalar(T, av), ops.zero(T) };
+        var b = [_]T{ ops.scalar(T, bv), ops.scalar(T, bv), ops.zero(T), ops.scalar(T, tv), ops.scalar(T, tv), ops.zero(T) };
+        try gels(al, check.io, T, .n, 3, 2, 2, &a, 3, &b, 3);
+        for ([_]usize{ 0, 1 }) |i| {
+            try testing.expect(ops.abs(T, ops.sub(T, b[i], ops.scalar(T, 4096))) <= 4096 * thresh * std.math.floatEps(F));
+            try testing.expect(ops.abs(T, ops.sub(T, b[3 + i], ops.scalar(T, 65536 * tm))) <= 256 * tm);
+        }
     }
 }
 

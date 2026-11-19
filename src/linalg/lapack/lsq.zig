@@ -346,11 +346,15 @@ pub fn gelsy(allocator: Allocator, io: Io, comptime T: type, m: usize, n: usize,
     }
     // undo the scaling
     const xrows = bm.sub(0, 0, un, bm.cols);
-    if (iascl != 0) {
-        auxiliary.lascl(T, false, anrm, iascl, xrows);
-        auxiliary.lascl(T, true, iascl, anrm, am.sub(0, 0, r, r));
+    if (iascl != 0 and iascl == ibscl) {
+        // the constants cancel: one step, as two may flush or overflow an
+        // entry (`sgelsy.f`, OpenBLAS `6b01b70dc`; its `dgelsy.f` lags)
+        auxiliary.lascl(T, false, anrm, bnrm, xrows);
+    } else {
+        if (iascl != 0) auxiliary.lascl(T, false, anrm, iascl, xrows);
+        if (ibscl != 0) auxiliary.lascl(T, false, ibscl, bnrm, xrows);
     }
-    if (ibscl != 0) auxiliary.lascl(T, false, ibscl, bnrm, xrows);
+    if (iascl != 0) auxiliary.lascl(T, true, iascl, anrm, am.sub(0, 0, r, r));
     return r;
 }
 
@@ -452,6 +456,31 @@ test "lapack gelsy: the minimum-norm solution and rank, full and deficient rank,
             try gelsyCase(T, al, 6, 8, 4, 2, std.math.floatMax(F) / 4096, 5);
         }
     }
+}
+
+test "lapack gelsy: A and B both past BIGNUM, a small column of X is not flushed" {
+    const al = testing.allocator;
+    // `nrm2` at an extended type is unscaled, as above
+    inline for (test_types) |T| if (comptime !types.isExtended(Float(T))) {
+        const F = Float(T);
+        const tm = std.math.floatTrueMin(F);
+        const bignum = std.math.floatEps(F) / std.math.floatMin(F);
+        // X = B / a: 2^12, and 2^16 tm where the scaled solve has 16 tm,
+        // which A's step back alone (2^-8) flushes
+        const av = bignum * 256;
+        const bv = av * 4096;
+        const tv = 16 * tm * bv;
+        var a = [_]T{ ops.scalar(T, av), ops.zero(T), ops.zero(T), ops.zero(T), ops.scalar(T, av), ops.zero(T) };
+        var b = [_]T{ ops.scalar(T, bv), ops.scalar(T, bv), ops.zero(T), ops.scalar(T, tv), ops.scalar(T, tv), ops.zero(T) };
+        var jpvt = [_]usize{ 0, 0 };
+        try testing.expectEqual(2, try gelsy(al, check.io, T, 3, 2, 2, &a, 3, &b, 3, &jpvt, 0.01));
+        for ([_]usize{ 0, 1 }) |i| {
+            try testing.expect(ops.abs(T, ops.sub(T, b[i], ops.scalar(T, 4096))) <= 4096 * thresh * std.math.floatEps(F));
+            try testing.expect(ops.abs(T, ops.sub(T, b[3 + i], ops.scalar(T, 65536 * tm))) <= 256 * tm);
+            // R, scaled back
+            try testing.expect(@abs(ops.abs(T, a[i * 4]) - av) <= av * thresh * std.math.floatEps(F));
+        }
+    };
 }
 
 test "lapack gelsy: a zero A, a fixed column, empty, bad arguments" {
