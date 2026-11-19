@@ -6,7 +6,7 @@ without threads. The plan is implemented (`threading.zig`, `blas3/threaded.zig`,
 and 2 interfaces): every level 3 routine but `gemmt` threads, and levels 1 and 2 thread where
 the split keeps the bits ([Levels 1 and 2](#levels-1-and-2-fixed-chunks-dynamic-claiming-ordered-combine)).
 Upstream references are to the OpenBLAS checkout that `tools/blas_asm` converts
-(v0.3.34-317), BLIS references to its tag 2.1, std references to Zig's `lib/std` at
+(v0.3.34-794), BLIS references to its tag 2.1, std references to Zig's `lib/std` at
 0.18.0-dev.751. The library's overall structure is in [`design.md`](../design.md); how this rule
 compares with MKL, BLIS and OpenBLAS is in [`comparisons.md`](comparisons.md) (8).
 
@@ -56,7 +56,7 @@ core no result depends on where its operands lie in memory. Pinning the core typ
   their own packed `A`. Producers spin until consumers clear the flags, so the protocol
   requires every thread to run concurrently. `trsm` uses the synchronization-free
   `gemm_thread_n`/`gemm_thread_m`.
-- **Nesting.** Under OpenMP, `num_cpu_avail` (`common_thread.h:151`) returns 1 inside a parallel
+- **Nesting.** Under OpenMP, `num_cpu_avail` (`common_thread.h:186`) returns 1 inside a parallel
   region unless `openblas_set_num_threads_local` raised `blas_omp_threads_local` (default 1).
 
 Because levels 1 and 2 split by thread count, OpenBLAS's reductions and per-thread-buffer

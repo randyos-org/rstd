@@ -37,7 +37,7 @@ pub fn usesX18(statement: []const u8) bool {
     return !(saves and std.mem.find(u8, t, "[sp") != null);
 }
 
-/// Fixes for upstream sources (OpenBLAS v0.3.34-317).
+/// Fixes for upstream sources (OpenBLAS v0.3.34-794).
 const patches = [_]arch.Patch{
     // a zero alpha returned at once, so `0 * x` never reached `y` and NaN and
     // infinities in `x` were lost, unlike the other architectures' kernels

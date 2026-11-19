@@ -149,7 +149,7 @@ pub fn ruleFor(comptime family: Family, comptime core: CoreOf(family)) Rule {
             else => .none,
         },
         .x86, .x86_64 => switch (core) {
-            // `setparam-ref.c:1600`, over Athlon's fixed header `p`
+            // `setparam-ref.c:1612`, over Athlon's fixed header `p`
             .katmai, .coppermine, .banias, .yonah, .athlon => .{ .affine = .{ .mul = .{ 64, 32, 32, 16, 16, 8 } } },
             // `setparam-ref.c` has no block for it: `parameter.c:46`'s `DEFAULT_GEMM_P`
             .p5 => .{ .affine = .{ .mul = .{ 0, 0, 0, 0, 0, 0 }, .add = .{ 128, 128, 128, 128, 128, 128 } } },
@@ -262,7 +262,7 @@ fn installRule(vt: *Vtable, comptime family: Family, comptime core: CoreOf(famil
         res[i] = .{ .p = primaryP(sh, rule, i, env), .q = fixedOf(sh.q) orelse 0, .r = 0 };
     }
 
-    // 3M, which only x86 sets (`setparam-ref.c:1578-1597, 2093-2110`): the
+    // 3M, which only x86 sets (`setparam-ref.c:1590-1609, 2105-2122`): the
     // header's `p` and `q`, else the real precision's `p` before the AMD
     // override and rounding, and its header `q`; `x3m` always `q`'s. The
     // arm64 and mips64 blocks set it under `USE_GEMM3M`, which no
@@ -290,9 +290,9 @@ fn installRule(vt: *Vtable, comptime family: Family, comptime core: CoreOf(famil
         }
     }
 
-    // only x86 rounds `p` up to the unroll (`setparam-ref.c:2150-2175`): `s`,
+    // only x86 rounds `p` up to the unroll (`setparam-ref.c:2162-2187`): `s`,
     // `d`, `c`, `z`, and 3M to its own unroll, else the real one's; `q`, `x`
-    // and `x3m` only under `QUAD_PRECISION` (`:2179-2183`), off by default
+    // and `x3m` only under `QUAD_PRECISION` (`:2191-2195`), off by default
     // (`Makefile.rule:214`)
     if (x86) {
         inline for (.{ Gemm.s, Gemm.d, Gemm.c, Gemm.z }, 0..) |g, i| res[i].p = roundUp(res[i].p, @field(table, @tagName(g)).unroll_m);
@@ -313,7 +313,7 @@ fn installRule(vt: *Vtable, comptime family: Family, comptime core: CoreOf(famil
         inline for (0..3) |i| res3m[i].r = derivedR(res3m[i].p, res3m[i].q, elems3m[i], table);
     }
 
-    // `setparam-ref.c:1099` (`ARCH_MIPS64`), over the header's 8192 or the
+    // `setparam-ref.c:1111` (`ARCH_MIPS64`), over the header's 8192 or the
     // Loongsons' `dgemm_r`; `s`, `c` and `z` keep the header's
     if (comptime family == .mips64) res[1].r = 640;
 
@@ -330,11 +330,11 @@ fn installRule(vt: *Vtable, comptime family: Family, comptime core: CoreOf(famil
     inline for (three_m, 0..) |g, i| setPrec(vt, g, @field(table, @tagName(g)), res3m[i]);
 
     // half and bfloat16: the headers' `p` and `q`; x86 derives `r`
-    // (`setparam-ref.c:1556-1563, 2190-2205`), the others take the header's.
-    // arm64, LoongArch, POWER and zarch set only `b` and `sb` (`:981-1015,
-    // 1181-1186, 1307, 1316-1335, 1348-1367`), riscv64 also `sh`
-    // (`:1381-1410`), mips64 none; the static families' are the header's
-    // (`common_param.h:1441-1465`).
+    // (`setparam-ref.c:1568-1575, 2202-2217`), the others take the header's.
+    // arm64, LoongArch, POWER and zarch set only `b` and `sb` (`:993-1027,
+    // 1193-1198, 1319, 1328-1347, 1360-1379`), riscv64 also `sh`
+    // (`:1393-1422`), mips64 none; the static families' are the header's
+    // (`common_param.h:1480-1504`).
     inline for (.{ Gemm.sh, Gemm.b, Gemm.sb }) |g| {
         const set = comptime switch (family) {
             .mips64 => false,
@@ -433,7 +433,7 @@ fn familyOf(arch: std.Target.Cpu.Arch, ptr_bits: u16) Family {
 /// The branch of `param.h`'s `GENERIC` block a static `TARGET=GENERIC`
 /// build reads, and how its header variables get set: x86 by
 /// `parameter.c:451`'s L2 rule; `ARCH_MIPS` (32-bit MIPS) and
-/// `ARCH_LOONGARCH64` by fixed sets (`param.h:4388-4415`); every other
+/// `ARCH_LOONGARCH64` by fixed sets (`param.h:4456-4483`); every other
 /// architecture keeps `parameter.c`'s initializers, `p = q = r = 128`
 /// (`parameter.c:46-48`), as only x86's `blas_set_parameter` sets them for
 /// `GENERIC` (`:760-954`).
@@ -731,7 +731,7 @@ test "the generic table follows parameter.c's L2 rule on x86 only" {
     inline for ([_]Gemm{ .s, .d, .q, .c, .z, .x }) |g| {
         inline for ([_]Param{ .p, .q, .r }) |f| try std.testing.expectEqual(@as(i32, 128), slots.paramPtr(&vt, g, f).*);
     }
-    // MIPS and LoongArch: `param.h:4388-4415`'s sets, which have no `q` or `x`
+    // MIPS and LoongArch: `param.h:4456-4483`'s sets, which have no `q` or `x`
     const want = [4][3]i32{ .{ 128, 240, 12288 }, .{ 128, 120, 8192 }, .{ 96, 120, 4096 }, .{ 64, 120, 4096 } };
     inline for (.{ .mips, .loongarch64 }) |br| {
         installGeneric(&vt, br, 32 << 20, env);
@@ -777,7 +777,7 @@ test "mips64 takes setparam-ref.c's dgemm r of 640 on every core; mips32 keeps i
 
 test "x86 3M takes the real precision's p and q where the header has none; xgemm3m always q's" {
     var vt: Vtable = .{};
-    // no 3M macros: `setparam-ref.c:1582, 1590, 2097, 2105`
+    // no 3M macros: `setparam-ref.c:1594, 1602, 2109, 2117`
     inline for (.{ .core2, .nehalem }) |c| {
         installCore(&vt, .x86_64, c, .{ .l2_kb = 4096 });
         const t = tableFor(.x86_64, c).?;
@@ -790,7 +790,7 @@ test "x86 3M takes the real precision's p and q where the header has none; xgemm
         try std.testing.expectEqual(derivedR(vt.zgemm3m_p, vt.zgemm3m_q, 16, t), vt.zgemm3m_r);
     }
     // the header's 320 and 320 stand; `x3m` takes `q`'s 504 and 128 over the
-    // header's 112 and 224 (`:1597, 2110`)
+    // header's 112 and 224 (`:1609, 2122`)
     installCore(&vt, .x86_64, .haswell, .{});
     try std.testing.expectEqual(@as(i32, 320), vt.cgemm3m_p);
     try std.testing.expectEqual(@as(i32, 320), vt.cgemm3m_q);
@@ -817,7 +817,7 @@ test "3M stays 0 outside x86, as no DYNAMIC_ARCH build there defines USE_GEMM3M"
 
 test "only x86 rounds p up to the unroll; Blocking takes whole panels of an unrounded one" {
     var vt: Vtable = .{};
-    // the header's 44 on an unroll of 8, which OpenBLAS keeps (`setparam-ref.c:1089`;
+    // the header's 44 on an unroll of 8, which OpenBLAS keeps (`setparam-ref.c:1101`;
     // static mips32 builds take the header's)
     inline for (.{ .mips64, .mips32 }) |f| {
         installCore(&vt, f, .loongson3r4, .{});
@@ -826,7 +826,7 @@ test "only x86 rounds p up to the unroll; Blocking takes whole panels of an unro
         try std.testing.expectEqual(@as(usize, 40), driver.Blocking.of(f64, &vt).p);
     }
     // core2's rule: 92 * (512 >> 9) + 8 = 100, rounded to 104; `q`'s
-    // 23 + 4 = 27 stays (`:2179-2183`)
+    // 23 + 4 = 27 stays (`:2191-2195`)
     installCore(&vt, .x86_64, .core2, .{ .l2_kb = 512 });
     try std.testing.expectEqual(@as(i32, 104), vt.sgemm_p);
     try std.testing.expectEqual(@as(i32, 104), vt.cgemm3m_p);
@@ -835,7 +835,7 @@ test "only x86 rounds p up to the unroll; Blocking takes whole panels of an unro
 
 test "half and bfloat16 take the header's r outside x86, and only what each family's block sets" {
     var vt: Vtable = .{};
-    // `b` and `sb` only: `setparam-ref.c:1015, 1186, 1325, 1357`
+    // `b` and `sb` only: `setparam-ref.c:1027, 1198, 1337, 1369`
     inline for (.{ .{ .arm64, .neoversen1 }, .{ .loongarch64, .la464 }, .{ .power64, .power10 }, .{ .s390x, .z14 } }) |c| {
         installCore(&vt, c[0], c[1], .{});
         const t = tableFor(c[0], c[1]).?;
@@ -846,7 +846,7 @@ test "half and bfloat16 take the header's r outside x86, and only what each fami
     }
     installCore(&vt, .arm64, .neoversen1, .{});
     try std.testing.expectEqual(@as(i32, 256), vt.sbgemm_r);
-    // riscv64 also `sh`, whose header `r` is 240 (`:1397`)
+    // riscv64 also `sh`, whose header `r` is 240 (`:1409`)
     installCore(&vt, .riscv64, .riscv64_generic, .{});
     try std.testing.expectEqual(@as(i32, 240), vt.shgemm_r);
     try std.testing.expectEqual(@as(i32, 256), vt.sbgemm_r);
@@ -856,7 +856,7 @@ test "half and bfloat16 take the header's r outside x86, and only what each fami
     inline for ([_]Gemm{ .sh, .b, .sb }) |g| {
         inline for ([_]Param{ .p, .q, .r }) |f| try std.testing.expectEqual(@as(i32, 0), slots.paramPtr(&vt, g, f).*);
     }
-    // x86 derives it (`:2190-2205`)
+    // x86 derives it (`:2202-2217`)
     installCore(&vt, .x86_64, .haswell, .{});
     try std.testing.expectEqual(derivedR(256, 256, 4, tableFor(.x86_64, .haswell).?), vt.sbgemm_r);
 }

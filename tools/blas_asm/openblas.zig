@@ -9,12 +9,15 @@ pub var arena: std.mem.Allocator = undefined;
 pub var io: Io = undefined;
 /// The OpenBLAS checkout.
 pub var root: []const u8 = undefined;
-/// The checkout's `git describe` (`v0.3.34-317-ga69062524`, `-dirty` when
+/// The checkout's `git describe` (`v0.3.34-794-gdbf2c24c9`, `-dirty` when
 /// modified), which the generated files name as their source.
 pub var pin: []const u8 = undefined;
 /// The BLAS directory the generators' output goes under (`gen.zig`'s
 /// `<out_root>/blas<n>/...`, `uk.zig`'s `<out_root>/<Routine.dir>/<arch>/uk/`).
 pub var out_root: []const u8 = "src/linalg/blas";
+/// Kernel lists whose `ifneq ($(C_COMPILER), GCC)` is read as a GCC build
+/// reads it, not as two alternatives.
+pub var as_gcc: []const []const u8 = &.{};
 
 /// A routine whose C kernels are converted, and what its roles are.
 pub const Routine = enum {
@@ -237,6 +240,10 @@ fn apply(a: *Assigns, file: []const u8, kernel_dir: []const u8, key: []const u8,
                     c.known = true;
                     c.taken = (a.values.items.len == 0) == negate;
                     c.if_taken = c.taken;
+                }
+            } else if (std.mem.eql(u8, line, "ifneq ($(C_COMPILER), GCC)")) {
+                for (as_gcc) |f| {
+                    if (std.mem.endsWith(u8, file, f)) c = .{ .known = true, .taken = false, .if_taken = false };
                 }
             }
             try stack.append(arena, c);

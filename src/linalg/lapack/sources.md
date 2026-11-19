@@ -6,7 +6,7 @@ The anthology's source table (design.md, Settled decisions: "`rstd.linalg` is an
 
 | Candidate | Pin | License | What it offers |
 | --- | --- | --- | --- |
-| OpenBLAS | `v0.3.34-317-ga69062524` | BSD-3 | its own LAPACK (`interface/lapack/`, `lapack/`), the kernels rstd converts |
+| OpenBLAS | `v0.3.34-794-gdbf2c24c9` | BSD-3 | its own LAPACK (`interface/lapack/`, `lapack/`), the kernels rstd converts |
 | ReLAPACK | OpenBLAS's `relapack/`, same pin | MIT (`relapack/LICENSE`) | recursive factorizations (E. Peise, P. Bientinesi, "Algorithm 979: Recursive Algorithms for Dense Linear Algebra: The ReLAPACK Collection", ACM TOMS 44(2), 2017, <https://doi.org/10.1145/3061664>); list in `relapack/coverage.md` |
 | faer | tag `faer-v0.24.4` (`0539947ffb`), <https://codeberg.org/sarah-quinones/faer> | MIT | dense decompositions in Rust (`faer/src/linalg/`) |
 | libflame | tag `5.2.0` (`53bd60c50b`, 2019-08-09), <https://github.com/flame/libflame> | BSD-3 (`LICENSE`); its f2c parts under AT&T, Lucent and Bellcore's permission notice (same file) | FLAME algorithms behind LAPACK names |
@@ -38,7 +38,7 @@ Two of libflame's names are not what they say: `gesdd` is "redirected to GESVD" 
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `potrf` | has | own, `lapack/potrf/` | own, `relapack/src/dpotrf.c` | own, `cholesky/llt/factor.rs` | FLAME `FLA_Chol` | AMD: `fla_dpotrf_small_avx2`, `_avx512`; `dpotrf_var2`, OpenMP (`FLA_potrf.c:197-220`) | OpenBLAS; Accelerate on macOS | Q10: OpenBLAS's own first; ReLAPACK's a build option (T110) | accuracy tests; not raced |
 | `potf2` | has | own, `lapack/potf2/` | - | inside `llt/factor.rs` | FLAME | ref | OpenBLAS | `potrf`'s base case | accuracy tests; not raced |
-| `potrs` | has | ref (`exports/gensymbol.pl:498`) | - | own, `llt/solve.rs` | ref | ref | the reference's two `trsm`s over rstd's drivers | the method is two solves; the drivers are rstd's | accuracy tests; not raced |
+| `potrs` | has | ref (`exports/gensymbol.pl:501`) | - | own, `llt/solve.rs` | ref | ref | the reference's two `trsm`s over rstd's drivers | the method is two solves; the drivers are rstd's | accuracy tests; not raced |
 | `potri` | has | own, `interface/lapack/potri.c` | (`trtri`, `lauum`) | own, `llt/inverse.rs` | FLAME `FLA_Trinv`, `FLA_Ttmm` | AMD: `fla_dpotri_small_avx2` (`FLA_potri.c:177`) | OpenBLAS | Q10 | accuracy tests; not raced |
 | `pbtrf` | has (ReLAPACK) | - | own, `dpbtrf.c` | - | ref | ref | ReLAPACK | only non-reference source | accuracy tests; not raced |
 | `trtri`, `trti2` | has | own, `lapack/trtri/`, `trti2/` | own (`trtri`) | own, `triangular_inverse.rs` | FLAME `FLA_Trinv` | ref | OpenBLAS | Q10 | accuracy tests; not raced |

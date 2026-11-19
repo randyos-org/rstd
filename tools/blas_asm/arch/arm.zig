@@ -19,7 +19,7 @@ pub const arm: arch.Arch = .{
     },
 };
 
-/// Fixes for bugs in upstream sources (OpenBLAS v0.3.34-317).
+/// Fixes for bugs in upstream sources (OpenBLAS v0.3.34-794).
 const patches = [_]arch.Patch{
     // zero strides: `swap_vfp.S` returned at once, and `rot_vfp.S` after one
     // element of the tail; the strided loops take one element at a time

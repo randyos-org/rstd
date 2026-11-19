@@ -356,7 +356,7 @@ pub fn decide(c: Caps) Decision {
 fn pick(c: Caps) Decision {
     if (c.has(.apple)) return .{ .core = if (c.has(.sme)) .vortexm4 else .vortex };
     if (modelCore(c)) |d| return d;
-    // the reference gives SME without SVE `vortexm4` (`dynamic_arm64.c:543-547`);
+    // the reference gives SME without SVE `vortexm4` (`dynamic_arm64.c:544-548`);
     // its object is built for the M4, so other CPUs take the SVE test (T18)
     if (c.has(.sme) and c.has(.sve)) return .{ .core = .armv9sme };
     if (c.has(.sve)) return .{ .core = .armv8sve };
@@ -822,7 +822,7 @@ test "recorded Raspberry Pis pick OpenBLAS's core with and without the MIDR emul
     for ([_][]const u32{ none, &equal }) |cap| {
         try expectLinux(.cortexa53, &@as([4]u64, @splat(try cpuinfoMidr(pi3))), cap, try cpuinfoFeatures(pi3));
         try expectLinux(.cortexa72, &@as([4]u64, @splat(try cpuinfoMidr(pi4))), cap, try cpuinfoFeatures(pi4));
-        // the reference gives A76 the A73 kernels (`dynamic_arm64.c:444`)
+        // the reference gives A76 the A73 kernels (`dynamic_arm64.c:445`)
         try expectLinux(.cortexa73, &@as([4]u64, @splat(try cpuinfoMidr(pi5))), cap, try cpuinfoFeatures(pi5));
     }
 }
@@ -886,7 +886,7 @@ test "a sysfs without the files gives no identity" {
 }
 
 test "recorded Windows arm64 machines pick OpenBLAS's core" {
-    // OpenBLAS's run-time detection gives Windows ARMV8 (`dynamic_arm64.c:361`);
+    // OpenBLAS's run-time detection gives Windows ARMV8 (`dynamic_arm64.c:362`);
     // with the registry's MIDR, the part table and SVE test apply as on Linux.
     // Snapdragon X Elite: Oryon (0x51, 0x001), ARMv8.7-A, so JSCVT and BF16
     const elite = windowsCaps(fakePf(&.{ .ARM_V83_JSCVT_INSTRUCTIONS_AVAILABLE, .ARM_V86_BF16_INSTRUCTIONS_AVAILABLE }), cpuModel(0x51, 0x001));

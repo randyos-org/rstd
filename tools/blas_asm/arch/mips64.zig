@@ -15,7 +15,7 @@ pub const mips64: arch.Arch = .{
     .retired = &retired,
 };
 
-/// Fixes for bugs in upstream sources (OpenBLAS v0.3.34-317).
+/// Fixes for bugs in upstream sources (OpenBLAS v0.3.34-794).
 const patches = [_]arch.Patch{
     // with a zero stride, the strided loop loads a block before storing it,
     // so `n` swaps of one element act as fewer; zero strides take the

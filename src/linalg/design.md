@@ -9,8 +9,8 @@ decisions behind all of them. It describes the code as it is, and says "Planned"
 projects in [the upstream issues](https://github.com/randyos-org/rstd/labels?q=upstream), and the numerical decisions measured against BLIS and the
 reference in [`comparisons.md`](blas/comparisons.md).
 
-Upstream references are to the OpenBLAS checkout that `tools/blas_asm` converts, v0.3.34-317
-(commit a69062524), unless a file names another; `Vtable.zig` is derived from v0.3.34-127 (commit
+Upstream references are to the OpenBLAS checkout that `tools/blas_asm` converts, v0.3.34-794
+(commit dbf2c24c9), unless a file names another; `Vtable.zig` is derived from v0.3.34-127 (commit
 9724481b). Paths are relative to `src/linalg/blas/` unless they start with `build/`, `tools/`,
 `test/` or `src/`. The toolchain is Zig 0.18.0-dev.751.
 
@@ -222,7 +222,7 @@ signatures take every change below at once, so none changes twice. [Z7](https://
 
 - **`exprecision`** is on for x86 and x86_64 with an x87 unit whose `long double` is 80 bits,
   except on Microsoft-ABI targets (Windows, UEFI), which the reference never builds it for
-  (`exprecisionOn`; `Makefile.system:487` sets `NO_EXPRECISION` on `WINNT`). It assumes the x87 control word's extended precision, as Linux and x64
+  (`exprecisionOn`; `Makefile.system:490` sets `NO_EXPRECISION` on `WINNT`). It assumes the x87 control word's extended precision, as Linux and x64
   UEFI leave it (0x037F: Linux v6.12 `arch/x86/kernel/fpu/core.c`, `fpstate_init_fxstate`;
   UEFI Specification 2.10, section 2.3.4,
   <https://uefi.org/specs/UEFI/2.10/02_Overview.html>). Elsewhere, `q`/`x` alias `d`/`z`, as in the reference; `blas_types` is a
@@ -233,7 +233,7 @@ signatures take every change below at once, so none changes twice. [Z7](https://
   The `aarch64-quad` rig runs with it, the only place the edge and level-3 driver tests meet
   an extended type off x86 (T19).
 - **`f80` size.** `f80` keeps Zig's native size (16 bytes on x86_64, 12 on x86), where the
-  reference's GCC builds pass `-m128bit-long-double` (`Makefile.system:602`, `:627`). Buffer formulas count bytes and round up to
+  reference's GCC builds pass `-m128bit-long-double` (`Makefile.system:605`, `:630`). Buffer formulas count bytes and round up to
   whole elements; the gemm blocking keeps the reference's 16-byte figures.
 - **Complex results.** Kernels that return a complex value use `CComplex(F)`, an
   `extern struct`, since `std.math.Complex` has automatic layout. At `f80` that struct returns
@@ -597,7 +597,7 @@ only repeat the portable kernels.
   arm64's SVE drivers (`symv_[LU]_sve_v1x4.c`) are not ported.
 - **Buffers.** The kernels take a scratch `buffer`. The interfaces size it as the reference's
   `STACK_ALLOC` does, on the stack up to `interface.stack_bytes` (2048, 32-aligned, the
-  reference's `MAX_STACK_ALLOC`: `Makefile.system:573`, `common_stackalloc.h:58`), else from
+  reference's `MAX_STACK_ALLOC`: `Makefile.system:576`, `common_stackalloc.h:58`), else from
   the allocator, 4096-aligned (the kernels round to 4096-byte boundaries in it, `kernel/generic/symv_k.c:51`).
   [`blas2/buffers.md`](blas/blas2/buffers.md) lists what every kernel does with it.
 - **Threading.** `gemv`, `ger`, the rank updates and transposed `gbmv` split `y` or `A`'s
@@ -681,8 +681,8 @@ complex, for every float type, through the same code.
   `OPENBLAS_BLOCK_FACTOR` scales a computed `p` as `driver/others/parameter.c:519-527` does;
   OpenBLAS ignores it in dynamic builds, which do not link `parameter.c`
   (`driver/others/Makefile:44`).
-  Haswell's and Zen's `dgemm` `q` is 128 under `WINDOWS_ABI`, 256 otherwise (`param.h:1613-1619`,
-  `:704-710`); `params_data.zig` takes 256 on every OS. The cut is for the stack, not tuning:
+  Haswell's and Zen's `dgemm` `q` is 128 under `WINDOWS_ABI`, 256 otherwise (`param.h:1614-1620`,
+  `:705-711`); `params_data.zig` takes 256 on every OS. The cut is for the stack, not tuning:
   `dgemm_kernel_4x8_haswell.S:54-70` keeps a `q * 8 * 12`-byte buffer on the stack and touches
   its pages on Windows (`:82-106`), and 47b22763f ("reduced stack usage on windows to 16K")
   halved `q` to hold it near 16 KiB; Zen took Haswell's values in 832a27278. The Zig kernels
@@ -700,7 +700,7 @@ complex, for every float type, through the same code.
   Only x86 sets the generic `p` and `r` at run time (`parameter.c:451`'s L2 rule, `r` from the
   buffer). A static `TARGET=GENERIC` build elsewhere keeps the header variables at
   `parameter.c:46-48`'s 128 (`p`, `q` and `r`), and MIPS and LoongArch have fixed sets
-  (`param.h:4388-4415`). The generic table follows its target's branch (`GenericBranch`,
+  (`param.h:4456-4483`). The generic table follows its target's branch (`GenericBranch`,
   `params_data.generic_off_x86`), and so does a core with no table of its own (T116).
   `dtb_entries` per core is `getarch.c`'s `DTB_DEFAULT_ENTRIES`, which `params.zig` also
   extracts into `params_data.zig` (`dtbFor`). A 32-bit family takes `Makefile.system`'s 32-bit
@@ -777,7 +777,7 @@ The half gemms (`blas3/half.zig`) are `interface/gemm.c` built `BFLOAT16`, `BGEM
 `HFLOAT16` over `level3.c`'s loops, for one type of `A` and `B` and another of `C`; the
 `driver.zig` loops take one type, so `half.zig` has its own copy of them, which uses `driver.zig`'s
 `Blocking` and `Work`. The kernels port `kernel/generic/gemmkernel_2x2.c`, `gemm_beta.c` and the
-`ncopy`/`tcopy` packing (`Makefile.L3:190-243`) over the `f32` gemm tile; each element's
+`ncopy`/`tcopy` packing (`Makefile.L3:193-246`) over the `f32` gemm tile; each element's
 arithmetic is the same in every lane and tile, so threads split `C` by columns (rows for a tall
 one) into problems of their own, each on its own packing space, and get the serial bits. Blocking
 is the core's `sb`, `b` and `sh` sizes (`params.zig`), with `Blocking.of`'s fallbacks where its
@@ -816,9 +816,9 @@ upstream converts no assembly for these slots, only C and intrinsics (NEON, RVV,
   upstream leaves stale, as `getrf_single.c`'s `laswp_plus` and `gemm_oncopy` do in its place.
   Nothing calls either: LAPACK's `getrf` takes `laswp_plus` and `gemm_oncopy`, as
   `getrf_single.c`'s `#if 1` does; `getrf_parallel.c`, its only caller, has the call behind
-  `if (0 && ...)` (`:138`, `:277`), and nothing upstream calls `neg_tcopy`.
-- **`gemmt`**: upstream takes a `gemv` per column, and for `r` and `c` conjugates the caller's
-  `B` in place and back (`interface/gemmt.c:495`, `:697`, the `gemv` at `:569`; [#235](https://github.com/randyos-org/rstd/issues/235)). Here it is `gemm`'s operands over `syrk`'s triangle in
+  `if (0 && ...)` (`:160`, `:299`), and nothing upstream calls `neg_tcopy`.
+- **`gemmt`**: up to v0.3.34-317 upstream took a `gemv` per column, and for `r` and `c` conjugated the caller's
+  `B` in place and back (`interface/gemmt.c:495`, `:697`, the `gemv` at `:569`, all at commit a69062524; [#235](https://github.com/randyos-org/rstd/issues/235)); it has since become a blocked level-3 driver (commit 7e876d53b). Here it is `gemm`'s operands over `syrk`'s triangle in
   the level-3 driver (`driver.gemmt`), and `B` is only read.
 - **Batched `gemm`** (`blas3/batch.zig`; `interface/gemm_batch.c`, `gemm_batch_strided.c`):
   groups of problems sharing sizes and scalars (a `GemmGroup` holds slices of operand pointers;
@@ -891,7 +891,7 @@ allows.
   (upstream reports `diag` first, [#240](https://github.com/randyos-org/rstd/issues/240)). A zero on the diagonal is `error.Singular`
   before `B` is touched, even with no right-hand side, as the reference.
 - **`potrs`** (`cholesky.zig`): `xPOTRS`, which OpenBLAS takes from the reference too
-  (`exports/gensymbol.pl:498` lists it with the netlib objects): two
+  (`exports/gensymbol.pl:501` lists it with the netlib objects): two
   `trsm`s on the factor, through the drivers.
 - **`getrf`** (`lu.zig`): `getrf_single.c`, the recursive blocked factor: blocks of half the
   columns rounded up to `unroll_n`, at most `GEMM_Q`, each factored recursively, then the
@@ -911,7 +911,7 @@ allows.
   (rounded up to whole `unroll_n` panels) and factors that block, while the other workers
   update the rest in chunks cut at panel edges (`inner_basic_thread`), each on packing space
   allocated before the tasks start (`threading.team`). Upstream sizes its blocks by its thread
-  count (`FORMULA1`, `FORMULA2`, `:502`), which would change the bits; here they are
+  count (`FORMULA1`, `FORMULA2`, `:527`), which would change the bits; here they are
   `getrf_single.c`'s, and every column gets the serial kernel calls, so the factors are the
   serial ones. The closing interchanges, threaded upstream, are serial.
 - **`getrs`** (`lu.zig`): `getrs_single.c` and `zgetrs_single.c`, which are `xGETRS`: the
@@ -1608,7 +1608,7 @@ other targets cannot assemble.
 | Family | Probe |
 | --- | --- |
 | x86, x86_64 | `cpuid` and `xgetbv`, unprivileged, so the same on every OS and freestanding |
-| arm64 | Darwin: `sysctl` (`hw.optional.arm.FEAT_SME`, `FEAT_SME_F64F64`: XNU's `ARM_FEATURE_FLAG` list, <https://github.com/apple-oss-distributions/xnu/blob/ac9718fb1af618d5ce8678d0dc6e8a58f252216f/osfmk/arm/arm_features.inc#L118>, xnu-12377.121.6; OpenBLAS reads only `FEAT_SME`, `driver/others/dynamic_arm64.c:612`); Linux and FreeBSD: `MIDR_EL1` through the kernel's emulation (`HWCAP_CPUID`), else per-CPU sysfs `midr_el1` and `cpu_capacity` (Linux v6.12 `Documentation/ABI/testing/sysfs-devices-system-cpu`), plus the hwcaps (`HWCAP2_SME_F64F64` among them); Windows: `MIDR_EL1` from the registry, features from `IsProcessorFeaturePresent` (`PF_ARM_SME_F64F64_INSTRUCTIONS_AVAILABLE`, 85: <https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-isprocessorfeaturepresent>); freestanding and UEFI: the ID registers (`ID_AA64SMFR0_EL1.F64F64`) |
+| arm64 | Darwin: `sysctl` (`hw.optional.arm.FEAT_SME`, `FEAT_SME_F64F64`: XNU's `ARM_FEATURE_FLAG` list, <https://github.com/apple-oss-distributions/xnu/blob/ac9718fb1af618d5ce8678d0dc6e8a58f252216f/osfmk/arm/arm_features.inc#L118>, xnu-12377.121.6; OpenBLAS reads only `FEAT_SME`, `driver/others/dynamic_arm64.c:635`); Linux and FreeBSD: `MIDR_EL1` through the kernel's emulation (`HWCAP_CPUID`), else per-CPU sysfs `midr_el1` and `cpu_capacity` (Linux v6.12 `Documentation/ABI/testing/sysfs-devices-system-cpu`), plus the hwcaps (`HWCAP2_SME_F64F64` among them); Windows: `MIDR_EL1` from the registry, features from `IsProcessorFeaturePresent` (`PF_ARM_SME_F64F64_INSTRUCTIONS_AVAILABLE`, 85: <https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-isprocessorfeaturepresent>); freestanding and UEFI: the ID registers (`ID_AA64SMFR0_EL1.F64F64`) |
 | arm | `AT_HWCAP` VFP and NEON bits and the part in `/proc/cpuinfo`; freestanding and UEFI: CP15 and VFP ID registers |
 | power | `AT_PLATFORM`, then the PVR (`mfpvr`, emulated by Linux: v6.12 `arch/powerpc/kernel/traps.c`, `emulate_instruction`), then the ISA bits of `AT_HWCAP`/`AT_HWCAP2`; freestanding: the PVR |
 | mips | Loongson `cpucfg` where `AT_HWCAP` advertises it, else `/proc/cpuinfo` (Linux only) |
@@ -1623,7 +1623,7 @@ other targets cannot assemble.
    (`unknown` names none) and the CPU can run it; else the detector's answer. A name no core has
    is reported at `OPENBLAS_VERBOSE` 1 and detection decides (the reference falls back to a
    default core: the generic one on arm64, mips64 and s390x, POWER8 on power, Katmai on x86,
-   and by AVX level on x86_64, `dynamic.c:1155-1164`). A named core the CPU cannot run is reported and replaced by the closest one it
+   and by AVX level on x86_64, `dynamic.c:1176-1186`). A named core the CPU cannot run is reported and replaced by the closest one it
    can; on arm64, whose `runnable` cannot see the ISA level, only by one the detected core
    covers (`level_unseen`).
 2. **Which object.** A core with no kernel object in the build (excluded by `-Dblas-cores`, or
@@ -1646,21 +1646,21 @@ more.
 Where the port differs from `dynamic*.c`:
 
 - **x86.** The OS AVX, AVX2 and AVX-512 state checks and the reference's fallbacks and warnings
-  are kept. AMD family 10h and 12h are Barcelona (the reference returns NULL, `dynamic.c:924-925`); FMA3 is required
+  are kept. AMD family 10h and 12h are Barcelona (the reference returns NULL, `dynamic.c:944-945`); FMA3 is required
   for the Haswell and Zen kernels; `cpuid` leaves are range-checked; macOS's lazy ZMM state is
   not mistaken for no AVX-512.
 - **arm.** The reference has no run-time dispatch; `cpuid_arm.c`'s build-time choice is made at
   run time from the hwcap bits, requiring 32 VFP registers for the ARMv7 kernels. Cortex-A9 and
   A15 are detected by part, as `cpuid_arm.c` does.
 - **arm64.** The part table follows `dynamic_arm64.c`. Without the `MIDR_EL1` emulation the
-  per-CPU sysfs pass reads `cpu_capacity` (decimal), as `cpuid_arm64.c:267` does;
-  `dynamic_arm64.c:395` reads `cpu_capability`, which Linux does not have (Linux v6.12
+  per-CPU sysfs pass reads `cpu_capacity` (decimal), as `cpuid_arm64.c:272` does;
+  `dynamic_arm64.c:396` reads `cpu_capability`, which Linux does not have (Linux v6.12
   `Documentation/ABI/testing/sysfs-devices-system-cpu` lists `cpu_capacity` only). Every core built for
   ARMv8.3 and up needs FCMA, since its `trsm` kernels hold `FCMLA`; the Apple CPUs macOS and
   Linux run on (M1 and later) have it.
   The SME cores (`armv9sme`, `vortexm4`) are built with SME's optional F64F64, as the
   reference's are (`kernel/Makefile:30`, `:41`), so they need it detected: the reference picks
-  them on SME alone (`dynamic_arm64.c:602-616`, `support_sme1`). Each probe
+  them on SME alone (`dynamic_arm64.c:625-639`, `support_sme1`). Each probe
   decodes it from its raw values in a pure function, and it counts only alongside SME. A
   Windows without the SME flags answers false, so it never gets an SME core.
   The Windows path (registry `CP 4000`, `IsProcessorFeaturePresent`) and the sysfs pass, which no
@@ -1668,7 +1668,7 @@ Where the port differs from `dynamic*.c`:
   sysfs): Snapdragon X Elite, Microsoft SQ1 and SQ2, Azure Cobalt 100; Raspberry Pi 3, 4 and 5,
   Neoverse N1 and N2, and the M1 under Asahi, from published `/proc/cpuinfo` dumps, QEMU's TRM
   models and Linux's `cputype.h`. Each gets the reference's core; on Windows the reference has
-  no run-time detection (ARMV8, `dynamic_arm64.c:361`), so the part table and SVE test apply as
+  no run-time detection (ARMV8, `dynamic_arm64.c:362`), so the part table and SVE test apply as
   on Linux. Cobalt 100 is implementer 0x6d, unknown to the reference: `armv8sve` with Windows'
   SVE flags, else `armv8`.
 - **power.** POWER10 needs ISA 3.1 and MMA. POWER3 to 5, 970, Cell, G4 and 440, static targets
@@ -1781,7 +1781,7 @@ assembly, unchanged in substance:
 #### Fixes to upstream sources
 
 The per-core tests found bugs in some of OpenBLAS's own assembly, still present on master at
-v0.3.34-317. The generator fixes each before converting it: a `Patch` in
+v0.3.34-794. The generator fixes each before converting it: a `Patch` in
 `tools/blas_asm/arch/<arch>.zig` is an exact find and replace on the upstream text that must
 match `count` times, or the generator stops, with a comment saying what was wrong. The generated
 files carry the fixed code. The [issues labeled `upstream: openblas`](https://github.com/randyos-org/rstd/issues?q=is%3Aissue+label%3A%22upstream%3A+openblas%22) hold the issue text for each. No
@@ -1890,8 +1890,8 @@ stride means `n` operations on one element in turn:
   one element at a time too.
 - With only `incy` zero: x86_64 `zaxpy_sse2.S` (whose own zero-stride case fired only with both
   zero), `axpy_atom.S`, `zaxpy_atom.S`; power `axpy.S`, `zaxpy.S`, `axpy_ppc440.S`; sparc
-  `axpy.S`, `zaxpy.S` (which now also returns for `n = 0`); loongarch64 `axpy_lsx.S`,
-  `axpy_lasx.S`, `caxpy_lsx.S`, `caxpy_lasx.S`; and `cswap_lsx.S`, `cswap_lasx.S` with `incx`
+  `axpy.S`, `zaxpy.S` (which now also returns for `n = 0`); loongarch64 `caxpy_lsx.S`,
+  `caxpy_lasx.S` (upstream fixed `axpy_lsx.S` and `axpy_lasx.S` itself by v0.3.34-794); and `cswap_lsx.S`, `cswap_lasx.S` with `incx`
   zero. A zero stride there takes a one-at-a-time loop.
 - The C sources ported to Zig had it too, fixed in the port: `riscv64/axpy_rvv.c` started every
   lane at `y[0]` and summed them, adding `y[0]` once a lane, and `zaxpy_rvv.c`'s segments and
@@ -2014,14 +2014,14 @@ decision](#settled-decisions) that target platforms come first: fixed where a Ra
 zfls host could meet it, else the reference's choice kept and documented.
 
 - **`katmai` on 32-bit x86 without SSE3, down to the 486:** kept. A 32-bit build's last resort
-  is Katmai, whose kernels need SSE (`dynamic.c:1156`); 32-bit x86 is neither a RandyOS target
+  is Katmai, whose kernels need SSE (`dynamic.c:1177`); 32-bit x86 is neither a RandyOS target
   nor a zfls host.
 - **`vortex` on any Apple CPU:** kept for Darwin, which the reference also gives `vortex`
-  (`dynamic_arm64.c:352-359`). The A7 to A11 lack FCMA, but run iOS only; every Apple CPU macOS,
+  (`dynamic_arm64.c:353-360`). The A7 to A11 lack FCMA, but run iOS only; every Apple CPU macOS,
   Linux and RandyOS run on is an M1 or later. Elsewhere, `vortex` and `vortexm4` now need Apple's
   implementer code, since their objects are built for the M1 and M4.
 - **`vortexm4` on a non-Apple CPU with SME and no SVE:** fixed. The reference picks it
-  (`dynamic_arm64.c:543-547`), but such a CPU could be a Linux or Windows arm64 zfls host; it
+  (`dynamic_arm64.c:544-548`), but such a CPU could be a Linux or Windows arm64 zfls host; it
   now takes the SVE test, then generic ARMv8.
 - **A forced core's fallback to `neoversen1` on ARMv8.0:** fixed. The reference runs a named
   core unchecked (`force_coretype`); rstd replaces one the CPU cannot run, but arm64's `runnable`
@@ -2178,7 +2178,7 @@ Questions decided once, with the reason, so they are not reopened without new ev
   An exactly singular `U` is `error.Singular`, its first zero pivot written to `pivot`; a NaN
   pivot is not zero, as the reference's `xGETRF2` has it.
 - **Loongson 3A fuses, as the reference does** (2026-10-29). `loongson3r3` and `loongson3r4`
-  are modeled fused: OpenBLAS builds them with `-march=loongson3a` (`Makefile.system:1002`), where
+  are modeled fused: OpenBLAS builds them with `-march=loongson3a` (`Makefile.system:1005`), where
   GCC contracts to `madd.fmt`, which GS464 and GS464E round once (their manuals, [#196](https://github.com/randyos-org/rstd/issues/196)).
   QEMU rounds `madd.fmt`, so no rig can check the fused bits (the axpy fused-bit test skips on
   rigs); correctness rests on the manuals and on reading the objects' assembly.
@@ -2200,7 +2200,7 @@ Questions decided once, with the reason, so they are not reopened without new ev
 | Selecting kernels lazily per routine | Eager installation keeps a kernel call to one indirect call and the table immutable while kernels run |
 | A mutex around initialization | Brings threading support into freestanding builds; a three-state handshake suffices |
 | The reference's `gotoblas_X` fallback chains | They follow no rule and put SSSE3 code on CPUs without it; the ISA subset rule cannot |
-| Fall back to the generic core for an unknown `OPENBLAS_CORETYPE` | Detection gives a faster correct core (reasoned, not measured: generic runs the portable kernels; OpenBLAS's x86_64 picks by ISA there, `driver/others/dynamic.c:1157`); the name is reported |
+| Fall back to the generic core for an unknown `OPENBLAS_CORETYPE` | Detection gives a faster correct core (reasoned, not measured: generic runs the portable kernels; OpenBLAS's x86_64 picks by ISA there, `driver/others/dynamic.c:1178`); the name is reported |
 | Each core's converted kernel in every slot, with quirks listed | Results then mean different things per core (`sdot` precision, NaN in the extremes, `nrm2`); [`comparisons.md`](blas/comparisons.md) (X1) |
 | Reproducing the reference's accumulation order in the portable kernels | Not required for correctness; kept only where a Zig kernel replaces converted code of the same core |
 | Converting the gemm assembly | The Zig tile runs at the measured peak on AVX2 and within a few percent on Apple cores (`notes.md`, `results-m6.md`); one source serves every core |

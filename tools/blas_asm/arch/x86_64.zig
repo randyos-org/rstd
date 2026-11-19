@@ -25,7 +25,7 @@ pub const x86_64: arch.Arch = .{
     },
 };
 
-/// Fixes for bugs in upstream sources (OpenBLAS v0.3.34-317).
+/// Fixes for bugs in upstream sources (OpenBLAS v0.3.34-794).
 const patches = [_]arch.Patch{
     // Windows passes the double `alpha_i` on the stack; this read it with a
     // single-precision load, as every sibling `zgemv` kernel does not

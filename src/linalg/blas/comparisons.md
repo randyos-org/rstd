@@ -23,7 +23,7 @@ once however many runs.
 | rstd design doc | `design.md`, a draft then on branch `wip/blas-docs` | 2026-10-22, since rebased onto `review` |
 | rstd arm64 `@Vector` kernels | `vector.zig`, then on branch `wip/arm64-vector` | `4407e5a`, landed on `review` as `eecfe67` |
 | BLIS | <https://github.com/flame/blis> | tag `2.1`, `caf0db6be1202d9c83c79b51e75eceb96aa8b556`, 2026-06-25 |
-| OpenBLAS | the checkout `tools/blas_asm` converts | `v0.3.34-317-ga69062524` |
+| OpenBLAS | the checkout `tools/blas_asm` converts | `v0.3.34-794-gdbf2c24c9` |
 | Reference BLAS (Reference-LAPACK) | <https://github.com/Reference-LAPACK/lapack> | last release v3.12.1 (2025-01-08); `master` as of 2026-10-22 |
 | Exception-handling proposal | Demmel, Dongarra, Gates, Henry, Langou, Li, Luszczek, Pereira, Riedy, Rubio-Gonzalez, "Proposed Consistent Exception Handling for the BLAS and LAPACK", <https://arxiv.org/abs/2207.09281> (2022) | v1 |
 | Intel oneMKL CNR | <https://www.intel.com/content/www/us/en/docs/onemkl/developer-guide-linux/2025-2/reproducibility-conditions.html>; `MKL_CBWR`: <https://www.intel.com/content/www/us/en/docs/onemkl/developer-guide-linux/2025-2/set-env-var-for-cond-numerical-reproducibility.html> | 2025.2 docs |
@@ -253,7 +253,7 @@ x86_64 unmeasured) or a NaN pre-check.
 
 **rstd.**
 
-- `axpy`: both zero gives `y[0] += n*alpha*x[0]` (in `Acc`), as `interface/axpy.c:80-81`;
+- `axpy`: both zero gives `y[0] += n*alpha*x[0]` (in `Acc`), as `interface/axpy.c:97-98`;
   otherwise the kernels run sequentially (the converted `swap`/`rot` kernels that batched a block
   before storing were patched to go one element at a time; `design.md`, "Fixes to upstream
   sources").
@@ -307,7 +307,7 @@ triangular routines only: <https://github.com/Reference-LAPACK/lapack/pull/1323>
 NaN propagations" and "is not done consistently across variants"; it does not mention the rank
 updates. `dgemm.f` never skips zero elements of `B`.
 
-**OpenBLAS** (v0.3.34-317) differs by routine and by path:
+**OpenBLAS** (v0.3.34-794) differs by routine and by path:
 
 | Routine | Serial | Threaded (`*_thread.c`) |
 | --- | --- | --- |
@@ -581,7 +581,7 @@ that OpenBLAS's prefetch-heavy arm64 kernels are slower on M6.
    `Q` 1024/512, `P` 512/256 (`param.h`, VORTEX block). Sweep `Q` upward on M6.
 
 OpenBLAS's `param.h` block shared by VORTEX chooses `P`/`Q` by `NUM_CORES > 8` at build time,
-but VORTEX and VORTEXM4 always take the large set (`param.h:3574`), as `params_data.zig` has it.
+but VORTEX and VORTEXM4 always take the large set (`param.h:3625`), as `params_data.zig` has it.
 
 ## 10. Special values and denormals
 

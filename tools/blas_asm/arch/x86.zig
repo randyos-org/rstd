@@ -15,7 +15,7 @@ pub const x86: arch.Arch = .{
     .retired = &retired,
 };
 
-/// Fixes for bugs in upstream sources (OpenBLAS v0.3.34-317).
+/// Fixes for bugs in upstream sources (OpenBLAS v0.3.34-794).
 const patches = [_]arch.Patch{
     // with both strides zero, `swap.S` returned at once, right only for an
     // even `n`; with either zero, both load two or four elements before
