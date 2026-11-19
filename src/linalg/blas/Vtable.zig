@@ -1,8 +1,7 @@
 //! Zig translation of OpenBLAS's `gotoblas_t` (the per-core kernel table),
 //! mechanically derived from `common_param.h` in
 //! https://github.com/OpenMathLib/OpenBLAS at commit
-//! 9724481b599bb75fd260a9e7e991b445ef02a0bd (v0.3.34-127; `common_param.h` is
-//! unchanged at v0.3.34-317).
+//! dbf2c24c9e43ed8f8c12f32837a2f87fab848e97 (v0.3.34-794).
 //! Re-derive from that source rather than hand-editing if it goes stale.
 //!
 //! Every field is present as an optional pointer, null where it does not
@@ -261,6 +260,8 @@ sme_sgemm_kernel: ?*const fn ([*:0]u8, [*:0]u8, BlasLong, BlasLong, BlasLong, [*
 
 sgemm_kernel: ?*const fn (BlasLong, BlasLong, BlasLong, f32, [*]f32, [*]f32, [*]f32, BlasLong) callconv(.c) i32 = null,
 sgemm_beta: ?*const fn (BlasLong, BlasLong, BlasLong, f32, [*]f32, BlasLong, [*]f32, BlasLong, [*]f32, BlasLong) callconv(.c) i32 = null,
+ssymm_kernel: ?*const fn (BlasLong, BlasLong, BlasLong, f32, [*]f32, [*]f32, [*]f32, BlasLong) callconv(.c) i32 = null,
+strmm_gemm_kernel: ?*const fn (BlasLong, BlasLong, BlasLong, f32, [*]f32, [*]f32, [*]f32, BlasLong) callconv(.c) i32 = null,
 
 sgemm_incopy: ?*const fn (BlasLong, BlasLong, [*]f32, BlasLong, [*]f32) callconv(.c) i32 = null,
 sgemm_itcopy: ?*const fn (BlasLong, BlasLong, [*]f32, BlasLong, [*]f32) callconv(.c) i32 = null,
@@ -318,6 +319,10 @@ strmm_ilnucopy: ?*const fn (BlasLong, BlasLong, [*]f32, BlasLong, BlasLong, Blas
 strmm_ilnncopy: ?*const fn (BlasLong, BlasLong, [*]f32, BlasLong, BlasLong, BlasLong, [*]f32) callconv(.c) i32 = null,
 strmm_iltucopy: ?*const fn (BlasLong, BlasLong, [*]f32, BlasLong, BlasLong, BlasLong, [*]f32) callconv(.c) i32 = null,
 strmm_iltncopy: ?*const fn (BlasLong, BlasLong, [*]f32, BlasLong, BlasLong, BlasLong, [*]f32) callconv(.c) i32 = null,
+ssymm_incopy: ?*const fn (BlasLong, BlasLong, [*]f32, BlasLong, [*]f32) callconv(.c) i32 = null,
+ssymm_itcopy: ?*const fn (BlasLong, BlasLong, [*]f32, BlasLong, [*]f32) callconv(.c) i32 = null,
+strmm_incopy: ?*const fn (BlasLong, BlasLong, [*]f32, BlasLong, [*]f32) callconv(.c) i32 = null,
+strmm_itcopy: ?*const fn (BlasLong, BlasLong, [*]f32, BlasLong, [*]f32) callconv(.c) i32 = null,
 strmm_ounucopy: ?*const fn (BlasLong, BlasLong, [*]f32, BlasLong, BlasLong, BlasLong, [*]f32) callconv(.c) i32 = null,
 strmm_ounncopy: ?*const fn (BlasLong, BlasLong, [*]f32, BlasLong, BlasLong, BlasLong, [*]f32) callconv(.c) i32 = null,
 strmm_outucopy: ?*const fn (BlasLong, BlasLong, [*]f32, BlasLong, BlasLong, BlasLong, [*]f32) callconv(.c) i32 = null,
@@ -391,6 +396,8 @@ sme_dgemm_kernel: ?*const fn ([*:0]const u8, [*:0]const u8, BlasLong, BlasLong, 
 //#endif //def ARCH_ARM64
 dgemm_kernel: ?*const fn (BlasLong, BlasLong, BlasLong, f64, [*]f64, [*]f64, [*]f64, BlasLong) callconv(.c) i32 = null,
 dgemm_beta: ?*const fn (BlasLong, BlasLong, BlasLong, f64, [*]f64, BlasLong, [*]f64, BlasLong, [*]f64, BlasLong) callconv(.c) i32 = null,
+dsymm_kernel: ?*const fn (BlasLong, BlasLong, BlasLong, f64, [*]f64, [*]f64, [*]f64, BlasLong) callconv(.c) i32 = null,
+dtrmm_gemm_kernel: ?*const fn (BlasLong, BlasLong, BlasLong, f64, [*]f64, [*]f64, [*]f64, BlasLong) callconv(.c) i32 = null,
 
 dgemm_incopy: ?*const fn (BlasLong, BlasLong, [*]f64, BlasLong, [*]f64) callconv(.c) i32 = null,
 dgemm_itcopy: ?*const fn (BlasLong, BlasLong, [*]f64, BlasLong, [*]f64) callconv(.c) i32 = null,
@@ -448,6 +455,10 @@ dtrmm_ilnucopy: ?*const fn (BlasLong, BlasLong, [*]f64, BlasLong, BlasLong, Blas
 dtrmm_ilnncopy: ?*const fn (BlasLong, BlasLong, [*]f64, BlasLong, BlasLong, BlasLong, [*]f64) callconv(.c) i32 = null,
 dtrmm_iltucopy: ?*const fn (BlasLong, BlasLong, [*]f64, BlasLong, BlasLong, BlasLong, [*]f64) callconv(.c) i32 = null,
 dtrmm_iltncopy: ?*const fn (BlasLong, BlasLong, [*]f64, BlasLong, BlasLong, BlasLong, [*]f64) callconv(.c) i32 = null,
+dsymm_incopy: ?*const fn (BlasLong, BlasLong, [*]f64, BlasLong, [*]f64) callconv(.c) i32 = null,
+dsymm_itcopy: ?*const fn (BlasLong, BlasLong, [*]f64, BlasLong, [*]f64) callconv(.c) i32 = null,
+dtrmm_incopy: ?*const fn (BlasLong, BlasLong, [*]f64, BlasLong, [*]f64) callconv(.c) i32 = null,
+dtrmm_itcopy: ?*const fn (BlasLong, BlasLong, [*]f64, BlasLong, [*]f64) callconv(.c) i32 = null,
 dtrmm_ounucopy: ?*const fn (BlasLong, BlasLong, [*]f64, BlasLong, BlasLong, BlasLong, [*]f64) callconv(.c) i32 = null,
 dtrmm_ounncopy: ?*const fn (BlasLong, BlasLong, [*]f64, BlasLong, BlasLong, BlasLong, [*]f64) callconv(.c) i32 = null,
 dtrmm_outucopy: ?*const fn (BlasLong, BlasLong, [*]f64, BlasLong, BlasLong, BlasLong, [*]f64) callconv(.c) i32 = null,
@@ -624,6 +635,16 @@ cgemm_kernel_r: ?*const fn (BlasLong, BlasLong, BlasLong, f32, f32, [*]f32, [*]f
 cgemm_kernel_b: ?*const fn (BlasLong, BlasLong, BlasLong, f32, f32, [*]f32, [*]f32, [*]f32, BlasLong) callconv(.c) i32 = null,
 cgemm_beta: ?*const fn (BlasLong, BlasLong, BlasLong, f32, f32, [*]f32, BlasLong, [*]f32, BlasLong, [*]f32, BlasLong) callconv(.c) i32 = null,
 
+csymm_kernel_n: ?*const fn (BlasLong, BlasLong, BlasLong, f32, f32, [*]f32, [*]f32, [*]f32, BlasLong) callconv(.c) i32 = null,
+csymm_kernel_l: ?*const fn (BlasLong, BlasLong, BlasLong, f32, f32, [*]f32, [*]f32, [*]f32, BlasLong) callconv(.c) i32 = null,
+csymm_kernel_r: ?*const fn (BlasLong, BlasLong, BlasLong, f32, f32, [*]f32, [*]f32, [*]f32, BlasLong) callconv(.c) i32 = null,
+csymm_kernel_b: ?*const fn (BlasLong, BlasLong, BlasLong, f32, f32, [*]f32, [*]f32, [*]f32, BlasLong) callconv(.c) i32 = null,
+
+ctrmm_gemm_kernel_n: ?*const fn (BlasLong, BlasLong, BlasLong, f32, f32, [*]f32, [*]f32, [*]f32, BlasLong) callconv(.c) i32 = null,
+ctrmm_gemm_kernel_l: ?*const fn (BlasLong, BlasLong, BlasLong, f32, f32, [*]f32, [*]f32, [*]f32, BlasLong) callconv(.c) i32 = null,
+ctrmm_gemm_kernel_r: ?*const fn (BlasLong, BlasLong, BlasLong, f32, f32, [*]f32, [*]f32, [*]f32, BlasLong) callconv(.c) i32 = null,
+ctrmm_gemm_kernel_b: ?*const fn (BlasLong, BlasLong, BlasLong, f32, f32, [*]f32, [*]f32, [*]f32, BlasLong) callconv(.c) i32 = null,
+
 cgemm_incopy: ?*const fn (BlasLong, BlasLong, [*]f32, BlasLong, [*]f32) callconv(.c) i32 = null,
 cgemm_itcopy: ?*const fn (BlasLong, BlasLong, [*]f32, BlasLong, [*]f32) callconv(.c) i32 = null,
 cgemm_oncopy: ?*const fn (BlasLong, BlasLong, [*]f32, BlasLong, [*]f32) callconv(.c) i32 = null,
@@ -716,6 +737,10 @@ ctrmm_ilnucopy: ?*const fn (BlasLong, BlasLong, [*]f32, BlasLong, BlasLong, Blas
 ctrmm_ilnncopy: ?*const fn (BlasLong, BlasLong, [*]f32, BlasLong, BlasLong, BlasLong, [*]f32) callconv(.c) i32 = null,
 ctrmm_iltucopy: ?*const fn (BlasLong, BlasLong, [*]f32, BlasLong, BlasLong, BlasLong, [*]f32) callconv(.c) i32 = null,
 ctrmm_iltncopy: ?*const fn (BlasLong, BlasLong, [*]f32, BlasLong, BlasLong, BlasLong, [*]f32) callconv(.c) i32 = null,
+csymm_incopy: ?*const fn (BlasLong, BlasLong, [*]f32, BlasLong, [*]f32) callconv(.c) i32 = null,
+csymm_itcopy: ?*const fn (BlasLong, BlasLong, [*]f32, BlasLong, [*]f32) callconv(.c) i32 = null,
+ctrmm_incopy: ?*const fn (BlasLong, BlasLong, [*]f32, BlasLong, [*]f32) callconv(.c) i32 = null,
+ctrmm_itcopy: ?*const fn (BlasLong, BlasLong, [*]f32, BlasLong, [*]f32) callconv(.c) i32 = null,
 ctrmm_ounucopy: ?*const fn (BlasLong, BlasLong, [*]f32, BlasLong, BlasLong, BlasLong, [*]f32) callconv(.c) i32 = null,
 ctrmm_ounncopy: ?*const fn (BlasLong, BlasLong, [*]f32, BlasLong, BlasLong, BlasLong, [*]f32) callconv(.c) i32 = null,
 ctrmm_outucopy: ?*const fn (BlasLong, BlasLong, [*]f32, BlasLong, BlasLong, BlasLong, [*]f32) callconv(.c) i32 = null,
@@ -846,6 +871,16 @@ zgemm_kernel_r: ?*const fn (BlasLong, BlasLong, BlasLong, f64, f64, [*]f64, [*]f
 zgemm_kernel_b: ?*const fn (BlasLong, BlasLong, BlasLong, f64, f64, [*]f64, [*]f64, [*]f64, BlasLong) callconv(.c) i32 = null,
 zgemm_beta: ?*const fn (BlasLong, BlasLong, BlasLong, f64, f64, [*]f64, BlasLong, [*]f64, BlasLong, [*]f64, BlasLong) callconv(.c) i32 = null,
 
+zsymm_kernel_n: ?*const fn (BlasLong, BlasLong, BlasLong, f64, f64, [*]f64, [*]f64, [*]f64, BlasLong) callconv(.c) i32 = null,
+zsymm_kernel_l: ?*const fn (BlasLong, BlasLong, BlasLong, f64, f64, [*]f64, [*]f64, [*]f64, BlasLong) callconv(.c) i32 = null,
+zsymm_kernel_r: ?*const fn (BlasLong, BlasLong, BlasLong, f64, f64, [*]f64, [*]f64, [*]f64, BlasLong) callconv(.c) i32 = null,
+zsymm_kernel_b: ?*const fn (BlasLong, BlasLong, BlasLong, f64, f64, [*]f64, [*]f64, [*]f64, BlasLong) callconv(.c) i32 = null,
+
+ztrmm_gemm_kernel_n: ?*const fn (BlasLong, BlasLong, BlasLong, f64, f64, [*]f64, [*]f64, [*]f64, BlasLong) callconv(.c) i32 = null,
+ztrmm_gemm_kernel_l: ?*const fn (BlasLong, BlasLong, BlasLong, f64, f64, [*]f64, [*]f64, [*]f64, BlasLong) callconv(.c) i32 = null,
+ztrmm_gemm_kernel_r: ?*const fn (BlasLong, BlasLong, BlasLong, f64, f64, [*]f64, [*]f64, [*]f64, BlasLong) callconv(.c) i32 = null,
+ztrmm_gemm_kernel_b: ?*const fn (BlasLong, BlasLong, BlasLong, f64, f64, [*]f64, [*]f64, [*]f64, BlasLong) callconv(.c) i32 = null,
+
 zgemm_incopy: ?*const fn (BlasLong, BlasLong, [*]f64, BlasLong, [*]f64) callconv(.c) i32 = null,
 zgemm_itcopy: ?*const fn (BlasLong, BlasLong, [*]f64, BlasLong, [*]f64) callconv(.c) i32 = null,
 zgemm_oncopy: ?*const fn (BlasLong, BlasLong, [*]f64, BlasLong, [*]f64) callconv(.c) i32 = null,
@@ -938,6 +973,10 @@ ztrmm_ilnucopy: ?*const fn (BlasLong, BlasLong, [*]f64, BlasLong, BlasLong, Blas
 ztrmm_ilnncopy: ?*const fn (BlasLong, BlasLong, [*]f64, BlasLong, BlasLong, BlasLong, [*]f64) callconv(.c) i32 = null,
 ztrmm_iltucopy: ?*const fn (BlasLong, BlasLong, [*]f64, BlasLong, BlasLong, BlasLong, [*]f64) callconv(.c) i32 = null,
 ztrmm_iltncopy: ?*const fn (BlasLong, BlasLong, [*]f64, BlasLong, BlasLong, BlasLong, [*]f64) callconv(.c) i32 = null,
+zsymm_incopy: ?*const fn (BlasLong, BlasLong, [*]f64, BlasLong, [*]f64) callconv(.c) i32 = null,
+zsymm_itcopy: ?*const fn (BlasLong, BlasLong, [*]f64, BlasLong, [*]f64) callconv(.c) i32 = null,
+ztrmm_incopy: ?*const fn (BlasLong, BlasLong, [*]f64, BlasLong, [*]f64) callconv(.c) i32 = null,
+ztrmm_itcopy: ?*const fn (BlasLong, BlasLong, [*]f64, BlasLong, [*]f64) callconv(.c) i32 = null,
 ztrmm_ounucopy: ?*const fn (BlasLong, BlasLong, [*]f64, BlasLong, BlasLong, BlasLong, [*]f64) callconv(.c) i32 = null,
 ztrmm_ounncopy: ?*const fn (BlasLong, BlasLong, [*]f64, BlasLong, BlasLong, BlasLong, [*]f64) callconv(.c) i32 = null,
 ztrmm_outucopy: ?*const fn (BlasLong, BlasLong, [*]f64, BlasLong, BlasLong, BlasLong, [*]f64) callconv(.c) i32 = null,
