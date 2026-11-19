@@ -263,6 +263,19 @@ test {
     _ = sytrf_factor;
     _ = relapack_tests;
     _ = evd_tests;
+    _ = norm_tests;
+    _ = trexc_tests;
+    _ = bidiag_svd_tests;
+    _ = lu_tests;
+    _ = lu_solve_tests;
+    _ = svd_tests;
+    _ = balance_tests;
+    _ = cholesky_tests;
+    _ = trevc_tests;
+    _ = triangular_tests;
+    _ = tgsyl_tests;
+    _ = geev_tests;
+    _ = hseqr_tests;
 }
 
 const std = @import("std");
@@ -270,6 +283,19 @@ const testing = std.testing;
 const check = @import("../blas/_test/check.zig");
 const relapack_tests = @import("_test/relapack.zig");
 const evd_tests = @import("_test/evd.zig");
+const norm_tests = @import("_test/norm.zig");
+const trexc_tests = @import("_test/trexc.zig");
+const bidiag_svd_tests = @import("_test/bidiag_svd.zig");
+const lu_tests = @import("_test/lu.zig");
+const lu_solve_tests = @import("_test/lu_solve.zig");
+const svd_tests = @import("_test/svd.zig");
+const balance_tests = @import("_test/balance.zig");
+const cholesky_tests = @import("_test/cholesky.zig");
+const trevc_tests = @import("_test/trevc.zig");
+const triangular_tests = @import("_test/triangular.zig");
+const tgsyl_tests = @import("_test/tgsyl.zig");
+const geev_tests = @import("_test/geev.zig");
+const hseqr_tests = @import("_test/hseqr.zig");
 
 test "lapack: ReLAPACK's routines through their public names, 2 x 2 smoke tests" {
     const al = testing.allocator;

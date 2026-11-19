@@ -1,14 +1,16 @@
 //! The kernels of `sytrf`, `hetrf` and their `_rook` forms (`sytrf.zig`):
 //! Reference-LAPACK's `xSYTF2`, `xHETF2` and `_ROOK` forms (`tf2`;
 //! `lapack-netlib/SRC/dsytf2.f` and the rest, OpenBLAS v0.3.34-317) and
-//! ReLAPACK's `rec2` panels (`panel`; `relapack/src/dsytrf_rec2.c` and the
-//! rest, MIT). One body serves every form; the upper triangle runs the
-//! lower algorithm on the matrix read backwards (design.md's LAPACK section).
+//! ReLAPACK's `rec2` panels (`panel`, in `indefinite_panel.zig`;
+//! `relapack/src/dsytrf_rec2.c` and the rest, MIT). One body serves every
+//! form; the upper triangle runs the lower algorithm on the matrix read
+//! backwards (design.md's LAPACK section).
 
 const std = @import("std");
 const mem = @import("../../mem.zig");
 const types = @import("../blas/types.zig");
 const ops = @import("ops.zig");
+const indefinite_panel = @import("indefinite_panel.zig");
 
 const Float = types.Float;
 const isComplex = types.isComplex;
@@ -16,6 +18,10 @@ const scalar = ops.scalar;
 const add = ops.add;
 const sub = ops.sub;
 const mul = ops.mul;
+
+pub const Panel = indefinite_panel.Panel;
+pub const panel = indefinite_panel.panel;
+pub const undoPanel = indefinite_panel.undoPanel;
 
 /// `n x m` of a column-major matrix, read backwards (`flip`): `(i, j)` is
 /// `(rows - 1 - i, cols - 1 - j)` of the matrix at `p`.
@@ -44,7 +50,7 @@ pub fn View(comptime T: type) type {
         }
 
         /// Rows `r` and `s` over columns `[0, cols)`.
-        fn swapRows(v: Self, r: usize, s: usize, cols: usize) void {
+        pub fn swapRows(v: Self, r: usize, s: usize, cols: usize) void {
             for (0..cols) |c| mem.swap(T, v.at(r, c), v.at(s, c));
         }
     };
@@ -98,28 +104,28 @@ pub const Piv = struct {
 };
 
 /// The element arithmetic of the `herm` or symmetric forms.
-fn El(comptime T: type, comptime herm_: bool) type {
+pub fn El(comptime T: type, comptime herm_: bool) type {
     return struct {
-        const herm = herm_ and isComplex(T);
-        const F = Float(T);
+        pub const herm = herm_ and isComplex(T);
+        pub const F = Float(T);
 
         /// A diagonal element's size: `|re|` where it is real (`herm`).
-        fn absd(v: T) F {
+        pub fn absd(v: T) F {
             return if (comptime herm) @abs(v.re) else ops.abs1(T, v);
         }
 
-        fn cj(v: T) T {
+        pub fn cj(v: T) T {
             return if (comptime herm) v.conjugate() else v;
         }
 
         /// `DBLE` where the diagonal is real.
-        fn real(v: T) T {
+        pub fn real(v: T) T {
             return if (comptime herm) .init(v.re, 0) else v;
         }
 
         /// The first NaN, else the first largest `abs1` of column `j`'s rows
         /// `[lo, hi)`, `hi > lo`.
-        fn iamaxCol(a: View(T), j: usize, lo: usize, hi: usize) usize {
+        pub fn iamaxCol(a: View(T), j: usize, lo: usize, hi: usize) usize {
             var best = lo;
             var m: F = -1;
             for (lo..hi) |i| {
@@ -134,7 +140,7 @@ fn El(comptime T: type, comptime herm_: bool) type {
         }
 
         /// `iamaxCol` along row `i`'s columns `[lo, hi)`.
-        fn iamaxRow(a: View(T), i: usize, lo: usize, hi: usize) usize {
+        pub fn iamaxRow(a: View(T), i: usize, lo: usize, hi: usize) usize {
             var best = lo;
             var m: F = -1;
             for (lo..hi) |j| {
@@ -150,7 +156,7 @@ fn El(comptime T: type, comptime herm_: bool) type {
 
         /// `xSYR` or `xHER` (`herm`) on the lower triangle of `a`'s trailing
         /// `[k, n)`: `A += alpha x xᵀ` (`x xᴴ`), `x` column `c`'s rows `[k, n)`.
-        fn rank1(a: View(T), c: usize, k: usize, alpha: T) void {
+        pub fn rank1(a: View(T), c: usize, k: usize, alpha: T) void {
             const n = a.rows;
             for (k..n) |j| {
                 const xj = a.get(j, c);
@@ -169,7 +175,7 @@ fn El(comptime T: type, comptime herm_: bool) type {
 
         /// Rows and columns `kk < kp` of the lower triangle from `kk` on
         /// interchanged (`xSYTF2`'s or `xHETF2`'s swaps).
-        fn swapSym(a: View(T), kk: usize, kp: usize) void {
+        pub fn swapSym(a: View(T), kk: usize, kp: usize) void {
             const n = a.rows;
             for (kp + 1..n) |i| mem.swap(T, a.at(i, kk), a.at(i, kp));
             for (kk + 1..kp) |j| {
@@ -188,7 +194,7 @@ fn El(comptime T: type, comptime herm_: bool) type {
 }
 
 /// `alpha` of the pivot rule, `(1 + sqrt 17) / 8`.
-fn alphaOf(comptime F: type) F {
+pub fn alphaOf(comptime F: type) F {
     return (1 + @sqrt(@as(F, 17))) / 8;
 }
 
@@ -351,216 +357,5 @@ fn twoByTwo(comptime T: type, comptime herm: bool, a: View(T), k: usize) void {
         }
         a.set(j, k, wk);
         a.set(j, k + 1, wkp1);
-    }
-}
-
-// ---- panel ------------------------------------------------------------------------
-
-/// What `panel` returns: the columns it factored and the reference's `INFO`.
-pub const Panel = struct { kb: usize, info: ?usize };
-
-/// `RELAPACK_?sytrf_rec2` and the rest on `upper`'s side of the `n x n` `a`:
-/// up to `nb` columns (lower: the first; upper: the last), one fewer where a
-/// 2 x 2 pivot would cross the edge, unless `nb >= n`. `w` (`n x nb`, `ldw`)
-/// takes `W = L D` (Hermitian: its conjugate) for the caller's update of the
-/// rest, `A -= L Wᵀ`; the factored columns hold every interchange of the
-/// panel until the caller's `undo`, which follows that update. A column the
-/// update made zero is copied back from `W`, as `xLASYF` and `xLAHEF` do
-/// (`lapack-netlib/SRC/dlasyf.f`, `zlahef.f`; OpenBLAS `ce4ece13e`), where
-/// `rec2` outside `rook` leaves the stale one.
-pub fn panel(comptime T: type, comptime herm: bool, comptime rook: bool, upper: bool, n: usize, nb: usize, a_: [*]T, lda: usize, ipiv: [*]Pivot, w_: [*]T, ldw: usize) Panel {
-    const E = El(T, herm);
-    const F = Float(T);
-    const a: View(T) = .{ .p = a_, .ld = lda, .rows = n, .cols = n, .flip = upper };
-    const w: View(T) = .{ .p = w_, .ld = ldw, .rows = n, .cols = nb, .flip = upper };
-    const pv: Piv = .{ .p = ipiv, .n = n, .flip = upper };
-    const alpha = alphaOf(F);
-    const sfmin = std.math.floatMin(F);
-    var info: ?usize = null;
-    var k: usize = 0;
-    while (!((k + 1 >= nb and nb < n) or k >= n)) {
-        var kstep: usize = 1;
-        var p = k;
-        var kp = k;
-        // W(k:, k) = A(k:, k) - A(k:, :k) W(k, :k)ᵀ
-        for (k..n) |i| w.set(i, k, a.get(i, k));
-        if (comptime E.herm) w.set(k, k, E.real(w.get(k, k)));
-        update(T, a, w, k, k, k);
-        if (comptime E.herm) w.set(k, k, E.real(w.get(k, k)));
-        const absakk = E.absd(w.get(k, k));
-        var imax = k;
-        var colmax: F = 0;
-        if (k + 1 < n) {
-            imax = E.iamaxCol(w, k, k + 1, n);
-            colmax = ops.abs1(T, w.get(imax, k));
-        }
-        if (@max(absakk, colmax) == 0) {
-            if (info == null) info = pv.index(k);
-            a.set(k, k, E.real(w.get(k, k)));
-            for (k + 1..n) |i| a.set(i, k, w.get(i, k));
-        } else {
-            if (if (rook) absakk < alpha * colmax else !(absakk >= alpha * colmax)) while (true) {
-                // W(k:, k+1) = row and column `imax` of A, updated
-                for (k..imax) |j| w.set(j, k + 1, E.cj(a.get(imax, j)));
-                w.set(imax, k + 1, E.real(a.get(imax, imax)));
-                for (imax + 1..n) |i| w.set(i, k + 1, a.get(i, imax));
-                update(T, a, w, k, k + 1, imax);
-                if (comptime E.herm) w.set(imax, k + 1, E.real(w.get(imax, k + 1)));
-                var jmax = k;
-                var rowmax: F = 0;
-                if (imax != k) {
-                    jmax = E.iamaxCol(w, k + 1, k, imax);
-                    rowmax = ops.abs1(T, w.get(jmax, k + 1));
-                }
-                if (imax + 1 < n) {
-                    const itemp = E.iamaxCol(w, k + 1, imax + 1, n);
-                    const dtemp = ops.abs1(T, w.get(itemp, k + 1));
-                    if (!rook) {
-                        rowmax = @max(rowmax, dtemp);
-                    } else if (dtemp > rowmax) {
-                        rowmax = dtemp;
-                        jmax = itemp;
-                    }
-                }
-                if (!rook) {
-                    if (absakk >= alpha * colmax * (colmax / rowmax)) {
-                        kp = k;
-                    } else if (E.absd(w.get(imax, k + 1)) >= alpha * rowmax) {
-                        kp = imax;
-                        for (k..n) |i| w.set(i, k, w.get(i, k + 1));
-                    } else {
-                        kp = imax;
-                        kstep = 2;
-                    }
-                    break;
-                }
-                if (!(E.absd(w.get(imax, k + 1)) < alpha * rowmax)) {
-                    kp = imax;
-                    for (k..n) |i| w.set(i, k, w.get(i, k + 1));
-                    break;
-                } else if (p == jmax or rowmax <= colmax) {
-                    kp = imax;
-                    kstep = 2;
-                    break;
-                } else {
-                    p = imax;
-                    colmax = rowmax;
-                    imax = jmax;
-                    for (k..n) |i| w.set(i, k, w.get(i, k + 1));
-                }
-            };
-            const kk = k + kstep - 1;
-            if (rook and kstep == 2 and p != k) interchange(T, herm, a, w, k, p, k, kk);
-            if (kp != kk) interchange(T, herm, a, w, kk, kp, k, kk);
-            if (kstep == 1) {
-                for (k..n) |i| a.set(i, k, w.get(i, k));
-                if (k + 1 < n) {
-                    const akk = a.get(k, k);
-                    if (rook and !(E.absd(akk) >= sfmin)) {
-                        // `dsytrf_rook_rec2.c` divides only by a nonzero pivot;
-                        // `zhetrf_rook_rec2.c`'s real one is never zero here
-                        if (comptime E.herm) {
-                            for (k + 1..n) |i| a.set(i, k, ops.divReal(T, a.get(i, k), akk.re));
-                        } else if (!ops.isZero(T, akk)) {
-                            for (k + 1..n) |i| a.set(i, k, ops.div(T, a.get(i, k), akk));
-                        }
-                    } else {
-                        const r = ops.div(T, scalar(T, 1), E.real(akk));
-                        for (k + 1..n) |i| a.set(i, k, if (comptime E.herm) ops.mulReal(T, a.get(i, k), r.re) else mul(T, r, a.get(i, k)));
-                    }
-                    if (comptime E.herm) for (k + 1..n) |i| w.set(i, k, ops.conj(T, w.get(i, k)));
-                }
-            } else {
-                if (k + 2 < n) panel2(T, herm, a, w, k);
-                a.set(k, k, w.get(k, k));
-                a.set(k + 1, k, w.get(k + 1, k));
-                a.set(k + 1, k + 1, w.get(k + 1, k + 1));
-                if (comptime E.herm) {
-                    for (k + 1..n) |i| w.set(i, k, ops.conj(T, w.get(i, k)));
-                    for (k + 2..n) |i| w.set(i, k + 1, ops.conj(T, w.get(i, k + 1)));
-                }
-            }
-        }
-        if (kstep == 1) {
-            pv.set(k, .of(kp, .one));
-        } else {
-            pv.set(k, .of(if (rook) p else kp, .two));
-            pv.set(k + 1, .of(kp, .two));
-        }
-        k += kstep;
-    }
-    return .{ .kb = k, .info = info };
-}
-
-/// The close of `xLASYF` and `rec2`: each step's interchanges undone in the
-/// columns left of it (upper: right), last step first, the panel's `kb`
-/// columns of the `n x n` `a` having been factored, so each column of `L`
-/// holds only its own and earlier interchanges (LAPACK's form).
-pub fn undoPanel(comptime T: type, comptime rook: bool, upper: bool, n: usize, a: [*]T, lda: usize, ipiv: [*]Pivot, kb: usize) void {
-    const v: View(T) = .{ .p = a, .ld = lda, .rows = n, .cols = n, .flip = upper };
-    undo(T, rook, v, .{ .p = ipiv, .n = n, .flip = upper }, kb);
-}
-
-/// `W(k:, c) -= A(k:, :k) W(r, :k)ᵀ`, `xGEMV`'s columns in order.
-fn update(comptime T: type, a: View(T), w: View(T), k: usize, c: usize, r: usize) void {
-    for (0..k) |j| {
-        const t = w.get(r, j);
-        for (k..a.rows) |i| w.set(i, c, sub(T, w.get(i, c), mul(T, a.get(i, j), t)));
-    }
-}
-
-/// `panel`'s interchange of rows and columns `kk < kp` of `A` from `kk`
-/// on (the step at `k` not yet written, so its column is left), of rows
-/// `kk` and `kp` left of `k`, and of `W`'s rows up to column `top`.
-fn interchange(comptime T: type, comptime herm: bool, a: View(T), w: View(T), kk: usize, kp: usize, k: usize, top: usize) void {
-    const E = El(T, herm);
-    const n = a.rows;
-    a.set(kp, kp, E.real(a.get(kk, kk)));
-    for (kk + 1..kp) |j| a.set(kp, j, E.cj(a.get(j, kk)));
-    for (kp + 1..n) |i| a.set(i, kp, a.get(i, kk));
-    a.swapRows(kk, kp, k);
-    w.swapRows(kk, kp, top + 1);
-}
-
-/// `panel`'s 2 x 2 step: `L(k+2:, k:k+1)` from `W`, each entry divided by
-/// `d21`, then scaled by `t`, as `xLASYF`, `xLAHEF` (OpenBLAS `ce4ece13e`)
-/// and the `_rook` forms; `rec2` outside `rook` folds `t / d21`, which
-/// overflows for a tiny `d21`.
-fn panel2(comptime T: type, comptime herm: bool, a: View(T), w: View(T), k: usize) void {
-    const E = El(T, herm);
-    const n = a.rows;
-    const one = scalar(T, 1);
-    const d21 = w.get(k + 1, k);
-    const d11 = ops.div(T, w.get(k + 1, k + 1), d21);
-    const d22 = ops.div(T, w.get(k, k), E.cj(d21));
-    // real for the Hermitian forms (`1 / (re(d11 d22) - 1)`)
-    const t: T = if (comptime E.herm) scalar(T, 1 / (mul(T, d11, d22).re - 1)) else ops.div(T, one, sub(T, mul(T, d11, d22), one));
-    for (k + 2..n) |j| {
-        const u = ops.div(T, sub(T, mul(T, d11, w.get(j, k)), w.get(j, k + 1)), E.cj(d21));
-        const v = ops.div(T, sub(T, mul(T, d22, w.get(j, k + 1)), w.get(j, k)), d21);
-        a.set(j, k, if (comptime E.herm) ops.mulReal(T, u, t.re) else mul(T, t, u));
-        a.set(j, k + 1, if (comptime E.herm) ops.mulReal(T, v, t.re) else mul(T, t, v));
-    }
-}
-
-/// `undoPanel` on a view.
-fn undo(comptime T: type, comptime rook: bool, a: View(T), pv: Piv, k: usize) void {
-    if (k == 0) return;
-    // `j` 1-based, as the reference's loop
-    var j = k;
-    while (true) {
-        var jj = j;
-        const p2 = pv.get(j - 1);
-        const two = p2.block == .two;
-        var r1: usize = 0;
-        if (two) {
-            j -= 1;
-            r1 = pv.get(j - 1).row;
-        }
-        j -= 1;
-        if (p2.row != jj - 1 and j >= 1) a.swapRows(p2.row, jj - 1, j);
-        jj -= 1;
-        if (rook and two and r1 != jj - 1 and j >= 1) a.swapRows(r1, jj - 1, j);
-        if (j <= 1) return;
     }
 }

@@ -1,5 +1,6 @@
 //! ReLAPACK's recursive algorithms (Elmar Peise, MIT), from OpenBLAS
-//! v0.3.34-317's `relapack/src/`: `sygst`, `hegst` and `pbtrf`, and under
+//! v0.3.34-317's `relapack/src/`: `sygst`, `hegst` (`relapack_sygst.zig`)
+//! and `pbtrf` (`relapack_pbtrf.zig`), and under
 //! `-Drelapack` `potrf`, `getrf`, `trtri` and `lauum`, each split by `split`
 //! (`?REC_SPLIT`) down to `crossover`, where the unblocked kernel runs.
 
@@ -15,6 +16,8 @@ const interface = @import("interface.zig");
 const chol = @import("cholesky.zig");
 const lu = @import("lu.zig");
 const tri = @import("triangular.zig");
+const relapack_sygst = @import("relapack_sygst.zig");
+const relapack_pbtrf = @import("relapack_pbtrf.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -26,6 +29,13 @@ const isComplex = types.isComplex;
 const scalar = ops.scalar;
 
 const Error = driver.Error;
+
+pub const Problem = relapack_sygst.Problem;
+pub const SygstError = relapack_sygst.SygstError;
+pub const sygst = relapack_sygst.sygst;
+pub const hegst = relapack_sygst.hegst;
+pub const PbtrfError = relapack_pbtrf.PbtrfError;
+pub const pbtrf = relapack_pbtrf.pbtrf;
 
 /// `CROSSOVER` (`relapack_config.h`): every routine's unblocked size.
 pub const crossover = 24;
@@ -226,398 +236,15 @@ fn lauumRec(al: Allocator, io: Io, comptime T: type, uplo: Uplo, n: usize, a: [*
     try lauumRec(al, io, T, uplo, n2, br, lda);
 }
 
-// ---- sygst, hegst ---------------------------------------------------------------------
-
-/// What `sygst` and `hegst` return: bad arguments in the reference's order,
-/// `error.OutOfMemory` or `error.Canceled`.
-/// The generalized eigenproblem `sygst` and `hegst` bring to standard form:
-/// LAPACK's `itype` 1, 2 and 3.
-pub const Problem = enum {
-    /// `A x = λ B x`
-    ax_lbx,
-    /// `A B x = λ x`
-    abx_lx,
-    /// `B A x = λ x`
-    bax_lx,
-};
-
-/// What `sygst` and `hegst` return: a reversed `uplo`, a slice too short or
-/// a leading dimension too small, and the allocator's and cancellation.
-pub const SygstError = interface.TriangleError || Allocator.Error || Io.Cancelable;
-
-/// `?SYGST` by ReLAPACK's recursion (`relapack/src/dsygst.c`, `ssygst.c`;
-/// OpenBLAS v0.3.34-317): the symmetric-definite `problem` to standard form,
-/// `B` holding `potrf`'s factor in the same `uplo` triangle:
-/// `A := inv(Uᵀ) A inv(U)` or `inv(L) A inv(Lᵀ)` for `ax_lbx`, `U A Uᵀ` or
-/// `Lᵀ A L` for the other two, into `A`'s
-/// `uplo` triangle. Real `T`; the other triangles are never read.
-///
-/// The base case is Reference-LAPACK's `xSYGS2` (`gs2`). The workspace
-/// ReLAPACK takes from `malloc` (`n1 (n - n1)`, `XSYGST_ALLOW_MALLOC`) comes
-/// from `allocator`; it holds `-1/2 B21 A11` (or its like) once, where
-/// otherwise `symm` runs twice. Every level uses it, as `zhegst.c`'s `>=`
-/// has it; `dsygst.c`, `ssygst.c` and `chegst.c` test `>`, which leaves the
-/// top level's exactly sized buffer unused.
-pub fn sygst(allocator: Allocator, io: Io, comptime T: type, problem: Problem, uplo: Uplo, n: usize, a: []T, lda: usize, b: []const T, ldb: usize) SygstError!void {
-    comptime ops.requireFloat(T, "sygst");
-    if (comptime isComplex(T)) @compileError("sygst: " ++ @typeName(T) ++ " is complex; hegst takes it");
-    return gstImpl(allocator, io, T, problem, uplo, n, a, lda, b, ldb);
-}
-
-/// `?HEGST` (`relapack/src/zhegst.c`, `chegst.c`): `sygst` for the
-/// Hermitian-definite problem, `ᴴ` for `ᵀ`; `A`'s diagonal comes out real.
-/// Complex only.
-pub fn hegst(allocator: Allocator, io: Io, comptime T: type, problem: Problem, uplo: Uplo, n: usize, a: []T, lda: usize, b: []const T, ldb: usize) SygstError!void {
-    comptime ops.requireComplex(T, "hegst");
-    return gstImpl(allocator, io, T, problem, uplo, n, a, lda, b, ldb);
-}
-
-fn gstImpl(al: Allocator, io: Io, comptime T: type, problem: Problem, uplo: Uplo, n: usize, a: []T, lda: usize, b: []const T, ldb: usize) SygstError!void {
-    try interface.holdsTriangle(uplo, n, a.len, lda);
-    try util.holds(b.len, n, n, ldb);
-    if (n == 0) return;
-    const n1 = split(T, n);
-    const work = try al.alloc(T, n1 * (n - n1));
-    defer al.free(work);
-    try gstRec(al, io, T, problem == .ax_lbx, uplo, n, a.ptr, lda, b.ptr, ldb, work);
-}
-
-/// `RELAPACK_?sygst_rec`; `inv` for `ax_lbx`.
-fn gstRec(al: Allocator, io: Io, comptime T: type, inv: bool, uplo: Uplo, n: usize, a: [*]T, lda: usize, b: [*]const T, ldb: usize, work: []T) Error!void {
-    if (n <= crossover) return gs2(T, inv, uplo == .u, n, a, lda, b, ldb);
-    const zero = scalar(T, 0);
-    const one = scalar(T, 1);
-    const minus = scalar(T, -1);
-    const half = scalar(T, 0.5);
-    const mhalf = scalar(T, -0.5);
-    const ct = ctrans(T);
-    const n1 = split(T, n);
-    const n2 = n - n1;
-    const a_tr = a + lda * n1;
-    const a_bl = a + n1;
-    const a_br = a + lda * n1 + n1;
-    const b_tr = b + ldb * n1;
-    const b_bl = b + n1;
-    const b_br = b + ldb * n1 + n1;
-    try gstRec(al, io, T, inv, uplo, n1, a, lda, b, ldb, work);
-    // `T`, computed once into the workspace, or `symm` twice
-    const use = work.len >= n2 * n1;
-    const lower = uplo == .l;
-    // the off-diagonal block, its rows and columns
-    const x = if (lower) a_bl else a_tr;
-    const xm = if (lower) n2 else n1;
-    const xn = if (lower) n1 else n2;
-    if (inv) {
-        if (lower) {
-            // A_BL = A_BL / B_TL'
-            try trsm(al, io, T, true, .r, .l, ct, .n, n2, n1, one, b, ldb, a_bl, lda);
-        } else {
-            // A_TR = B_TL' \ A_TR
-            try trsm(al, io, T, true, .l, .u, ct, .n, n1, n2, one, b, ldb, a_tr, lda);
-        }
-        // X -= 1/2 B_BL A_TL (`u`: A_TL B_TR), twice around the rank-2 update
-        const side: Side = if (lower) .r else .l;
-        const s = if (lower) b_bl else b_tr;
-        if (use) {
-            try symm(al, io, T, true, side, uplo, xm, xn, mhalf, a, lda, s, ldb, zero, work.ptr, xm);
-            addBlock(T, xm, xn, work.ptr, xm, x, lda);
-        } else try symm(al, io, T, true, side, uplo, xm, xn, mhalf, a, lda, s, ldb, one, x, lda);
-        // A_BR -= A_BL B_BL' + B_BL A_BL' (`u`: A_TR' B_TR + B_TR' A_TR)
-        try syrk(al, io, T, true, uplo, if (lower) .n else ct, n2, n1, minus, x, lda, s, ldb, one, a_br, lda);
-        if (use) {
-            addBlock(T, xm, xn, work.ptr, xm, x, lda);
-        } else try symm(al, io, T, true, side, uplo, xm, xn, mhalf, a, lda, s, ldb, one, x, lda);
-        if (lower) {
-            // A_BL = B_BR \ A_BL
-            try trsm(al, io, T, true, .l, .l, .n, .n, n2, n1, one, b_br, ldb, a_bl, lda);
-        } else {
-            // A_TR = A_TR / B_BR
-            try trsm(al, io, T, true, .r, .u, .n, .n, n1, n2, one, b_br, ldb, a_tr, lda);
-        }
-    } else {
-        if (lower) {
-            // A_BL = A_BL B_TL
-            try trsm(al, io, T, false, .r, .l, .n, .n, n2, n1, one, b, ldb, a_bl, lda);
-        } else {
-            // A_TR = B_TL A_TR
-            try trsm(al, io, T, false, .l, .u, .n, .n, n1, n2, one, b, ldb, a_tr, lda);
-        }
-        // X += 1/2 A_BR B_BL (`u`: B_TR A_BR), twice around the rank-2 update
-        const side: Side = if (lower) .l else .r;
-        const s = if (lower) b_bl else b_tr;
-        if (use) {
-            try symm(al, io, T, true, side, uplo, xm, xn, half, a_br, lda, s, ldb, zero, work.ptr, xm);
-            addBlock(T, xm, xn, work.ptr, xm, x, lda);
-        } else try symm(al, io, T, true, side, uplo, xm, xn, half, a_br, lda, s, ldb, one, x, lda);
-        // A_TL += A_BL' B_BL + B_BL' A_BL (`u`: A_TR B_TR' + B_TR A_TR')
-        try syrk(al, io, T, true, uplo, if (lower) ct else .n, n1, n2, one, x, lda, s, ldb, one, a, lda);
-        if (use) {
-            addBlock(T, xm, xn, work.ptr, xm, x, lda);
-        } else try symm(al, io, T, true, side, uplo, xm, xn, half, a_br, lda, s, ldb, one, x, lda);
-        if (lower) {
-            // A_BL = B_BR' A_BL
-            try trsm(al, io, T, false, .l, .l, ct, .n, n2, n1, one, b_br, ldb, a_bl, lda);
-        } else {
-            // A_TR = A_TR B_BR'
-            try trsm(al, io, T, false, .r, .u, ct, .n, n1, n2, one, b_br, ldb, a_tr, lda);
-        }
-    }
-    try gstRec(al, io, T, inv, uplo, n2, a_br, lda, b_br, ldb, work);
-}
-
-/// `Y += X` on `m x n` (`?AXPY` with 1, a column at a time).
-fn addBlock(comptime T: type, m: usize, n: usize, x: [*]const T, ldx: usize, y: [*]T, ldy: usize) void {
-    for (0..n) |j| for (0..m) |i| {
-        y[i + j * ldy] = ops.add(T, y[i + j * ldy], x[i + j * ldx]);
-    };
-}
-
 /// A column-major matrix read as it is or transposed.
-fn Tview(comptime T: type) type {
+pub fn Tview(comptime T: type) type {
     return struct {
         p: [*]T,
         ld: usize,
         t: bool,
 
-        inline fn at(v: @This(), i: usize, j: usize) *T {
+        pub inline fn at(v: @This(), i: usize, j: usize) *T {
             return &v.p[if (v.t) j + i * v.ld else i + j * v.ld];
         }
     };
-}
-
-/// Reference-LAPACK's `xSYGS2` and `xHEGS2` (`lapack-netlib/SRC/dsygs2.f`,
-/// `zhegs2.f`; OpenBLAS v0.3.34-317), the unblocked `sygst`, with its
-/// `syr2`/`her2`, `trsv`, `trmv`, `axpy` and `scal` as loops in the
-/// reference BLAS's order. `upper` runs the lower algorithm on the
-/// transposes, the conjugates of the reference's upper vectors (it conjugates
-/// a row to get a column), so the same arithmetic up to their loop orders.
-fn gs2(comptime T: type, inv: bool, upper: bool, n: usize, a_: [*]T, lda: usize, b_: [*]const T, ldb: usize) void {
-    const herm = comptime isComplex(T);
-    const a: Tview(T) = .{ .p = a_, .ld = lda, .t = upper };
-    const b: Tview(T) = .{ .p = @constCast(b_), .ld = ldb, .t = upper };
-    const cj = struct {
-        fn f(v: T) T {
-            return if (comptime herm) v.conjugate() else v;
-        }
-    }.f;
-    const mul = ops.mul;
-    const add = ops.add;
-    for (0..n) |k| {
-        const akk0 = ops.re(T, a.at(k, k).*);
-        const bkk = ops.re(T, b.at(k, k).*);
-        if (inv) {
-            // inv(L) A inv(Lᴴ): the column below `k`, then the rest
-            const akk = akk0 / (bkk * bkk);
-            a.at(k, k).* = scalar(T, akk);
-            if (k + 1 == n) continue;
-            const r = 1 / bkk;
-            for (k + 1..n) |i| a.at(i, k).* = ops.mulReal(T, a.at(i, k).*, r);
-            const c = -0.5 * akk;
-            for (k + 1..n) |i| a.at(i, k).* = add(T, a.at(i, k).*, ops.mulReal(T, b.at(i, k).*, c));
-            rank2(T, a, k + 1, n, k, b, k, scalar(T, -1));
-            for (k + 1..n) |i| a.at(i, k).* = add(T, a.at(i, k).*, ops.mulReal(T, b.at(i, k).*, c));
-            // x := inv(B22) x, `xTRSV` `N`
-            for (k + 1..n) |j| {
-                const xj = a.at(j, k);
-                if (ops.isZero(T, xj.*)) continue;
-                xj.* = ops.div(T, xj.*, b.at(j, j).*);
-                const t = xj.*;
-                for (j + 1..n) |i| a.at(i, k).* = ops.sub(T, a.at(i, k).*, mul(T, t, b.at(i, j).*));
-            }
-        } else {
-            // Lᴴ A L: row `k` left of the diagonal, as a conjugated column
-            // x := B11ᴴ x, `xTRMV` `C`
-            for (0..k) |j| {
-                var t = cj(a.at(k, j).*);
-                t = mul(T, t, cj(b.at(j, j).*));
-                for (j + 1..k) |i| t = add(T, t, mul(T, cj(b.at(i, j).*), cj(a.at(k, i).*)));
-                a.at(k, j).* = cj(t);
-            }
-            const c = 0.5 * akk0;
-            for (0..k) |j| a.at(k, j).* = cj(add(T, cj(a.at(k, j).*), ops.mulReal(T, cj(b.at(k, j).*), c)));
-            rank2Row(T, a, k, b, scalar(T, 1));
-            for (0..k) |j| a.at(k, j).* = cj(ops.mulReal(T, add(T, cj(a.at(k, j).*), ops.mulReal(T, cj(b.at(k, j).*), c)), bkk));
-            a.at(k, k).* = scalar(T, akk0 * (bkk * bkk));
-        }
-    }
-}
-
-/// `xSYR2` or `xHER2` (lower) with `alpha` on `A(lo:hi, lo:hi)`, `x` column
-/// `xc` of `A` and `y` column `yc` of `B`, both from row `lo`.
-fn rank2(comptime T: type, a: Tview(T), lo: usize, hi: usize, xc: usize, b: Tview(T), yc: usize, alpha: T) void {
-    const herm = comptime isComplex(T);
-    for (lo..hi) |j| {
-        const xj = a.at(j, xc).*;
-        const yj = b.at(j, yc).*;
-        if (ops.isZero(T, xj) and ops.isZero(T, yj)) {
-            if (comptime herm) a.at(j, j).* = scalar(T, a.at(j, j).re);
-            continue;
-        }
-        const t1 = ops.mul(T, alpha, ops.conj(T, yj));
-        const t2 = ops.conj(T, ops.mul(T, alpha, xj));
-        if (comptime herm) {
-            const d = ops.add(T, ops.mul(T, xj, t1), ops.mul(T, yj, t2));
-            a.at(j, j).* = scalar(T, a.at(j, j).re + d.re);
-        }
-        for (if (herm) j + 1 else j..hi) |i| {
-            a.at(i, j).* = ops.add(T, a.at(i, j).*, ops.add(T, ops.mul(T, a.at(i, xc).*, t1), ops.mul(T, b.at(i, yc).*, t2)));
-        }
-    }
-}
-
-/// `rank2` with `x` and `y` the conjugated rows `k` of `A` and `B` left of
-/// the diagonal, on `A(:k, :k)`.
-fn rank2Row(comptime T: type, a: Tview(T), k: usize, b: Tview(T), alpha: T) void {
-    const herm = comptime isComplex(T);
-    const cj = ops.conj;
-    for (0..k) |j| {
-        const xj = cj(T, a.at(k, j).*);
-        const yj = cj(T, b.at(k, j).*);
-        if (ops.isZero(T, xj) and ops.isZero(T, yj)) {
-            if (comptime herm) a.at(j, j).* = scalar(T, a.at(j, j).re);
-            continue;
-        }
-        const t1 = ops.mul(T, alpha, cj(T, yj));
-        const t2 = cj(T, ops.mul(T, alpha, xj));
-        if (comptime herm) {
-            const d = ops.add(T, ops.mul(T, xj, t1), ops.mul(T, yj, t2));
-            a.at(j, j).* = scalar(T, a.at(j, j).re + d.re);
-        }
-        for (if (herm) j + 1 else j..k) |i| {
-            a.at(i, j).* = ops.add(T, a.at(i, j).*, ops.add(T, ops.mul(T, cj(T, a.at(k, i).*), t1), ops.mul(T, cj(T, b.at(k, i).*), t2)));
-        }
-    }
-}
-
-// ---- pbtrf -----------------------------------------------------------------------------
-
-/// What `pbtrf` returns: bad arguments in the reference's order,
-/// `NotPositiveDefinite` (with the minor, as `potrf`'s), `error.OutOfMemory`
-/// or `error.Canceled`.
-/// What `pbtrf` returns: `NotPositiveDefinite` as `potrf`, a reversed
-/// `uplo`, a slice too short or a leading dimension under `kd + 1`, and the
-/// allocator's and cancellation.
-pub const PbtrfError = interface.TriangleError || Allocator.Error || Io.Cancelable || error{NotPositiveDefinite};
-
-/// `?PBTRF` by ReLAPACK's recursion (`relapack/src/dpbtrf.c`, `zpbtrf.c`
-/// and the rest; OpenBLAS v0.3.34-317): the Cholesky factor of the Hermitian
-/// (real: symmetric) positive-definite band matrix with `kd` off-diagonals
-/// in LAPACK's band storage `ab` (`ldab >= kd + 1`; `u`: `A(i, j)` at row
-/// `kd + i - j` of column `j`, `l`: at row `i - j`), into the same storage.
-/// Blocks of up to `kd` columns are `potrf`'s (this file's), the part below
-/// them a `trsm` and `herk`, the triangle past the band's edge through a
-/// workspace, as ReLAPACK; the base case is Reference-LAPACK's `xPBTF2`
-/// (`pbtf2`). A failure is `potrf`'s: a leading minor that is not positive
-/// definite (NaN included) is `error.NotPositiveDefinite`.
-///
-/// The reference wins where ReLAPACK factors the rest as a dense matrix
-/// whenever `kd` exceeds the block (`if (*kd > n1)`), which reads and
-/// writes outside the band once the rest is wider than `kd + 1`; there it
-/// recurses on the band. The workspace is `n1 x n1` for the top level's
-/// block `n1`, which every level's `n22 x n1` fits (`dpbtrf.c`'s `n22`;
-/// `zpbtrf.c` bounds it by `kd`, past the block).
-pub fn pbtrf(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: usize, kd: usize, ab: []T, ldab: usize) PbtrfError!void {
-    comptime ops.requireFloat(T, "pbtrf");
-    if (uplo.isRev()) return error.UnsupportedUplo;
-    try util.holds(ab.len, kd + 1, n, ldab);
-    if (n == 0) return;
-    const n1 = @min(split(T, n), kd);
-    // zero, as `?laset` leaves the triangle the copies never write
-    const work = try allocator.alloc(T, n1 * n1);
-    defer allocator.free(work);
-    @memset(work, scalar(T, 0));
-    if (try pbtrfRec(allocator, io, T, uplo, n, kd, ab.ptr, ldab, work.ptr, @max(1, n1)) != null) return error.NotPositiveDefinite;
-}
-
-/// `RELAPACK_?pbtrf_rec`: the first pivot that is not positive (0-based),
-/// or null.
-fn pbtrfRec(al: Allocator, io: Io, comptime T: type, uplo: Uplo, n: usize, kd: usize, ab: [*]T, ldab: usize, work: [*]T, ldw: usize) Error!?usize {
-    if (n <= crossover or ldab == 1) return pbtf2(T, uplo == .u, n, kd, ab, ldab);
-    const one = scalar(T, 1);
-    const minus = scalar(T, -1);
-    const ct = ctrans(T);
-    // the band as a dense matrix of leading dimension `ldab - 1`
-    const ld = ldab - 1;
-    const a = ab + (if (uplo == .l) 0 else kd);
-    const n1 = @min(split(T, n), kd);
-    const n2 = n - n1;
-    if (try potrfRec(al, io, T, uplo, n1, a, ld)) |k| return k;
-    const n21 = @min(n2, kd - n1);
-    const n22 = @min(n2 - n21, n1);
-    const a_br = a + ld * n1 + n1;
-    if (uplo == .l) {
-        const blt = a + n1;
-        const blb = blt + n21;
-        // A_BLt = A_BLt / A_TL'; A_BRtl -= A_BLt A_BLt'
-        try trsm(al, io, T, true, .r, .l, ct, .n, n21, n1, one, a, ld, blt, ld);
-        try syrk(al, io, T, true, .l, .n, n21, n1, minus, blt, ld, null, 0, one, a_br, ld);
-        // the triangle of A_BLb in the band, through the workspace
-        copyTri(T, true, n22, n1, blb, ld, work, ldw);
-        try trsm(al, io, T, true, .r, .l, ct, .n, n22, n1, one, a, ld, work, ldw);
-        try gemm(al, io, T, .n, ct, n22, n21, n1, minus, work, ldw, blt, ld, one, a_br + n21, ld);
-        try syrk(al, io, T, true, .l, .n, n22, n1, minus, work, ldw, null, 0, one, a_br + ld * n21 + n21, ld);
-        copyTri(T, true, n22, n1, work, ldw, blb, ld);
-    } else {
-        const trl = a + ld * n1;
-        const trr = trl + ld * n21;
-        // A_TRl = A_TL' \ A_TRl; A_BRtl -= A_TRl' A_TRl
-        try trsm(al, io, T, true, .l, .u, ct, .n, n1, n21, one, a, ld, trl, ld);
-        try syrk(al, io, T, true, .u, ct, n21, n1, minus, trl, ld, null, 0, one, a_br, ld);
-        copyTri(T, false, n1, n22, trr, ld, work, ldw);
-        try trsm(al, io, T, true, .l, .u, ct, .n, n1, n22, one, a, ld, work, ldw);
-        try gemm(al, io, T, ct, .n, n21, n22, n1, minus, trl, ld, work, ldw, one, a_br + ld * n21, ld);
-        try syrk(al, io, T, true, .u, ct, n22, n1, minus, work, ldw, null, 0, one, a_br + ld * n21 + n21, ld);
-        copyTri(T, false, n1, n22, work, ldw, trr, ld);
-    }
-    // the rest, dense where it lies inside the band, else banded
-    const k2 = if (kd > n1 and n2 <= kd + 1)
-        try potrfRec(al, io, T, uplo, n2, a_br, ld)
-    else
-        try pbtrfRec(al, io, T, uplo, n2, kd, ab + ldab * n1, ldab, work, ldw);
-    return if (k2) |k| k + n1 else null;
-}
-
-/// `?LACPY` of the upper (`upper`) or lower triangle of `m x n`.
-fn copyTri(comptime T: type, upper: bool, m: usize, n: usize, src: [*]const T, lds: usize, dst: [*]T, ldd: usize) void {
-    for (0..n) |j| {
-        const lo = if (upper) 0 else @min(j, m);
-        const hi = if (upper) @min(j + 1, m) else m;
-        for (lo..hi) |i| dst[i + j * ldd] = src[i + j * lds];
-    }
-}
-
-/// Reference-LAPACK's `xPBTF2` (`lapack-netlib/SRC/dpbtf2.f`, `zpbtf2.f`;
-/// OpenBLAS v0.3.34-317): column by column, `xSYR` or `xHER` on the
-/// `kd`-wide window below (`u`: right of) the pivot, in the reference
-/// BLAS's order. `upper` runs the lower algorithm on the transpose (the
-/// reference conjugates the row it takes). A pivot that is not positive
-/// fails, NaN too, as `potf2`'s (the reference's `AJJ.LE.ZERO` passes NaN).
-fn pbtf2(comptime T: type, upper: bool, n: usize, kd: usize, ab: [*]T, ldab: usize) ?usize {
-    const herm = comptime isComplex(T);
-    const a: Tview(T) = .{ .p = ab + (if (upper) kd else 0), .ld = ldab - 1, .t = upper };
-    for (0..n) |j| {
-        const ajj0 = ops.re(T, a.at(j, j).*);
-        if (!(ajj0 > 0)) {
-            a.at(j, j).* = scalar(T, ajj0);
-            return j;
-        }
-        const ajj = @sqrt(ajj0);
-        a.at(j, j).* = scalar(T, ajj);
-        const kn = @min(kd, n - j - 1);
-        if (kn == 0) continue;
-        const r = 1 / ajj;
-        for (j + 1..j + 1 + kn) |i| a.at(i, j).* = ops.mulReal(T, a.at(i, j).*, r);
-        // `xSYR`, `xHER` with -1 on the window
-        for (j + 1..j + 1 + kn) |c| {
-            const x = a.at(c, j).*;
-            if (ops.isZero(T, x)) {
-                if (comptime herm) a.at(c, c).* = scalar(T, a.at(c, c).re);
-                continue;
-            }
-            const t = ops.neg(T, ops.conj(T, x));
-            if (comptime herm) a.at(c, c).* = scalar(T, a.at(c, c).re + ops.mul(T, x, t).re);
-            for (if (herm) c + 1 else c..j + 1 + kn) |i| a.at(i, c).* = ops.add(T, a.at(i, c).*, ops.mul(T, a.at(i, j).*, t));
-        }
-    }
-    return null;
 }
