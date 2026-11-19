@@ -403,34 +403,9 @@ pub fn getf2(comptime T: type, vt: *const Vtable, m: usize, n: usize, a: [*]T, l
             continue;
         }
         if (p != j) for (0..j + 1) |k| mem.swap(T, &a[j + k * lda], &a[p + k * lda]);
-        scaleBelow(T, b[j + 1 .. m], piv);
+        ops.scaleBelow(T, b[j + 1 .. m], piv);
     }
     return info;
-}
-
-/// `x /= p`, as `xGETRF2`'s base case: times `1 / p` where `|p|` is at least
-/// the safe minimum, else divided by `p`, whose reciprocal may overflow.
-/// Complex quotients by Smith's algorithm, as `util.cdiv` and upstream.
-fn scaleBelow(comptime T: type, x: []T, p: T) void {
-    const F = Float(T);
-    const sfmin = std.math.floatMin(F);
-    if (comptime isComplex(T)) {
-        if (std.math.hypot(p.re, p.im) >= sfmin) {
-            const r = util.cdiv(F, 1, 0, p.re, p.im);
-            for (x) |*v| {
-                const z = util.cmul(F, r[0], r[1], v.re, v.im);
-                v.* = .init(z[0], z[1]);
-            }
-        } else for (x) |*v| {
-            const z = util.cdiv(F, v.re, v.im, p.re, p.im);
-            v.* = .init(z[0], z[1]);
-        }
-    } else if (@abs(p) >= sfmin) {
-        const r = 1 / p;
-        for (x) |*v| v.* *= r;
-    } else for (x) |*v| {
-        v.* /= p;
-    }
 }
 
 // ---- tests ---------------------------------------------------------------------
