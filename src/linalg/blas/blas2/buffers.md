@@ -21,10 +21,10 @@ What each ported level-2 kernel does with its `buffer` argument, read from its O
 | --- | --- | --- |
 | x86_64 `dgemv_n.S`, `dgemv_n_atom.S`, `dgemv_n_bulldozer.S` | `y` accumulated there when `incy != 1` or `y` is misaligned: `16*SIZE` head, a `SIZE` shift, then `m` | `m + 17` elements; 16-byte aligned (`movapd`) |
 | x86_64 `dgemv_t_atom.S`, `dgemv_t_bulldozer.S` | `x` copied there, `16*SIZE` head | `m + 17` elements; 16-byte aligned |
-| x86_64 `sgemv_n_4.c`, `dgemv_n_4.c` (`gemv/driver.zig`) | `y` summed there, zeroed first, when `incy != 1`: one row block (`NB`, at most `m`) | `m` elements |
-| x86_64 `cgemv_n_4.c`, `zgemv_n_4.c` (`gemv/driver.zig`) | `y` summed there for each row block (`NB`, at most `m`), zeroed first | `2m` floats |
-| x86_64 `cgemv_t_4.c`, `zgemv_t_4.c` (`gemv/driver.zig`) | `x` copied there when `incx != 1` (`NB`) | `2m` floats |
-| x86_64 `sgemv_t_4.c`, `dgemv_t_4.c` (`gemv/driver.zig`) | `x` copied there when `incx != 1` (`NB`), and from `min(m, NBMAX)` on four sums per four columns, up to `NBMAX` of them | `min(m, NBMAX) + min(n, NBMAX)` elements, at most `m + n` |
+| x86_64 `sgemv_n_4.c`, `dgemv_n_4.c` (`gemv/driver_real.zig`) | `y` summed there, zeroed first, when `incy != 1`: one row block (`NB`, at most `m`) | `m` elements |
+| x86_64 `cgemv_n_4.c`, `zgemv_n_4.c` (`gemv/driver_complex.zig`) | `y` summed there for each row block (`NB`, at most `m`), zeroed first | `2m` floats |
+| x86_64 `cgemv_t_4.c`, `zgemv_t_4.c` (`gemv/driver_complex.zig`) | `x` copied there when `incx != 1` (`NB`) | `2m` floats |
+| x86_64 `sgemv_t_4.c`, `dgemv_t_4.c` (`gemv/driver_real.zig`) | `x` copied there when `incx != 1` (`NB`), and from `min(m, NBMAX)` on four sums per four columns, up to `NBMAX` of them | `min(m, NBMAX) + min(n, NBMAX)` elements, at most `m + n` |
 | x86_64 `zgemv_n_atom.S`, `zgemv_n_dup.S`, `zgemv_t_atom.S`, `zgemv_t.S` (bobcat, opteron) | `y` (n) or `x` (t) of `2m`, `16*SIZE` head | `2m + 16` elements; 16-byte aligned; any contents (below) |
 | x86_64 `symv_[LU]_sse.S`, `symv_[LU]_sse2.S`, `zsymv_[LU]_sse2.S` (also `zhemv`) | `x` copied (times `alpha`), the pointer rounded up to the next 512-byte boundary, `y` copied, blocks of 4 read past each | `2*m*es + 1280` bytes (`sseBytes`), any alignment of 16; no NaN in it (they read past the copies; the interface zeroes it) |
 | x86 `gemv_*.S`, `zgemv_*.S` (x87 and SSE) | `x` or `y` copy of `m` | `cs*m` elements |
@@ -34,8 +34,8 @@ What each ported level-2 kernel does with its `buffer` argument, read from its O
 | power `gemv_[nt].S`, `zgemv_t.S`, `*_ppc440.S` | `y` or `x` copy of `m`, addressed as `CO = BUFFER - SIZE` and stored from `1*SIZE(CO)`, the buffer's first element | `cs*m` elements |
 | sparc `gemv_[nt].S`, `zgemv_[nt].S` | `y` or `x` copy of `m` | `cs*m` elements |
 | generic `ger.c`, `zger.c` (every core's `ger`) | `x` copied there when `incx != 1` | `cs*m` elements for a strided `x`, nothing otherwise |
-| x86_64 `sgemv_n_4.c` on Skylake-X, its few-column path (`m <= 16384`, `n <= 48`, `n != 4`; `gemv/driver.zig`) | `x` copied to the start when `incx != 1`, `y` after `n` elements when `incy != 1` | `m + n` elements |
-| x86_64 `sgemv_t_4.c` on Skylake-X, its path for `lda == m <= 8`, `n <= 16384` (`gemv/driver.zig`) | `x` copied to the start when `incx != 1`, `y` after `m` elements when `incy != 1` | `m + n` elements |
+| x86_64 `sgemv_n_4.c` on Skylake-X, its few-column path (`m <= 16384`, `n <= 48`, `n != 4`; `gemv/driver_real.zig`) | `x` copied to the start when `incx != 1`, `y` after `n` elements when `incy != 1` | `m + n` elements |
+| x86_64 `sgemv_t_4.c` on Skylake-X, its path for `lda == m <= 8`, `n <= 16384` (`gemv/driver_real.zig`) | `x` copied to the start when `incx != 1`, `y` after `m` elements when `incy != 1` | `m + n` elements |
 | x86_64 `?symv_[LU].c` (`symv/driver.zig`) | none | nothing |
 | arm64 `symv_[LU]_asimd_4x4.c` (`symv/driver.zig`) | `y` copied there when `incy != 1`, then `x` when `incx != 1` (after `y`'s copy, else at the start) | `2m` elements at most |
 | x86_64 `sger.c`, `dger.c` (Sandy Bridge; `ger/x86_64/kernel.zig`) | `x` copied there when `incx != 1` | `m` elements for a strided `x`, nothing otherwise |

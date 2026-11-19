@@ -592,7 +592,7 @@ but VORTEX and VORTEXM4 always take the large set (`param.h:3625`), as `params_d
 
 **rstd.** The library never changes MXCSR/FPCR; tests require that denormals do not flush
 (`_test/blas1/edge.zig`; `pattern.Pattern.denormal` in level 3). Level-2 `trsv` divides by the diagonal for
-real types and multiplies by a reciprocal for complex (`blas2/triangular.zig:153-163`); level-3
+real types and multiplies by a reciprocal for complex (`blas2/triangular_driver.zig`, `trsv`); level-3
 `trsm` packs the reciprocal of the diagonal (`blas3/trsm/kernel.zig:46-72`, OpenBLAS's
 `compinv` for complex).
 

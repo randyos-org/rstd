@@ -182,9 +182,14 @@ test "corespec.kernelCores lists the cores with kernels" {
 test {
     _ = select;
     _ = @import("osinfo.zig");
+    _ = @import("_test/corespec.zig");
+    _ = @import("_test/select.zig");
     _ = @import("detect/x86.zig");
+    _ = @import("detect/_test/x86.zig");
     _ = @import("detect/arm.zig");
     _ = @import("detect/arm64.zig");
+    _ = @import("detect/_test/arm64.zig");
+    _ = @import("detect/_test/arm64_recorded.zig");
     _ = @import("detect/riscv.zig");
     _ = @import("detect/loongarch.zig");
     _ = @import("detect/power.zig");
