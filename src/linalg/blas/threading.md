@@ -250,7 +250,9 @@ their `jc` groups are balanced by cost (`Shape.rising`, `falling`), as OpenBLAS'
 are added, which rounds differently from the kernel's own update, so a triangle's column cuts
 fall where the serial driver's chunks start, and its rows follow the serial column block
 (`drive`'s `r_lo`, `r_hi`); a full region's columns may split anywhere. `syr2k` runs its
-second pass over the same split. `gemmt` stays serial, as upstream (`interface/gemmt.c`).
+second pass over the same split. `gemmt` stays serial; upstream threads it through
+`syrk_thread` (`interface/gemmt.c`), which is T189
+([#529](https://github.com/randyos-org/rstd/issues/529)).
 
 `trmm` and `trsm` split `B` into independent parts, as OpenBLAS's `gemm_thread_n` (left side,
 column panels) and `gemm_thread_m` (right side, row panels) do, and as BLIS splits only its
