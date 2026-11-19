@@ -4,7 +4,8 @@
 //! of 4x4 blocks transposed in registers; where a leading dimension is a
 //! multiple of the block, the first rows and columns are peeled so the
 //! blocks start on vector boundaries. Each element is one product (a copy
-//! for `alpha` 1), so the bits are the plain loops'. No BLAS-root imports.
+//! for `alpha` 1; a scalar product where vector lanes flush), so the bits
+//! are the plain loops'. No BLAS-root imports.
 
 const util = @import("../util.zig");
 
@@ -24,6 +25,14 @@ inline fn plain(comptime F: type, comptime scaled: bool, alpha: F, a: [*]const F
         const x = a[i * lda + j];
         b[j * ldb + i] = if (scaled) alpha * x else x;
     };
+}
+
+/// `alpha * v` a lane at a time, where `F`'s vector lanes flush denormals
+/// (`util.vectorIeee`; issue #548).
+inline fn lanes(comptime F: type, v: @Vector(side, F), alpha: F) @Vector(side, F) {
+    var o: [side]F = v;
+    inline for (&o) |*e| e.* = util.scalar(F, alpha * e.*);
+    return o;
 }
 
 /// `dtrans`: `m` columns of `a`, `n` long, into the rows of `b`.
@@ -47,7 +56,7 @@ inline fn blocks(comptime F: type, comptime scaled: bool, m: usize, n: usize, al
                     var r: [side]V = undefined;
                     inline for (0..side) |k| {
                         const v = util.load(V, ap + k * lda + j);
-                        r[k] = if (scaled) v * va else v;
+                        r[k] = if (!scaled) v else if (comptime util.vectorIeee(F)) v * va else lanes(F, v, alpha);
                     }
                     // `unpacklo`/`unpackhi` of each pair, then the halves
                     const t0 = @shuffle(F, r[0], r[1], [side]i32{ 0, ~@as(i32, 0), 2, ~@as(i32, 2) });
