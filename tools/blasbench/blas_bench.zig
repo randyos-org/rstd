@@ -16,6 +16,7 @@ const obx86 = @import("obx86.zig");
 const compensated_bench = @import("compensated_bench.zig");
 const sparse_bench = @import("sparse_bench.zig");
 const inline_bench = @import("inline_bench.zig");
+const rot_reals_bench = @import("rot_reals_bench.zig");
 
 const blas = rstd.linalg.blas;
 const Vtable = blas.Vtable;
@@ -186,6 +187,7 @@ pub fn main(init: std.process.Init) !void {
     if (!alone and want(sections.items, "sparse")) try sparse_bench.run(io, gpa);
     if (!alone and want(sections.items, "inline")) try inline_bench.run(io, gpa);
     if (!alone and want(sections.items, "compensated")) try compensated_bench.run(io, gpa);
+    if (!alone and want(sections.items, "rotreals")) try rot_reals_bench.run(io, gpa);
     const lib_sections = want(sections.items, "lib1") or want(sections.items, "lib2") or want(sections.items, "lib3") or want(sections.items, "lapack");
     if (lib_sections or (all and (opts.paths.get(.openblas) != null or alone))) {
         try loadLibs(opts);

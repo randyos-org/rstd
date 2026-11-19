@@ -159,6 +159,7 @@ What threads, as landed:
   multiples of 1024 elements, so every chunk but the last is whole kernel blocks, the last ends
   where the vector does, and each keeps the vector's alignment: an element takes the body or
   tail path one call gives it. A zero stride runs serially, as OpenBLAS's do.
+- **Complex `rot` on x86_64:** from `n = 4096` at unit strides it runs the real kernel on `2n` reals (`blas1/rot_reals.zig`, OpenBLAS's `interface/zrot.c`), whose bits differ from the complex kernel's where one fuses; the kernel is chosen once, on the whole `n`, before the split, so every chunk runs the same one.
 - **Reductions:** the dots (`dsdot` too), `asum` and `sum` at `f32` and `f64`, real and complex.
   Partials of `f32` fold in `f64` and round once; `sdot`'s partials are `dsdot`'s, `sdot`'s own
   kernel's sum unrounded on every core (both routed, `vector.routed`), so it keeps its contract
