@@ -14,6 +14,7 @@ const driver = @import("driver.zig");
 const loops = @import("loops.zig");
 const driver3m = @This();
 const Part = @import("gemm3m/kernel.zig").Part;
+const Copy = @import("gemm3m/kernel.zig").Copy;
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -99,14 +100,14 @@ fn long(v: usize) BlasLong {
     return @intCast(v);
 }
 
-/// The kernel or copy `name` (an `Op`) of `T` on `args`.
-inline fn call(comptime T: type, vt: *const Vtable, comptime name: []const u8, args: anytype) void {
-    _ = @call(.auto, portable.kernel(T, vt, @field(Op, name)), args);
+/// The kernel or copy `op` of `T` on `args`.
+inline fn call(comptime T: type, vt: *const Vtable, comptime op: Op, args: anytype) void {
+    _ = @call(.auto, portable.kernel(T, vt, op), args);
 }
 
-/// A symmetric copy, `pre` naming the routine and side.
-inline fn symCall(comptime T: type, vt: *const Vtable, comptime pre: []const u8, upper: bool, comptime part: []const u8, args: anytype) void {
-    if (upper) call(T, vt, pre ++ "ucopy" ++ part, args) else call(T, vt, pre ++ "lcopy" ++ part, args);
+/// A symmetric copy: `up` of the upper triangle, else `lo`.
+inline fn symCall(comptime T: type, vt: *const Vtable, comptime up: Copy, comptime lo: Copy, upper: bool, comptime part: Part, args: anytype) void {
+    if (upper) call(T, vt, comptime up.op(part), args) else call(T, vt, comptime lo.op(part), args);
 }
 
 /// Packs part `part` of rows `is..` of `op(A)` over depth `ls..`
@@ -114,13 +115,12 @@ inline fn symCall(comptime T: type, vt: *const Vtable, comptime pre: []const u8,
 fn packRows(comptime T: type, vt: *const Vtable, d: Desc, part: Part, x: Matrix(T), min_l: usize, min_i: usize, ls: usize, is: usize, dst: [*]Float(T)) void {
     switch (part) {
         inline else => |p| {
-            const pt = @tagName(p);
             switch (d.rows) {
-                .n => call(T, vt, "gemm3m_itcopy" ++ pt, .{ long(min_l), long(min_i), raw(T, x.p + is + ls * x.ld), long(x.ld), dst }),
-                .t => call(T, vt, "gemm3m_incopy" ++ pt, .{ long(min_l), long(min_i), raw(T, x.p + ls + is * x.ld), long(x.ld), dst }),
+                .n => call(T, vt, comptime Copy.itcopy.op(p), .{ long(min_l), long(min_i), raw(T, x.p + is + ls * x.ld), long(x.ld), dst }),
+                .t => call(T, vt, comptime Copy.incopy.op(p), .{ long(min_l), long(min_i), raw(T, x.p + ls + is * x.ld), long(x.ld), dst }),
                 .upper, .lower => {
                     const args = .{ long(min_l), long(min_i), raw(T, x.p), long(x.ld), long(is), long(ls), dst };
-                    if (d.herm) symCall(T, vt, "hemm3m_i", d.rows == .upper, pt, args) else symCall(T, vt, "symm3m_i", d.rows == .upper, pt, args);
+                    if (d.herm) symCall(T, vt, .hemm_iu, .hemm_il, d.rows == .upper, p, args) else symCall(T, vt, .symm_iu, .symm_il, d.rows == .upper, p, args);
                 },
             }
         },
@@ -132,13 +132,12 @@ fn packRows(comptime T: type, vt: *const Vtable, d: Desc, part: Part, x: Matrix(
 fn packCols(comptime T: type, vt: *const Vtable, d: Desc, part: Part, y: Matrix(T), min_l: usize, min_jj: usize, ls: usize, jjs: usize, ar: Float(T), ai: Float(T), dst: [*]Float(T)) void {
     switch (part) {
         inline else => |p| {
-            const pt = @tagName(p);
             switch (d.cols) {
-                .n => call(T, vt, "gemm3m_oncopy" ++ pt, .{ long(min_l), long(min_jj), raw(T, y.p + ls + jjs * y.ld), long(y.ld), ar, ai, dst }),
-                .t => call(T, vt, "gemm3m_otcopy" ++ pt, .{ long(min_l), long(min_jj), raw(T, y.p + jjs + ls * y.ld), long(y.ld), ar, ai, dst }),
+                .n => call(T, vt, comptime Copy.oncopy.op(p), .{ long(min_l), long(min_jj), raw(T, y.p + ls + jjs * y.ld), long(y.ld), ar, ai, dst }),
+                .t => call(T, vt, comptime Copy.otcopy.op(p), .{ long(min_l), long(min_jj), raw(T, y.p + jjs + ls * y.ld), long(y.ld), ar, ai, dst }),
                 .upper, .lower => {
                     const args = .{ long(min_l), long(min_jj), raw(T, y.p), long(y.ld), long(jjs), long(ls), ar, ai, dst };
-                    if (d.herm) symCall(T, vt, "hemm3m_o", d.cols == .upper, pt, args) else symCall(T, vt, "symm3m_o", d.cols == .upper, pt, args);
+                    if (d.herm) symCall(T, vt, .hemm_ou, .hemm_ol, d.cols == .upper, p, args) else symCall(T, vt, .symm_ou, .symm_ol, d.cols == .upper, p, args);
                 },
             }
         },
@@ -153,7 +152,7 @@ fn tile(comptime T: type, vt: *const Vtable, pass: Pass, ib: usize, mi: usize, j
     if (beta) |s| driver.scale(T, vt, mi, nj, s, at, ldc);
     const re: F = @floatFromInt(pass.re);
     const im: F = @floatFromInt(pass.im);
-    call(T, vt, "gemm3m_kernel", .{ long(mi), long(nj), long(kl), re, im, sa, sb, raw(T, at), long(ldc) });
+    call(T, vt, .gemm3m_kernel, .{ long(mi), long(nj), long(kl), re, im, sa, sb, raw(T, at), long(ldc) });
 }
 
 /// `C := beta*C + alpha * op(A) * op(B)` on rows `[m0, m1)` and columns

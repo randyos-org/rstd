@@ -4,7 +4,6 @@
 //! The complex C tails, which branch on special values, take the blocks'
 //! full product here (issue #231). No BLAS-root imports (`_kernel.zig`).
 
-const std = @import("std");
 const util = @import("../../util.zig");
 const types = @import("../../types.zig");
 const uk = @import("../../uk_block.zig");
@@ -80,19 +79,31 @@ fn Fallback(comptime F: type) type {
     };
 }
 
+/// The blocks' names in a core's `uk/` module, and the strided one's in the
+/// driver's own, as upstream's microkernels name them.
+const Names = struct { run: [:0]const u8, zero: [:0]const u8, inc: [:0]const u8 };
+
+fn names(comptime slot: Slot) Names {
+    return switch (slot) {
+        .sscal_k => .{ .run = "sscal_kernel_16", .zero = "sscal_kernel_16_zero", .inc = "sscal_kernel_inc_8" },
+        .dscal_k => .{ .run = "dscal_kernel_8", .zero = "dscal_kernel_8_zero", .inc = "dscal_kernel_inc_8" },
+        .cscal_k => .{ .run = "cscal_kernel_16", .zero = "cscal_kernel_16_zero", .inc = "cscal_kernel_inc_8" },
+        .zscal_k => .{ .run = "zscal_kernel_8", .zero = "zscal_kernel_8_zero", .inc = "zscal_kernel_inc_8" },
+        else => @compileError(@tagName(slot) ++ " is not a scal kernel"),
+    };
+}
+
 /// The blocks `slot` calls on the core whose entry is `e`: the microkernel's
 /// functions, the architecture's `Vector(slot)` where it is intrinsics, the
 /// C where the chain names none; the strided one from the driver's own
 /// assembly (`e.own`) where it has it.
 fn Blocks(comptime slot: Slot, comptime e: uk.Entry, comptime Vector: fn (comptime Slot) type) type {
     const F = Elem(slot);
-    const p = @tagName(slot)[0..1];
-    const name = std.fmt.comptimePrint("{s}scal_kernel_{d}", .{ p, width(slot) });
-    const inc_name = p ++ "scal_kernel_inc_8";
+    const n = names(slot);
     const B = switch (e.block) {
         .assembly => struct {
-            pub const run = @field(e.module, name);
-            pub const zero = @field(e.module, name ++ "_zero");
+            pub const run = @field(e.module, n.run);
+            pub const zero = @field(e.module, n.zero);
         },
         .vector => Vector(slot),
         .none => if (complex(slot)) ComplexFallback(F) else Fallback(F),
@@ -100,7 +111,7 @@ fn Blocks(comptime slot: Slot, comptime e: uk.Entry, comptime Vector: fn (compti
     return struct {
         pub const run = B.run;
         pub const zero = B.zero;
-        pub const inc = if (e.own != void and @hasDecl(e.own, inc_name)) @field(e.own, inc_name) else Fallback(F).inc;
+        pub const inc = if (e.own != void and @hasDecl(e.own, n.inc)) @field(e.own, n.inc) else Fallback(F).inc;
     };
 }
 

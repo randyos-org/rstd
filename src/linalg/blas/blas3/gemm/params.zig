@@ -254,11 +254,11 @@ fn installRule(vt: *Vtable, comptime family: Family, comptime core: CoreOf(famil
     vt.symv_p = table.symv_p;
 
     // the primaries, whose `p` the rules and overrides decide
-    const names = .{ "s", "d", "c", "z", "q", "x" };
+    const primaries = [_]Gemm{ .s, .d, .c, .z, .q, .x };
     const elems = [6]i64{ 4, 8, 8, 16, 16, 32 };
     var res: [6]Resolved = undefined;
-    inline for (names, 0..) |name, i| {
-        const sh = @field(table, name);
+    inline for (primaries, 0..) |g, i| {
+        const sh = @field(table, @tagName(g));
         res[i] = .{ .p = primaryP(sh, rule, i, env), .q = fixedOf(sh.q) orelse 0, .r = 0 };
     }
 
@@ -268,11 +268,11 @@ fn installRule(vt: *Vtable, comptime family: Family, comptime core: CoreOf(famil
     // arm64 and mips64 blocks set it under `USE_GEMM3M`, which no
     // `DYNAMIC_ARCH` build defines there (`kernel/Makefile.L3:28-45`;
     // `cmake/arch.cmake:132-135` drops mips64's), so 3M stays 0 elsewhere.
-    const names3m = .{ "c3m", "z3m", "x3m" };
+    const three_m = [_]Gemm{ .c3m, .z3m, .x3m };
     var res3m: [3]Resolved = @splat(.{ .p = 0, .q = 0, .r = 0 });
     if (x86) {
-        inline for (.{ "c3m", "z3m" }, 0..) |name, i| {
-            const sh = @field(table, name);
+        inline for (.{ Gemm.c3m, Gemm.z3m }, 0..) |g, i| {
+            const sh = @field(table, @tagName(g));
             res3m[i] = .{ .p = fixedOf(sh.p) orelse res[i].p, .q = fixedOf(sh.q) orelse res[i].q, .r = 0 };
         }
         res3m[2] = .{ .p = res[4].p, .q = res[4].q, .r = 0 };
@@ -295,17 +295,17 @@ fn installRule(vt: *Vtable, comptime family: Family, comptime core: CoreOf(famil
     // and `x3m` only under `QUAD_PRECISION` (`:2179-2183`), off by default
     // (`Makefile.rule:214`)
     if (x86) {
-        inline for (.{ "s", "d", "c", "z" }, 0..) |name, i| res[i].p = roundUp(res[i].p, @field(table, name).unroll_m);
+        inline for (.{ Gemm.s, Gemm.d, Gemm.c, Gemm.z }, 0..) |g, i| res[i].p = roundUp(res[i].p, @field(table, @tagName(g)).unroll_m);
         const unroll_of = [2]i32{ table.s.unroll_m, table.d.unroll_m };
-        inline for (.{ "c3m", "z3m" }, 0..) |name, i| {
-            const um = @field(table, name).unroll_m;
+        inline for (.{ Gemm.c3m, Gemm.z3m }, 0..) |g, i| {
+            const um = @field(table, @tagName(g)).unroll_m;
             res3m[i].p = roundUp(res3m[i].p, if (um > 0) um else unroll_of[i]);
         }
     }
 
     // x86 always derives `r`, the other families take the header's constant
-    inline for (names, 0..) |name, i| {
-        const fixed = if (x86) null else fixedOf(@field(table, name).r);
+    inline for (primaries, 0..) |g, i| {
+        const fixed = if (x86) null else fixedOf(@field(table, @tagName(g)).r);
         res[i].r = fixed orelse derivedR(res[i].p, res[i].q, elems[i], table);
     }
     if (x86) {
@@ -326,8 +326,8 @@ fn installRule(vt: *Vtable, comptime family: Family, comptime core: CoreOf(famil
         const set: Resolved = if (env.prid == 0x0014b020) .{ .p = 128, .q = 176, .r = 360 } else .{ .p = 64, .q = 120, .r = 4096 };
         res[3] = set;
     }
-    inline for (names, 0..) |name, i| setPrec(vt, @field(Gemm, name), @field(table, name), res[i]);
-    inline for (names3m, 0..) |name, i| setPrec(vt, @field(Gemm, name), @field(table, name), res3m[i]);
+    inline for (primaries, 0..) |g, i| setPrec(vt, g, @field(table, @tagName(g)), res[i]);
+    inline for (three_m, 0..) |g, i| setPrec(vt, g, @field(table, @tagName(g)), res3m[i]);
 
     // half and bfloat16: the headers' `p` and `q`; x86 derives `r`
     // (`setparam-ref.c:1556-1563, 2190-2205`), the others take the header's.
@@ -335,17 +335,17 @@ fn installRule(vt: *Vtable, comptime family: Family, comptime core: CoreOf(famil
     // 1181-1186, 1307, 1316-1335, 1348-1367`), riscv64 also `sh`
     // (`:1381-1410`), mips64 none; the static families' are the header's
     // (`common_param.h:1441-1465`).
-    inline for (.{ "sh", "b", "sb" }) |name| {
+    inline for (.{ Gemm.sh, Gemm.b, Gemm.sb }) |g| {
         const set = comptime switch (family) {
             .mips64 => false,
-            .arm64, .loongarch64, .power64, .power64be, .power32, .power32le, .s390x => !std.mem.eql(u8, name, "sh"),
+            .arm64, .loongarch64, .power64, .power64be, .power32, .power32le, .s390x => g != .sh,
             .x86_64, .x86, .riscv64, .arm, .mips32, .sparc, .wasm, .generic => true,
         };
-        const sh = @field(table, name);
+        const sh = @field(table, @tagName(g));
         const p = fixedOf(sh.p) orelse 0;
         const q = fixedOf(sh.q) orelse 0;
         const fixed = if (x86) null else fixedOf(sh.r);
-        setPrec(vt, @field(Gemm, name), sh, if (set) .{ .p = p, .q = q, .r = fixed orelse derivedR(p, q, 4, table) } else .{ .p = 0, .q = 0, .r = 0 });
+        setPrec(vt, g, sh, if (set) .{ .p = p, .q = q, .r = fixed orelse derivedR(p, q, 4, table) } else .{ .p = 0, .q = 0, .r = 0 });
     }
 }
 
@@ -386,7 +386,22 @@ pub fn tableFor(comptime family: Family, core: CoreOf(family)) ?Table {
 /// 64, for every core), else the generic target's.
 pub fn dtbFor(comptime family: Family, core: CoreOf(family)) i32 {
     const own = switch (family) {
-        inline else => |f| @field(data, @tagName(f) ++ "_dtb")(core),
+        .x86_64 => data.x86_64_dtb(core),
+        .x86 => data.x86_dtb(core),
+        .arm64 => data.arm64_dtb(core),
+        .arm => data.arm_dtb(core),
+        .power64 => data.power64_dtb(core),
+        .power64be => data.power64be_dtb(core),
+        .power32 => data.power32_dtb(core),
+        .power32le => data.power32le_dtb(core),
+        .riscv64 => data.riscv64_dtb(core),
+        .s390x => data.s390x_dtb(core),
+        .mips64 => data.mips64_dtb(core),
+        .mips32 => data.mips32_dtb(core),
+        .loongarch64 => data.loongarch64_dtb(core),
+        .sparc => data.sparc_dtb(core),
+        .wasm => data.wasm_dtb(core),
+        .generic => data.generic_dtb(core),
     };
     return own orelse switch (family) {
         .riscv64 => 64,
@@ -455,6 +470,28 @@ pub fn installGeneric(vt: *Vtable, comptime branch: GenericBranch, buffer_size: 
     installRule(vt, .generic, .generic, table, env, comptime if (branch == .x86) ruleFor(.generic, .generic) else .none);
 }
 
+/// `BUFFER_SIZE` of `family`'s architecture (`common_<arch>.h`).
+fn familyBufferSize(family: Family) i64 {
+    return switch (family) {
+        .x86_64 => data.x86_64_buffer_size,
+        .x86 => data.x86_buffer_size,
+        .arm64 => data.arm64_buffer_size,
+        .arm => data.arm_buffer_size,
+        .power64 => data.power64_buffer_size,
+        .power64be => data.power64be_buffer_size,
+        .power32 => data.power32_buffer_size,
+        .power32le => data.power32le_buffer_size,
+        .riscv64 => data.riscv64_buffer_size,
+        .s390x => data.s390x_buffer_size,
+        .mips64 => data.mips64_buffer_size,
+        .mips32 => data.mips32_buffer_size,
+        .loongarch64 => data.loongarch64_buffer_size,
+        .sparc => data.sparc_buffer_size,
+        .wasm => data.wasm_buffer_size,
+        .generic => data.generic_buffer_size,
+    };
+}
+
 /// `BUFFER_SIZE` of the generic table on a target: its own, since OpenBLAS's
 /// generic target sees its architecture's `common_<arch>.h` like any build.
 /// Alpha and C-SKY have a header but no family; other architectures have no
@@ -463,9 +500,7 @@ fn genericBufferSize(arch: std.Target.Cpu.Arch, ptr_bits: u16) i64 {
     return switch (arch) {
         .alpha => data.alpha_buffer_size,
         .csky => data.csky_buffer_size,
-        else => switch (familyOf(arch, ptr_bits)) {
-            inline else => |f| @field(data, @tagName(f) ++ "_buffer_size"),
-        },
+        else => familyBufferSize(familyOf(arch, ptr_bits)),
     };
 }
 
@@ -489,7 +524,7 @@ pub fn installCore(vt: *Vtable, comptime family: Family, core: CoreOf(family), e
             } else if (tableFor(family, c)) |table| {
                 install(vt, family, c, table, env);
             } else {
-                installGeneric(vt, comptime familyBranch(family), @field(data, @tagName(family) ++ "_buffer_size"), env);
+                installGeneric(vt, comptime familyBranch(family), comptime familyBufferSize(family), env);
             }
         },
     }

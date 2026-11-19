@@ -1386,33 +1386,100 @@ pub fn peels(comptime slot: Slot) bool {
 /// The slots `peels` names.
 pub const peeling = [_]Slot{ .sasum_k, .dasum_k, .casum_k, .zasum_k, .csum_k, .zsum_k, .ddot_k, .cdotu_k, .cdotc_k, .zdotu_k, .zdotc_k, .dgemv_n };
 
+/// A function of `Real` or `Complex`, by its name there.
+const Fn = enum {
+    axpy,
+    axpyc,
+    dot,
+    dsdot,
+    dotu,
+    dotc,
+    scal,
+    nrm2,
+    asum,
+    sum,
+    copy,
+    swap,
+    rot,
+    gemv_n,
+    gemv_t,
+    gemv_r,
+    gemv_c,
+    gemv_o,
+    gemv_u,
+    gemv_s,
+    gemv_d,
+    amax,
+    iamax,
+    amin,
+    iamin,
+    max,
+    imax,
+    min,
+    imin,
+
+    /// Its op; null for `dsdot`, which has one slot (`dsdot_k`), not an op.
+    fn op(f: Fn) ?slots.Op {
+        return switch (f) {
+            .axpy => .axpy_k,
+            .axpyc => .axpyc_k,
+            .dot => .dot_k,
+            .dsdot => null,
+            .dotu => .dotu_k,
+            .dotc => .dotc_k,
+            .scal => .scal_k,
+            .nrm2 => .nrm2_k,
+            .asum => .asum_k,
+            .sum => .sum_k,
+            .copy => .copy_k,
+            .swap => .swap_k,
+            .rot => .rot_k,
+            .gemv_n => .gemv_n,
+            .gemv_t => .gemv_t,
+            .gemv_r => .gemv_r,
+            .gemv_c => .gemv_c,
+            .gemv_o => .gemv_o,
+            .gemv_u => .gemv_u,
+            .gemv_s => .gemv_s,
+            .gemv_d => .gemv_d,
+            .amax => .amax_k,
+            .iamax => .iamax_k,
+            .amin => .amin_k,
+            .iamin => .iamin_k,
+            .max => .max_k,
+            .imax => .imax_k,
+            .min => .min_k,
+            .imin => .imin_k,
+        };
+    }
+};
+
 /// The functions of `Real`, each filling the slot of its op (`slotOf`).
-const real_fns = [_][:0]const u8{ "axpy", "dot", "dsdot", "scal", "nrm2", "asum", "sum", "copy", "swap", "rot", "gemv_n", "gemv_t", "amax", "iamax", "amin", "iamin", "max", "imax", "min", "imin" };
+const real_fns = [_]Fn{ .axpy, .dot, .dsdot, .scal, .nrm2, .asum, .sum, .copy, .swap, .rot, .gemv_n, .gemv_t, .amax, .iamax, .amin, .iamin, .max, .imax, .min, .imin };
 
 /// The functions of `Complex`, likewise.
-const complex_fns = [_][:0]const u8{ "axpy", "axpyc", "dotu", "dotc", "scal", "nrm2", "asum", "sum", "copy", "swap", "amax", "iamax", "amin", "iamin", "rot", "gemv_n", "gemv_t", "gemv_r", "gemv_c", "gemv_o", "gemv_u", "gemv_s", "gemv_d" };
+const complex_fns = [_]Fn{ .axpy, .axpyc, .dotu, .dotc, .scal, .nrm2, .asum, .sum, .copy, .swap, .amax, .iamax, .amin, .iamin, .rot, .gemv_n, .gemv_t, .gemv_r, .gemv_c, .gemv_o, .gemv_u, .gemv_s, .gemv_d };
 
-/// The slot function `name` over `T` fills: its `slots.Op` at `T`'s letter, or
-/// null for `dsdot` past `f32`.
-fn slotOf(comptime T: type, comptime name: []const u8) ?Slot {
-    if (std.mem.eql(u8, name, "dsdot")) return if (T == f32) .dsdot_k else null;
-    const op: slots.Op = if (@hasField(slots.Op, name ++ "_k")) @field(slots.Op, name ++ "_k") else @field(slots.Op, name);
+/// The slot function `f` over `T` fills: its op at `T`'s letter, or null for
+/// `dsdot` past `f32`.
+fn slotOf(comptime T: type, comptime f: Fn) ?Slot {
+    const op = f.op() orelse return if (T == f32) .dsdot_k else null;
     return slots.slotTag(.from(slots.letter(T).?), op);
 }
 
 /// A kernel: the slot it fills, and the function of `Real` or `Complex` over
 /// `F` that is it.
-const Kernel = struct { slot: Slot, F: type, complex: bool, f: [:0]const u8 };
+const Kernel = struct { slot: Slot, F: type, complex: bool, f: Fn };
 
 /// Every function here as a kernel, whatever its type's lanes do with
 /// denormals.
 pub const every: []const Kernel = blk: {
     var r: []const Kernel = &.{};
-    for ([_]type{ f32, f64 }) |F| for (real_fns) |name| {
-        if (slotOf(F, name)) |s| r = r ++ &[_]Kernel{.{ .slot = s, .F = F, .complex = false, .f = name }};
+    for ([_]type{ f32, f64 }) |F| for (real_fns) |f| {
+        if (slotOf(F, f)) |s| r = r ++ &[_]Kernel{.{ .slot = s, .F = F, .complex = false, .f = f }};
     };
-    for ([_]type{ f32, f64 }) |F| for (complex_fns) |name| {
-        r = r ++ &[_]Kernel{.{ .slot = slotOf(std.math.Complex(F), name).?, .F = F, .complex = true, .f = name }};
+    for ([_]type{ f32, f64 }) |F| for (complex_fns) |f| {
+        r = r ++ &[_]Kernel{.{ .slot = slotOf(std.math.Complex(F), f).?, .F = F, .complex = true, .f = f }};
     };
     break :blk r;
 };
@@ -1429,7 +1496,7 @@ pub const kernels: []const Kernel = blk: {
 
 /// The kernel of `k`, `U` vectors a step.
 pub fn kernel(comptime k: Kernel, comptime U: comptime_int) util.SlotFn(k.slot) {
-    return &@field(if (k.complex) Complex(k.F, U) else Real(k.F, U), k.f);
+    return &@field(if (k.complex) Complex(k.F, U) else Real(k.F, U), @tagName(k.f));
 }
 
 /// The symbol of `slot`'s kernel here for `core`, apart from a converted one's.

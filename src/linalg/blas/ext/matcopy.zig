@@ -141,14 +141,16 @@ fn Kernels(comptime T: type) type {
 pub const Portable = Kernels;
 
 /// The precisions with slots; upstream has no `q` or `x` ones.
-const precisions = .{ .{ "s", f32 }, .{ "d", f64 }, .{ "c", Complex32 }, .{ "z", Complex64 } };
+const precisions = .{ .{ portable.Prec.s, f32 }, .{ portable.Prec.d, f64 }, .{ portable.Prec.c, Complex32 }, .{ portable.Prec.z, Complex64 } };
 
 /// Points every `omatcopy` and `imatcopy` slot at the portable kernels.
 pub fn installGeneric(vt: *Vtable) void {
     inline for (precisions) |p| {
         const K = Kernels(p[1]);
-        inline for (comptime std.meta.declarations(K)) |d| {
-            if (comptime @hasField(Vtable, p[0] ++ d)) @field(vt, p[0] ++ d) = @field(K, d);
+        inline for (comptime std.enums.values(Copy)) |c| {
+            if (comptime !c.conjugates() or types.isComplex(p[1])) {
+                inline for (comptime [_]portable.Op{ c.outOp(), c.inOp() }) |op| portable.slotPtr(vt, p[0], op).* = @field(K, @tagName(op));
+            }
         }
     }
 }
@@ -159,6 +161,14 @@ pub const Copy = enum {
     ct,
     cnc,
     ctc,
+
+    /// Whether it conjugates, which only the complex kernels do.
+    pub fn conjugates(c: Copy) bool {
+        return switch (c) {
+            .cn, .ct => false,
+            .cnc, .ctc => true,
+        };
+    }
 
     /// The `omatcopy` kernel's op.
     pub fn outOp(c: Copy) portable.Op {
@@ -265,5 +275,5 @@ fn same(comptime T: type, w: T, g: T) bool {
 test "portable omatcopy and imatcopy kernels follow the definition, and agree with each other bit for bit" {
     var vt: Vtable = .{};
     installGeneric(&vt);
-    inline for (precisions) |p| try checkType(p[1], p[0], &vt);
+    inline for (precisions) |p| try checkType(p[1], @tagName(p[0]), &vt);
 }
