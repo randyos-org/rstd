@@ -1,19 +1,19 @@
 name: CI
 
-# Modeled on zfls's ci.yml. Every pull request and every push to main runs the
-# unit tests on every platform that can run them here (the "test" job), with
-# Zig 0.17.1 and the latest Zig, and checks the build for zfls's targets
-# (rstd-check-zig017) and zig fmt with 0.17.1. Pushes to dev are not run: what reaches dev
-# is checked by its pull request, and dev as a whole by the pull request that
-# releases it (to main); start the workflow by hand on dev to check it in
-# between. A pull request that only changes the files listed in no-ci.txt
-# (documentation, editor settings) skips the checks; the "CI" job, the check
-# the rulesets require, passes then too. The tier 3 and 4 legs (test-tier34,
+# Modeled on zfls's ci.yml. Every pull request into main and every push to
+# main runs the unit tests on every platform that can run them here (the
+# "test" job), with Zig 0.17.1 and the latest Zig, and checks the build for
+# zfls's targets (rstd-check-zig017) and zig fmt with 0.17.1. Pushes to dev
+# and pull requests into it are not run: dev is checked as a whole by the
+# pull request that releases it (to main), which each merge into dev
+# restarts; start the workflow by hand on a branch to check it alone
+# (`gh workflow run CI --ref <branch>`). A pull request that only changes the
+# files listed in no-ci.txt (documentation, editor settings) skips the
+# checks; the "CI" job, the check main's ruleset requires, passes then too. The tier 3 and 4 legs (test-tier34,
 # and rig-tier34's tier 3 rigs, named `<rig> rig`) run on pull requests into
-# main, pushes to main and runs started by hand; a pull request into dev runs
-# those its labels ask for: `ci: <leg name>` (e.g. `ci: arm-linux`,
-# `ci: i386 rig`) or `ci: tier 3-4` for all. The labels are read when the run
-# starts, so after labeling an open pull request, re-run its CI (issue #301).
+# main and pushes to main; a run started by hand takes those its `tier34`
+# input names: `all`, `none`, or leg names separated by commas (e.g.
+# `arm-linux, i386 rig`).
 #
 # Versions: build.zig.zon holds the version the next release will have. When
 # a push to main passes and changes the package (see changes.sh), the commit
@@ -31,7 +31,12 @@ on:
     # (not dev: see the top)
     branches: [main]
   pull_request:
+    branches: [main]
   workflow_dispatch:
+    inputs:
+      tier34:
+        description: "Tier 3 and 4 legs: all, none, or names separated by commas"
+        default: all
 
 permissions:
   contents: read
@@ -57,10 +62,6 @@ jobs:
       tier34-any: ${{ steps.tier34.outputs.any }}
       rigs34: ${{ steps.tier34.outputs.rigs }}
       rigs34-any: ${{ steps.tier34.outputs.rigs-any }}
-    # the pull request's labels pick the tier 3 and 4 legs
-    permissions:
-      contents: read
-      issues: read
     steps:
       - uses: actions/checkout@v7
         with:
@@ -154,15 +155,13 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "version $version at $sha; release: $release" | tee -a "$GITHUB_STEP_SUMMARY"
 
-      # Every tier 3 and 4 leg; all run off a pull request into dev, else
-      # those its labels name (see the top)
+      # Every tier 3 and 4 leg; a run started by hand takes those its input
+      # names (see the top)
       - name: Pick the tier 3 and 4 legs
         id: tier34
         env:
           EVENT: ${{ github.event_name }}
-          BASE_REF: ${{ github.base_ref }}
-          PR: ${{ github.event.pull_request.number }}
-          GH_TOKEN: ${{ github.token }}
+          WANT: ${{ inputs.tier34 }}
         run: |
           # qemu-user's own MIPS pick, 5KEf, drops every FCSR write (issue
           # #275); the Loongson cores run on the 3A4000 rig
@@ -183,10 +182,10 @@ jobs:
           JSON
           )
           full=true
-          labels='[]'
-          if [ "$EVENT" = pull_request ] && [ "$BASE_REF" != main ]; then
+          names='[]'
+          if [ "$EVENT" = workflow_dispatch ] && [ "$WANT" != all ]; then
             full=false
-            labels=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/labels" --jq '[.[].name]')
+            names=$(jq -cn --arg want "$WANT" '$want | split(",") | map(gsub("^ +| +$"; ""))')
           fi
           # the tier 3 QEMU rigs (build/qemu), legs named `<rig> rig` (rig-tier34);
           # sparc64 stays out while its images outgrow OpenBIOS's window (T39)
@@ -199,9 +198,9 @@ jobs:
             "linux-arm", "linux-riscv64", "linux-powerpc64le", "linux-powerpc64le-power10"
           ] | map({ name: "\(.) rig", rig: . })')
           pick() {
-            jq -c --argjson labels "$labels" --arg full "$full" '
-              if $full == "true" or ($labels | any(. == "ci: tier 3-4")) then .
-              else map(select(.name as $n | $labels | any(. == "ci: " + $n))) end' <<< "$1"
+            jq -c --argjson names "$names" --arg full "$full" '
+              if $full == "true" then .
+              else map(select(.name as $n | $names | any(. == $n))) end' <<< "$1"
           }
           legs=$(pick "$all")
           rig_legs=$(pick "$rigs")
