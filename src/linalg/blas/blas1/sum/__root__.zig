@@ -1,6 +1,7 @@
 //! `SUM`: the sum of `x` (`re + im` for complex). The portable kernels
 //! (`*_generic`) and tests of every core's kernels against a plain loop.
 
+const sysinfo = @import("builtin");
 const blas = @import("../../__root__.zig");
 const types = @import("../../types.zig");
 const util = @import("../../util.zig");
@@ -13,7 +14,9 @@ const XDouble = types.XDouble;
 
 /// `kernel/arm/sum.c` and `zsum.c`: the sum of `x`, of `re + im` for complex
 /// (unlike `asum`, no absolute value); an element is `w` floats. Up to 32
-/// bits the sum is `f64`, as in `asum`.
+/// bits the sum is `f64`, as in `asum`. `sum.c`'s plain loop: its unit-stride
+/// vectors (`kernel/simd/intrin.h`) are `vector.zig`'s `sum` where a core
+/// takes it (`x86_64/kernel.zig`).
 fn Sum(comptime F: type, comptime w: comptime_int) type {
     return struct {
         fn k(n: BlasLong, x: [*]F, inc_x: BlasLong) callconv(types.kernelCc(F)) F {
@@ -106,6 +109,21 @@ test "portable sum kernels at the extended type match a plain loop" {
 
 test "every linked core's sum kernels match a plain loop, where this machine runs them" {
     try check.eachCore(checkAll);
+}
+
+/// No `s`, `d`, `c` or `z` sum slot of `vt` holds the portable loop.
+fn checkTuned(vt: *const Vtable) !void {
+    const portable = check.portableVtable();
+    inline for ([_]util.Slot{ .ssum_k, .dsum_k, .csum_k, .zsum_k }) |slot| {
+        try std.testing.expect(@field(vt, @tagName(slot)).? != @field(portable, @tagName(slot)).?);
+    }
+}
+
+test "no linked x86_64 core sums in the portable loop, nor an arm64 one on Apple's systems" {
+    // T192: `kernel/arm/sum.c` is vectors upstream, and Accelerate has no `sum`
+    const arch = sysinfo.target.cpu.arch;
+    if (comptime !(arch == .x86_64 or (arch == .aarch64 and sysinfo.target.os.tag.isDarwin()))) return error.SkipZigTest;
+    try check.eachCore(checkTuned);
 }
 
 /// `vector.zig`'s `sum` order written out plainly over the `w * n` floats

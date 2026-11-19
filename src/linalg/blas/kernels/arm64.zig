@@ -30,7 +30,8 @@ const converted = .{
 /// Where the `@Vector` kernels (`vector.zig`) go: the `routed` slots, and
 /// off Apple each other slot of theirs no converted kernel fills or that
 /// they displace on `vortex` and `vortexm4` (`registry.displacing`), whose
-/// objects then leave the converted kernels out.
+/// objects then leave the converted kernels out; on Apple's systems, of
+/// those, only `sum`'s (`registry.unaccelerated`).
 const vector_rule: registry.Rule(Core) = .unfilled;
 
 /// The `@Vector` kernels go over those.

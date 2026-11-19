@@ -110,8 +110,13 @@ before the f64 sum differs from `sdsdot.f` only in f64 rounding; harmless.
   parts into sum `i % 2` for complex. A test checks those bits against that order written out
   (`blas1/sum/`). Its error bound, `(n / 2AW + 2AW) * 2^-53 * sum|x|`, is below the portable
   loop's `n * 2^-53 * sum|x|`. It serves x86_64's `csum`/`zsum` (routed for alignment
-  peeling, which had left them on the scalar loop) and arm64's C-upstream sum slots, but not
-  `vortex`'s converted ones (unmeasured).
+  peeling, which had left them on the scalar loop) and arm64's C-upstream sum slots.
+  Since T192 (#545) also x86_64's `ssum`/`dsum` on every core (`blas1/sum/x86_64/kernel.zig`:
+  upstream's `kernel/arm/sum.c` there is `kernel/simd/intrin.h` vectors, not the plain loop rstd ran),
+  `vortex`'s and `vortexm4`'s converted `csum`, and the same slots on Apple's systems, where the rule
+  that leaves unrouted slots to Accelerate had left `sum`, which Accelerate lacks, on the portable loop
+  (`registry.unaccelerated`). Timings, and the price of the `f64` sums against `f32` lanes:
+  [`results-sum.md`](../../../tools/blasbench/results/results-sum.md).
 - **Scalar fallbacks.** arm, mips, sparc and the pre-VSX POWER cores now take the `@Vector`
   kernels in the routed slots (the extremes, `nrm2`, `sdot`, `dsdot`), but `s` and `c` on ARMv7's NEON
   cores, whose lanes flush (`registry.flushing`). Where a type has no vector unit, LLVM splits
