@@ -371,7 +371,10 @@ pub const Panel = struct { kb: usize, info: ?usize };
 /// 2 x 2 pivot would cross the edge, unless `nb >= n`. `w` (`n x nb`, `ldw`)
 /// takes `W = L D` (Hermitian: its conjugate) for the caller's update of the
 /// rest, `A -= L Wᵀ`; the factored columns hold every interchange of the
-/// panel until the caller's `undo`, which follows that update.
+/// panel until the caller's `undo`, which follows that update. A column the
+/// update made zero is copied back from `W`, as `xLASYF` and `xLAHEF` do
+/// (`lapack-netlib/SRC/dlasyf.f`, `zlahef.f`; OpenBLAS `ce4ece13e`), where
+/// `rec2` outside `rook` leaves the stale one.
 pub fn panel(comptime T: type, comptime herm: bool, comptime rook: bool, upper: bool, n: usize, nb: usize, a_: [*]T, lda: usize, ipiv: [*]Pivot, w_: [*]T, ldw: usize) Panel {
     const E = El(T, herm);
     const F = Float(T);
@@ -400,10 +403,8 @@ pub fn panel(comptime T: type, comptime herm: bool, comptime rook: bool, upper: 
         }
         if (@max(absakk, colmax) == 0) {
             if (info == null) info = pv.index(k);
-            if (rook) {
-                a.set(k, k, E.real(w.get(k, k)));
-                for (k + 1..n) |i| a.set(i, k, w.get(i, k));
-            } else if (comptime E.herm) a.set(k, k, E.real(a.get(k, k)));
+            a.set(k, k, E.real(w.get(k, k)));
+            for (k + 1..n) |i| a.set(i, k, w.get(i, k));
         } else {
             if (if (rook) absakk < alpha * colmax else !(absakk >= alpha * colmax)) while (true) {
                 // W(k:, k+1) = row and column `imax` of A, updated
