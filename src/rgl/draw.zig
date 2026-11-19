@@ -1,7 +1,7 @@
 //! Pixel primitives on an `RgbaImage`, used by the software backend.
 
 const RgbaImage = @import("image.zig").RgbaImage;
-const color = @import("color.zig");
+const color = @import("color/__root__.zig");
 const RGBA = color.RGBA;
 const geometry = @import("geometry.zig");
 const Point = geometry.Point;

@@ -63,7 +63,7 @@ For sparse matrices, SuiteSparse's orderings (AMD, COLAMD) are BSD-3, but its fa
 
 ### Statistics: `rstd.stats`
 
-[`src/stats.zig`](src/stats.zig), over slices. The forms along a dimension are planned with N-d
+[`src/stats/`](src/stats/__root__.zig), over slices. The forms along a dimension are planned with N-d
 arrays; `cov` and `corrcoef` with the public layer's `ConstView` and `Mat`.
 
 ```zig
