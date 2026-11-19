@@ -1,7 +1,8 @@
 //! `Aᵀ y` variants for the `sparse` section (T151): four running sums per
 //! column with scalar loads of `x`, and the same with AVX2's `vgatherdpd`
 //! (x86_64 with AVX2 only): whether a gather beats scalar loads, apart from
-//! the four sums' own gain. Bench-only; their sums are not rstd's order.
+//! the four sums' own gain. Bench-only: the product itself runs four sums
+//! now (`sparse/mul.zig`, issue #547), in an order of its own.
 
 const std = @import("std");
 const sysinfo = @import("builtin");
