@@ -49,7 +49,7 @@ pub fn defaultCores(target: ResolvedTarget, optimize: rstdbuild.Optimize) rstdbu
 pub fn addBlasKernels(b: *Build, mod: *Module, target: ResolvedTarget, cores: rstdbuild.BlasCores, quad: ?bool) !void {
     if (!option_read) {
         option_read = true;
-        force_llvm = b.option(bool, "blas-llvm", "Force the BLAS kernel objects on (true) or off (false) LLVM; unset uses it only where the kernels need it");
+        force_llvm = b.option(bool, "blas-llvm", "Build the BLAS kernel objects with LLVM (default true); false uses the self-hosted backend, which the converted assembly does not build on");
         relapack = b.option(bool, "relapack", "LAPACK's potrf, getrf, trtri and lauum from ReLAPACK's recursive algorithms instead of OpenBLAS's, as OpenBLAS's BUILD_RELAPACK with RELAPACK_REPLACE") orelse false;
         quad_precision = b.option(bool, "quad-precision", "The BLAS's extended type (q and x routines) as f128 in software, as OpenBLAS's QUAD_PRECISION; turns x87 EXPRECISION off") orelse false;
     }

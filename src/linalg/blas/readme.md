@@ -272,7 +272,7 @@ and quirks are in [`design.md`](../design.md#apple-accelerate).
 | Option | Values | Effect |
 | --- | --- | --- |
 | `-Dblas-cores` | `target`, `all`, `none` | which per-core kernel objects are built: only the core the target maps to (the host's own for a native target), every core the target can run, or none (portable kernels only). Default: `target` in debug, `all` otherwise |
-| `-Dblas-llvm` | `true`, `false` | forces the kernel objects on or off LLVM; unset uses LLVM where the kernels need it, which today is everywhere |
+| `-Dblas-llvm` | `true`, `false` | builds the kernel objects with LLVM (the default) or the self-hosted backend, which the converted assembly does not build on |
 
 A consumer using `src/buildutils` `addRstd` passes its optimize mode (`RstdOptions.optimize`) so
 the default follows it, and may set `RstdOptions.blas_cores`. A core with no object in the build
