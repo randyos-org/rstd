@@ -358,7 +358,7 @@ brings each to its cancelable futex wait.
 
 With worker threads std's `Group` crashes on `Io.Evented`, `Uring` and `Dispatch` alike
 ([#208](https://github.com/randyos-org/rstd/issues/208)). On `Dispatch` (macOS), `forEach` and `team` start their tasks as
-plain futures instead (`threading.Tasks`, `Futures`); every other `Io` keeps `Group`.
+plain futures instead (`threading/tasks.zig`'s `Tasks`, `Futures`); every other `Io` keeps `Group`.
 `usesFutures` matches the `Io`'s vtable, under the comptime switch `dispatch_futures`. The
 futures act as `Group` does: past 64 tasks `async` runs inline and `concurrent` fails;
 `await` waits cancelably on a count of unfinished tasks, and a cancel there reaches each task
@@ -396,7 +396,7 @@ documents no mode that keeps its bits across thread counts (MKL has one, CNR), s
 thread sets its own model (`singleThreadHere`) on its first call into it
 ([`design.md`](../design.md#apple-accelerate)).
 
-Rstd's workers parallelize around it (`apple_accel.split`), under the rules above:
+Rstd's workers parallelize around it (`apple_accel/split.zig`), under the rules above:
 
 - **Parts by size.** Above the routine's threshold (`threading.rule`, as for rstd's kernels) a
   routed call splits into chunks of its output (`threading.plan`), each one Accelerate call on
@@ -490,7 +490,7 @@ Memory safety for concurrent work:
 
 What the tests check today, and where they run:
 
-- **Everywhere, rigs included** (`threading.zig`): chunking, rules and their per-core
+- **Everywhere, rigs included** (`threading/_test/`): chunking, rules and their per-core
   overrides, the worker count, chunks that ignore the CPU count and the ceiling, and the
   ordered combine in several claim orders. The single-threaded builds check that they resolve
   to one worker over the same chunks.

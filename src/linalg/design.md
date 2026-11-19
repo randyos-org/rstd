@@ -528,7 +528,7 @@ riscv64 uses them; `installAll` puts them in the native tests' table too.
 Without a vector unit for the type (SPARC, ARMv7's `f64`, pre-VSX POWER, MIPS without MSA, the
 x87) LLVM splits the vectors into scalar operations. The reductions keep their eight independent
 sums, against the portable loop's one, and the extremes compare and select where `@max` would
-call libm's `fmax` per element (`vector.hasMinMax`, MSA included); [`comparisons.md`](blas/comparisons.md)
+call libm's `fmax` per element (`vector/util.zig`'s `hasMinMax`, MSA included); [`comparisons.md`](blas/comparisons.md)
 (1) has the measurements. On MSA, `@abs` clears sign bits through a mask LLVM cannot fold back
 into `fmax_a` ([#197](https://github.com/randyos-org/rstd/issues/197)).
 
@@ -1537,7 +1537,7 @@ routine and matches the reference; `apple_accel.zig` binds it and routes to it.
   Routed, `sdot` is `cblas_dsdot` rounded, and `snrm2` and `scnrm2` the root of `dsdot(x, x)`,
   so `s` sums in `f64` as rstd's kernels do. `d` and `z` `nrm2`, and `asum`, take `incx > 0` only.
 - **Kept for speed (arm64).** Level 1 goes by routine, letter and stride, one table
-  (`apple_accel.zig`'s `sends`): Accelerate gets every call, the unit-stride ones only (every
+  (`apple_accel/quirks.zig`'s `sends`): Accelerate gets every call, the unit-stride ones only (every
   stride 1), or none. A slot is kept where rstd's kernel ran faster than Accelerate past noise
   (ratio under 0.97) in the flyoff of 2026-10-29
   ([`results-flyoff-macos-aarch64.md`](../../tools/blasbench/results/results-flyoff-macos-aarch64.md#accelerate-routing),
@@ -1953,13 +1953,13 @@ interface mirrors an upstream one with a CBLAS row-major branch (`ger`'s `gerv_k
 | `Config.zig` | the environment variables |
 | `types.zig` | element and index types, `XDouble`, `exprecision` |
 | `portable.zig` | `Op`, slot names, type dispatch, `install`, `finish` |
-| `vector.zig` | the `@Vector` level-1 and level-2 kernels, `routed`, `peels` |
+| `vector.zig` | the `@Vector` level-1 and level-2 kernels' slots, `routed`, `peels`; the kernels are in `vector/` (`real.zig`, `complex.zig`, `half.zig`, their `util.zig`) |
 | `registry.zig` | `Kernels` (export and install of converted assembly), `install`, `served`, `isLinked` |
 | `abi.zig` | the build variant for a target's calling convention |
 | `fma.zig` | the contraction policy |
-| `threading.zig` | thresholds, worker count, chunks, the claim loop and ordered combine |
+| `threading.zig` | the worker count and the plan; in `threading/`, the thresholds (`rules.zig`), `chunks.zig`, the claim loop and ordered combine (`region.zig`, `tasks.zig`), `partials.zig`, level 3's `team.zig`, and the tests (`_test/`) |
 | `util.zig` | negative offsets, unaligned vector loads, `kernelSymbol`, `fits`, `vectorIeee`, `blue`, `extendedSum` |
-| `apple_accel.zig` | Accelerate's CBLAS, bound at run time, and the routing to it |
+| `apple_accel.zig` | Accelerate's CBLAS, bound at run time, and the routing to it; in `apple_accel/`, the table and its loading (`binding.zig`), a call's parts (`split.zig`), `quirks.zig`, and the routines by level (`level1.zig` to `level3.zig`, `lapack.zig`) |
 | `_kernel.zig` | root of each per-core object |
 | `cpu/__root__.zig` | `choose`, `detect`, `fromName`, the target's `CoreType`; `Arch(family)`: each family's `vtableFromCoreType`, registry and `canRun` |
 | `cpu/detect/<arch>.zig` | probes and pure decisions |
@@ -2330,7 +2330,7 @@ here can.
 | `ssh-test-x86_64-macos` | the x86_64 macOS suite on an Intel Mac over SSH (`-Dssh-mac-intel`, default `macmini-intel`) | Mach-O x86_64 on real hardware: the cores its CPU runs; Accelerate's AVX2 path |
 | `ssh-test-x86_64-macos-rosetta` | the x86_64 macOS suite on the Apple Silicon Mac under Rosetta 2 | a comparison with the Intel Mac; the SSE cores only, since Rosetta hides AVX |
 | `ssh-test-x86_64-macos-rosetta-avx2` | as above, with `ROSETTA_ADVERTISE_AVX=1` | rstd's `sandybridge`, `haswell` and `zen` cores too; not Accelerate's AVX2 path (SSH Mac below) |
-| `wasm-test` | WASI under Node, a module with SIMD128 and one without (`wasm-test-simd128`, `wasm-test-portable`) | the freestanding rigs' tests, `abi.zig` and `threading.zig`, on the SIMD core and the portable path |
+| `wasm-test` | WASI under Node, a module with SIMD128 and one without (`wasm-test-simd128`, `wasm-test-portable`) | the freestanding rigs' tests, `abi.zig` and `threading/_test/`, on the SIMD core and the portable path |
 | `rstd-check-macho` | build only, x86_64 and aarch64 macOS, every core | Mach-O assembly errors |
 | `rstd-check-uefi` | build only, x86_64 and aarch64 UEFI, the UEFI rigs' runner, no filter | every OS-free test compiles for UEFI, also those the rigs leave out |
 | `rstd-check-zig017` | build and link only, with Zig 0.17.1, zfls's six targets, every core | zfls's toolchain builds rstd (Requirements) |
