@@ -2,8 +2,8 @@
 //! and `A B` with `B` dense. `A x` scatters one column at a time; threaded,
 //! its columns split into chunks of about equal nonzeros, each chunk's sum
 //! in a partial vector over the rows it reaches, added to `y` in chunk order
-//! (`threading.Partials`). `Aᵀ y` gathers each output whole, so its chunks
-//! cannot change a bit. Chunks follow the size and pattern alone, so the bits
+//! (`threading.Partials`). `Aᵀ y` gathers each output whole (in four sums
+//! for a long column, `four_min`), so its chunks cannot change a bit. Chunks follow the size and pattern alone, so the bits
 //! do too, at any worker count.
 
 const std = @import("std");
@@ -21,6 +21,11 @@ const Chunk = threading.Chunk;
 
 /// The routine family that sizes the work: a sparse `gemv`, `nnz` its work.
 const family: threading.Family = .gemv;
+
+/// The column length from which `Aᵀ y`'s dot runs four sums: 1.4 to 3 times
+/// the single sum's speed from 6 nonzeros a column up, slower at 1 to 3
+/// (issue #547; the M6 and Zen 3).
+pub const four_min = 8;
 
 pub fn mulVec(comptime T: type, a: csc.Csc(T), allocator: Allocator, io: Io, trans: Trans, alpha: T, x: []const T, beta: T, y: []T) csc.MulError!void {
     const tr = trans.transposed();
@@ -118,12 +123,31 @@ fn Gemv(comptime T: type, comptime trans: Trans) type {
             return threading.forEach(io, &p, g, dots);
         }
 
+        fn term(g: Self, k: usize) T {
+            return ops.mul(T, opA(g.a.value[k]), opX(g.x[g.a.row[k]]));
+        }
+
+        /// `op(A)(:, j) x`. A column of `four_min` nonzeros or more runs four
+        /// sums of every fourth one, added as `(s0 + s1) + (s2 + s3)`, then
+        /// the rest in order; a shorter one, a single sum.
+        fn dot(g: Self, j: usize) T {
+            const end: usize = g.a.col_start[j + 1];
+            var k: usize = g.a.col_start[j];
+            var s = ops.zero(T);
+            if (end - k >= four_min) {
+                var acc: [4]T = @splat(ops.zero(T));
+                while (k + 4 <= end) : (k += 4) {
+                    inline for (0..4) |l| acc[l] = ops.add(T, acc[l], g.term(k + l));
+                }
+                s = ops.add(T, ops.add(T, acc[0], acc[1]), ops.add(T, acc[2], acc[3]));
+            }
+            while (k < end) : (k += 1) s = ops.add(T, s, g.term(k));
+            return s;
+        }
+
         fn dots(g: Self, c: Chunk) void {
             for (c.start..c.end) |j| {
-                var s = ops.zero(T);
-                if (!ops.isZero(T, g.alpha)) {
-                    for (g.a.col_start[j]..g.a.col_start[j + 1]) |k| s = ops.add(T, s, ops.mul(T, opA(g.a.value[k]), opX(g.x[g.a.row[k]])));
-                }
+                const s = if (ops.isZero(T, g.alpha)) ops.zero(T) else g.dot(j);
                 const as = ops.mul(T, g.alpha, s);
                 g.y[j] = if (ops.isZero(T, g.beta)) as else ops.add(T, as, ops.mul(T, g.beta, g.y[j]));
             }
