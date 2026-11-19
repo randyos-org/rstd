@@ -281,7 +281,7 @@ pub fn tf2(comptime T: type, comptime herm: bool, comptime rook: bool, upper: bo
             if (kstep == 1) {
                 if (k + 1 < n) oneByOne(T, herm, rook, a, k, sfmin);
             } else if (k + 2 < n) {
-                twoByTwo(T, herm, rook, a, k);
+                twoByTwo(T, herm, a, k);
             }
         }
         if (kstep == 1) {
@@ -313,9 +313,11 @@ fn oneByOne(comptime T: type, comptime herm: bool, comptime rook: bool, a: View(
 }
 
 /// `tf2`'s 2 x 2 step: `L(k+2:, k:k+1)` and the rank-2 update of the rest.
-fn twoByTwo(comptime T: type, comptime herm: bool, comptime rook: bool, a: View(T), k: usize) void {
+/// Each entry is divided by `d21`, then scaled by `t`, in every form
+/// (`dsytf2.f`, `zhetf2.f` and the `_rook` forms; OpenBLAS `ce4ece13e`):
+/// `t / d21` overflows for a tiny `d21`.
+fn twoByTwo(comptime T: type, comptime herm: bool, a: View(T), k: usize) void {
     const E = El(T, herm);
-    const F = Float(T);
     const n = a.rows;
     const one = scalar(T, 1);
     if (comptime E.herm) {
@@ -325,39 +327,30 @@ fn twoByTwo(comptime T: type, comptime herm: bool, comptime rook: bool, a: View(
         const d22 = a.get(k, k).re / dd;
         const tt = 1 / (d11 * d22 - 1);
         const d21 = ops.divReal(T, sub21, dd);
-        // `xHETF2` folds `TT / D` into `D`; the rook form divides by `D` last
-        const s: F = if (rook) tt else tt / dd;
         for (k + 2..n) |j| {
-            const wk = ops.mulReal(T, sub(T, ops.mulReal(T, a.get(j, k), d11), mul(T, d21, a.get(j, k + 1))), s);
-            const wkp1 = ops.mulReal(T, sub(T, ops.mulReal(T, a.get(j, k + 1), d22), mul(T, ops.conj(T, d21), a.get(j, k))), s);
+            const wk = ops.mulReal(T, ops.divReal(T, sub(T, ops.mulReal(T, a.get(j, k), d11), mul(T, d21, a.get(j, k + 1))), dd), tt);
+            const wkp1 = ops.mulReal(T, ops.divReal(T, sub(T, ops.mulReal(T, a.get(j, k + 1), d22), mul(T, ops.conj(T, d21), a.get(j, k))), dd), tt);
             for (j..n) |i| {
-                const x = if (rook) ops.divReal(T, a.get(i, k), dd) else a.get(i, k);
-                const y = if (rook) ops.divReal(T, a.get(i, k + 1), dd) else a.get(i, k + 1);
-                a.set(i, j, sub(T, sub(T, a.get(i, j), mul(T, x, ops.conj(T, wk))), mul(T, y, ops.conj(T, wkp1))));
+                a.set(i, j, sub(T, sub(T, a.get(i, j), mul(T, a.get(i, k), ops.conj(T, wk))), mul(T, a.get(i, k + 1), ops.conj(T, wkp1))));
             }
-            a.set(j, k, if (rook) ops.divReal(T, wk, dd) else wk);
-            a.set(j, k + 1, if (rook) ops.divReal(T, wkp1, dd) else wkp1);
+            a.set(j, k, wk);
+            a.set(j, k + 1, wkp1);
             a.set(j, j, E.real(a.get(j, j)));
         }
         return;
     }
-    var d21 = a.get(k + 1, k);
+    const d21 = a.get(k + 1, k);
     const d11 = ops.div(T, a.get(k + 1, k + 1), d21);
     const d22 = ops.div(T, a.get(k, k), d21);
     const t = ops.div(T, one, sub(T, mul(T, d11, d22), one));
-    if (!rook) d21 = ops.div(T, t, d21);
     for (k + 2..n) |j| {
-        const xk = sub(T, mul(T, d11, a.get(j, k)), a.get(j, k + 1));
-        const xk1 = sub(T, mul(T, d22, a.get(j, k + 1)), a.get(j, k));
-        const wk = if (rook) mul(T, t, xk) else mul(T, d21, xk);
-        const wkp1 = if (rook) mul(T, t, xk1) else mul(T, d21, xk1);
+        const wk = mul(T, t, ops.div(T, sub(T, mul(T, d11, a.get(j, k)), a.get(j, k + 1)), d21));
+        const wkp1 = mul(T, t, ops.div(T, sub(T, mul(T, d22, a.get(j, k + 1)), a.get(j, k)), d21));
         for (j..n) |i| {
-            const x = if (rook) ops.div(T, a.get(i, k), d21) else a.get(i, k);
-            const y = if (rook) ops.div(T, a.get(i, k + 1), d21) else a.get(i, k + 1);
-            a.set(i, j, sub(T, sub(T, a.get(i, j), mul(T, x, wk)), mul(T, y, wkp1)));
+            a.set(i, j, sub(T, sub(T, a.get(i, j), mul(T, a.get(i, k), wk)), mul(T, a.get(i, k + 1), wkp1)));
         }
-        a.set(j, k, if (rook) ops.div(T, wk, d21) else wk);
-        a.set(j, k + 1, if (rook) ops.div(T, wkp1, d21) else wkp1);
+        a.set(j, k, wk);
+        a.set(j, k + 1, wkp1);
     }
 }
 
@@ -478,7 +471,7 @@ pub fn panel(comptime T: type, comptime herm: bool, comptime rook: bool, upper: 
                     if (comptime E.herm) for (k + 1..n) |i| w.set(i, k, ops.conj(T, w.get(i, k)));
                 }
             } else {
-                if (k + 2 < n) panel2(T, herm, rook, a, w, k);
+                if (k + 2 < n) panel2(T, herm, a, w, k);
                 a.set(k, k, w.get(k, k));
                 a.set(k + 1, k, w.get(k + 1, k));
                 a.set(k + 1, k + 1, w.get(k + 1, k + 1));
@@ -529,29 +522,24 @@ fn interchange(comptime T: type, comptime herm: bool, a: View(T), w: View(T), kk
     w.swapRows(kk, kp, top + 1);
 }
 
-/// `panel`'s 2 x 2 step: `L(k+2:, k:k+1)` from `W`.
-fn panel2(comptime T: type, comptime herm: bool, comptime rook: bool, a: View(T), w: View(T), k: usize) void {
+/// `panel`'s 2 x 2 step: `L(k+2:, k:k+1)` from `W`, each entry divided by
+/// `d21`, then scaled by `t`, as `xLASYF`, `xLAHEF` (OpenBLAS `ce4ece13e`)
+/// and the `_rook` forms; `rec2` outside `rook` folds `t / d21`, which
+/// overflows for a tiny `d21`.
+fn panel2(comptime T: type, comptime herm: bool, a: View(T), w: View(T), k: usize) void {
     const E = El(T, herm);
     const n = a.rows;
     const one = scalar(T, 1);
-    var d21 = w.get(k + 1, k);
+    const d21 = w.get(k + 1, k);
     const d11 = ops.div(T, w.get(k + 1, k + 1), d21);
     const d22 = ops.div(T, w.get(k, k), E.cj(d21));
     // real for the Hermitian forms (`1 / (re(d11 d22) - 1)`)
     const t: T = if (comptime E.herm) scalar(T, 1 / (mul(T, d11, d22).re - 1)) else ops.div(T, one, sub(T, mul(T, d11, d22), one));
-    if (!rook) d21 = ops.div(T, t, d21);
     for (k + 2..n) |j| {
-        const xk = sub(T, mul(T, d11, w.get(j, k)), w.get(j, k + 1));
-        const xk1 = sub(T, mul(T, d22, w.get(j, k + 1)), w.get(j, k));
-        if (rook) {
-            const u = ops.div(T, xk, E.cj(d21));
-            const v = ops.div(T, xk1, d21);
-            a.set(j, k, if (comptime E.herm) ops.mulReal(T, u, t.re) else mul(T, t, u));
-            a.set(j, k + 1, if (comptime E.herm) ops.mulReal(T, v, t.re) else mul(T, t, v));
-        } else {
-            a.set(j, k, mul(T, E.cj(d21), xk));
-            a.set(j, k + 1, mul(T, d21, xk1));
-        }
+        const u = ops.div(T, sub(T, mul(T, d11, w.get(j, k)), w.get(j, k + 1)), E.cj(d21));
+        const v = ops.div(T, sub(T, mul(T, d22, w.get(j, k + 1)), w.get(j, k)), d21);
+        a.set(j, k, if (comptime E.herm) ops.mulReal(T, u, t.re) else mul(T, t, u));
+        a.set(j, k + 1, if (comptime E.herm) ops.mulReal(T, v, t.re) else mul(T, t, v));
     }
 }
 
