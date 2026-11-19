@@ -1,0 +1,14 @@
+xststdcsp: a single-precision denormal matches only the DCMX bits that select it (rstd issue #223)
+
+--- a/target/ppc/fpu_helper.c
++++ b/target/ppc/fpu_helper.c
+@@ -3183,7 +3183,8 @@ void HELPER(XSTSTDCSP)(CPUPPCState *env, uint32_t bf,
+     uint32_t cc, match, sign = float64_is_neg(b->VsrD(0));
+     uint32_t exp = (b->VsrD(0) >> 52) & 0x7FF;
+     int not_sp = (int)not_SP_value(b->VsrD(0));
+-    match = float64_tstdc(b->VsrD(0), dcmx) || (exp > 0 && exp < 0x381);
++    match = float64_tstdc(b->VsrD(0), dcmx) ||
++            (exp > 0 && exp < 0x381 && extract32(dcmx, 0 + !sign, 1));
+     cc = sign << CRF_LT_BIT | match << CRF_EQ_BIT | not_sp << CRF_SO_BIT;
+     env->fpscr &= ~FP_FPCC;
+     env->fpscr |= cc << FPSCR_FPCC;
