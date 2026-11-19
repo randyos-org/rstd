@@ -710,6 +710,8 @@ fn convert(a: std.mem.Allocator, ar: Arch, role_list: []const roles.Role, out_ro
 pub fn main(init: std.process.Init) !void {
     const a = init.arena.allocator();
     _ = try map.initFromEnv(a, init);
+    // its clang list takes the SME2 kernels, which rstd lacks: issue #505
+    map.as_gcc = &.{"/KERNEL.VORTEXM4"};
     const base = map.out_root;
 
     var want: std.ArrayList([]const u8) = .empty;

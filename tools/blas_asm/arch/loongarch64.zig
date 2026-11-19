@@ -3,7 +3,7 @@
 const arch = @import("__root__.zig");
 const arch_table = @import("../arches.zig");
 
-/// Fixes for bugs in the LSX/LASX sources, still in OpenBLAS v0.3.34-317;
+/// Fixes for bugs in the LSX/LASX sources, still in OpenBLAS v0.3.34-794;
 /// the qemu rig's per-core tests found each one.
 const patches = [_]arch.Patch{
     // `axpy` returned at once for a zero alpha, so `0 * x` never reached `y`
@@ -91,10 +91,8 @@ const patches = [_]arch.Patch{
     .{ .source = "cswap_lasx.S", .find = cswap_strided, .replace = cswap_zero ++ cswap_strided[6..] },
     .{ .source = "cswap_lsx.S", .find = cswap_tail, .replace = cswap_tail ++ cswap_one },
     .{ .source = "cswap_lasx.S", .find = cswap_tail, .replace = cswap_tail ++ cswap_one },
-    // and with a zero `incy`, `axpy` (`y` loaded a block at a time from `.L12`
-    // and `.L22`)
-    zeroIncy("axpy_lsx.S", ".L224"),
-    zeroIncy("axpy_lasx.S", ".L224"),
+    // and with a zero `incy`, `caxpy` (`y` loaded a block at a time from
+    // `.L12` and `.L22`)
     zeroIncy("caxpy_lsx.S", ".L998"),
     zeroIncy("caxpy_lasx.S", ".L998"),
 };

@@ -44,12 +44,16 @@ const Family = struct {
     renames: []const [2][]const u8 = &.{},
     /// What `common_<arch>.h` needs to preprocess for a core with no table.
     base: []const []const u8 = &.{},
+    /// Cores that read `param.h` as a compiler other than clang does.
+    non_clang: []const []const u8 = &.{},
 };
 
 const families = [_]Family{
     .{ .name = "x86_64", .arch = arch_table.x86_64, .target = "x86_64-linux-gnu", .defines = &.{ "-DARCH_X86_64", "-DBINARY64", "-D__64BIT__" } },
     .{ .name = "x86", .arch = arch_table.x86, .target = "x86-linux-gnu", .defines = &.{ "-DARCH_X86", "-DBINARY32", "-D__32BIT__" } },
-    .{ .name = "arm64", .arch = arch_table.arm64, .target = "aarch64-linux-gnu", .defines = &.{ "-DARCH_ARM64", "-DBINARY64", "-D__64BIT__", "-DARMV8" } },
+    // `vortexm4`'s clang block is tuned for the SME2 kernels, which rstd
+    // lacks: issue #505
+    .{ .name = "arm64", .arch = arch_table.arm64, .target = "aarch64-linux-gnu", .defines = &.{ "-DARCH_ARM64", "-DBINARY64", "-D__64BIT__", "-DARMV8" }, .non_clang = &.{"vortexm4"} },
     .{ .name = "arm", .arch = arch_table.arm, .target = "arm-linux-gnueabihf", .defines = &.{ "-DARCH_ARM", "-DBINARY32", "-D__32BIT__" }, .renames = &.{ .{ "neon", "ARMV7" }, .{ "vfpv4", "ARMV7,CORTEXA15" } }, .base = &.{"-DARMV5"} },
     // `PPC970`'s unrolls follow the byte order
     .{ .name = "power64", .arch = arch_table.power, .target = "powerpc64le-linux-gnu", .defines = &.{ "-DARCH_POWER", "-DBINARY64", "-D__64BIT__", "-DOS_LINUX" } },
@@ -76,8 +80,8 @@ const generic_archs = [_]Family{
 };
 
 /// `param.h`'s `GENERIC` branches off x86 (`params.GenericBranch`):
-/// `ARCH_MIPS`'s and `ARCH_LOONGARCH64`'s fixed sets (`param.h:4388-4415`),
-/// and every other architecture's variables (`:4416-4438`), which arm64
+/// `ARCH_MIPS`'s and `ARCH_LOONGARCH64`'s fixed sets (`param.h:4456-4483`),
+/// and every other architecture's variables (`:4484-4506`), which arm64
 /// stands for. `ARCH_MIPS` is 32-bit MIPS: `c_check` takes `ARCH_MIPS64`
 /// first.
 const generic_branches = [_]Family{
@@ -114,6 +118,9 @@ const probe_head =
     \\long cgemm3m_p=-1,cgemm3m_q=-1,cgemm3m_r=-1,zgemm3m_p=-1,zgemm3m_q=-1,zgemm3m_r=-1,xgemm3m_p=-1,xgemm3m_q=-1,xgemm3m_r=-1;
     \\long sgemm_p=-1,dgemm_p=-1,cgemm_p=-1,zgemm_p=-1,qgemm_p=-1,xgemm_p=-1;
     \\long sgemm_r=-1,dgemm_r=-1,cgemm_r=-1,zgemm_r=-1,qgemm_r=-1,xgemm_r=-1;
+    \\#ifdef RSTD_NON_CLANG
+    \\#undef __clang__
+    \\#endif
     \\#include "param.h"
     \\#define V(name, x) printf("%s=%ld\n", name, (long)(x))
     \\#define N(name) printf("%s=?\n", name)
@@ -371,6 +378,9 @@ fn probeTable(a: std.mem.Allocator, io: std.Io, checkout: []const u8, src_path: 
     try argv.appendSlice(a, &.{ "zig", "cc", "-w", "-DDYNAMIC_ARCH", "-I", try map.path(&.{checkout}), "-I", ".zig-cache" });
     try argv.appendSlice(a, fam.defines);
     try argv.appendSlice(a, core_defines);
+    for (fam.non_clang) |c| {
+        if (std.mem.eql(u8, c, name)) try argv.append(a, "-DRSTD_NON_CLANG");
+    }
     try argv.appendSlice(a, &.{ src_path, "-o", ".zig-cache/params_probe.exe" });
     const cc = try std.process.run(a, io, .{ .argv = argv.items });
     const built = switch (cc.term) {

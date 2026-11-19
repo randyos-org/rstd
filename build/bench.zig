@@ -275,7 +275,7 @@ fn addX86Level1(b: *Build, mod: *rstdbuild.Module, checkout: []const u8, os: std
 const X86Kernel = struct { slot: []const u8, file: []const u8, zen: ?[]const u8 = null };
 
 /// The level-1 kernels `blas_bench`'s `l1` section races, from OpenBLAS
-/// a69062524 (v0.3.34-317)'s `kernel/x86_64/KERNEL.HASWELL`, `KERNEL.ZEN` and `KERNEL`;
+/// dbf2c24c9 (v0.3.34-794)'s `kernel/x86_64/KERNEL.HASWELL`, `KERNEL.ZEN` and `KERNEL`;
 /// rederive them from those files rather than edit them by hand.
 const x86_level1 = [_]X86Kernel{
     .{ .slot = "saxpy_k", .file = "saxpy.c" },

@@ -205,7 +205,7 @@ const Gemm = slots.Gemm;
 // ---- half-precision gemm ---------------------------------------------------
 
 /// `kernel/generic/gemmkernel_2x2.c`, `gemm_beta.c`, `gemm_ncopy_2.c` and
-/// `gemm_tcopy_2.c` as `Makefile.L3:190-243` builds them for `SHGEMM`,
+/// `gemm_tcopy_2.c` as `Makefile.L3:193-246` builds them for `SHGEMM`,
 /// `SBGEMM` and `BGEMM` (bfloat16 through `conversion_macros.h`), over the
 /// `f32` gemm tile (`blas3/gemm/kernel.zig`'s layout and `pack`). `I` is the
 /// type of `A` and `B`, `O` that of `C` and the scalars. Each element sums
