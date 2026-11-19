@@ -84,7 +84,8 @@ Each stages its files (`zig build flyoff-stage-<host>`), then runs every configu
 **The timing rule** (R4; design.md, "Timing on a host macOS keeps busy"; its details in [`results-flyoff.md`](results/results-flyoff.md#timing-rule)):
 
 - Quiet the host first: on the Mac `tools/macos/configure_mac_host_arm.sh` (auto-login, indexing daemons off with SIP off). A first window starts when the host is idle twice two minutes apart.
-- A run starts when no QEMU runs, the one-minute load is under 2, and no other process passes 5% of a core in a 5 s sample. Activity Monitor and `sysmond` are left out of the 5% test, their share added to the load limit. Windows has no load average: there the processor queue length stands in for it, under 2, sampled with `typeperf`.
-- A watch every 20 s notes any other process over 5% or another QEMU; such a run is set aside and repeated, 3 times at most. `uptime` and the top processes are recorded before and after each run.
+- A run starts when no QEMU runs, the one-minute load is under 2, and no other process passes 15% of a core in a 5 s sample. Activity Monitor and `sysmond` are left out of the 15% test, their share added to the load limit. Windows has no load average: there the processor queue length stands in for it, under 2, sampled with `typeperf`.
+- A watch every 20 s notes any other process over 15% of a core or another QEMU; a run with three or more such samples (a minute) is set aside and repeated, 3 times at most. Brief spikes are let through: on the M6, passes with single spikes up to 77% matched clean ones as closely as clean ones match each other ([#542](https://github.com/randyos-org/rstd/issues/542)). `uptime` and the top processes are recorded before and after each run.
+- A session started again continues: `progress.log` is appended to, and a configuration whose `final` line is there is skipped.
 - Each configuration runs twice; a row counts when the two agree within 3% on every rate (`blas_bench --merge`); sections with rows apart run again, up to 3 more times, and a row still apart is marked noisy.
 - A ratio from 0.97 to 1.03 is within noise; multithreaded rows are indicative only.

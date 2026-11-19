@@ -19,14 +19,14 @@ idle_macos() {
   out=$(top -l 2 -s 5 -o cpu -n 14 -stats pid,command,cpu | awk '/^PID/{n++; next} n==2')
   procs=$(echo "$out" | awk 'NF>=3 {cpu=$NF; $1=""; $NF=""; sub(/^ +/,""); sub(/ +$/,""); print cpu "\t" $0}' | awk -F '\t' '$2!="top" && $2 !~ /^sshd/' | sort -t "$TAB" -k1,1 -g -r)
   top5=$(echo "$procs" | head -5 | awk -F '\t' '{printf "%s %s; ", $2, $1}')
-  # the user keeps Activity Monitor open: it and sysmond are out of the 5%
+  # the user keeps Activity Monitor open: it and sysmond are out of the 15%
   # test, their share added to the load limit
   maxp=$(echo "$procs" | awk -F '\t' '$2 !~ /^(Activity Monitor|sysmond)$/' | head -1 | cut -f1)
   lim=$(echo "$procs" | awk -F '\t' '$2 ~ /^(Activity Monitor|sysmond)$/ {s+=$1} END{printf "%.2f", 2+s/100}')
   why=""
   [ "$q" != 0 ] && why="${why}qemu "
   awk -v l="$l" -v m="$lim" 'BEGIN{exit !(l>=m)}' && why="${why}load "
-  awk -v t="${maxp:-0}" 'BEGIN{exit !(t>5)}' && why="${why}proc "
+  awk -v t="${maxp:-0}" 'BEGIN{exit !(t>15)}' && why="${why}proc "
   local st=IDLE
   [ -n "$why" ] && st="BUSY(${why% })"
   echo "$(date '+%Y-%m-%d %H:%M:%S') load=$l (under $lim) qemu=$q top5=[${top5%; }] $st $1" >> "$D/poll.log"
@@ -43,7 +43,7 @@ win_sample() {
 }
 
 # the same rule here: the processor queue under 2 stands for the load; this
-# script's own tools are out of the 5% test
+# script's own tools are out of the 15% test
 idle_windows() {
   local q s procs top5 maxp ql why
   q=$(tasklist //FO CSV //NH 2>/dev/null | grep -ci '^"qemu-system')
@@ -55,7 +55,7 @@ idle_windows() {
   why=""
   [ "$q" != 0 ] && why="${why}qemu "
   awk -v l="${ql:-0}" 'BEGIN{exit !(l>=2)}' && why="${why}queue "
-  awk -v t="${maxp:-0}" 'BEGIN{exit !(t>5)}' && why="${why}proc "
+  awk -v t="${maxp:-0}" 'BEGIN{exit !(t>15)}' && why="${why}proc "
   local st=IDLE
   [ -n "$why" ] && st="BUSY(${why% })"
   echo "$(date '+%Y-%m-%d %H:%M:%S') queue=$ql qemu=$q top5=[${top5%; }] $st $1" >> "$D/poll.log"
@@ -76,13 +76,14 @@ snap() {
   fi
 }
 
-# one line in the watch file when another process is over 5% or another
+# one line in the watch file when another process is over 15% of a core (a
+# brief spike does not move a best-of-batches time) or another
 # QEMU runs; $1 the QEMUs the run itself starts
 watch1() {
   if [ "$rule" = macos ]; then
-    ps -Ao pcpu=,comm= | awk -v own="$1" -v t="$(date +%H:%M:%S)" '{c=$2; sub(/.*\//,"",c)} c ~ /^qemu-system/ {q++} $1>5 && c !~ /^(blas_bench|qemu-system|sshd|nix|Activity|sysmond|ps$)/ {s=s c "=" $1 " "} END {if (q>own) s=s "qemu=" q; if (s!="") print t, s}'
+    ps -Ao pcpu=,comm= | awk -v own="$1" -v t="$(date +%H:%M:%S)" '{c=$2; sub(/.*\//,"",c)} c ~ /^qemu-system/ {q++} $1>15 && c !~ /^(blas_bench|qemu-system|sshd|nix|Activity|sysmond|ps$)/ {s=s c "=" $1 " "} END {if (q>own) s=s "qemu=" q; if (s!="") print t, s}'
   else
-    win_sample | awk -F '\t' -v own="$1" -v t="$(date +%H:%M:%S)" '$1=="queue"{next} $2 ~ /^qemu-system/ {q++} $1>5 && $2 !~ /^(blas_bench|qemu-system|typeperf|bash|sh|ssh|conhost|tasklist|awk|Taskmgr)(#[0-9]+)?$/ {s=s $2 "=" $1 " "} END {if (q>own) s=s "qemu=" q; if (s!="") print t, s}'
+    win_sample | awk -F '\t' -v own="$1" -v t="$(date +%H:%M:%S)" '$1=="queue"{next} $2 ~ /^qemu-system/ {q++} $1>15 && $2 !~ /^(blas_bench|qemu-system|typeperf|bash|sh|ssh|conhost|tasklist|awk|Taskmgr)(#[0-9]+)?$/ {s=s $2 "=" $1 " "} END {if (q>own) s=s "qemu=" q; if (s!="") print t, s}'
   fi
 }
 
@@ -114,7 +115,10 @@ one() {
       echo "rc=$rc secs=$(($(date +%s) - start))"
     } > "$R/$name.after" 2>&1
     say "end $name rc=$rc watch=$(wc -l < "$R/$name.watch" | tr -d ' ')"
-    if [ ! -s "$R/$name.watch" ] || [ $t = 4 ]; then return 0; fi
+    # disturbed: a minute of it (3 samples). Passes with single spikes to 77%
+    # matched clean ones as closely as clean ones match each other (M6,
+    # 2026-11-19: median 0.3%, 90th percentile 3%)
+    if [ "$(wc -l < "$R/$name.watch")" -lt 3 ] || [ $t = 4 ]; then return 0; fi
     for f in before after log watch; do mv "$R/$name.$f" "$R/$name.dist$t.$f"; done
     say "disturbed $name: $(tr '\n' ' ' < "$R/$name.dist$t.watch")"
   done
@@ -123,10 +127,13 @@ one() {
 # a configuration twice, then its noisy sections up to 3 more times
 cfg() {
   local c=$1 all=$2 cmd=$3 i secs
+  # a restarted session skips what it finished
+  grep -q " $c final:" "$D/progress.log" 2> /dev/null && return 0
   for i in 1 2; do one "$c-$i" "$all" "$cmd"; done
   for i in 3 4 5; do
     "$merge" --merge "$R/$c.merged.md" $(ls "$R/$c"-[0-9].log | sort) > "$R/$c.report"
-    secs=$(grep '^NOISY' "$R/$c.report" | awk '{print $2}' | sort -u | tr '\n' ' ')
+    # `?`: a table `--merge` cannot read (no section marker, no rates); not rerun
+    secs=$(grep '^NOISY' "$R/$c.report" | awk '$2 != "?" {print $2}' | sort -u | tr '\n' ' ')
     say "$c: $(grep -c '^NOISY' "$R/$c.report") noisy rows before run $i [$secs]"
     [ -z "$secs" ] && break
     one "$c-$i" "$secs" "$cmd"
@@ -203,7 +210,8 @@ mac-run)
   D=$(cd "$2" && pwd)
   export PATH=/nix/var/nix/profiles/default/bin:$PATH
   rev=$(sed -n 's/.*"rev": *"\([0-9a-f]*\)".*/\1/p' "$D/nix/flake.lock" | head -1)
-  : > "$D/progress.log"
+  # appended to: a restarted session reads what the last one finished (`cfg`)
+  touch "$D/progress.log"
   say "flyoff start; macOS $(sw_vers -productVersion) ($(sw_vers -buildVersion))"
   bash "$D/nix/blas.sh" aarch64-darwin "$rev" "$D/bench-nix" >> "$D/progress.log" 2>&1 || {
     say "blas.sh darwin failed"
