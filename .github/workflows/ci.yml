@@ -338,6 +338,9 @@ jobs:
           - { name: x86_64-linux-gnu, tier: 2, runner: ubuntu-24.04 }
           - { name: x86_64-linux-musl, tier: 2, runner: ubuntu-24.04, args: -Dtarget=x86_64-linux-musl }
           - { name: aarch64-linux-gnu, tier: 2, runner: ubuntu-24.04-arm }
+          # ThreadSanitizer natively: the linux-aarch64 rig has no KVM here and
+          # passed the job's time limit under TCG (issue #539)
+          - { name: 'aarch64-linux-gnu, tsan', tier: 2, runner: ubuntu-24.04-arm, args: -Drstd-tsan }
           - { name: aarch64-linux-musl, tier: 2, runner: ubuntu-24.04-arm, args: -Dtarget=aarch64-linux-musl }
           - { name: aarch64-macos, tier: 2, runner: macos-15 }
           - { name: x86_64-macos, tier: 2, runner: macos-15-intel }
@@ -514,10 +517,6 @@ jobs:
           - { rig: linux-x86_64, runner: ubuntu-24.04, tsan: true, part: blas3 }
           - { rig: linux-x86_64, runner: ubuntu-24.04, tsan: true, part: lapack }
           - { rig: linux-x86_64, runner: ubuntu-24.04, tsan: true, part: rest }
-          - { rig: linux-aarch64, runner: ubuntu-24.04-arm, tsan: true, part: blas1-2 }
-          - { rig: linux-aarch64, runner: ubuntu-24.04-arm, tsan: true, part: blas3 }
-          - { rig: linux-aarch64, runner: ubuntu-24.04-arm, tsan: true, part: lapack }
-          - { rig: linux-aarch64, runner: ubuntu-24.04-arm, tsan: true, part: rest }
     steps: &rig-steps
       - uses: actions/checkout@v7
         with:
