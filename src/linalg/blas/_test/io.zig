@@ -30,6 +30,8 @@ pub const TestIo = if (hosted) Io.Threaded else if (kernel_smp) |k| k.Pool else 
 /// cannot be sized so (`Dispatch` sizes its own pool) or does not start.
 /// Fibers take large stacks: the page allocator neither fills nor checks them.
 pub fn initEvented(ev: *Evented, extra: u32) bool {
+    // under TSan `Uring`'s idle entry reads past its stack (issue #524)
+    if (comptime sysinfo.sanitize_thread and Evented == Io.Uring) return false;
     var opts: Evented.InitOptions = .{};
     // the page allocator is thread-safe
     if (@hasField(Evented.InitOptions, "backing_allocator_needs_mutex")) opts.backing_allocator_needs_mutex = false;
