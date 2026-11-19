@@ -119,7 +119,7 @@ pub const ext_l3 = .{ Gemm3, Symm, Syrk, Trmm, Trsm };
 /// rstd's LAPACK. An entry gates rstd's call on `@hasDecl`, so it races
 /// once the routine lands; `Geqrf` and `Syevd` race the libraries alone until
 /// their rstd call is added (issue #120).
-const lapack_ops = .{ Potrf, Getrf, Getrs, Gesv, Trtri, Potri, Gesvd, Gesdd, Geqrf, Syevd, Sytrf, Gbtrf };
+const lapack_ops = .{ Potrf, Getrf, Getrs, Gesv, Trtri, Potri, Gesvd, Gesdd, Geqrf, Syevd, SyevdN, Sytrf, Gbtrf };
 
 pub fn libLapack(io: Io, gpa: std.mem.Allocator) !void {
     sectionMark("lapack");
@@ -139,7 +139,7 @@ pub fn extTable(io: Io, gpa: std.mem.Allocator, comptime lv: Level, comptime ops
 const ext_leads = [_][]const u8{
     "Level 2 beyond `gemv`, each library's Fortran-ABI routine, unit strides, n as `gemv`'s (`A` of 32 KiB, 4 MiB, 64 MiB): `ger` `A += 1e-6 x yᵀ` (`geru` complex), `symv` `y += 1e-3 S x` (upper), `trsv` upper, no transpose, non-unit on a diagonally dominant `A`, `x` restored before each call (counted), `gbmv` `y += 1e-3 A x` with kl = ku = 32 (`A`'s band of the same bytes); rates by 2n², 2n², n², 2n (kl + ku + 1), four times as many complex.",
     "Level 3 beyond `gemm`, each library's Fortran-ABI routine, square n, `alpha` and `beta` 1: `gemm` NN, `symm` left upper, `syrk` upper NN, `trmm` and `trsm` left upper NN non-unit (`trsm` on a diagonally dominant `A`), `B` restored before each `trmm` and `trsm` call (an n² copy, counted); rates by 2n³, 2n³, n²(n + 1), n³, n³, four times as many complex; `reference` to n = 1024.",
-    "LAPACK, square n, upper where it matters: rates by LAPACK's counts, `potrf` n³/3, `getrf` 2n³/3, `getrs` 2n³ (n right-hand sides), `gesv` 2n³/3 + 2n² (one), `trtri` n³/3, `potri` 2n³/3, and nominal ones: `gesvd` and `gesdd` 22n³ (thin `U` and `Vᵀ`, Golub and Van Loan's Golub-Reinsch count), `geqrf` 4n³/3, `syevd` (`heevd` complex) 9n³ with vectors, `sytrf` n³/3, `gbtrf` 4nk² (kl = ku = k = 32, at `gemv`'s band sizes); four times as many complex. `A` is diagonally dominant for `getrf`, `getrs`, `gesv` and `trtri` (no row exchanges, so pivots agree), Hermitian positive definite for `potrf`, `potri`, `syevd` and `sytrf`; `getrs` and `potri` start from a factorization made here in f64. Each call restores what it overwrites first (an n² copy, counted). `gesvd`, `gesdd`, `geqrf`, `syevd`, `sytrf` and `gbtrf` race the libraries until rstd has them.",
+    "LAPACK, square n, upper where it matters: rates by LAPACK's counts, `potrf` n³/3, `getrf` 2n³/3, `getrs` 2n³ (n right-hand sides), `gesv` 2n³/3 + 2n² (one), `trtri` n³/3, `potri` 2n³/3, and nominal ones: `gesvd` and `gesdd` 22n³ (thin `U` and `Vᵀ`, Golub and Van Loan's Golub-Reinsch count), `geqrf` 4n³/3, `syevd` (`heevd` complex) 9n³ with vectors and `syevdN` 4n³/3 without (the reduction's), `sytrf` n³/3, `gbtrf` 4nk² (kl = ku = k = 32, at `gemv`'s band sizes); four times as many complex. `A` is diagonally dominant for `getrf`, `getrs`, `gesv` and `trtri` (no row exchanges, so pivots agree), Hermitian positive definite for `potrf`, `potri`, `syevd` and `sytrf`; `getrs` and `potri` start from a factorization made here in f64. Each call restores what it overwrites first (an n² copy, counted). `gesvd`, `gesdd`, `geqrf`, `syevd`, `sytrf` and `gbtrf` race the libraries until rstd has them.",
 };
 
 const ext_note = "`rstd err` is rstd's largest residual at the checked entries (all, or 256 sampled), in eps of the type relative to the size of its terms; `rstd-<lib>` is rstd's largest difference from that library's output in eps relative to the output's largest entry, `!` past 2 (terms + 8). `rstd bits` hashes rstd's output. Eigen runs one thread; `-` where a library lacks the routine";
@@ -1289,6 +1289,39 @@ const Syevd = struct {
         const ev = w.at(.s, j)[0];
         const z = w.at(.a, i + j * n);
         return .{ cdist(s, .{ z[0] * ev, z[1] * ev }), mag + @abs(ev) * cmag(z) };
+    }
+};
+
+/// `syevd`, `heevd` with `jobz` `N`: the values alone, the reduction and
+/// the tridiagonal's eigenvalues (rstd's `stebr.zig` from
+/// `evd.stebr_crossover`); a nominal 4n³/3, the reduction's. No residual
+/// without vectors: only the agreement with rstd.
+const SyevdN = struct {
+    pub const name = "syevdN";
+    pub const shape: Shape = .mm;
+    pub const fill: Fill = .spd;
+    pub const restore: Restore = .{ .a = true };
+    pub const out: Buf = .s;
+    pub fn flops(n: f64) f64 {
+        return 4 * n * n * n / 3;
+    }
+    pub fn sym(comptime p: Prec) []const u8 {
+        return p.name ++ (if (p.complex) "heevd" else "syevd");
+    }
+    pub const Sig = Syevd.Sig;
+    pub fn lib(comptime p: Prec, f: *const Sig(p), w: *Work(p)) void {
+        const n = w.ni();
+        const lw = w.lw();
+        const liw = w.liw();
+        if (p.complex) {
+            const lrw = w.lrw();
+            f(&fc.N, &fc.U, &n, w.a.ptr, &n, w.s.ptr, w.work.ptr, &lw, w.rwork.ptr, &lrw, w.iwork.ptr, &liw, &w.info, 1, 1);
+        } else f(&fc.N, &fc.U, &n, w.a.ptr, &n, w.s.ptr, w.work.ptr, &lw, w.iwork.ptr, &liw, &w.info, 1, 1);
+    }
+    pub const has_rstd = @hasDecl(lapack, "syevd");
+    pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
+        const n = w.in();
+        try lapack.syevd(rstd_alloc, libs.rstd_io, Num(p), .n, .u, w.n, libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), w.n, w.s[0..w.n]);
     }
 };
 

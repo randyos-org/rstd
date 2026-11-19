@@ -1,6 +1,6 @@
 //! Reference-LAPACK's small auxiliaries the routines share: `xLASCL`,
 //! `xLANGE('M')` and the drivers' scaling prologue, `xLARTG`, `xLARFG`,
-//! `xLAPY2`, `xLAPY3` and `xLASET`.
+//! `xLAPY2`, `xLAPY3`, `xLAMRG` and `xLASET`.
 
 const std = @import("std");
 const types = @import("../blas/types.zig");
@@ -191,6 +191,28 @@ pub fn lapy3(comptime F: type, x: F, y: F, z: F) F {
     const w = @max(xa, ya, za);
     if (w == 0 or w > std.math.floatMax(F)) return xa + ya + za;
     return w * @sqrt((xa / w) * (xa / w) + (ya / w) * (ya / w) + (za / w) * (za / w));
+}
+
+/// `xLAMRG` (`dlamrg.f`): `index` (`n1 + n2`) the ascending merge of
+/// `a[0..n1]` and `a[n1..][0..n2]`, each sorted ascending (`up`) or
+/// descending; ties take the first list's entry first.
+pub fn lamrg(comptime F: type, n1: usize, n2: usize, a: []const F, up1: bool, up2: bool, index: []usize) void {
+    var left1 = n1;
+    var left2 = n2;
+    var ind1: usize = if (up1) 0 else n1 -% 1;
+    var ind2: usize = if (up2) n1 else n1 + n2 -% 1;
+    for (index[0 .. n1 + n2]) |*x| {
+        const first = left2 == 0 or (left1 > 0 and a[ind1] <= a[ind2]);
+        if (first) {
+            x.* = ind1;
+            ind1 = if (up1) ind1 +% 1 else ind1 -% 1;
+            left1 -= 1;
+        } else {
+            x.* = ind2;
+            ind2 = if (up2) ind2 +% 1 else ind2 -% 1;
+            left2 -= 1;
+        }
+    }
 }
 
 /// What `laset` returns: a reversed `uplo`, a slice too short or a leading

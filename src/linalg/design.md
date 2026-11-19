@@ -998,9 +998,13 @@ allows.
   arguments and scaling into `[sqrt(SMLNUM), sqrt(BIGNUM)]`, over faer's
   `self_adjoint_evd`: tridiagonalize, take the real tridiagonal (a complex subdiagonal's
   phases moved into the vectors), decompose it by divide and conquer from 128 up (`syevd`, as
-  the reference's `xSTEDC`) or by QR iteration (`syev`, as `xSTEQR`; and for values alone),
-  apply the reflections. `NoConvergence` also for a NaN or infinity in `A`, which faer's
-  solvers cannot take; with `jobz` `n`, `A` is left as it was.
+  the reference's `xSTEDC`) or by QR iteration (`syev`, as `xSTEQR`), apply the reflections.
+  Values alone, in both drivers, come from Reference-LAPACK's `xSTEBR` (`stebr.zig`, T186,
+  [#508](https://github.com/randyos-org/rstd/issues/508)) from `evd.stebr_crossover` up and
+  from QR iteration below it: a divide and conquer that carries only the first and last rows
+  of each block's eigenvectors, over `xLAED4`'s secular solver (`laed4.zig`). `NoConvergence`
+  also for a NaN or infinity in `A`, which faer's solvers cannot take; with `jobz` `n`, `A`
+  is left as it was.
 - **`geev`** (`evd.zig`): `dgeev.f`'s arguments, NaN check
   (`NanInA`, the reference's `INFO = -4`), scaling and normalization (unit 2-norm, largest
   entry real; a real pair turned by `DLARTG`), over faer's `evd_real` and `evd_cplx`:
@@ -1068,9 +1072,10 @@ allows.
   which OpenBLAS's 71f22601 clamps to 0). `test/test_laed3_nan.c` is ported against `syevd`
   (`evd.zig`), at its `n = 8`, through divide and conquer at thresholds 4 and 8, and at
   `n = 200`. The reference routines `dsyevd` reaches that faer has no counterpart for:
-  `xSTERF` (root-free QR for values alone; faer runs its QR iteration without vectors),
-  `xLAMC3` (an addition forced through memory against extended registers) and `xLAMRG`
-  (faer merges inline).
+  `xSTERF` (root-free QR for values alone; faer runs its QR iteration without vectors, and
+  `stebr.zig` takes it for `xSTERF`'s blocks) and `xLAMC3` (an addition forced through memory
+  against extended registers). `xLAMRG` is ported for `stebr.zig` (`auxiliary.zig`), where
+  faer merges inline. `xSTEBR`'s own `xLAED9_BR` keeps `xLAED3`'s `sqrt(-W)`.
 - **Implementation notes.** `sytrf`'s one body (`indefinite.zig`) runs the upper triangle as the lower algorithm on the matrix read backwards, which mirrors the reference's upper loops, its pivot ties and its `gemv` sums; its `i?amax` takes the first NaN, else the first largest `|re| + |im|`, and its level-2 loops keep the reference BLAS's order. `geqp3` (`qr_pivot.zig`) scales `A` by its largest column norm and leaves a zero matrix as is, where faer scales it by an infinite reciprocal; its norms are rstd's `nrm2`, whose unscaled sum at an extended type reads a matrix near underflow as zero. The complex `lahqr`'s exceptional shift is faer's, the eigenvalue of a 2 x 2 from the trailing subdiagonal, where `zlahqr.f` takes `0.75 |h(i, i-1)| + h(i, i)`. Complex division is Smith's (`ops.div`, `util.cdiv`) wherever the reference takes `ZLADIV` or `DLADIV`.
 - **Sources.** [`sources.md`](lapack/sources.md) lists, per routine, the candidates (OpenBLAS,
   ReLAPACK, faer, libflame, AOCL-libFLAME), which implement it, the choice and its evidence.
@@ -1962,7 +1967,7 @@ interface mirrors an upstream one with a CBLAS row-major branch (`ger`'s `gerv_k
 | `blas2/` | `gemv`, `ger`, `symv`, `hemv` directories; `interface.zig`, `triangular.zig`, `banded.zig`, `symmetric.zig`; `buffers.md`, `coverage.md` |
 | `blas3/` | one directory per routine; `interface.zig`, `driver.zig`; `gemm/` holds the tile kernels, `params.zig`, `params_data.zig`, `notes.md`, `coverage.md` |
 | `ext/` | `bf16/` (bfloat16 and half kernels); `interface.zig`; `geadd/`, `matcopy.zig` (the `omatcopy` and `imatcopy` kernels), `laswp/` and `neg/` (their kernels over the gemm tile, in `kernel.zig`) |
-| `../lapack/` | LAPACK over these routines: `cholesky.zig` (`potrf`, `potf2`, `potrs`, `potri`), `lu.zig` (`getrf`, `getrs`, `gesv`, `getri`), `gbtrf.zig` (`gbtrf`), `triangular.zig` (`trtri`, `trti2`, `lauum`, `lauu2`, `trtrs`), `relapack.zig` with `relapack_sygst.zig` and `relapack_pbtrf.zig` (ReLAPACK's `sygst`, `hegst`, `pbtrf`, and under `-Drelapack` `potrf`, `getrf`, `trtri`, `lauum`), `sytrf.zig` (`sytrf`, `hetrf` and `_rook` forms) over `indefinite.zig`'s and `indefinite_panel.zig`'s kernels, `trsyl.zig` and `tgsyl.zig` over `sylvester.zig`'s, `laln2.zig`'s, `lasy2.zig`'s and `tgsy2.zig`'s; Reference-LAPACK's own: `norm.zig` (`lange`), `gecon.zig` (`gecon`) over `lacn2.zig` and `latrs.zig`, `schur.zig` (`hseqr`, `gees`), `trexc.zig` and `trsen.zig` over `laexc.zig`, `lsq.zig` (`gelsy`); `lq.zig` (`gelqf`, `orglq`, `ormlq`, libflame's method), `trevc.zig` (`trevc3`); shared: `interface.zig` (argument checks, vtable, thread rules), `auxiliary.zig` (`lascl`, `lartg`, `larfg`, `lapy2`, `laset` and the rest); faer's ports: `ops.zig`, `blas_calls.zig`, `householder.zig`, `qr.zig` (`geqrf`, `orgqr`, `ormqr`), `qr_pivot.zig` (`geqp3`), `qr_solve.zig` (`gels`), `bidiag.zig`, `bidiag_svd.zig` (with `bdsqr.zig`, `bidiag_secular.zig`, `bidiag_deflate.zig`), `svd.zig` (`gesvd`, `gesdd`), `tridiag.zig`, `tridiag_evd.zig`, `hessenberg.zig` (`gehrd`, `orghr`), `real_schur.zig`, `complex_schur.zig`, `balance.zig` (`gebal`, `gebak`), `evd.zig` (`syevd`, `syev`, `geev`) |
+| `../lapack/` | LAPACK over these routines: `cholesky.zig` (`potrf`, `potf2`, `potrs`, `potri`), `lu.zig` (`getrf`, `getrs`, `gesv`, `getri`), `gbtrf.zig` (`gbtrf`), `triangular.zig` (`trtri`, `trti2`, `lauum`, `lauu2`, `trtrs`), `relapack.zig` with `relapack_sygst.zig` and `relapack_pbtrf.zig` (ReLAPACK's `sygst`, `hegst`, `pbtrf`, and under `-Drelapack` `potrf`, `getrf`, `trtri`, `lauum`), `sytrf.zig` (`sytrf`, `hetrf` and `_rook` forms) over `indefinite.zig`'s and `indefinite_panel.zig`'s kernels, `trsyl.zig` and `tgsyl.zig` over `sylvester.zig`'s, `laln2.zig`'s, `lasy2.zig`'s and `tgsy2.zig`'s; Reference-LAPACK's own: `norm.zig` (`lange`), `gecon.zig` (`gecon`) over `lacn2.zig` and `latrs.zig`, `schur.zig` (`hseqr`, `gees`), `trexc.zig` and `trsen.zig` over `laexc.zig`, `lsq.zig` (`gelsy`), `stebr.zig` (values-only divide and conquer, `xSTEBR`) over `laed8_br.zig`, `laed9_br.zig` and `laed4.zig`; `lq.zig` (`gelqf`, `orglq`, `ormlq`, libflame's method), `trevc.zig` (`trevc3`); shared: `interface.zig` (argument checks, vtable, thread rules), `auxiliary.zig` (`lascl`, `lartg`, `larfg`, `lapy2`, `laset` and the rest); faer's ports: `ops.zig`, `blas_calls.zig`, `householder.zig`, `qr.zig` (`geqrf`, `orgqr`, `ormqr`), `qr_pivot.zig` (`geqp3`), `qr_solve.zig` (`gels`), `bidiag.zig`, `bidiag_svd.zig` (with `bdsqr.zig`, `bidiag_secular.zig`, `bidiag_deflate.zig`), `svd.zig` (`gesvd`, `gesdd`), `tridiag.zig`, `tridiag_evd.zig`, `hessenberg.zig` (`gehrd`, `orghr`), `real_schur.zig`, `complex_schur.zig`, `balance.zig` (`gebal`, `gebak`), `evd.zig` (`syevd`, `syev`, `geev`) |
 | `blas3/gemmt/` | `gemmt`'s tests; it runs the driver |
 | `_test/` | test-only code, wired by `_test/__root__.zig` (below) |
 | `unused/` | git-ignored, kept locally: kernels, slots and stubs no column-major Zig caller reaches (above) |

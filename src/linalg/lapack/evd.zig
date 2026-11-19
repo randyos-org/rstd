@@ -13,6 +13,7 @@ const hh = @import("householder.zig");
 const qr = @import("qr.zig");
 const tridiag = @import("tridiag.zig");
 const tevd = @import("tridiag_evd.zig");
+const stebr_dc = @import("stebr.zig");
 const hessenberg = @import("hessenberg.zig");
 const real_schur = @import("real_schur.zig");
 const complex_schur = @import("complex_schur.zig");
@@ -49,7 +50,15 @@ pub fn syevd(allocator: Allocator, io: Io, comptime T: type, jobz: Jobz, uplo: U
     return driver(allocator, io, T, jobz, uplo, n, a, lda, w, dc_threshold);
 }
 
-/// `?SYEV`, `?HEEV`: as `syevd`, the tridiagonal by QR iteration.
+/// The order from which the values alone come from `stebr.zig`'s divide and
+/// conquer rather than QR iteration (both drivers, real and complex). On
+/// Zen 3, one thread, f64, two runs (T186, 2026-11-19), `stebr` took of
+/// `qrAlgorithm`'s time 0.90 to 0.94 at n = 26 on random and 1-2-1
+/// matrices but 1.12 clustered, 0.72 to 0.91 at 40 on all three, 0.42 to
+/// 0.48 at 100. Below 26 `stebr` is `qrAlgorithm`.
+pub const stebr_crossover = 40;
+
+/// `?SYEV`, `?HEEV`: as `syevd`, the tridiagonal's vectors by QR iteration.
 pub fn syev(allocator: Allocator, io: Io, comptime T: type, jobz: Jobz, uplo: Uplo, n: usize, a: []T, lda: usize, w: []Float(T)) SyevError!void {
     return driver(allocator, io, T, jobz, uplo, n, a, lda, w, std.math.maxInt(usize));
 }
@@ -118,7 +127,9 @@ pub fn selfAdjointEvd(al: Allocator, io: Io, comptime T: type, trid: Mat(T), s: 
         offdiag[i] = if (i + 1 < n) (if (comptime isComplex(T)) ops.abs(T, trid.get(i + 1, i)) else trid.get(i + 1, i)) else 0;
     }
     const um = u orelse {
-        try tevd.qrAlgorithm(F, diag, offdiag, null);
+        if (n < stebr_crossover) {
+            try tevd.qrAlgorithm(F, diag, offdiag, null);
+        } else try stebr_dc.stebr(al, F, diag, offdiag[0 .. n - 1]);
         @memcpy(s, diag);
         return;
     };
