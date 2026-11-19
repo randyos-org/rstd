@@ -83,7 +83,7 @@ pub fn Convolver(comptime T: type) type {
             const n = 2 * b;
             if (in.len < b or out.len < b) return error.SliceTooShort;
             const window = self.inputWindow();
-            std.mem.copyForwards(T, window[0..b], window[b..n]);
+            @memmove(window[0..b], window[b..n]);
             @memcpy(window[b..n], in[0..b]);
             self.head = (self.head + 1) % self.parts;
             self.plan.forwardUnordered(self.lineSpectrum(self.head), window, self.scratch()) catch unreachable;

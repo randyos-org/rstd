@@ -84,11 +84,11 @@ fn withData(io: Io, arena: std.mem.Allocator, env: *std.process.Environ.Map, arg
     const tagged = for (argv) |a| {
         if (std.mem.find(u8, a, tag) != null) break true;
     } else false;
-    if (!tagged or !std.mem.startsWith(u8, std.fs.path.basename(argv[0]), "qemu-system")) return argv;
+    if (!tagged or !std.mem.startsWith(u8, Io.Dir.path.basename(argv[0]), "qemu-system")) return argv;
     const bin = try onPath(io, arena, env, argv[0]) orelse return error.QemuNotOnPath;
-    const bin_dir = std.fs.path.dirname(bin) orelse ".";
-    const prefix_share = try std.fs.path.join(arena, &.{ std.fs.path.dirname(bin_dir) orelse ".", "share", "qemu" });
-    const data = if (Io.Dir.accessAbsolute(io, prefix_share, .{})) |_| prefix_share else |_| try std.fs.path.join(arena, &.{ bin_dir, "share" });
+    const bin_dir = Io.Dir.path.dirname(bin) orelse ".";
+    const prefix_share = try Io.Dir.path.join(arena, &.{ Io.Dir.path.dirname(bin_dir) orelse ".", "share", "qemu" });
+    const data = if (Io.Dir.accessAbsolute(io, prefix_share, .{})) |_| prefix_share else |_| try Io.Dir.path.join(arena, &.{ bin_dir, "share" });
     const out = try arena.alloc([]const u8, argv.len);
     for (argv, out) |a, *o| o.* = try std.mem.replaceOwned(u8, arena, a, tag, data);
     return out;
@@ -96,12 +96,12 @@ fn withData(io: Io, arena: std.mem.Allocator, env: *std.process.Environ.Map, arg
 
 /// `name`'s full path on `PATH`, `.exe` tried too.
 fn onPath(io: Io, arena: std.mem.Allocator, env: *std.process.Environ.Map, name: []const u8) !?[]const u8 {
-    if (std.fs.path.isAbsolute(name)) return name;
+    if (Io.Dir.path.isAbsolute(name)) return name;
     const path = env.get("PATH") orelse env.get("Path") orelse return null;
-    var dirs = std.mem.tokenizeScalar(u8, path, std.fs.path.delimiter);
+    var dirs = std.mem.tokenizeScalar(u8, path, Io.Dir.path.delimiter);
     while (dirs.next()) |dir| {
         for ([_][]const u8{ "", ".exe" }) |ext| {
-            const full = try std.fmt.allocPrint(arena, "{s}{c}{s}{s}", .{ dir, std.fs.path.sep, name, ext });
+            const full = try arena.print("{s}{c}{s}{s}", .{ dir, Io.Dir.path.sep, name, ext });
             Io.Dir.accessAbsolute(io, full, .{}) catch continue;
             return full;
         }
@@ -141,6 +141,6 @@ fn passThrough(io: Io, from: Io.File, out: Io.File, halts: []const []const u8, f
         if (fail_fast and state.failed.load(.acquire) == 0 and std.mem.find(u8, seen, fail_text) != null)
             state.failed.store(now(io), .release);
         kept = @min(seen.len, 256);
-        std.mem.copyForwards(u8, buf[0..kept], seen[seen.len - kept ..]);
+        @memmove(buf[0..kept], seen[seen.len - kept ..]);
     }
 }

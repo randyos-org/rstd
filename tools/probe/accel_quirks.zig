@@ -287,10 +287,10 @@ fn Cases(comptime s: Set) type {
                 const nan_at = for (y[oy..][0..n], 0..) |e, i| {
                     if (std.math.isNan(e)) break i;
                 } else continue;
-                if (bad == 0) first = std.fmt.bufPrint(&first_buf, "n={d} {s} incx={d} inf at {d}, NaN at y({d}), offsets a {d} x {d} y {d}", .{ n, if (ul == lower) "lower" else "upper", incx, p, nan_at, oa, ox, oy }) catch "";
+                if (bad == 0) first = std.mem.print(&first_buf, "n={d} {s} incx={d} inf at {d}, NaN at y({d}), offsets a {d} x {d} y {d}", .{ n, if (ul == lower) "lower" else "upper", incx, p, nan_at, oa, ox, oy }) catch "";
                 bad += 1;
             };
-            if (bad > 0) note = std.fmt.bufPrint(&note_buf, "{d} of {d}; first {s}", .{ bad, runs, first }) catch first;
+            if (bad > 0) note = std.mem.print(&note_buf, "{d} of {d}; first {s}", .{ bad, runs, first }) catch first;
             return of(bad > 0);
         }
 

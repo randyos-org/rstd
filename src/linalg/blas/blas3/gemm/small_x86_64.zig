@@ -350,7 +350,7 @@ pub const Cooperlake = struct {
         const name = @tagName(slot);
         const op = name[name.len - 2 ..];
         const K = Ops(op[0] == 't', op[1] == 't');
-        return if (comptime std.mem.indexOf(u8, name, "_b0_") != null) &K.zero else &K.scaled;
+        return if (comptime std.mem.find(u8, name, "_b0_") != null) &K.zero else &K.scaled;
     }
 
     fn Ops(comptime ta: bool, comptime tb: bool) type {

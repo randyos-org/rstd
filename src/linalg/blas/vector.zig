@@ -1380,7 +1380,7 @@ pub fn routed(comptime slot: Slot) bool {
 /// `bulldozer` kin. Their C kernels on other cores stay.
 pub fn peels(comptime slot: Slot) bool {
     if (sysinfo.target.cpu.arch != .x86_64) return false;
-    return std.mem.indexOfScalar(Slot, &peeling, slot) != null;
+    return std.mem.findScalar(Slot, &peeling, slot) != null;
 }
 
 /// The slots `peels` names.

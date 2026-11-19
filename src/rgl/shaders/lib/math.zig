@@ -366,7 +366,7 @@ fn Mask(comptime T: type) type {
 }
 
 /// GLSL's bit casts are 32-bit: `i32` or `u32` lanes for `f32` ones.
-fn Bits(comptime T: type, comptime signedness: std.builtin.Signedness) type {
+fn Bits(comptime T: type, comptime signedness: std.lang.Signedness) type {
     if (Scalar(T) != f32) @compileError("GLSL's float bit casts take f32");
     const I = if (signedness == .signed) i32 else u32;
     return if (@typeInfo(T) == .vector) @Vector(@typeInfo(T).vector.len, I) else I;

@@ -62,7 +62,7 @@ pub fn start() void {
     var spins: usize = 0;
     while (online.load(.acquire) < 1 + asked and spins < 1 << 30) : (spins += 1) std.atomic.spinLoopHint();
     var buf: [64]u8 = undefined;
-    root_mod.testWrite(std.fmt.bufPrint(&buf, "{d} of {d} cores up\n", .{ count(), 1 + asked }) catch unreachable);
+    root_mod.testWrite(std.mem.print(&buf, "{d} of {d} cores up\n", .{ count(), 1 + asked }) catch unreachable);
 }
 
 /// Where a started core lands, on its stack: TLS, then tasks forever.

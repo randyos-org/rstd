@@ -973,7 +973,7 @@ fn sweep1(comptime T: type, comptime r: R1, seen: *Seen) void {
                 if (on_y and (!two or p == null)) continue;
                 case1(T, r, k, n, inc, p, on_y) catch {
                     var kb: [96]u8 = undefined;
-                    const key = std.fmt.bufPrint(&kb, "{s} {s} v{d} {s} in {s} inc {d},{d}", .{ @tagName(r), @typeName(T), k, patternName(p), if (on_y) "y" else "x", std.math.sign(inc[0]), std.math.sign(inc[1]) }) catch "?";
+                    const key = std.mem.print(&kb, "{s} {s} v{d} {s} in {s} inc {d},{d}", .{ @tagName(r), @typeName(T), k, patternName(p), if (on_y) "y" else "x", std.math.sign(inc[0]), std.math.sign(inc[1]) }) catch "?";
                     if (seen.first(key)) check.say("n={d} inc={d},{d}: {s}\n", .{ n, inc[0], inc[1], key });
                 };
             };

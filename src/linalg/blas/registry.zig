@@ -190,7 +190,7 @@ pub fn Ports(comptime Core: type, comptime arch: []const u8, comptime ports: []c
         fn find(comptime core: Core, comptime slot: Slot) ?Port(Core) {
             for (ports) |p| {
                 if (p.arch) |a| if (!std.mem.eql(u8, a, arch)) continue;
-                if (std.mem.indexOfScalar(Core, p.cores, core) != null and std.mem.indexOfScalar(Slot, p.slots, slot) != null) return p;
+                if (std.mem.findScalar(Core, p.cores, core) != null and std.mem.findScalar(Slot, p.slots, slot) != null) return p;
             }
             return null;
         }
@@ -204,7 +204,7 @@ pub fn Ports(comptime Core: type, comptime arch: []const u8, comptime ports: []c
         pub fn has(comptime core: Core) bool {
             for (ports) |p| {
                 if (p.arch) |a| if (!std.mem.eql(u8, a, arch)) continue;
-                if (std.mem.indexOfScalar(Core, p.cores, core) != null) return true;
+                if (std.mem.findScalar(Core, p.cores, core) != null) return true;
             }
             return false;
         }
@@ -225,7 +225,7 @@ pub fn Ports(comptime Core: type, comptime arch: []const u8, comptime ports: []c
 
         fn firstWith(comptime slot: Slot) usize {
             for (ports, 0..) |p, i| {
-                if (std.mem.indexOfScalar(Slot, p.slots, slot) != null) return i;
+                if (std.mem.findScalar(Slot, p.slots, slot) != null) return i;
             }
             unreachable;
         }
@@ -363,7 +363,7 @@ pub const flushing: struct { cores: []const coretypes.ArmCoreType } = .{
 /// Whether `slot` is over `f32` and `core` one of `flushing`'s.
 fn flushes(comptime core: anytype, comptime slot: Slot) bool {
     if (@TypeOf(core) != coretypes.ArmCoreType) return false;
-    if (std.mem.indexOfScalar(coretypes.ArmCoreType, flushing.cores, core) == null) return false;
+    if (std.mem.findScalar(coretypes.ArmCoreType, flushing.cores, core) == null) return false;
     inline for (vector.every) |k| {
         if (k.slot == slot) return k.F == f32;
     }
@@ -374,7 +374,7 @@ test "flushing names the arm cores whose specs flush f32 lanes" {
     // soft-float ABIs keep floats out of every vector unit
     if (sysinfo.target.abi.float() == .soft) return error.SkipZigTest;
     inline for (comptime corespec.kernelCores(.arm)) |core| {
-        const listed = std.mem.indexOfScalar(coretypes.ArmCoreType, flushing.cores, core) != null;
+        const listed = std.mem.findScalar(coretypes.ArmCoreType, flushing.cores, core) != null;
         try std.testing.expectEqual(!util.vectorIeeeOn(f32, select.specCpu(core)), listed);
     }
 }
@@ -385,8 +385,8 @@ test "flushing names the arm cores whose specs flush f32 lanes" {
 pub fn displaces(comptime core: anytype, comptime slot: Slot) bool {
     if (sysinfo.target.os.tag.isDarwin()) return false;
     if (@TypeOf(core) != coretypes.Arm64CoreType) return false;
-    return std.mem.indexOfScalar(coretypes.Arm64CoreType, displacing.cores, core) != null and
-        std.mem.indexOfScalar(Slot, displacing.keep, slot) == null and fills(slot);
+    return std.mem.findScalar(coretypes.Arm64CoreType, displacing.cores, core) != null and
+        std.mem.findScalar(Slot, displacing.keep, slot) == null and fills(slot);
 }
 
 /// Whether one of the `@Vector` kernels fills `slot` on this target.
@@ -421,7 +421,7 @@ pub fn takes(comptime Core: type, comptime rule: Rule(Core), comptime converted:
     switch (rule) {
         .routed => |cores| {
             if (!vector.routed(slot)) return false;
-            if (cores) |cs| if (std.mem.indexOfScalar(Core, cs, core) == null) return false;
+            if (cores) |cs| if (std.mem.findScalar(Core, cs, core) == null) return false;
             if (!vector.peels(slot)) return true;
             inline for (converted) |m| {
                 if (@hasDecl(m, "skips") and m.skips(core, slot)) return true;
@@ -429,7 +429,7 @@ pub fn takes(comptime Core: type, comptime rule: Rule(Core), comptime converted:
             return false;
         },
         .unfilled => return unfilled(Core, converted, core, slot),
-        .unfilled_on => |cores| return std.mem.indexOfScalar(Core, cores, core) != null and unfilled(Core, converted, core, slot),
+        .unfilled_on => |cores| return std.mem.findScalar(Core, cores, core) != null and unfilled(Core, converted, core, slot),
     }
 }
 
