@@ -15,7 +15,7 @@ __pycache__/
 *.pyo
 *.pyd
 
-# the macOS test VMs: disks, images, firmware settings (build/qemutest.zig)
+# the retired macOS test VM's disks and images, where one is left (N49)
 /.macos-vm/
 
 # BLAS code that does not apply to rstd's column-major Zig API, kept locally

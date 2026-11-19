@@ -10,17 +10,15 @@ pub const mac_alias = "macmini-m6";
 /// The SSH alias of the Intel Mac the x86_64 SSH step uses by default (`-Dssh-mac-intel`).
 pub const intel_mac_alias = "macmini-intel";
 
-pub const Tool = enum { ssh_test, test_host, qemu_watch, load_window, initramfs, macos_vm };
+pub const Tool = enum { ssh_test, test_host, qemu_watch, load_window, initramfs };
 
 var built: std.EnumArray(Tool, ?*Compile) = .initFill(null);
 
-/// Where `tool`'s source is: the rigs' tools in `tools/rig/`, the macOS VM's
-/// in `tools/macos/`.
+/// Where `tool`'s source is: the rigs' tools in `tools/rig/`.
 fn dir(tool: Tool) []const u8 {
     return switch (tool) {
         .ssh_test => "tools",
         .test_host, .qemu_watch, .load_window, .initramfs => "tools/rig",
-        .macos_vm => "tools/macos",
     };
 }
 

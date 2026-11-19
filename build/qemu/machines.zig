@@ -72,8 +72,6 @@ pub const Part = struct { name: []const u8, filters: []const []const u8 };
 /// How the tests reach a machine.
 pub const Boot = union(enum) {
     kernel: Kernel,
-    /// An installed macOS, set up once (`macos.zig`).
-    macos,
     /// A Linux kernel booted with an initramfs holding rstd's full test suite.
     linux: Linux,
 
@@ -852,32 +850,6 @@ const base_machines = [_]Machine{
         // boots and runs; filtered runs pass
         .stub = "TCG's fldt/fstpt misplace the significand bytes past a page boundary, which i386's 4-aligned f80 arrays cross (issue #221)",
         .boot = .{ .linux = .{ .dep = "debian_netboot_i386", .kernel = "debian-installer/i386/linux", .console = "ttyS0" } },
-    },
-    .{
-        // macOS 13 and up; Zig's default minimum is 15.0
-        .name = "x86_64-macos",
-        .query = .{ .cpu_arch = .x86_64, .os_tag = .macos, .os_version_min = .{ .semver = .{ .major = 13, .minor = 0, .patch = 0 } } },
-        .qemu = "qemu-system-x86_64",
-        // `-accel` is added by `macosQemu` (`-Dmac-mttcg`)
-        .args = &.{
-            "-M",      "q35",
-            // OSX-KVM's OpenCore-Boot.sh model, less its KVM-only flags: macOS
-            // wants an Intel CPU, from 13 with AVX2. Under WHPX `max` and `host`
-            // fault the firmware (randyos's `build/qemu.zig`).
-            "-cpu",    "Skylake-Client,-hle,-rtm,vendor=GenuineIntel,+invtsc,+ssse3,+sse4.2,+popcnt,+avx,+aes,+xsave,+xsaveopt",
-            // each vCPU is a host thread under `thread=multi`
-            "-smp",    "8,cores=4,sockets=1",
-            // keyboard and mouse on xHCI: macOS has no USB 1.1 driver
-            "-device", "qemu-xhci,id=xhci",
-            "-device", "usb-kbd,bus=xhci.0",
-            "-device", "usb-tablet,bus=xhci.0",
-            "-device", "usb-ehci,id=ehci",
-            "-smbios", "type=2",
-            "-device", "ich9-ahci,id=sata",
-            "-device", "vmware-svga",
-        },
-        .memory = "6G",
-        .boot = .macos,
     },
 };
 

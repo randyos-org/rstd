@@ -1,6 +1,6 @@
 //! `qemu-test` steps: rstd's tests on `qemu-system-*` machines (`machines.zig`): a freestanding kernel (`test/qemu/`, root
-//! `src/_test_qemu.zig`; on UEFI an application), Linux with an initramfs (`test/linux/init.zig`), or an installed macOS over SSH
-//! (`macos.zig`). Consoles log live to `.zig-cache/qemu-test-<name>.log`; without semihosting the summary carries the result.
+//! `src/_test_qemu.zig`; on UEFI an application), or Linux with an initramfs (`test/linux/init.zig`).
+//! Consoles log live to `.zig-cache/qemu-test-<name>.log`; without semihosting the summary carries the result.
 
 const std = @import("std");
 const rstdbuild = @import("../../src/buildutils/__root__.zig");
@@ -10,7 +10,6 @@ const blaskern = @import("../blaskern.zig");
 const buildroot = @import("../__root__.zig");
 const tools = @import("../tools.zig");
 const machines = @import("machines.zig");
-const macos = @import("macos.zig");
 
 const Machine = machines.Machine;
 const Boot = machines.Boot;
@@ -28,26 +27,12 @@ pub fn addQemuTests(b: *Build, optimize: Optimize) !Rigs {
     for (only_parts) |o| if (!hasPart(o)) std.debug.panic("-Dqemu-test-part: no rig has a part named {s}", .{o});
     // declared whether or not a Linux rig's kernel is fetched yet
     _ = nixHere(b);
-    // On when rstd is the project being built, so a dependent never fetches OSX-KVM.
-    const macos_vm = vmOption(b, "macos-vm", "the macOS VM rigs", "OSX-KVM");
-    const mac: macos.Options = if (macos_vm) .{
-        .user = b.option([]const u8, "mac-user", "macOS account in the VM (default randyos)") orelse "randyos",
-        .port = b.option(u16, "mac-port", "Host port forwarded to the VM's ssh") orelse 2222,
-        .release = b.option(macos.Release, "mac-release", "macOS release qemu-setup fetches (default sonoma)") orelse .sonoma,
-        .gdb = b.option(bool, "mac-gdb", "Let gdb attach to the macOS VM on localhost:1234") orelse false,
-        .detach = b.option(bool, "mac-detach", "qemu-install/start return once the macOS VM is up rather than when it stops") orelse false,
-        .headless = b.option(bool, "mac-headless", "qemu-install/start show no window, VNC on 127.0.0.1:5901 instead; test runs always start the VM this way") orelse false,
-        .keep = b.option(bool, "mac-keep", "Leave the macOS VM a test run started running afterward") orelse false,
-        .mttcg = b.option(bool, "mac-mttcg", "Run the macOS VM's vCPUs on host threads of their own: faster in the window, but macOS has hung and misread files under it (default: true in a window, false headless)"),
-        .ovmf_vars = b.option([]const u8, "mac-ovmf-vars", "Empty OVMF variable store for qemu-setup (default: QEMU's edk2-i386-vars.fd)"),
-        .snapshot = b.option([]const u8, "mac-snapshot", "Name of the restore point qemu-snapshot/restore make or go back to (default clean)") orelse "clean",
-    } else .{};
     // a one-time fetch of about 55 MB per kernel
     const linux_vm = vmOption(b, "linux-vm", "the Linux rigs", "their kernels");
     // the rigs run on the Mac when rstd is the project being built; a
     // dependent runs them here unless it names a host
     const host_off = b.option(bool, "test-host-off", "Run the rigs' QEMU here rather than on -Dtest-host") orelse false;
-    const host_named = b.option([]const u8, "test-host", "SSH alias of a machine to run the rigs' QEMU on, Nix's from tools/nix (default " ++ tools.mac_alias ++ " when rstd is the root project); images still build here, and x86_64-whpx and the macOS VM rigs stay local");
+    const host_named = b.option([]const u8, "test-host", "SSH alias of a machine to run the rigs' QEMU on, Nix's from tools/nix (default " ++ tools.mac_alias ++ " when rstd is the root project); images still build here, and x86_64-whpx stays local");
     const host_alias: ?[]const u8 = if (host_off) null else host_named orelse if (b.isRoot()) tools.mac_alias else null;
     const host_jobs = b.option(u32, "test-host-jobs", "Rigs running at once on -Dtest-host, across builds (default 8)") orelse 8;
     const host_tcg = b.option(bool, "test-host-tcg", "Run every rig on -Dtest-host under TCG, also those HVF could run") orelse false;
@@ -73,12 +58,10 @@ pub fn addQemuTests(b: *Build, optimize: Optimize) !Rigs {
             },
             // not in `qemu-check`, which builds the kernel rigs
             .linux => b.step(b.fmt("qemu-check-{s}", .{m.name}), b.fmt("Build {s}'s initramfs and check its inline asm, without running qemu", .{m.name})),
-            .macos => check,
         };
         const parts: []const Part = if (filters.len != 0) &.{} else switch (m.boot) {
             .kernel => m.parts,
             .linux => if (buildroot.tsan and m.tsan_parts.len != 0) try withRest(b, m.tsan_parts) else &.{},
-            .macos => &.{},
         };
         if (parts.len != 0) {
             const step = b.step(b.fmt("qemu-test-{s}", .{m.name}), b.fmt("Run rstd's tests under qemu-system on {s}, in {d} parts (live logs: .zig-cache/qemu-test-{s}-<part>.log)", .{ m.name, parts.len, m.name }));
@@ -92,7 +75,6 @@ pub fn addQemuTests(b: *Build, optimize: Optimize) !Rigs {
                 const run = switch (m.boot) {
                     .kernel => |k| try addKernelRun(b, part, k, target, m.optimize orelse optimize, p.filters, test_host, rig_check),
                     .linux => |l| if (linux_vm) try addLinuxRun(b, part, l, target, m.optimize orelse optimize, p.filters, test_host, rig_check) orelse continue else continue,
-                    .macos => unreachable,
                 };
                 step.dependOn(&run.step);
                 all.dependOn(&run.step);
@@ -101,14 +83,9 @@ pub fn addQemuTests(b: *Build, optimize: Optimize) !Rigs {
         }
         const run = switch (m.boot) {
             .kernel => |k| try addKernelRun(b, m, k, target, m.optimize orelse optimize, filters, test_host, rig_check),
-            .macos => if (macos_vm) try macos.addRun(b, m, target, m.optimize orelse optimize, filters, mac) orelse continue else continue,
             .linux => |l| if (linux_vm) try addLinuxRun(b, m, l, target, m.optimize orelse optimize, filters, test_host, rig_check) orelse continue else continue,
         };
-        const about = switch (m.boot) {
-            .kernel, .linux => b.fmt("Run rstd's tests under qemu-system on {s} (live log: {s})", .{ m.name, liveLog(b, m) }),
-            .macos => b.fmt("Run rstd's tests under qemu-system on {s}", .{m.name}),
-        };
-        const step = b.step(b.fmt("qemu-test-{s}", .{m.name}), about);
+        const step = b.step(b.fmt("qemu-test-{s}", .{m.name}), b.fmt("Run rstd's tests under qemu-system on {s} (live log: {s})", .{ m.name, liveLog(b, m) }));
         step.dependOn(&run.step);
         all.dependOn(&run.step);
     }

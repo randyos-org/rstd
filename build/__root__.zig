@@ -18,7 +18,7 @@ const Optimize = rstdbuild.Optimize;
 
 /// rstd's module for `target`: its options, BLAS kernels and platform imports.
 /// `name` registers it for consumers; null keeps it private to this build (a
-/// second target, as `qemu/__root__.zig`'s macOS VM uses).
+/// second target, as `qemu/__root__.zig`'s Linux rigs use).
 /// What `addRstdModule` builds in beyond the library itself.
 pub const ModuleOptions = struct {
     vulkan: bool = false,
@@ -212,7 +212,7 @@ pub fn build(b: *Build) !void {
 
     // Mach-O, which no machine here runs: building is what catches assembly
     // that other object formats accept (`.align`), so build every core's
-    // kernels for both architectures. `qemu-test-x86_64-macos` runs them.
+    // kernels for both architectures. The `ssh-test-*-macos` steps run them.
     const macho_step = b.step("rstd-check-macho", "Build rstd's unit tests for macOS (x86_64, aarch64) without running them");
     for ([_]std.Target.Cpu.Arch{ .x86_64, .aarch64 }) |arch| {
         const macho = b.resolveTargetQuery(.{ .cpu_arch = arch, .os_tag = .macos });
