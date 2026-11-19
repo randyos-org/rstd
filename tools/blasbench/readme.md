@@ -1,6 +1,6 @@
 # blasbench
 
-Races rstd's BLAS and LAPACK against other libraries, and its kernels against OpenBLAS's own (arm64's assembly, x86_64's level 1). `blas_bench.zig` is the bench (`kernels.zig`, `libs.zig`, `ext.zig` and `l3thread.zig` hold the sections), `bench.zig` the timing loop, `merge.zig` the merge of repeated runs, `flyoff.sh` the timed reruns, `nix/` the Eigen shim. Results: [`results-flyoff.md`](results/results-flyoff.md) (every OS and CPU at hand), [`results-m6.md`](results/results-m6.md) and [`results-m6-libraries.md`](results/results-m6-libraries.md) (the M6).
+Races rstd's BLAS and LAPACK against other libraries, and its kernels against OpenBLAS's own (arm64's assembly, x86_64's level 1). `blas_bench.zig` is the bench (`kernels.zig`, `libs.zig`, `ext.zig` and `l3thread.zig` hold the sections), `bench.zig` the timing loop, `merge.zig` the merge of repeated runs, `flyoff.sh` the timed reruns, `nix/` the Eigen shim. Results: [`results-flyoff.md`](results/results-flyoff.md) (every OS and CPU at hand), [`results-m6.md`](results/results-m6.md) and [`results-m6-libraries.md`](results/results-m6-libraries.md) (the M6), [`results-sum.md`](results/results-sum.md) (`sum`'s kernels on Zen 3 and the M6, T192).
 
 ## Sections
 
@@ -30,6 +30,7 @@ The bench takes `--name=value` options, then section names; with none named ever
 - `--max-n=<n>`: library rows of `n` up to that only.
 - `--ob-core=<core>`: `OPENBLAS_CORETYPE`, which rstd reads too.
 - `--rstd-accelerate=0`: rstd's own kernels on macOS, not Accelerate.
+- `--routines=<name>[,<name>...]`: only those level-1 routines in `l1` and `lib1` (`sum,asum`), for a short run.
 - `--accelerate-alone=1`: only the libraries, rstd never initialized (see Accelerate's threads below).
 - `blas_bench --merge <out.md> <log>...` merges runs of one configuration (`merge.zig`, `flyoff.sh`).
 

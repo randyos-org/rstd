@@ -626,7 +626,7 @@ const legend =
     \\- `portable`: the portable kernels, **bold** where upstream is tuned (a gap);
     \\- `n/a`: rstd has no such core.
     \\
-    \\The `Q` and `X` columns stay portable by design. On Apple's systems arm64 takes `vec` only for routed slots. A core whose kernel object is not linked runs those of the core that serves it (`registry.served`).
+    \\The `Q` and `X` columns stay portable by design. On Apple's systems arm64 takes `vec` only for routed slots and `sum`'s, which Accelerate lacks (`registry.unaccelerated`). A core whose kernel object is not linked runs those of the core that serves it (`registry.served`).
     \\
     \\## Level 3
     \\

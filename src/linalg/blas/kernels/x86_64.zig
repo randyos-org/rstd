@@ -22,7 +22,7 @@ const converted = .{
     @import("../blas1/dot/x86_64/kernel.zig"),
     @import("../blas1/rot/x86_64/kernel.zig"),
     @import("../blas1/scal/x86_64/kernel.zig"),
-    registry.Kernels(Core, @import("../blas1/sum/x86_64/asm/__root__.zig")),
+    @import("../blas1/sum/x86_64/kernel.zig"),
     registry.Kernels(Core, @import("../blas1/swap/x86_64/asm/__root__.zig")),
     @import("../blas2/gemv/x86_64/kernel.zig"),
     @import("../blas2/ger/x86_64/kernel.zig"),

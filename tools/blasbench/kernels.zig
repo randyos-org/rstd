@@ -27,7 +27,19 @@ const rstd_alloc = libs.rstd_alloc;
 
 // ---- level 1 ---------------------------------------------------------------
 
-pub const L1 = enum { axpy, dot, scal, nrm2, asum, iamax, copy, swap, rot };
+pub const L1 = enum { axpy, dot, scal, nrm2, asum, sum, iamax, copy, swap, rot };
+
+/// `--routines`: the level-1 routines `l1` and `lib1` race, by name; all when null.
+pub var l1_only: ?[]const u8 = null;
+
+/// Whether `--routines` names `r`, or is absent.
+pub fn l1Wanted(r: L1) bool {
+    var it = std.mem.splitScalar(u8, l1_only orelse return true, ',');
+    while (it.next()) |name| {
+        if (std.mem.eql(u8, name, @tagName(r))) return true;
+    }
+    return false;
+}
 
 pub fn l1Slot(comptime r: L1, comptime p: Prec) []const u8 {
     return switch (r) {
@@ -41,7 +53,7 @@ pub fn l1Slot(comptime r: L1, comptime p: Prec) []const u8 {
 /// Bytes `r` moves for `n` elements at unit stride.
 pub fn l1Bytes(r: L1, n: usize, es: usize) f64 {
     const vectors: f64 = switch (r) {
-        .nrm2, .asum, .iamax => 1,
+        .nrm2, .asum, .sum, .iamax => 1,
         .dot, .scal, .copy => 2,
         .axpy => 3,
         .swap, .rot => 4,
@@ -71,7 +83,7 @@ fn invoke(comptime r: L1, comptime p: Prec, f: Fn(l1Slot(r, p)), n: isize, inc: 
         .axpy => std.mem.doNotOptimizeAway(if (c) f(n, 0, 0, axpy_alpha, axpy_alpha, x, inc, y, inc, x, 0) else f(n, 0, 0, axpy_alpha, x, inc, y, inc, x, 0)),
         .dot => std.mem.doNotOptimizeAway(f(n, x, inc, y, inc)),
         .scal => std.mem.doNotOptimizeAway(if (c) f(n, 0, 0, cscal_alpha[0], cscal_alpha[1], x, inc, x, 0, x, 1) else f(n, 0, 0, scal_alpha, x, inc, x, 0, x, 1)),
-        .nrm2, .asum, .iamax => std.mem.doNotOptimizeAway(f(n, x, inc)),
+        .nrm2, .asum, .sum, .iamax => std.mem.doNotOptimizeAway(f(n, x, inc)),
         .copy => std.mem.doNotOptimizeAway(f(n, x, inc, y, inc)),
         .swap => std.mem.doNotOptimizeAway(if (c) f(n, 0, 0, 0, 0, x, inc, y, inc, x, 0) else f(n, 0, 0, 0, x, inc, y, inc, x, 0)),
         .rot => std.mem.doNotOptimizeAway(f(n, x, inc, y, inc, rot_cs[0], rot_cs[1])),
@@ -165,6 +177,10 @@ pub fn l1Scalar(comptime r: L1, comptime p: Prec, b: Bufs(p.F), n: usize, inc: u
             },
             .nrm2 => sum.re += xv.re * xv.re + xv.im * xv.im,
             .asum => sum.re += size(xv),
+            .sum => {
+                sum.re += xv.re + xv.im;
+                mag += size(xv);
+            },
             else => comptime unreachable,
         }
     }
@@ -172,6 +188,7 @@ pub fn l1Scalar(comptime r: L1, comptime p: Prec, b: Bufs(p.F), n: usize, inc: u
         .dot => .{ .want = .{ sum.re, sum.im }, .scale = mag },
         .nrm2 => .{ .want = .{ @sqrt(sum.re), 0 }, .scale = @sqrt(sum.re) },
         .asum => .{ .want = .{ sum.re, 0 }, .scale = sum.re },
+        .sum => .{ .want = .{ sum.re, 0 }, .scale = mag },
         else => comptime unreachable,
     };
 }
@@ -218,7 +235,7 @@ pub fn l1Elem(comptime r: L1, comptime p: Prec, b: Bufs(p.F), k: usize, inc: usi
 /// Whether `r` returns a value rather than writing its vectors.
 pub fn reduces(r: L1) bool {
     return switch (r) {
-        .dot, .nrm2, .asum, .iamax => true,
+        .dot, .nrm2, .asum, .sum, .iamax => true,
         .axpy, .scal, .copy, .swap, .rot => false,
     };
 }
@@ -232,7 +249,7 @@ pub fn l1Result(comptime r: L1, comptime p: Prec, f: Fn(l1Slot(r, p)), n: usize,
             const got = f(in, b.x.ptr, ii, b.y.ptr, ii);
             break :blk .{ got.re, got.im };
         } else .{ f(in, b.x.ptr, ii, b.y.ptr, ii), 0 },
-        .nrm2, .asum => .{ f(in, b.x.ptr, ii), 0 },
+        .nrm2, .asum, .sum => .{ f(in, b.x.ptr, ii), 0 },
         .iamax => .{ @floatFromInt(f(in, b.x.ptr, ii)), 0 },
         else => comptime unreachable,
     };
@@ -314,16 +331,17 @@ pub const l1_cases = [_]Case{
 };
 
 /// The reference kernel for a slot: on arm64 the converted one it holds,
-/// vortex's, else armv8's; on x86_64 OpenBLAS's own for the selected core
-/// (`-Dopenblas`); else none.
-pub fn asmFor(comptime name: []const u8) ?struct { f: Fn(name), from: []const u8 } {
+/// vortex's (not with `vortex` false: `sum`, whose vortex slots hold the
+/// `@Vector` kernels), else armv8's; on x86_64 OpenBLAS's own for the
+/// selected core (`-Dopenblas`); else none.
+pub fn asmFor(comptime name: []const u8, comptime vortex: bool) ?struct { f: Fn(name), from: []const u8 } {
     if (!bb.arm) {
         if (!bb.ob_x86) return null;
         const c = obx86.coreFor(blas.cpu.detect()) orelse return null;
         return .{ .f = obx86.kernel(name, c), .from = if (c == .zen) "ob zen" else "ob haswell" };
     }
     const port = @field(bb.tables.portable, name).?;
-    if (@field(bb.tables.vortex, name).? != port) return .{ .f = @field(bb.tables.vortex, name).?, .from = "vortex" };
+    if (vortex and @field(bb.tables.vortex, name).? != port) return .{ .f = @field(bb.tables.vortex, name).?, .from = "vortex" };
     if (@field(bb.tables.armv8, name).? != port) return .{ .f = @field(bb.tables.armv8, name).?, .from = "armv8" };
     return null;
 }
@@ -349,14 +367,16 @@ pub fn level1(io: Io, gpa: std.mem.Allocator) !void {
         const len = l1_cases[3].bytes / @sizeOf(p.F);
         const b = try Bufs(p.F).init(gpa, len, 1);
         defer b.deinit(gpa);
-        inline for (comptime std.meta.tags(L1)) |r| try raceL1(io, r, p, b);
+        inline for (comptime std.meta.tags(L1)) |r| {
+            if (l1Wanted(r)) try raceL1(io, r, p, b);
+        }
     }
 }
 
 fn raceL1(io: Io, comptime r: L1, comptime p: Prec, b: Bufs(p.F)) !void {
     const name = comptime l1Slot(r, p);
     const C = L1Call(r, p);
-    const asm_k = asmFor(name);
+    const asm_k = asmFor(name, r != .sum);
     for (l1_cases) |case| {
         const n = case.bytes / p.es() / case.inc;
         var fns: [5]Fn(name) = undefined;
@@ -479,7 +499,7 @@ fn raceGemv(io: Io, gpa: std.mem.Allocator, comptime p: Prec, comptime t: []cons
     fillRandom(F, x, rand);
     fillRandom(F, y0, rand);
 
-    const asm_k = asmFor(name);
+    const asm_k = asmFor(name, true);
     for (l2_bytes) |bytes| {
         const n: usize = std.math.sqrt(bytes / p.es());
         var fns: [4]Fn(name) = undefined;

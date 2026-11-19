@@ -345,12 +345,22 @@ pub fn Kernels(comptime Core: type, comptime index: type) type {
 /// Where the `@Vector` kernels take slots from the converted ones beyond `vector.routed`
 /// (`displaces`): every slot of theirs but `keep` on arm64's `vortex` and
 /// `vortexm4`, where they mostly match or beat the converted kernels
-/// (`tools/blasbench/results/results-m6.md`); `sum` is unmeasured there. `tools/blas_asm/survey.zig` reads it
+/// (`tools/blasbench/results/results-m6.md`; `sum`: `results-sum.md`). `tools/blas_asm/survey.zig` reads it
 /// as text.
 pub const displacing: struct { cores: []const coretypes.Arm64CoreType, keep: []const Slot } = .{
     .cores = &.{ .vortex, .vortexm4 },
-    .keep = &.{ .srot_k, .drot_k, .csrot_k, .zdrot_k, .ssum_k, .dsum_k, .csum_k, .zsum_k },
+    .keep = &.{ .srot_k, .drot_k, .csrot_k, .zdrot_k },
 };
+
+/// The slots Accelerate has no routine for: `sum`, OpenBLAS's extension. On
+/// Apple's systems the `@Vector` kernels take them as they do elsewhere
+/// (T192: the M6 ran the portable loop there).
+pub const unaccelerated = [_]Slot{ .ssum_k, .dsum_k, .csum_k, .zsum_k };
+
+/// Whether `slot` is left to Accelerate: on Apple's systems, but for `unaccelerated`.
+fn accelerated(comptime slot: Slot) bool {
+    return sysinfo.target.os.tag.isDarwin() and std.mem.findScalar(Slot, &unaccelerated, slot) == null;
+}
 
 /// The cores whose vectors flush `f32` (`util.vectorIeeeOn` on their specs,
 /// as a test checks): ARMv7's NEON ones. Their objects build no `s` or `c`
@@ -381,9 +391,9 @@ test "flushing names the arm cores whose specs flush f32 lanes" {
 
 /// Whether the `@Vector` kernels take `slot` from `core`'s converted ones, beyond
 /// `vector.routed`, so its object leaves those out (`displacing`). On Apple's
-/// systems Accelerate is to serve instead, and the converted kernels stay.
+/// systems Accelerate is to serve instead (`accelerated`), and the converted kernels stay.
 pub fn displaces(comptime core: anytype, comptime slot: Slot) bool {
-    if (sysinfo.target.os.tag.isDarwin()) return false;
+    if (accelerated(slot)) return false;
     if (@TypeOf(core) != coretypes.Arm64CoreType) return false;
     return std.mem.findScalar(coretypes.Arm64CoreType, displacing.cores, core) != null and
         std.mem.findScalar(Slot, displacing.keep, slot) == null and fills(slot);
@@ -404,9 +414,10 @@ pub fn Rule(comptime Core: type) type {
         /// The `routed` slots, on `cores` or every core when null; a `peels`
         /// slot only where a converted module `skips` its assembly.
         routed: ?[]const Core,
-        /// The `routed` slots; off Apple, whose Accelerate is to serve the
-        /// rest, also those they `displace` and those no converted module
-        /// fills (`hasSlot`), mostly C upstream, for the portable loop.
+        /// The `routed` slots; also those they `displace` and those no
+        /// converted module fills (`hasSlot`), mostly C upstream, for the
+        /// portable loop: all of them off Apple, whose Accelerate is to
+        /// serve the rest, and there the `unaccelerated` ones.
         unfilled,
         /// `unfilled` on `cores` only: those with a vector unit where others
         /// have none (riscv64). The rest take none of these kernels.
@@ -436,7 +447,7 @@ pub fn takes(comptime Core: type, comptime rule: Rule(Core), comptime converted:
 /// `Rule.unfilled`'s choice for `slot` on `core`.
 fn unfilled(comptime Core: type, comptime converted: anytype, comptime core: Core, comptime slot: Slot) bool {
     if (vector.routed(slot)) return true;
-    if (sysinfo.target.os.tag.isDarwin()) return false;
+    if (accelerated(slot)) return false;
     if (displaces(core, slot)) return true;
     inline for (converted) |m| {
         if (@hasDecl(m, "hasSlot") and m.hasSlot(core, slot)) return false;

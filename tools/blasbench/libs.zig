@@ -387,7 +387,7 @@ fn L1Via(comptime src: Src, comptime r: L1, comptime p: Prec) type {
                 return 0;
             }
         },
-        .nrm2, .asum => struct {
+        .nrm2, .asum, .sum => struct {
             const sym = "cblas_" ++ (if (cx) re else "") ++ s ++ @tagName(r);
             const from = src;
             const Sig = fn (c_int, [*]F, c_int) callconv(.c) F;
@@ -396,7 +396,7 @@ fn L1Via(comptime src: Src, comptime r: L1, comptime p: Prec) type {
                 if (lib) return f(@intCast(n), x, @intCast(ix));
                 const xv = view(T, cast(p, x), n, ix).toConst();
                 if (comptime r == .nrm2) return blas.nrm2(rstd_io, T, xv);
-                return blas.asum(rstd_io, T, xv) catch |e| {
+                return (if (comptime r == .sum) blas.sum(rstd_io, T, xv) else blas.asum(rstd_io, T, xv)) catch |e| {
                     fail(e);
                     return 0;
                 };
@@ -726,7 +726,9 @@ pub fn libLevel1(io: Io, gpa: std.mem.Allocator) !void {
         defer gpa.free(kx);
         const ky = try gpa.alloc(p.F, b.y.len);
         defer gpa.free(ky);
-        inline for (comptime std.meta.tags(L1)) |r| try raceLibL1(io, r, p, b, kx, ky);
+        inline for (comptime std.meta.tags(L1)) |r| {
+            if (kernels.l1Wanted(r)) try raceLibL1(io, r, p, b, kx, ky);
+        }
     }
 }
 
@@ -736,7 +738,7 @@ fn diffL1(comptime r: L1, comptime p: Prec, n: usize, inc: usize, b: Bufs(p.F), 
     const eps: f64 = std.math.floatEps(p.F);
     switch (r) {
         .iamax => return .{ .eps = if (rs[0] == ls[0]) 0 else std.math.inf(f64), .bound = 0 },
-        .dot, .nrm2, .asum => {
+        .dot, .nrm2, .asum, .sum => {
             const s = l1Scalar(r, p, b, n, inc).scale;
             return .{ .eps = @max(@abs(rs[0] - ls[0]), @abs(rs[1] - ls[1])) / (eps * @max(s, 1e-300)), .bound = sumBound(n) };
         },
@@ -759,7 +761,7 @@ fn diffL1(comptime r: L1, comptime p: Prec, n: usize, inc: usize, b: Bufs(p.F), 
 fn raceLibL1(io: Io, comptime r: L1, comptime p: Prec, b: Bufs(p.F), kx: []p.F, ky: []p.F) !void {
     const name = comptime l1Slot(r, p);
     const C = L1Call(r, p);
-    const asm_k = if (arm and !bb.alone) asmFor(name) else null;
+    const asm_k = if (arm and !bb.alone) asmFor(name, r != .sum) else null;
     const fns = [lib_cols.len]?Fn(name){
         libL1(.openblas, r, p),
         libL1(.rstd, r, p),
@@ -882,7 +884,7 @@ fn raceLibGemv(io: Io, gpa: std.mem.Allocator, comptime p: Prec, comptime t: []c
     fillRandom(F, x, rand);
     fillRandom(F, y0, rand);
 
-    const asm_k = if (arm and !bb.alone) asmFor(name) else null;
+    const asm_k = if (arm and !bb.alone) asmFor(name, true) else null;
     const fns = [lib_cols.len]?Fn(name){
         libGemv(.openblas, p, t),
         libGemv(.rstd, p, t),
