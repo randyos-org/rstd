@@ -4,7 +4,7 @@
 //! moment its draw call returns.
 
 const RgbaImage = @import("image.zig").RgbaImage;
-const color = @import("color.zig");
+const color = @import("color/__root__.zig");
 const draw = @import("draw.zig");
 const RGBA = color.RGBA;
 const geometry = @import("geometry.zig");

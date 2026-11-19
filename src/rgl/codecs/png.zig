@@ -1,7 +1,7 @@
 const std = @import("std");
 const flate = std.compress.flate;
 
-const color = @import("../color.zig");
+const color = @import("../color/__root__.zig");
 const RGBA = color.RGBA;
 const RgbaImage = @import("../image.zig").RgbaImage;
 const bytes = @import("../../bytes.zig");
