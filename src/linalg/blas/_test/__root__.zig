@@ -7,6 +7,7 @@ test {
     _ = @import("bitwise.zig");
     _ = @import("blas1/edge.zig");
     _ = @import("blas1/extremum.zig");
+    _ = @import("blas1/rot_reals.zig");
     _ = @import("blas1/threaded.zig");
     _ = @import("blas2/edge.zig");
     _ = @import("blas2/threaded.zig");

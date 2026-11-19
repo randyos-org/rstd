@@ -13,6 +13,7 @@ const portable = @import("../portable.zig");
 const bf = @import("../ext/bf16/__root__.zig");
 const accel = @import("../apple_accel.zig");
 const rot_root = @import("rot/__root__.zig");
+const rot_reals = @import("rot_reals.zig");
 
 const Io = std.Io;
 const BlasLong = types.BlasLong;
@@ -447,15 +448,21 @@ fn realOnly(comptime T: type, comptime which: Extreme) void {
 // ---- rotations ---------------------------------------------------------------
 
 /// `?ROT`, `CSROT`/`ZDROT` (`interface/rot.c`, `zrot.c`): the plane rotation
-/// `x := c*x + s*y`, `y := c*y - s*x`, with real `c` and `s`.
+/// `x := c*x + s*y`, `y := c*y - s*x`, with real `c` and `s`. Long complex
+/// vectors at unit strides take the real kernel on x86_64 (`rot_reals.zig`).
 pub fn rot(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize, c: Float(T), s: Float(T)) Error!void {
     if (n <= 0) return;
     try spanXY(T, T, n, incx, incy);
     if (try accel.rot(io, T, n, x, incx, y, incy, c, s)) return;
-    const v: Pair(T, [2]Float(T)) = .{ .x = first(T, x, n, incx), .incx = incx, .y = first(T, y, n, incy), .incy = incy, .e = .{ c, s } };
+    const Scalars = struct { c: Float(T), s: Float(T), reals: bool };
+    // the kernel is chosen on the whole `n`, before any split: the two differ in bits
+    const v: Pair(T, Scalars) = .{ .x = first(T, x, n, incx), .incx = incx, .y = first(T, y, n, incy), .incy = incy, .e = .{ .c = c, .s = s, .reals = rot_reals.routed(T, n, incx, incy) } };
     const S = struct {
         fn run(q: @TypeOf(v), len: isize, at: isize) void {
-            _ = portable.fetch(T, .rot_k, blas.vtable)(len, raw(T, shift(T, q.x, at, q.incx)), q.incx, raw(T, shift(T, q.y, at, q.incy)), q.incy, q.e[0], q.e[1]);
+            const px = shift(T, q.x, at, q.incx);
+            const py = shift(T, q.y, at, q.incy);
+            if (comptime rot_reals.serves(T)) if (q.e.reals) return rot_reals.run(T, len, px, py, q.e.c, q.e.s);
+            _ = portable.fetch(T, .rot_k, blas.vtable)(len, raw(T, px), q.incx, raw(T, py), q.incy, q.e.c, q.e.s);
         }
     };
     if (incx != 0 and incy != 0) if (spread(.rot, T, n)) |p| return each(io, &p, v, S.run);

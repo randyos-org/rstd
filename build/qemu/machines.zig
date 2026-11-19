@@ -459,7 +459,7 @@ const base_machines = [_]Machine{
         .parts = &.{
             // blas1 in three, as two are past the window
             .{ .name = "blas1", .filters = &.{ "linalg.blas.blas1.__root__.", "linalg.blas.blas1.asum.", "linalg.blas.blas1.axpby.", "linalg.blas.blas1.axpy.", "linalg.blas._test.check.", "linalg.blas._test.bitwise.", "linalg.blas.blas1.copy.", "linalg.blas.blas1.dot.", "linalg.blas.blas1.extremum.", "linalg.blas._test.blas1.extremum.", "linalg.blas.blas1.nrm2.", "linalg.blas.blas1.rot.", "linalg.blas.blas1.rotm.", "linalg.blas.blas1.scal.", "linalg.blas.blas1.sum.", "linalg.blas.blas1.swap.", "linalg.blas.uk_block." } },
-            .{ .name = "blas1-interface", .filters = &.{ "linalg.blas.blas1.interface.", "linalg.blas._test.blas1.threaded." } },
+            .{ .name = "blas1-interface", .filters = &.{ "linalg.blas.blas1.interface.", "linalg.blas._test.blas1.rot_reals.", "linalg.blas._test.blas1.threaded." } },
             .{ .name = "blas1-edge", .filters = &.{ "linalg.blas._test.blas1.edge.test.portable level-1 kernels: special", "linalg.blas._test.blas1.edge.test.every linked core's level-1 kernels: special", "linalg.blas._test.blas1.edge.test.portable level-1 reductions", "linalg.blas._test.blas1.edge.test.every linked core's level-1 reductions", "linalg.blas._test.blas1.edge.test.every linked core keeps" } },
             .{ .name = "blas1-denormal", .filters = &.{ "linalg.blas._test.blas1.edge.test.portable level-1 kernels: denormal", "linalg.blas._test.blas1.edge.test.every linked core's level-1 kernels: denormal", "linalg.blas._test.blas1.edge.test.where util.vectorIeee" } },
             // the dense routines, the triangular ones, the interface and the
