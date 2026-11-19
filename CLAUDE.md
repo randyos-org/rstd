@@ -11,7 +11,8 @@ Rules and lessons for agents. The RandyOS repo's `CLAUDE.md` applies too when rs
 - `**Needs:**` links the issues that must land first; `**Blocked:**` names an outside cause (hardware, an upstream fix, a decision), with the `blocked` label.
 - Labels: `backlog` for what is outside the milestone (tier 3 and 4 bugs, follow-ups, tuning, optional and blocked work); `awaiting input` for a decision the user makes, mentioning `@emanspeaks`; `housekeeping` for readability and structure work; `blocked`. Pull requests take the release-note labels of `.github/release.yml` (`fix`, `feature`, `performance`, `tests`, `refactor`, `ci`, `skip-changelog`).
 - Tiers ([`support.md`](support.md)): tier 1 and 2 bugs go in the milestone. Open an issue for each tier 3 or 4 failure as it is found, labeled `backlog` with its tier and ISA labels (user, 2026-11-18). Don't open issues for follow-ups or tuning on your own; report them.
-- Background agents don't edit issues or the pull request's list; they report what to check off or open.
+- Agents post issues and comments, and open and merge pull requests, as the machine user `randyos-bot`, not as the user (how: `CLAUDE.local.md`; #541). A mention of `@emanspeaks` from the bot notifies him. Commits stay the user's.
+- Background agents do the same as the bot, the pull request's list included: read the list again right before editing it, as another agent may have changed it.
 
 ## Git
 
