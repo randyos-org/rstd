@@ -456,6 +456,15 @@ test "potrf goes to Accelerate where it routes, and agrees with rstd's" {
             p.store();
             p.a[(n / 2) * (p.lda + 1)] = fromF64(T, nan);
             try expectFailed(T, &p, n / 2, "Accelerate's NaN pivot");
+            // finite values in the other triangle come back as they were (issue #537)
+            p.store();
+            for (0..n) |j| for (0..n) |i| {
+                if (if (upper) i > j else i < j) p.a[i + j * p.lda] = fromF64(T, 777);
+            };
+            try testing.expectEqual(@as(?usize, null), try p.factorIt(al));
+            for (0..n) |j| for (0..n) |i| {
+                if (if (upper) i > j else i < j) try testing.expectEqual(fromF64(T, 777), p.a[i + j * p.lda]);
+            };
         }
     };
 }
