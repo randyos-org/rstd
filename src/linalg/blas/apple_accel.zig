@@ -25,6 +25,9 @@ const isZero = util.isZero;
 pub const available = sysinfo.target.os.tag == .macos;
 /// x86_64 macOS, whose Accelerate has quirks of its own (design.md).
 pub const x86_64 = sysinfo.target.cpu.arch == .x86_64;
+/// Whether a real upper `?potrf_` writes the strictly lower triangle: seen on
+/// Apple Silicon (macOS 27.2), not on x86_64 (issue #537).
+pub const potrf_scratches_lower = sysinfo.target.cpu.arch == .aarch64;
 
 pub const Order = enum(c_int) { row_major = 101, col_major = 102 };
 pub const Transpose = enum(c_int) { no_trans = 111, trans = 112, conj_trans = 113 };

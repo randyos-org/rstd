@@ -64,6 +64,30 @@ pub fn potrf(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: usiz
     if (try potrfChecked(allocator, io, T, uplo, n, a, lda) != null) return error.NotPositiveDefinite;
 }
 
+/// `accel.potrf`, or null where rstd runs it. A real upper one keeps the
+/// strictly lower triangle across the call: Accelerate uses it as scratch on
+/// Apple Silicon (issue #537).
+fn potrfAccel(allocator: Allocator, comptime T: type, uplo: Uplo, n: usize, a: []T, lda: usize) Allocator.Error!?isize {
+    const scratched = comptime accel.potrf_scratches_lower and !isComplex(T);
+    if (!scratched or uplo != .u or n < 2 or !accel.routing()) return accel.potrf(T, uplo, @intCast(n), a.ptr, @intCast(lda));
+    const kept = try allocator.alloc(T, n * (n - 1) / 2);
+    defer allocator.free(kept);
+    var at: usize = 0;
+    for (0..n - 1) |j| {
+        const len = n - 1 - j;
+        @memcpy(kept[at..][0..len], a[j * lda + j + 1 ..][0..len]);
+        at += len;
+    }
+    const info = accel.potrf(T, uplo, @intCast(n), a.ptr, @intCast(lda));
+    at = 0;
+    for (0..n - 1) |j| {
+        const len = n - 1 - j;
+        @memcpy(a[j * lda + j + 1 ..][0..len], kept[at..][0..len]);
+        at += len;
+    }
+    return info;
+}
+
 /// `potrf`, a failure returned as the index (0-based) of the first pivot
 /// that is not positive, or null: the leading minor one larger is not
 /// positive definite, `A` partly factored as `potrf` leaves it. Not in
@@ -73,7 +97,7 @@ pub fn potrfChecked(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, 
     try interface.holdsTriangle(uplo, n, a.len, lda);
     if (n == 0) return null;
     // Accelerate's `INFO`, 1-based at its ABI
-    if (accel.potrf(T, uplo, @intCast(n), a.ptr, @intCast(lda))) |info| return if (info == 0) null else @intCast(info - 1);
+    if (try potrfAccel(allocator, T, uplo, n, a, lda)) |info| return if (info == 0) null else @intCast(info - 1);
     const vt = interface.table(T);
     const blk = driver.Blocking.of(T, vt);
     const upper = uplo == .u;
