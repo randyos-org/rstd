@@ -24,8 +24,8 @@ pub const TransError = error{UnsupportedTranspose};
 pub const OverlapError = error{Overlap};
 /// What `geadd` returns.
 pub const GeaddError = TransError || strided.SliceError || strided.LeadingDimensionError;
-/// What `omatcopy` returns.
-pub const OmatcopyError = GeaddError || OverlapError;
+/// What `omatcopy` returns; large real copies thread on `io`.
+pub const OmatcopyError = GeaddError || OverlapError || Io.Cancelable;
 /// What `imatcopy` returns: `geadd`'s, and the allocator's.
 pub const ImatcopyError = GeaddError || Allocator.Error;
 /// What `laswp` returns: a row or pivot outside the matrix, a slice too
@@ -79,7 +79,10 @@ pub fn omatcopy(io: Io, comptime T: type, trans: Trans, rows: usize, cols: usize
     try holds(a.len, rows, cols, lda);
     try holds(b.len, sb[0], sb[1], ldb);
     if (overlaps(T, a, b)) return error.Overlap;
-    core.omatcopy(io, T, trans, len(rows), len(cols), alpha, a.ptr, len(lda), b.ptr, len(ldb)) catch |e| return @errorCast(mapped(e));
+    core.omatcopy(io, T, trans, len(rows), len(cols), alpha, a.ptr, len(lda), b.ptr, len(ldb)) catch |e| return switch (e) {
+        error.Canceled => error.Canceled,
+        else => @errorCast(mapped(e)),
+    };
 }
 
 /// `A := alpha op(A)` in place: `A` read `rows` by `cols` at `lda`, written as

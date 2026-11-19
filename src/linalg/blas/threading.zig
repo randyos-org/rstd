@@ -73,6 +73,8 @@ pub const Family = enum {
     symm,
     /// `trsm`: `m * n`.
     trsm,
+    /// `omatcopy`, real: `rows * cols`.
+    omatcopy,
 };
 
 /// Work below `below` takes at most `max` workers.
@@ -150,6 +152,8 @@ pub fn rule(comptime family: Family, comptime T: type, core: anytype) Rule {
         .syr2k => .{ .serial_max = 999 },
         .symm => .{ .serial_max = @as(u64, if (complex) 8192 else 65536) * mt },
         .trsm => .{ .serial_max = @as(u64, if (complex) 128 else 256) * mt - 1 },
+        // `omatcopy.c`: `rows * cols < 65536 * GEMM_MULTITHREAD_THRESHOLD`
+        .omatcopy => .{ .serial_max = 65536 * mt - 1 },
     };
 }
 

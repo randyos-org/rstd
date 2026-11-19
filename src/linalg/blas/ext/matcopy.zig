@@ -4,7 +4,8 @@
 //! `zomatcopy_cnc.c`, `zomatcopy_ct.c`, `zomatcopy_ctc.c`, and
 //! `kernel/generic/imatcopy_cn.c`, `imatcopy_ct.c`, `zimatcopy_cn.c`,
 //! `zimatcopy_cnc.c`, `zimatcopy_ct.c`, `zimatcopy_ctc.c`; the row-major
-//! `_r*` ones are left out.
+//! `_r*` ones are left out. The real transposed copy of `f32` and `f64`
+//! goes in tiles (`transpose.zig`), with the same bits.
 //!
 //! Every kernel scales an element alike (`scale`): a zero `alpha` stores
 //! zeros without reading `A`, and `alpha` 1 copies (or conjugates) its bits;
@@ -19,6 +20,7 @@ const types = @import("../types.zig");
 const util = @import("../util.zig");
 const Vtable = @import("../Vtable.zig");
 const portable = @import("../portable.zig");
+const transpose = @import("transpose.zig");
 const check = @import("../_test/check.zig");
 const bitwise = @import("../_test/bitwise.zig");
 const pattern = @import("../_test/pattern.zig");
@@ -48,10 +50,14 @@ fn Scale(comptime T: type) type {
 
         /// `B := alpha*op(A)`, `A` `rows x cols`; `op` transposes where
         /// `trans`, so `B` is `cols x rows` then.
-        fn outOf(alpha: Alpha, comptime trans: bool, comptime conj: bool, rows: BlasLong, cols: BlasLong, a: [*]const E, lda: BlasLong, b: [*]E, ldb: BlasLong) void {
+        fn outOf(alpha: Alpha, comptime trans: bool, comptime conj: bool, comptime tiled: bool, rows: BlasLong, cols: BlasLong, a: [*]const E, lda: BlasLong, b: [*]E, ldb: BlasLong) void {
             if (rows <= 0 or cols <= 0) return;
             const ia: usize = @intCast(lda);
             const ib: usize = @intCast(ldb);
+            // the tiles; a zero `alpha` stays below, which never reads `A`
+            if (comptime tiled and trans and !complex and transpose.serves(F)) {
+                if (alpha != 0) return transpose.run(F, @intCast(rows), @intCast(cols), alpha, a, ia, b, ib);
+            }
             for (0..@intCast(cols)) |j| for (0..@intCast(rows)) |i| {
                 const v = of(alpha, conj, a[i + j * ia]);
                 if (trans) b[j + i * ib] = v else b[i + j * ib] = v;
@@ -91,7 +97,7 @@ fn Kernels(comptime T: type) type {
         fn O(comptime trans: bool, comptime conj: bool) type {
             return struct {
                 fn k(rows: BlasLong, cols: BlasLong, alpha_r: F, alpha_i: F, a: [*]F, lda: BlasLong, b: [*]F, ldb: BlasLong) callconv(cc) i32 {
-                    S.outOf(.{ alpha_r, alpha_i }, trans, conj, rows, cols, @ptrCast(a), lda, @ptrCast(b), ldb);
+                    S.outOf(.{ alpha_r, alpha_i }, trans, conj, true, rows, cols, @ptrCast(a), lda, @ptrCast(b), ldb);
                     return 0;
                 }
             };
@@ -116,7 +122,7 @@ fn Kernels(comptime T: type) type {
         fn O(comptime trans: bool) type {
             return struct {
                 fn k(rows: BlasLong, cols: BlasLong, alpha: F, a: [*]F, lda: BlasLong, b: [*]F, ldb: BlasLong) callconv(cc) i32 {
-                    S.outOf(alpha, trans, false, rows, cols, a, lda, b, ldb);
+                    S.outOf(alpha, trans, false, true, rows, cols, a, lda, b, ldb);
                     return 0;
                 }
             };
@@ -140,6 +146,14 @@ fn Kernels(comptime T: type) type {
 /// they would fill (`portable.kernel`).
 pub const Portable = Kernels;
 
+/// `B := alpha*op(A)` by the plain loops alone, element for element what
+/// the kernels give: the tests' and the bench's reference.
+pub fn plain(comptime T: type, comptime op: Copy, rows: usize, cols: usize, alpha: T, a: [*]const T, lda: usize, b: [*]T, ldb: usize) void {
+    const S = Scale(T);
+    const al: S.Alpha = if (comptime types.isComplex(T)) .{ alpha.re, alpha.im } else alpha;
+    S.outOf(al, comptime op.transposes(), comptime op.conjugates(), false, @intCast(rows), @intCast(cols), @ptrCast(a), @intCast(lda), @ptrCast(b), @intCast(ldb));
+}
+
 /// The precisions with slots; upstream has no `q` or `x` ones.
 const precisions = .{ .{ portable.Prec.s, f32 }, .{ portable.Prec.d, f64 }, .{ portable.Prec.c, Complex32 }, .{ portable.Prec.z, Complex64 } };
 
@@ -161,6 +175,14 @@ pub const Copy = enum {
     ct,
     cnc,
     ctc,
+
+    /// Whether `B` is `A` transposed.
+    pub fn transposes(c: Copy) bool {
+        return switch (c) {
+            .cn, .cnc => false,
+            .ct, .ctc => true,
+        };
+    }
 
     /// Whether it conjugates, which only the complex kernels do.
     pub fn conjugates(c: Copy) bool {

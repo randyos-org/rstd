@@ -8,11 +8,12 @@
 //!
 //! Bad arguments return an `ArgError` in the order the reference numbers them
 //! for `xerbla`, so the first bad one wins; a matrix that would not fit the
-//! address space is its leading dimension's error. `io` is unused; every
-//! routine is serial.
+//! address space is its leading dimension's error. Only `omatcopy` uses `io`,
+//! for large real copies; the rest are serial.
 
 const std = @import("std");
 const blas = @import("../__root__.zig");
+const threading = @import("../threading.zig");
 const types = @import("../types.zig");
 const util = @import("../util.zig");
 const portable = @import("../portable.zig");
@@ -86,16 +87,54 @@ fn plainTrans(comptime T: type, t: Trans) bool {
 /// where `op` transposes. `trans` is `n`, `t`, or `r` and `c` conjugated (as
 /// `n` and `t` for a real type); `o` to `d` are `error.InvalidTrans`. A zero
 /// `alpha` stores zeros without reading `A`, and `alpha` 1 copies it exactly.
-/// `A` and `B` must not overlap; `imatcopy` is the in-place form.
+/// `A` and `B` must not overlap; `imatcopy` is the in-place form. Large
+/// `f32` and `f64` copies thread on `io` in bands of `A`'s columns
+/// (`bands`); every element is computed alone, so the bits are one worker's.
 pub fn omatcopy(io: Io, comptime T: type, trans: Trans, rows: isize, cols: isize, alpha: T, a: [*]const T, lda: isize, b: [*]T, ldb: isize) Error!void {
-    _ = io;
     comptime util.requireFloat(T, "omatcopy");
     const t = trans.transposed();
     try matcopyArgs(trans, rows, cols, lda, ldb);
     if (rows == 0 or cols == 0) return;
     if (!util.fitsMatrix(rows, cols, lda, @sizeOf(T))) return error.InvalidLda;
     if (!util.fitsMatrix(if (t) cols else rows, if (t) rows else cols, ldb, @sizeOf(T))) return error.InvalidLdb;
+    if (comptime threaded(T)) if (bands(T, t, @intCast(rows), @intCast(cols))) |p| {
+        const Ctx = struct { trans: Trans, rows: isize, alpha: T, a: [*]const T, lda: usize, b: [*]T, ldb: usize };
+        const S = struct {
+            fn band(c: Ctx, ch: threading.Chunk) void {
+                // a band of `A`'s columns: as many columns of `B`, or of its rows
+                const to = if (c.trans.transposed()) ch.start else ch.start * c.ldb;
+                outOf(T, c.trans, c.rows, @intCast(ch.end - ch.start), c.alpha, c.a + ch.start * c.lda, @intCast(c.lda), c.b + to, @intCast(c.ldb));
+            }
+        };
+        return threading.forEach(io, &p, Ctx{ .trans = trans, .rows = rows, .alpha = alpha, .a = a, .lda = @intCast(lda), .b = b, .ldb = @intCast(ldb) }, S.band);
+    };
     outOf(T, trans, rows, cols, alpha, a, lda, b, ldb);
+}
+
+/// `omatcopy.c`'s least band of a transposed copy, in columns of `A`:
+/// narrower, the workers write into the same cache lines of `B`.
+pub const band_min = 32;
+
+/// Whether `omatcopy` threads `T`: the reference's `s` and `d`
+/// (`zomatcopy.c` is serial).
+pub fn threaded(comptime T: type) bool {
+    return T == f32 or T == f64;
+}
+
+/// `omatcopy`'s bands of `A`'s columns, if more than one worker takes them
+/// (`interface/omatcopy.c`, OpenBLAS f2ccc5045): none below `65536 *
+/// GEMM_MULTITHREAD_THRESHOLD` elements (`threading.rule`), and transposed
+/// at most `cols / 32` of them, each at least `band_min` wide and whole
+/// tiles (`transpose.zig`).
+pub fn bands(comptime T: type, transposed: bool, rows: usize, cols: usize) ?threading.Plan {
+    const work = threading.product(&.{ rows, cols });
+    if (threading.serial(.omatcopy, T, work)) return null;
+    var p = threading.plan(.omatcopy, T, work, cols, .even, if (transposed) band_min else 1);
+    if (transposed and p.chunks.count > cols / band_min) {
+        p.chunks = .init(cols, cols / band_min, .even, band_min);
+        p.workers = @min(p.workers, @as(u32, @intCast(p.chunks.count)));
+    }
+    return if (p.workers > 1 and p.chunks.count > 1) p else null;
 }
 
 /// `?IMATCOPY` (`interface/imatcopy.c`, `zimatcopy.c`), column-major: `A :=
