@@ -23,7 +23,7 @@ const root = @import("root");
 pub const Options = struct {
     /// `L`, per dimension: at or below it the inline kernels, past it the
     /// BLAS and LAPACK. At least 4, for shaderlib's `Mat2` to `Mat4`.
-    inline_limit: usize = 8,
+    inline_limit: usize = 12,
 };
 
 /// The root's options, or the defaults.

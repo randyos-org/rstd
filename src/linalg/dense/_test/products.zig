@@ -87,7 +87,7 @@ pub fn expectStaticBits(comptime T: type, comptime r: usize, comptime k: usize, 
 
 test "up to the inline limit, a Mat multiplies to a StaticMat's bits" {
     var prng: std.Random.DefaultPrng = .init(0x7e57);
-    const shapes = .{ .{ 1, 1, 1 }, .{ 2, 3, 4 }, .{ 4, 4, 4 }, .{ 3, 8, 5 }, .{ 8, 8, 8 } };
+    const shapes = .{ .{ 1, 1, 1 }, .{ 2, 3, 4 }, .{ 4, 4, 4 }, .{ 3, 8, 5 }, .{ 8, 8, 8 }, .{ matrix.inline_limit, matrix.inline_limit, matrix.inline_limit } };
     inline for (.{ f32, f64, C64 }) |T| inline for (shapes) |s| try expectStaticBits(T, s[0], s[1], s[2], prng.random());
 }
 
@@ -139,7 +139,7 @@ pub fn expectBlasProduct(comptime T: type, m: usize, n: usize, k: usize, rnd: st
 test "past the inline limit, mul is the BLAS's gemm or gemv" {
     var prng: std.Random.DefaultPrng = .init(0xb1a5);
     inline for (.{ f32, f64, C64 }) |T| {
-        try expectBlasProduct(T, 9, 7, 5, prng.random());
+        try expectBlasProduct(T, matrix.inline_limit + 1, 7, 5, prng.random());
         try expectBlasProduct(T, 3, 4, 20, prng.random());
         try expectBlasProduct(T, 40, 33, 17, prng.random());
         try expectBlasProduct(T, 30, 1, 12, prng.random());
@@ -203,7 +203,7 @@ pub fn expectVectorOps(comptime T: type, n: usize, rnd: std.Random) !void {
 
 test "dot, norm, sum, max and min, inline and on the BLAS, on rows and columns" {
     var prng: std.Random.DefaultPrng = .init(0xd07);
-    inline for (.{ f32, f64, C64 }) |T| for ([_]usize{ 1, 3, 8, 9, 100 }) |n| try expectVectorOps(T, n, prng.random());
+    inline for (.{ f32, f64, C64 }) |T| for ([_]usize{ 1, 3, 8, matrix.inline_limit, matrix.inline_limit + 1, 100 }) |n| try expectVectorOps(T, n, prng.random());
 }
 
 test "up to the inline limit, vector reductions keep linalg.vector's bits" {
@@ -325,5 +325,5 @@ pub fn expectFixedBits(comptime T: type, comptime c: usize, rnd: std.Random) !vo
 
 test "up to the inline limit, det, inv and solve keep a StaticMat's bits" {
     var prng: std.Random.DefaultPrng = .init(0x50f7);
-    inline for (.{ f32, f64, C64 }) |T| inline for (.{ 1, 2, 3, 4, 6, 8 }) |c| try expectFixedBits(T, c, prng.random());
+    inline for (.{ f32, f64, C64 }) |T| inline for (.{ 1, 2, 3, 4, 6, 8, matrix.inline_limit }) |c| try expectFixedBits(T, c, prng.random());
 }
