@@ -307,6 +307,7 @@ with `getrf_single.c`'s blocks, where upstream's depend on its thread count.
 | `copy` | `copy_thunderx2t99.c`: `n > 10000` | range chunks |
 | `dot`, `asum`, `sum`, `rot` | x86_64 kernels: `n > 10000` (dot), `> 100000` | range chunks, ordered combine |
 | extremes, indices | `iamax_thunderx2t99.c`, `izamax_thunderx2t99.c`: `n > 10000` | range chunks, exact fold |
+| `omatcopy` (`f32`, `f64`) | `omatcopy.c`: `rows * cols >= 65536 * 4`; transposed, at most `cols / 32` bands | bands of `A`'s columns, 32 wide at least where transposed |
 
 The `copy` and extremes rows are OpenBLAS's ThunderX2 kernels' own, taken as defaults for every
 core; the others are its generic interfaces' or x86_64 kernels'. Upstream threads `dot` only in

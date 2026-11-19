@@ -169,6 +169,7 @@ back to the portable kernels, and the next call selects again; no kernel call ma
   `A`, and copy its bits for `alpha` 1, complex too, where upstream's complex kernels multiply
   and turn an infinite part's partner into NaN; in place or through a buffer, `imatcopy` gives
   `omatcopy`'s bits. `geadd`'s zero `alpha` and `beta` read nothing, as `axpby`'s.
+- **Tiled and threaded copies.** The real transposed `omatcopy` of `f32` and `f64` goes in 32x32 tiles of 4x4 blocks (`ext/transpose.zig`, OpenBLAS's `domatcopy_t_avx.c` as `@Vector` code, on every target), and `f32` and `f64` `omatcopy` threads from `65536 * 4` elements in bands of `A`'s columns, at least 32 wide where transposed (`omatcopy.c`). Each element is one product, so tiles, bands and workers leave the bits alone.
 - **Zero strides.** Level 1's core (`blas1/interface.zig`, under the public views, which refuse zero strides) keeps the reference's sequential meaning: a zero input stride repeats
   `x(1)`, a zero output stride applies `n` updates to one element in turn. `axpy` with both
   strides zero is OpenBLAS's closed form, `y(1) += n*alpha*x(1)`. Level 2 rejects

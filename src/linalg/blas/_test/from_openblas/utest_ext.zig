@@ -1385,6 +1385,9 @@ const omatcopy_d = [_]Case{
     .{ .name = "colmajor_notrans_col_50_row_100", .kind = .run, .trans = 'N', .m = 100, .n = 50, .lda = 100, .ldb = 100, .alpha = .{ 2.0, 0 } },
     .{ .name = "colmajor_trans_col_100_row_50", .kind = .run, .trans = 'T', .m = 50, .n = 100, .lda = 50, .ldb = 100, .alpha = .{ 0.0, 0 } },
     .{ .name = "colmajor_notrans_col_100_row_50", .kind = .run, .trans = 'N', .m = 50, .n = 100, .lda = 50, .ldb = 50, .alpha = .{ 0.0, 0 } },
+    // large enough to thread (OpenBLAS f2ccc5045)
+    .{ .name = "colmajor_trans_col_600_row_500", .kind = .run, .trans = 'T', .m = 500, .n = 600, .lda = 500, .ldb = 600, .alpha = .{ 2.0, 0 } },
+    .{ .name = "colmajor_notrans_col_600_row_500", .kind = .run, .trans = 'N', .m = 500, .n = 600, .lda = 500, .ldb = 500, .alpha = .{ 2.0, 0 } },
     .{ .name = "xerbla_invalid_trans", .kind = .bad, .trans = 'O', .m = 100, .n = 100, .lda = 100, .ldb = 100, .info = 2 },
     .{ .name = "xerbla_colmajor_invalid_lda", .kind = .bad, .trans = 'T', .m = 100, .n = 50, .lda = 50, .ldb = 100, .info = 7 },
     .{ .name = "xerbla_colmajor_notrans_invalid_ldb", .kind = .bad, .trans = 'N', .m = 100, .n = 50, .lda = 100, .ldb = 50, .info = 9 },

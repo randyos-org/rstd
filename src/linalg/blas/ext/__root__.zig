@@ -10,6 +10,8 @@ pub const neg = @import("neg/__root__.zig");
 /// The portable `omatcopy` and `imatcopy` kernels, which share their scaling;
 /// column-major only, the row-major `ORDER` `R` ones are left out.
 pub const matcopy = @import("matcopy.zig");
+/// The real transposed copy in tiles, which `matcopy`'s kernels run.
+pub const transpose = @import("transpose.zig");
 
 /// The extension calls themselves (`geadd`, `omatcopy`, `imatcopy`,
 /// `laswp`), over the kernels.
@@ -31,4 +33,5 @@ const zigstd = @import("../../../zigstd.zig");
 
 test {
     zigstd.testRefAllDecls(@This());
+    _ = @import("_test/matcopy.zig");
 }

@@ -66,7 +66,8 @@ pub const LaswpError = ext.api.LaswpError;
 /// `geadd`: an unsupported letter, a slice too short or a leading dimension
 /// too small.
 pub const GeaddError = ext.api.GeaddError;
-/// `omatcopy`: `GeaddError`, and `error.Overlap` where `A` and `B` share memory.
+/// `omatcopy`: `GeaddError`, `error.Overlap` where `A` and `B` share memory,
+/// and `error.Canceled` from `io`, which large real copies thread on.
 pub const OmatcopyError = ext.api.OmatcopyError;
 /// `imatcopy`: `GeaddError`, and `error.OutOfMemory`.
 pub const ImatcopyError = ext.api.ImatcopyError;
