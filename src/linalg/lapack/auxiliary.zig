@@ -193,6 +193,66 @@ pub fn lapy3(comptime F: type, x: F, y: F, z: F) F {
     return w * @sqrt((xa / w) * (xa / w) + (ya / w) * (ya / w) + (za / w) * (za / w));
 }
 
+/// `xLASRT('I')` (`dlasrt.f`): `d` sorted increasing, by its quicksort
+/// (median of three, an explicit stack) with insertion sort below
+/// `SELECT` = 20. Values move by assignment, never as bytes: `std.sort`'s
+/// swaps of an `f128` do not compile on POWER (issue #185, #562).
+pub fn lasrt(comptime F: type, d: []F) void {
+    const select = 20;
+    if (d.len < 2) return;
+    // `STACK(2, 32)`: ranges, inclusive
+    var stack: [32][2]usize = undefined;
+    var top: usize = 1;
+    stack[0] = .{ 0, d.len - 1 };
+    while (top > 0) {
+        top -= 1;
+        const start = stack[top][0];
+        const endd = stack[top][1];
+        if (endd - start <= select and endd > start) {
+            for (start + 1..endd + 1) |i| {
+                var j = i;
+                while (j > start and d[j] < d[j - 1]) : (j -= 1) {
+                    const t = d[j];
+                    d[j] = d[j - 1];
+                    d[j - 1] = t;
+                }
+            }
+        } else if (endd - start > select) {
+            const d1 = d[start];
+            const d2 = d[endd];
+            const d3 = d[(start + endd) / 2];
+            const pivot = if (d1 < d2)
+                (if (d3 < d1) d1 else if (d3 < d2) d3 else d2)
+            else
+                (if (d3 < d2) d2 else if (d3 < d1) d3 else d1);
+            // Hoare's partition, as the reference's labels 90 to 110
+            var i = start;
+            var j = endd;
+            var first = true;
+            while (true) {
+                if (!first) j -= 1;
+                while (d[j] > pivot) j -= 1;
+                if (!first) i += 1;
+                while (d[i] < pivot) i += 1;
+                first = false;
+                if (i < j) {
+                    const t = d[i];
+                    d[i] = d[j];
+                    d[j] = t;
+                } else break;
+            }
+            if (j - start > endd - j - 1) {
+                stack[top] = .{ start, j };
+                stack[top + 1] = .{ j + 1, endd };
+            } else {
+                stack[top] = .{ j + 1, endd };
+                stack[top + 1] = .{ start, j };
+            }
+            top += 2;
+        }
+    }
+}
+
 /// `xLAMRG` (`dlamrg.f`): `index` (`n1 + n2`) the ascending merge of
 /// `a[0..n1]` and `a[n1..][0..n2]`, each sorted ascending (`up`) or
 /// descending; ties take the first list's entry first.

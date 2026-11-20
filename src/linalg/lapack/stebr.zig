@@ -65,7 +65,7 @@ pub fn stebr(al: Allocator, comptime F: type, d: []F, e: []F) Error!void {
         }
         start = finish + 1;
     }
-    std.mem.sort(F, d, {}, std.sort.asc(F));
+    auxiliary.lasrt(F, d);
 }
 
 /// `xLANST('M')`: the largest `|d(i)|`, `|e(i)|`, NaN if any is NaN.

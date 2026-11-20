@@ -212,6 +212,26 @@ test "laed4: every root of random secular equations against f128's, n 1 to 40" {
     }
 }
 
+test "lasrt: sorted increasing, the same values, ties and around its insertion cutoff" {
+    var prng = std.Random.DefaultPrng.init(17);
+    const r = prng.random();
+    inline for (.{ f32, f64, f128 }) |F| for ([_]usize{ 0, 1, 2, 19, 20, 21, 22, 100, 1000 }) |n| {
+        var a: [1000]F = undefined;
+        var b: [1000]F = undefined;
+        for (0..n) |i| a[i] = if (i % 5 == 0) 0.5 else @floatCast(r.float(f64) - 0.5);
+        @memcpy(b[0..n], a[0..n]);
+        auxiliary.lasrt(F, a[0..n]);
+        for (1..@max(n, 1)) |i| try testing.expect(a[i - 1] <= a[i]);
+        var sa: F = 0;
+        var sb: F = 0;
+        for (0..n) |i| {
+            sa += a[i];
+            sb += b[i];
+        }
+        try testing.expectApproxEqRel(sb, sa, 1e-3);
+    };
+}
+
 test "lamrg: an ascending and a descending list merged, ties first-list first" {
     const a = [_]f64{ 1, 3, 5, 6, 4, 3, 2 };
     var idx: [7]usize = undefined;
