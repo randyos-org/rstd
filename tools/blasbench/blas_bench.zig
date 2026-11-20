@@ -192,11 +192,19 @@ pub fn main(init: std.process.Init) !void {
     if (!alone and want(sections.items, "matcopy")) try matcopy_bench.run(io, gpa);
     if (!alone and want(sections.items, "potrf")) try potrf_bench.run();
     if (!alone and want(sections.items, "inline")) try inline_bench.run(io, gpa);
-    if (!alone and want(sections.items, "compensated")) try compensated_bench.run(io, gpa);
+    // OpenBLAS's sums race there too, when given
+    var libs_loaded = false;
+    if (!alone and want(sections.items, "compensated")) {
+        if (opts.paths.get(.openblas) != null) {
+            try loadLibs(opts);
+            libs_loaded = true;
+        }
+        try compensated_bench.run(io, gpa);
+    }
     if (!alone and want(sections.items, "rotreals")) try rot_reals_bench.run(io, gpa);
     const lib_sections = want(sections.items, "lib1") or want(sections.items, "lib2") or want(sections.items, "lib3") or want(sections.items, "lapack");
     if (lib_sections or (all and (opts.paths.get(.openblas) != null or alone))) {
-        try loadLibs(opts);
+        if (!libs_loaded) try loadLibs(opts);
         if (all or want(sections.items, "lib1")) try libLevel1(io, gpa);
         if (all or want(sections.items, "lib2")) try libLevel2(io, gpa);
         if (all or want(sections.items, "lib3")) try libLevel3(io, gpa);
