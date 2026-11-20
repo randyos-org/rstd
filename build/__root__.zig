@@ -109,6 +109,14 @@ pub fn build(b: *Build) !void {
     const vulkan_opt = b.option(bool, "vulkan", "Compile rgl's Vulkan/SPIR-V shaders") orelse false;
     const renderdoc_opt = b.option(bool, "renderdoc", "Link RenderDoc's in-app capture API (fetches renderdoc and translate-c)") orelse false;
     const rstd_mod = try addRstdModule(b, "rstd", target, optimize, blas_cores, .{ .vulkan = vulkan_opt, .renderdoc = renderdoc_opt });
+    // the BLAS core the target detects and runs, which CI's legs print (issue #619)
+    const blas_core = b.addExecutable(.{ .name = "blas-core", .root_module = b.createModule(.{
+        .root_source_file = b.path("tools/blas_core.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "rstd", .module = rstd_mod }},
+    }) });
+    b.step("blas-core", "Print the CPU and the BLAS core rstd detects and runs here (tools/blas_core.zig)").dependOn(&b.addRunArtifact(blas_core).step);
     if (vulkan_opt) {
         try rstdbuild.wireRglShaders(b, optimize, rstd_mod);
         const vulkan_mod = rstdbuild.addVulkan(b);

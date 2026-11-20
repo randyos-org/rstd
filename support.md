@@ -23,13 +23,13 @@ after it. Rig names are `zig build` steps: `qemu-test-<rig>` unless named in ful
 | `x86_64-windows` | 1 | zfls | native `rstd-test` on the Zen 3 host, with `-Dblas-cores=all`; `x86_64-whpx` (the host CPU); `rstd-check-zig017`; zfls's CI |
 | `spirv32-vulkan` | 1 | rgl, shaderlib | `-Dvulkan` compiles rgl's shaders (`vulkan_v1_2`); `shader-check` validates them with `spirv-val`; `shader-run` draws with them and runs shaderlib's probes on a Vulkan device against the CPU (`tools/shader_run`); both in CI, on Mesa's lavapipe |
 | `x86_64-freestanding-none` | 2 | RandyOS: PC, Intel Mac | `x86_64` and `x86_64-smp` (TCG `max`, HVF on the Intel Mac, or KVM in CI), `x86_64-whpx` |
-| `aarch64-freestanding-none` | 2 | RandyOS: Raspberry Pi 3 to 5, Apple Silicon | `aarch64` (HVF on the M6, or `cortex-a72`), `aarch64-smp`, `aarch64-sve` (TCG `max`); in CI on arm64 runners |
+| `aarch64-freestanding-none` | 2 | RandyOS: Raspberry Pi 3 to 5, Apple Silicon | `aarch64` (HVF on the M6, or `cortex-a72`), `aarch64-smp`; in CI on arm64 runners. `aarch64-sve` (TCG `max`) is tier 3: no RandyOS target has SVE (#619) |
 | `arm-freestanding-eabi` | 2 | RandyOS: Raspberry Pi 3, 32-bit | `arm-softfp` (soft-float ABI, A15's VFP), `arm` (`eabihf`); both in CI under TCG |
 | `powerpc-freestanding-eabi` | 2 | RandyOS: iBook G3, PowerPC 750FX | `powerpc-750` (soft float: portable kernels only), `powerpc-750-hf`; both in CI under TCG |
 | `x86_64-uefi-msvc` | 2 | RandyOS's loader | `x86_64-uefi` (OVMF; HVF on the Intel Mac, or KVM in CI), `rstd-check-uefi` (CI too) |
-| `aarch64-uefi-msvc` | 2 | RandyOS's loader (pftf) | `aarch64-uefi` (AAVMF; HVF on the M6, or arm64 runners in CI), `aarch64-uefi-sve` (TCG `max`: the SVE and SME cores; CI too), `rstd-check-uefi` |
+| `aarch64-uefi-msvc` | 2 | RandyOS's loader (pftf) | `aarch64-uefi` (AAVMF; HVF on the M6, or arm64 runners in CI), `rstd-check-uefi`. `aarch64-uefi-sve` (TCG `max`) is tier 3: no RandyOS target has SVE (#619) |
 | `x86_64-linux-musl` | 2 | zfls (release, conda, Alpine) | `linux-x86_64` (TCG `max`, HVF on the Intel Mac, or KVM in CI; 4 CPUs), CI's native `x86_64-linux-musl` legs, `rstd-check-zig017` |
-| `aarch64-linux-musl` | 2 | zfls (release, conda, Alpine) | `linux-aarch64` (HVF on the M6, or TCG `max`), `linux-aarch64-sve` (TCG `max`: the SVE and SME cores), both in CI on arm64 runners; CI's native `aarch64-linux-musl` legs, `rstd-check-zig017` |
+| `aarch64-linux-musl` | 2 | zfls (release, conda, Alpine) | `linux-aarch64` (HVF on the M6, or TCG `max`), `linux-aarch64-sve` (TCG `max`: the SVE and SME cores, for SVE servers such as Graviton 3 and 4), both in CI on arm64 runners, which are Cobalt 100 (Neoverse N2, SVE2: CI's `blas-core` step shows the core they run); CI's native `aarch64-linux-musl` legs, `rstd-check-zig017` |
 | `x86_64-linux-gnu`, `aarch64-linux-gnu` | 2 | zfls | CI's native legs (`ubuntu-24.04`, `ubuntu-24.04-arm`); the Linux rigs above with `-Drstd-tsan` (glibc from Nix: `-Dtest-host`'s, or in CI the runner's with `-Dqemu-nix-here`); in CI `aarch64-linux-gnu`'s ThreadSanitizer run is a native leg, not the rig (the arm64 runners have no KVM: [#539](https://github.com/randyos-org/rstd/issues/539)) |
 | `aarch64-windows` | 2 | zfls | CI's native legs (`windows-11-arm`), `rstd-check-zig017` |
 | `x86_64-macos` 11.0+ | 2 | zfls | `ssh-test-x86_64-macos` (Intel Mac, i5-8500B, macOS 15.8), CI's native legs (`macos-15-intel`), `ssh-test-x86_64-macos-rosetta` (Rosetta 2 on the M6, for comparison), `rstd-check-macho`, `rstd-check-zig017` |
@@ -110,8 +110,8 @@ Compiled and symbol-checked, never run:
 | --- | --- |
 | `armv8`, `cortexa53`, `cortexa55`, `cortexa57`, `cortexa72`, `cortexa73`, `cortexa76`, `cortexx1`, `falkor`, `thunderx`, `thunderx2t99`, `tsv110`, `emag8180`, `neoversen1`, `ft2000` | `aarch64`, `aarch64-sve`, `aarch64-uefi`, `linux-aarch64` |
 | `thunderx3t110`, `ampere1` (need FCMA) | `aarch64-sve`, `linux-aarch64`; `aarch64` and `aarch64-uefi` under HVF |
-| `a64fx`, `armv8sve`, `neoversev1`, `neoversen2`, `neoversev2`, `cortexa510`, `cortexa710`, `cortexx2` (SVE) | `aarch64-sve` |
-| `armv9sme` (SVE2, SME) | `aarch64-sve` |
+| `a64fx`, `armv8sve`, `neoversev1`, `neoversen2`, `neoversev2`, `cortexa510`, `cortexa710`, `cortexx2` (SVE) | `linux-aarch64-sve`; `aarch64-sve` (tier 3) |
+| `armv9sme` (SVE2, SME) | `linux-aarch64-sve`; `aarch64-sve` (tier 3) |
 | `vortex` (Apple) | `ssh-test-aarch64-macos`; `aarch64`, `aarch64-uefi` and `linux-aarch64` under HVF |
 | `vortexm4` (Apple, SME) | `ssh-test-aarch64-macos`; `aarch64` and `aarch64-uefi` under HVF |
 
