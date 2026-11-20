@@ -164,7 +164,7 @@ fn dlError() []const u8 {
 
 /// `name` from `src`'s library: Accelerate's current LP64 entry
 /// (`ACCELERATE_NEW_LAPACK`) where it has one, else the classic one.
-fn lookup(comptime src: Src, comptime T: type, comptime name: [:0]const u8) ?T {
+pub fn lookup(comptime src: Src, comptime T: type, comptime name: [:0]const u8) ?T {
     const h = &(lib_handles.getPtr(src).* orelse return null);
     if (src == .accelerate) {
         if (h.lookup(T, name ++ "$NEWLAPACK")) |f| return f;

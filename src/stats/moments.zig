@@ -21,8 +21,9 @@ pub const Normalize = enum { sample, population };
 
 pub const MomentError = error{ EmptyInput, Canceled };
 
-/// How the sums are taken: as the BLAS's kernels do, or compensated
-/// (Neumaier's, `blas.Summation`).
+/// How the sums are taken (`blas.Summation`): as the BLAS's kernels do,
+/// compensated (Neumaier's), or `.fast`, which only the BLAS `sum` of `f32`
+/// takes; the loops here sum it as `.plain`.
 pub const Summation = blas.Summation;
 
 /// The mean of `xs` (a slice or array of integers, floats or `Complex`), as

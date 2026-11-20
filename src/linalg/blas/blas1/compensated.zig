@@ -14,9 +14,6 @@ const Io = std.Io;
 const Float = types.Float;
 const isComplex = types.isComplex;
 
-/// How a reduction sums: as the kernels do, or compensated (Neumaier).
-pub const Summation = enum { plain, compensated };
-
 /// A running sum and its compensation, in `W` (`f64` for `f32`).
 fn Acc(comptime W: type) type {
     return struct {

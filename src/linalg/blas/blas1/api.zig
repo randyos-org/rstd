@@ -10,6 +10,7 @@ const types = @import("../types.zig");
 const strided = @import("../strided.zig");
 const core = @import("interface.zig");
 const compensated = @import("compensated.zig");
+const fast = @import("fast.zig");
 const util = @import("../util.zig");
 
 const Io = std.Io;
@@ -20,8 +21,14 @@ const ConstStrided = strided.ConstStrided;
 const LengthError = strided.LengthError;
 
 pub const Extreme = core.Extreme;
-/// How a reduction sums: as the kernels do, or compensated (Neumaier).
-pub const Summation = compensated.Summation;
+/// How `sumWith`, `asumWith`, `dotWith` and `dotcWith` sum; each gives the
+/// same bits at any worker count. `.plain`, the default: as the kernels sum,
+/// `f32` in `f64` (issue #584 lists the exceptions). `.compensated`:
+/// Neumaier's, about one rounding of the result, at portable speed
+/// (`compensated.zig`). `.fast`: speed over accuracy for single precision,
+/// `f32` and `Complex(f32)` added in `f32` lanes as OpenBLAS's kernels add
+/// them (`fast.zig`); `.plain` for wider types.
+pub const Summation = enum { plain, compensated, fast };
 
 /// What a routine of two vectors that may thread returns.
 pub const PairError = LengthError || Io.Cancelable;
@@ -98,19 +105,24 @@ pub fn dotc(io: Io, comptime T: type, x: ConstStrided(T), y: ConstStrided(T)) Pa
     return core.dotc(io, T, len(x), ptr(T, x), inc(x), ptr(T, y), inc(y)) catch |e| return canceled(e);
 }
 
-/// `dot` summed as `s` says; `.compensated` (Neumaier) bounds the error by
-/// about one rounding of the result, at portable speed.
+/// `dot` summed as `s` says.
 pub fn dotWith(io: Io, comptime T: type, x: ConstStrided(T), y: ConstStrided(T), s: Summation) PairError!T {
-    if (s == .plain) return dot(io, T, x, y);
-    try x.sameLength(y);
-    return compensated.dot(io, T, false, x.n, util.first(T, ptr(T, x), len(x), inc(x)), inc(x), util.first(T, ptr(T, y), len(y), inc(y)), inc(y));
+    return dotsWith(io, T, false, x, y, s);
 }
 
 /// `dotc` summed as `s` says.
 pub fn dotcWith(io: Io, comptime T: type, x: ConstStrided(T), y: ConstStrided(T), s: Summation) PairError!T {
-    if (s == .plain) return dotc(io, T, x, y);
+    return dotsWith(io, T, true, x, y, s);
+}
+
+fn dotsWith(io: Io, comptime T: type, comptime conj: bool, x: ConstStrided(T), y: ConstStrided(T), s: Summation) PairError!T {
+    const plain = s == .plain or (s == .fast and !fast.serves(T));
+    if (plain) return if (conj) dotc(io, T, x, y) else dot(io, T, x, y);
     try x.sameLength(y);
-    return compensated.dot(io, T, true, x.n, util.first(T, ptr(T, x), len(x), inc(x)), inc(x), util.first(T, ptr(T, y), len(y), inc(y)), inc(y));
+    const px = util.first(T, ptr(T, x), len(x), inc(x));
+    const py = util.first(T, ptr(T, y), len(y), inc(y));
+    if (comptime fast.serves(T)) if (s == .fast) return fast.dot(io, T, conj, x.n, px, inc(x), py, inc(y));
+    return compensated.dot(io, T, conj, x.n, px, inc(x), py, inc(y));
 }
 
 /// The dot of two `f32` vectors, summed and returned in `f64`.
@@ -144,14 +156,20 @@ pub fn sum(io: Io, comptime T: type, x: ConstStrided(T)) Io.Cancelable!Float(T) 
 
 /// `asum` summed as `s` says.
 pub fn asumWith(io: Io, comptime T: type, x: ConstStrided(T), s: Summation) Io.Cancelable!Float(T) {
-    if (s == .plain) return asum(io, T, x);
-    return compensated.asum(io, T, x.n, ptr(T, x), step(x));
+    return switch (s) {
+        .plain => asum(io, T, x),
+        .compensated => compensated.asum(io, T, x.n, ptr(T, x), step(x)),
+        .fast => if (comptime fast.serves(T)) fast.asum(io, T, x.n, ptr(T, x), step(x)) else asum(io, T, x),
+    };
 }
 
 /// `sum` summed as `s` says.
 pub fn sumWith(io: Io, comptime T: type, x: ConstStrided(T), s: Summation) Io.Cancelable!Float(T) {
-    if (s == .plain) return sum(io, T, x);
-    return compensated.sum(io, T, x.n, ptr(T, x), step(x));
+    return switch (s) {
+        .plain => sum(io, T, x),
+        .compensated => compensated.sum(io, T, x.n, ptr(T, x), step(x)),
+        .fast => if (comptime fast.serves(T)) fast.sum(io, T, x.n, ptr(T, x), step(x)) else sum(io, T, x),
+    };
 }
 
 // ---- extremes ----------------------------------------------------------------
