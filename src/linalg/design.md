@@ -2344,7 +2344,7 @@ The freestanding and UEFI machines (`build/qemu/machines.zig`):
 | Machine | CPU | Notes |
 | --- | --- | --- |
 | `aarch64` | `cortex-a72` | |
-| `aarch64-sve` | `max` | SVE2, SME2, BF16: every arm64 core but Apple's |
+| `aarch64-sve` | `max` | SVE2, SME2, BF16: every arm64 core but Apple's; tier 3 (#619) |
 | `aarch64-smp`, `x86_64-smp` | as `aarch64`, `x86_64`; four cores | multithreaded kernels: the threaded tests on their cores (`test/qemu/smp.zig`, [`threading.md`](blas/threading.md) Verification) |
 | `arm`, `arm-softfp` | `cortex-a15` | `eabihf`, and `eabi` for the kernels' `sf` variant on the VFP the CPU has |
 | `riscv64` | `rv64,v=true,vlen=512` | the VLEN of the widest linked core (x280; `zvl512b` in `Makefile.riscv64:6`) |
@@ -2401,7 +2401,7 @@ Rig mechanics:
   their tests into images by filter (`parts` in `build/qemu/machines.zig`), and the build, under
   `qemu-check` too, fails an image whose loaded span is past that window (`load_window`,
   `tools/rig/load_window.zig`). `-Dqemu-test-part=<part>` builds and runs only that image.
-  The SVE rigs, 3.3 to 4.6 hours under TCG in one run, run in seven parts (`split`: `blas1`, `blas2-edge`, `blas2`, `blas3-tri`, `blas3`, `lapack-lu` and `rest`, every test the others leave out), one CI leg each ([#569](https://github.com/randyos-org/rstd/issues/569)).
+  The SVE rigs, 3.3 to 4.6 hours under TCG in one run, run in seven parts (`split`: `blas1`, `blas2-edge`, `blas2`, `blas3-tri`, `blas3`, `lapack-lu` and `rest`, every test the others leave out), one CI leg each ([#569](https://github.com/randyos-org/rstd/issues/569)); CI runs only `linux-aarch64-sve`'s, as the bare-metal and UEFI ones are tier 3 ([#619](https://github.com/randyos-org/rstd/issues/619)).
 - **UEFI.** The app boots from a read-only FAT drive (QEMU's vvfat) with the edk2 firmware
   Nix's QEMU ships, as read-only pflash (`tools/nix/run.sh` finds it, so only on the test
   host). It takes its heap and a 1 MiB stack from boot services, turns off the watchdog,

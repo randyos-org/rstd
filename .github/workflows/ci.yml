@@ -195,12 +195,14 @@ jobs:
           fi
           # the tier 3 QEMU rigs (build/qemu), legs named `<rig> rig` (rig-tier34);
           # sparc64 stays out while its images outgrow OpenBIOS's window (T39)
+          # the bare-metal and UEFI SVE rigs run whole there, not in parts (#619)
           rigs=$(jq -cn '[
             "i386", "i386-max", "i386-safe", "i386-max-safe",
             "riscv64", "riscv64-vlen128", "riscv64-vlen256",
             "powerpc64le", "powerpc64le-power10", "powerpc64", "powerpc", "powerpc-pseries", "powerpc-power9",
             "mips64r2el", "mips64r2", "mips64r6el", "mips64r6", "mips32r2el", "mips32r2", "mips32r5el", "mips32r5",
             "loongarch64", "s390x",
+            "aarch64-sve", "aarch64-uefi-sve",
             "linux-arm", "linux-riscv64", "linux-powerpc64le", "linux-powerpc64le-power10"
           ] | map({ name: "\(.) rig", rig: . })')
           pick() {
@@ -416,6 +418,14 @@ jobs:
           done
           zig build "$FETCH"
 
+      # the BLAS core rstd detects and runs here (issue #619); only informational
+      - name: BLAS core
+        continue-on-error: true
+        env:
+          ARGS: ${{ matrix.platform.args }}
+        # ARGS splits into words on purpose
+        run: zig build blas-core $ARGS -Dtest-host-off
+
       - name: Test
         env:
           STEP: ${{ matrix.platform.step || 'rstd-test' }}
@@ -505,21 +515,6 @@ jobs:
           - { rig: aarch64, runner: ubuntu-24.04-arm }
           - { rig: aarch64-smp, runner: ubuntu-24.04-arm }
           - { rig: aarch64-uefi, runner: ubuntu-24.04-arm }
-          # the SVE rigs in parts: 3.3 to 4.6 hours each in one run (#569)
-          - { rig: aarch64-sve, runner: ubuntu-24.04-arm, part: blas1 }
-          - { rig: aarch64-sve, runner: ubuntu-24.04-arm, part: blas2-edge }
-          - { rig: aarch64-sve, runner: ubuntu-24.04-arm, part: blas2 }
-          - { rig: aarch64-sve, runner: ubuntu-24.04-arm, part: blas3-tri }
-          - { rig: aarch64-sve, runner: ubuntu-24.04-arm, part: blas3 }
-          - { rig: aarch64-sve, runner: ubuntu-24.04-arm, part: lapack-lu }
-          - { rig: aarch64-sve, runner: ubuntu-24.04-arm, part: rest }
-          - { rig: aarch64-uefi-sve, runner: ubuntu-24.04-arm, part: blas1 }
-          - { rig: aarch64-uefi-sve, runner: ubuntu-24.04-arm, part: blas2-edge }
-          - { rig: aarch64-uefi-sve, runner: ubuntu-24.04-arm, part: blas2 }
-          - { rig: aarch64-uefi-sve, runner: ubuntu-24.04-arm, part: blas3-tri }
-          - { rig: aarch64-uefi-sve, runner: ubuntu-24.04-arm, part: blas3 }
-          - { rig: aarch64-uefi-sve, runner: ubuntu-24.04-arm, part: lapack-lu }
-          - { rig: aarch64-uefi-sve, runner: ubuntu-24.04-arm, part: rest }
           # 32-bit Arm: TCG on any runner
           - { rig: arm, runner: ubuntu-24.04 }
           - { rig: arm-softfp, runner: ubuntu-24.04 }
@@ -529,6 +524,8 @@ jobs:
           # zfls's Linux: KVM on x86_64, TCG on the arm64 runners
           - { rig: linux-x86_64, runner: ubuntu-24.04 }
           - { rig: linux-aarch64, runner: ubuntu-24.04-arm }
+          # in parts: 4.6 hours in one run (#569); the bare-metal and UEFI SVE rigs are
+          # tier 3 (#619)
           - { rig: linux-aarch64-sve, runner: ubuntu-24.04-arm, part: blas1 }
           - { rig: linux-aarch64-sve, runner: ubuntu-24.04-arm, part: blas2-edge }
           - { rig: linux-aarch64-sve, runner: ubuntu-24.04-arm, part: blas2 }
