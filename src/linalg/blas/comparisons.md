@@ -586,7 +586,7 @@ that OpenBLAS's prefetch-heavy arm64 kernels are slower on M6.
    `Q` 1024/512, `P` 512/256 (`param.h`, VORTEX block). Sweep `Q` upward on M6.
 
 OpenBLAS's `param.h` block shared by VORTEX chooses `P`/`Q` by `NUM_CORES > 8` at build time,
-but VORTEX and VORTEXM4 always take the large set (`param.h:3625`), as `params_data.zig` has it.
+but VORTEX and VORTEXM4 always take the large set (`param.h:3625`), as `params_data/arm64.zig` has it.
 
 ## 10. Special values and denormals
 

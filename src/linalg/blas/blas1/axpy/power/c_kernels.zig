@@ -113,7 +113,7 @@ fn ukModule(comptime slot: Slot, comptime source: Source) type {
             .daxpy_k => @import("uk/daxpy_power10.zig"),
             .saxpy_k => @import("uk/saxpy_power10.zig"),
             .caxpy_k, .caxpyc_k => @import("uk/caxpy_power10.zig"),
-            else => @import("uk/zaxpy_power10.zig"),
+            else => @import("uk/zaxpy_power10/__root__.zig"),
         },
     };
 }

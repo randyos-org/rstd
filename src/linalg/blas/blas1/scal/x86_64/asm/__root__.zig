@@ -5,8 +5,8 @@ const registry = @import("../../../../registry.zig");
 pub const Entry = registry.Entry;
 
 pub const entries = [_]Entry{
-    .{ .slot = .sscal_k, .module = @import("sscal_sse_sysv.zig") },
-    .{ .slot = .sscal_k, .module = @import("sscal_sse_win.zig") },
+    .{ .slot = .sscal_k, .module = @import("sscal_sse_sysv/__root__.zig") },
+    .{ .slot = .sscal_k, .module = @import("sscal_sse_win/__root__.zig") },
     .{ .slot = .dscal_k, .module = @import("dscal_atom_sysv.zig") },
     .{ .slot = .dscal_k, .module = @import("dscal_atom_win.zig") },
     .{ .slot = .zscal_k, .module = @import("zscal_atom_sysv.zig") },

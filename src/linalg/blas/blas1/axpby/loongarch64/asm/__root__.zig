@@ -5,12 +5,12 @@ const registry = @import("../../../../registry.zig");
 pub const Entry = registry.Entry;
 
 pub const entries = [_]Entry{
-    .{ .slot = .saxpby_k, .module = @import("saxpby_lsx.zig") },
-    .{ .slot = .daxpby_k, .module = @import("daxpby_lsx.zig") },
+    .{ .slot = .saxpby_k, .module = @import("saxpby_lsx/__root__.zig") },
+    .{ .slot = .daxpby_k, .module = @import("daxpby_lsx/__root__.zig") },
     .{ .slot = .caxpby_k, .module = @import("caxpby_lsx.zig") },
-    .{ .slot = .zaxpby_k, .module = @import("zaxpby_lsx.zig") },
-    .{ .slot = .saxpby_k, .module = @import("saxpby_lasx.zig") },
-    .{ .slot = .daxpby_k, .module = @import("daxpby_lasx.zig") },
-    .{ .slot = .caxpby_k, .module = @import("caxpby_lasx.zig") },
+    .{ .slot = .zaxpby_k, .module = @import("zaxpby_lsx/__root__.zig") },
+    .{ .slot = .saxpby_k, .module = @import("saxpby_lasx/__root__.zig") },
+    .{ .slot = .daxpby_k, .module = @import("daxpby_lasx/__root__.zig") },
+    .{ .slot = .caxpby_k, .module = @import("caxpby_lasx/__root__.zig") },
     .{ .slot = .zaxpby_k, .module = @import("zaxpby_lasx.zig") },
 };

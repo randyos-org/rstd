@@ -1,12 +1,12 @@
 //! The gemm blocking parameters, put in the vtable as a core's kernels are
 //! installed, as `kernel/setparam-ref.c` fills OpenBLAS's table: `param.h`'s
-//! constants (`params_data.zig`) and the rules it computes (`notes.md`).
+//! constants (`params_data/`) and the rules it computes (`notes.md`).
 
 const std = @import("std");
 const sysinfo = @import("builtin");
 const Vtable = @import("../../Vtable.zig");
 const Config = @import("../../Config.zig");
-const data = @import("params_data.zig");
+const data = @import("params_data/__root__.zig");
 const coretypes = @import("../../cpu/coretypes.zig");
 const corespec = @import("../../cpu/corespec.zig");
 const select = @import("../../cpu/select.zig");

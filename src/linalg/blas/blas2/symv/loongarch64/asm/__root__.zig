@@ -5,12 +5,12 @@ const registry = @import("../../../../registry.zig");
 pub const Entry = registry.Entry;
 
 pub const entries = [_]Entry{
-    .{ .slot = .ssymv_U, .module = @import("ssymv_U_lsx.zig") },
-    .{ .slot = .ssymv_L, .module = @import("ssymv_L_lsx.zig") },
-    .{ .slot = .dsymv_U, .module = @import("dsymv_U_lsx.zig") },
-    .{ .slot = .dsymv_L, .module = @import("dsymv_L_lsx.zig") },
-    .{ .slot = .ssymv_U, .module = @import("ssymv_U_lasx.zig") },
-    .{ .slot = .ssymv_L, .module = @import("ssymv_L_lasx.zig") },
-    .{ .slot = .dsymv_U, .module = @import("dsymv_U_lasx.zig") },
-    .{ .slot = .dsymv_L, .module = @import("dsymv_L_lasx.zig") },
+    .{ .slot = .ssymv_U, .module = @import("ssymv_U_lsx/__root__.zig") },
+    .{ .slot = .ssymv_L, .module = @import("ssymv_L_lsx/__root__.zig") },
+    .{ .slot = .dsymv_U, .module = @import("dsymv_U_lsx/__root__.zig") },
+    .{ .slot = .dsymv_L, .module = @import("dsymv_L_lsx/__root__.zig") },
+    .{ .slot = .ssymv_U, .module = @import("ssymv_U_lasx/__root__.zig") },
+    .{ .slot = .ssymv_L, .module = @import("ssymv_L_lasx/__root__.zig") },
+    .{ .slot = .dsymv_U, .module = @import("dsymv_U_lasx/__root__.zig") },
+    .{ .slot = .dsymv_L, .module = @import("dsymv_L_lasx/__root__.zig") },
 };

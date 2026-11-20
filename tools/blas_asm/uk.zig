@@ -16,6 +16,9 @@
 //! inside the strings is resolved by the preprocessor, once for each form;
 //! POWER's `__BYTE_ORDER__` too, once per byte order, and where the two
 //! differ the file has a function for each, which the block's name picks.
+//! A file too long (`sections.max_lines`) is a folder of its name instead:
+//! a file per form (`plain.zig`, `c.zig`, `x.zig`, `cx.zig`), and a
+//! `__root__.zig` that names every function.
 //!
 //! The driver around a microkernel (`daxpy.c` and its siblings) is not
 //! converted here, only the functions with assembly it defines itself
@@ -31,6 +34,7 @@ const map = @import("openblas.zig");
 const arch = @import("arch/__root__.zig");
 const roles = @import("roles.zig");
 const arch_table = @import("arches.zig");
+const max_lines = @import("sections.zig").max_lines;
 
 const Precision = struct { letter: u8, float: []const u8, complex: bool };
 
@@ -78,7 +82,20 @@ const Form = struct {
     fn suffix(f: Form) []const u8 {
         return if (f.conj and f.xconj) "_cx" else if (f.conj) "_c" else if (f.xconj) "_x" else "";
     }
+
+    /// The form's file in a block's folder (`plain.zig`), without `.zig`.
+    fn file(f: Form) []const u8 {
+        return if (f.conj and f.xconj) "cx" else if (f.conj) "c" else if (f.xconj) "x" else "plain";
+    }
+
+    /// The macros it defines, for a file's description.
+    fn macros(f: Form) []const u8 {
+        return if (f.conj and f.xconj) "with `CONJ` and `XCONJ`" else if (f.conj) "with `CONJ`" else if (f.xconj) "with `XCONJ`" else "with neither `CONJ` nor `XCONJ`";
+    }
 };
+
+/// Every form, in the order a file's are converted.
+const all_forms = [_]Form{ .{}, .{ .conj = true }, .{ .xconj = true }, .{ .conj = true, .xconj = true } };
 
 fn runCpp(t: Target, source: []const u8, form: Form, endian: Endian) ![]const u8 {
     var argv: std.ArrayList([]const u8) = .empty;
@@ -849,9 +866,15 @@ fn convertFile(t: Target, routine: map.Routine, path: []const u8, out_dir: []con
     const Seen = struct { base: []const u8, fname: []const u8, text: []const u8 };
     var seen: std.ArrayList(Seen) = .empty;
     var body: std.ArrayList(u8) = .empty;
+    // the same per form, and what names them, for a file too long for one
+    const form_bodies = try map.arena.alloc(std.ArrayList(u8), forms.len);
+    for (form_bodies) |*b| b.* = .empty;
+    const form_split = try map.arena.alloc(bool, forms.len);
+    @memset(form_split, false);
+    var names: std.ArrayList(u8) = .empty;
     var split = false;
     var count: usize = 0;
-    for (forms) |form| {
+    for (forms, form_bodies, form_split) |form, *form_body, *order_split| {
         const source = try patched(t, path);
         const le = try definitions(try runCpp(t, source, form, .little));
         const be = if (t.power) try definitions(try runCpp(t, source, form, .big)) else &.{};
@@ -866,38 +889,38 @@ fn convertFile(t: Target, routine: map.Routine, path: []const u8, out_dir: []con
             };
             const z = converted orelse continue;
             count += 1;
+            const head = "pub noinline fn ";
+            const at = std.mem.find(u8, z, head).? + head.len;
+            const fname = z[at..std.mem.findScalarPos(u8, z, at, '(').?];
             if (has_xconj) {
-                const head = "pub noinline fn ";
-                const at = std.mem.find(u8, z, head).? + head.len;
-                const fname = z[at..std.mem.findScalarPos(u8, z, at, '(').?];
                 const norm = try std.mem.replaceOwned(u8, map.arena, z, fname, d.name);
                 const same = for (seen.items) |o| {
                     if (std.mem.eql(u8, o.base, d.name) and std.mem.eql(u8, o.text, norm)) break o.fname;
                 } else null;
                 if (same) |o| {
                     try put(&body, "pub const {s} = {s};\n\n", .{ fname, o });
-                } else {
-                    try seen.append(map.arena, .{ .base = d.name, .fname = fname, .text = norm });
-                    try put(&body, "{s}\n", .{z});
+                    try put(&names, "pub const {s} = {s};\n", .{ fname, o });
+                    continue;
                 }
-                continue;
+                try seen.append(map.arena, .{ .base = d.name, .fname = fname, .text = norm });
             }
+            try put(&names, "pub const {s} = {s}.{s};\n", .{ fname, form.file(), fname });
             const z_be = for (be) |b| {
                 if (std.mem.eql(u8, b.name, d.name)) break try convertFunction(t, b.text, prec, routine, form, false);
             } else null;
-            if (z_be == null or std.mem.eql(u8, z, z_be.?)) {
-                try put(&body, "{s}\n", .{z});
+            if (has_xconj or z_be == null or std.mem.eql(u8, z, z_be.?)) {
+                for ([_]*std.ArrayList(u8){ &body, form_body }) |b| try put(b, "{s}\n", .{z});
                 continue;
             }
             // one function per byte order, and the name picks the target's
-            const head = "pub noinline fn ";
-            const at = std.mem.find(u8, z, head).? + head.len;
-            const fname = z[at..std.mem.findScalarPos(u8, z, at, '(').?];
-            try put(&body, "pub const {s} = if (is_BE) {s}_be else {s}_le;\n\n", .{ fname, fname, fname });
             split = true;
-            for ([_][]const u8{ z, z_be.? }, [_][]const u8{ "_le", "_be" }) |text, suffix| {
-                const named = try map.arena.print("{s}{s}{s}", .{ head, fname, suffix });
-                try put(&body, "{s}\n", .{try std.mem.replaceOwned(u8, map.arena, text, try map.arena.print("{s}{s}", .{ head, fname }), named)});
+            order_split.* = true;
+            for ([_]*std.ArrayList(u8){ &body, form_body }) |b| {
+                try put(b, "pub const {s} = if (is_BE) {s}_be else {s}_le;\n\n", .{ fname, fname, fname });
+                for ([_][]const u8{ z, z_be.? }, [_][]const u8{ "_le", "_be" }) |text, suffix| {
+                    const named = try map.arena.print("{s}{s}{s}", .{ head, fname, suffix });
+                    try put(b, "{s}\n", .{try std.mem.replaceOwned(u8, map.arena, text, try map.arena.print("{s}{s}", .{ head, fname }), named)});
+                }
             }
         }
     }
@@ -905,31 +928,62 @@ fn convertFile(t: Target, routine: map.Routine, path: []const u8, out_dir: []con
         std.debug.print("skipped {s}: no assembly\n", .{base});
         return false;
     }
-    var out: std.ArrayList(u8) = .empty;
-    if (own) {
-        try put(&out,
-            \\//! `{c}{s}` driver kernels, the functions with assembly the driver defines itself, from OpenBLAS `kernel/{s}/{s}` (`{s}`); generated by `tools/blas_asm/uk.zig`, re-derive it rather than editing it.
-            \\
-            \\
-        , .{ prec.letter, name, t.arch.ob, base, map.pin });
-    } else try put(&out,
-        \\//! `{c}{s}` block kernel{s}, the assembly as written, from OpenBLAS `kernel/{s}/{s}` (`{s}`); generated by `tools/blas_asm/uk.zig`, re-derive it rather than editing it.
-        \\
-        \\
-    , .{ prec.letter, name, if (count > 1 and !has_conj) "s" else "", t.arch.ob, base, map.pin });
-    // one byte-order test for every split kernel in the file
-    if (split) try out.appendSlice(map.arena,
+    const what = if (own)
+        try map.arena.print("`{c}{s}` driver kernels, the functions with assembly the driver defines itself", .{ prec.letter, name })
+    else
+        try map.arena.print("`{c}{s}` block kernel{s}, the assembly as written", .{ prec.letter, name, if (count > 1 and !has_conj) "s" else "" });
+    const from = try map.arena.print("from OpenBLAS `kernel/{s}/{s}` (`{s}`); generated by `tools/blas_asm/uk.zig`, re-derive it rather than editing it.", .{ t.arch.ob, base, map.pin });
+    // one byte-order test for every split kernel in a file
+    const order_test =
         \\const sysinfo = @import("builtin");
         \\const is_BE = sysinfo.target.cpu.arch.endian() == .big;
         \\
         \\
-    );
+    ;
+    var out: std.ArrayList(u8) = .empty;
+    try put(&out, "//! {s}, {s}\n\n", .{ what, from });
+    if (split) try out.appendSlice(map.arena, order_test);
     try out.appendSlice(map.arena, body.items);
+
+    // one file, or a folder of the same name; the other form is a stale one
+    const cwd = Io.Dir.cwd();
     const dest = try map.path(&.{ out_dir, file });
-    try Io.Dir.cwd().writeFile(map.io, .{ .sub_path = dest, .data = out.items });
-    try map.format(dest);
-    std.debug.print("wrote {s}\n", .{dest});
+    const folder = dest[0 .. dest.len - ".zig".len];
+    try cwd.deleteTree(map.io, folder);
+    if (forms.len == 1 or std.mem.countScalar(u8, out.items, '\n') <= max_lines) {
+        try cwd.writeFile(map.io, .{ .sub_path = dest, .data = out.items });
+        try map.format(dest);
+        std.debug.print("wrote {s}\n", .{dest});
+        return true;
+    }
+    // too long for one file: a file per form, and one that names them all
+    cwd.deleteFile(map.io, dest) catch |e| switch (e) {
+        error.FileNotFound => {},
+        else => return e,
+    };
+    try cwd.createDirPath(map.io, folder);
+    var root: std.ArrayList(u8) = .empty;
+    try put(&root, "//! {s}, a file per form (the source preprocessed with `CONJ`, `XCONJ`, both or neither), {s}\n\n", .{ what, from });
+    for (forms, form_bodies, form_split) |form, form_body, order_split| {
+        if (form_body.items.len == 0) continue;
+        try put(&root, "const {s} = @import(\"{s}.zig\");\n", .{ form.file(), form.file() });
+        const text = try map.arena.print("//! {s}, the source preprocessed {s}, {s}\n\n{s}{s}", .{ what, form.macros(), from, if (order_split) order_test else "", form_body.items });
+        try cwd.writeFile(map.io, .{ .sub_path = try map.arena.print("{s}/{s}.zig", .{ folder, form.file() }), .data = text });
+        if (std.mem.countScalar(u8, text, '\n') > max_lines) std.debug.print("{s}/{s}.zig: one form's functions, and over {d} lines\n", .{ folder, form.file(), max_lines });
+    }
+    try put(&root, "\n{s}", .{names.items});
+    try cwd.writeFile(map.io, .{ .sub_path = try map.path(&.{ folder, "__root__.zig" }), .data = root.items });
+    try map.format(folder);
+    std.debug.print("wrote {s}/\n", .{folder});
     return true;
+}
+
+/// Where the block `file` of `out_dir` is, as its index imports it: itself,
+/// or its folder's `__root__.zig` (`convertFile`); null when there is none.
+fn blockModule(a: std.mem.Allocator, out_dir: []const u8, file: []const u8) !?[]const u8 {
+    if (map.read(try map.path(&.{ out_dir, file })) != null) return file;
+    const root = try a.print("{s}/__root__.zig", .{file[0 .. file.len - ".zig".len]});
+    return if (map.read(try map.path(&.{ out_dir, root })) != null) root else null;
 }
 
 pub fn main(init: std.process.Init) !void {
@@ -1046,14 +1100,21 @@ fn readMask(text: []const u8) []const u8 {
 /// The kernels of a converted block, by role: the first function is the real
 /// or non-conjugated one, a second the conjugated.
 fn functionsOf(a: std.mem.Allocator, path: []const u8) ![]const []const u8 {
-    const text = map.read(path) orelse return &.{};
     var out: std.ArrayList([]const u8) = .empty;
-    var it = std.mem.splitScalar(u8, text, '\n');
-    while (it.next()) |line| {
-        const key = "pub noinline fn ";
-        if (!std.mem.startsWith(u8, line, key)) continue;
-        const rest = line[key.len..];
-        try out.append(a, rest[0..std.mem.findScalar(u8, rest, '(').?]);
+    // one file, or its folder's file per form
+    var texts: std.ArrayList([]const u8) = .empty;
+    if (map.read(path)) |t| try texts.append(a, t);
+    for (all_forms) |form| {
+        if (map.read(try a.print("{s}/{s}.zig", .{ path[0 .. path.len - ".zig".len], form.file() }))) |t| try texts.append(a, t);
+    }
+    for (texts.items) |text| {
+        var it = std.mem.splitScalar(u8, text, '\n');
+        while (it.next()) |line| {
+            const key = "pub noinline fn ";
+            if (!std.mem.startsWith(u8, line, key)) continue;
+            const rest = line[key.len..];
+            try out.append(a, rest[0..std.mem.findScalar(u8, rest, '(').?]);
+        }
     }
     return out.items;
 }
@@ -1105,10 +1166,8 @@ fn writeIndex(a: std.mem.Allocator, t: Target, routine: map.Routine, out_dir: []
         const mask = if (routine.masked()) readMask(text) else "0";
         // the driver's own assembly (`convertFile`'s `own`), for every core
         const own_file = try a.print("{s}.zig", .{driver[0 .. driver.len - 2]});
-        const own = if (!t.in_file and map.read(try map.path(&.{ out_dir, own_file })) != null)
-            try a.print(", .own = @import(\"{s}\")", .{own_file})
-        else
-            "";
+        const own_module = if (t.in_file) null else try blockModule(a, out_dir, own_file);
+        const own = if (own_module) |m| try a.print(", .own = @import(\"{s}\")", .{m}) else "";
         // the roles sharing a make variable share their cores
         var done_make: std.ArrayList([]const u8) = .empty;
         for (routine.roles()) |first| {
@@ -1135,7 +1194,7 @@ fn writeIndex(a: std.mem.Allocator, t: Target, routine: map.Routine, out_dir: []
                     if (role.letter != letter or !std.mem.eql(u8, role.make, first.make)) continue;
                     if (skippedHere(arch_dir, role.slot)) continue;
                     const kernel = if (fns.len == 0) "" else fns[@min(role.function, fns.len - 1)];
-                    const module = if (fns.len == 0) "void" else try a.print("@import(\"{s}\")", .{block_file});
+                    const module = if (fns.len == 0) "void" else try a.print("@import(\"{s}\")", .{(try blockModule(a, out_dir, block_file)).?});
                     try put(&w, "    .{{ .slot = .{s}, .cores = &.{{{s} }}, .mask = {s}, .block = .{s}, .kernel = \"{s}\", .module = {s}{s} }},\n", .{ role.slot, cores.items, mask, if (fns.len == 0) "vector" else "assembly", kernel, module, own });
                 }
             }

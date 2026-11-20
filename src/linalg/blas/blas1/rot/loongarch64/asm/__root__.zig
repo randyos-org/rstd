@@ -11,6 +11,6 @@ pub const entries = [_]Entry{
     .{ .slot = .zdrot_k, .module = @import("zdrot_lsx.zig") },
     .{ .slot = .srot_k, .module = @import("srot_lasx.zig") },
     .{ .slot = .drot_k, .module = @import("drot_lasx.zig") },
-    .{ .slot = .csrot_k, .module = @import("csrot_lasx.zig") },
+    .{ .slot = .csrot_k, .module = @import("csrot_lasx/__root__.zig") },
     .{ .slot = .zdrot_k, .module = @import("zdrot_lasx.zig") },
 };
