@@ -14,6 +14,21 @@ const default_filters: []const []const u8 = machines.default_filters ++ &[_][]co
     "linalg.blas.threading.",
 };
 
+/// Halves of the selection, one CI leg each (`-Dwasm-test-part`): a whole
+/// module once ran past the runner (issue #577).
+const Part = enum { blas, lapack };
+
+const lapack_filters: []const []const u8 = &.{"linalg.lapack."};
+
+/// `default_filters` without LAPACK's.
+fn blasFilters(b: *Build) std.mem.Allocator.Error![]const []const u8 {
+    var list: std.ArrayList([]const u8) = .empty;
+    for (default_filters) |f| {
+        if (!std.mem.startsWith(u8, f, "linalg.lapack.")) try list.append(b.allocator, f);
+    }
+    return list.items;
+}
+
 const Variant = struct { name: []const u8, features: []const std.Target.wasm.Feature };
 
 const variants = [_]Variant{
@@ -24,7 +39,12 @@ const variants = [_]Variant{
 pub fn addWasmTests(b: *Build, optimize: Optimize) !void {
     const step = b.step("wasm-test", "Run rstd's OS-free tests as WASI modules under Node, with and without SIMD128");
     const check = b.step("wasm-check", "Build wasm-test's modules without running them");
-    const filters = b.option([]const []const u8, "wasm-test-filter", "Only run wasm tests whose name contains this (repeatable)") orelse default_filters;
+    const part = b.option(Part, "wasm-test-part", "Only this half of the tests: blas or lapack (CI's legs)");
+    const chosen: []const []const u8 = if (part) |p| switch (p) {
+        .blas => try blasFilters(b),
+        .lapack => lapack_filters,
+    } else default_filters;
+    const filters = b.option([]const []const u8, "wasm-test-filter", "Only run wasm tests whose name contains this (repeatable)") orelse chosen;
     // one module compiles at a time: two at once can pass a CI runner's memory (issue #268)
     var prev: ?*Build.Step = null;
     for (variants) |v| {
