@@ -177,7 +177,10 @@ jobs:
             { "name": "s390x-linux", "tier": 4, "runner": "ubuntu-24.04", "args": "-Dtarget=s390x-linux-musl -fqemu", "qemu": true },
             { "name": "mips64el-linux", "tier": 4, "runner": "ubuntu-24.04", "args": "-Dtarget=mips64el-linux-muslabi64 -fqemu", "qemu": true, "qemu_cpu": "MIPS64R2-generic" },
             { "name": "mipsel-linux", "tier": 4, "runner": "ubuntu-24.04", "args": "-Dtarget=mipsel-linux-musleabihf -fqemu", "qemu": true },
-            { "name": "wasm32-wasi", "tier": 3, "runner": "ubuntu-24.04", "step": "wasm-test", "swap": true, "node": "24" }
+            { "name": "wasm32-wasi simd128 blas", "tier": 3, "runner": "ubuntu-24.04", "step": "wasm-test-simd128", "args": "-Dwasm-test-part=blas", "swap": true, "node": "24" },
+            { "name": "wasm32-wasi simd128 lapack", "tier": 3, "runner": "ubuntu-24.04", "step": "wasm-test-simd128", "args": "-Dwasm-test-part=lapack", "swap": true, "node": "24" },
+            { "name": "wasm32-wasi portable blas", "tier": 3, "runner": "ubuntu-24.04", "step": "wasm-test-portable", "args": "-Dwasm-test-part=blas", "swap": true, "node": "24" },
+            { "name": "wasm32-wasi portable lapack", "tier": 3, "runner": "ubuntu-24.04", "step": "wasm-test-portable", "args": "-Dwasm-test-part=lapack", "swap": true, "node": "24" }
           ]
           JSON
           )
