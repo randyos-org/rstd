@@ -325,6 +325,25 @@ pub const Initramfs = struct {
     }
 };
 
+/// `m`'s RAM where its kernel's addresses are physical and the machine's RAM
+/// start is fixed (`pc` at 0; `virt` at 0x40000000 on Arm, 0x80000000 on
+/// RISC-V); null elsewhere. The kernel and its stack must fit (issue #575).
+fn ramWindow(m: Machine, arch: std.Target.Cpu.Arch) ?struct { base: u64, size: u64 } {
+    const model = m.args[1];
+    const base: u64 = if (std.mem.eql(u8, model, "pc")) 0 else if (std.mem.eql(u8, model, "virt")) switch (arch) {
+        .aarch64, .arm => 0x40000000,
+        .riscv64 => 0x80000000,
+        else => return null,
+    } else return null;
+    const unit: u64 = switch (m.memory[m.memory.len - 1]) {
+        'M' => 1 << 20,
+        'G' => 1 << 30,
+        else => return null,
+    };
+    const count = std.fmt.parseInt(u64, m.memory[0 .. m.memory.len - 1], 10) catch return null;
+    return .{ .base = base, .size = count * unit };
+}
+
 /// QEMU booting `m`'s freestanding test kernel, once its inline asm is checked
 /// (`blaskern.asmCheck`), which `check` also does.
 fn addKernelRun(b: *Build, m: Machine, k: Boot.Kernel, target: rstdbuild.ResolvedTarget, optimize: Optimize, filters: []const []const u8, host: ?TestHost, check: *Build.Step) !*Build.Step.Run {
@@ -361,6 +380,16 @@ fn addKernelRun(b: *Build, m: Machine, k: Boot.Kernel, target: rstdbuild.Resolve
         check.dependOn(&fit.step);
         run.step.dependOn(&fit.step);
     }
+    if (k.firmware == null) if (ramWindow(m, target.result.cpu.arch)) |w| {
+        const fit = b.addRunArtifact(tools.hostTool(b, .load_window));
+        fit.setName(b.fmt("check memory of {s}", .{test_exe.name}));
+        fit.addArgs(&.{ m.name, b.fmt("0x{x}", .{w.base}), b.fmt("0x{x}", .{w.size}) });
+        fit.addFileArg(test_exe.getEmittedBin());
+        _ = fit.addOutputFileArg2("ram", .{});
+        fit.addArg("memory");
+        check.dependOn(&fit.step);
+        run.step.dependOn(&fit.step);
+    };
     // only x86_64 defaults to the self-hosted backend; `zig cc` ignores `ofmt`
     const llvm = k.llvm or target.result.cpu.arch != .x86_64;
     if (llvm and m.query.ofmt == null) {
