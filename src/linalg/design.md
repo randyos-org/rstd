@@ -9,6 +9,8 @@ decisions behind all of them. It describes the code as it is, and says "Planned"
 projects in [the upstream issues](https://github.com/randyos-org/rstd/labels?q=upstream), and the numerical decisions measured against BLIS and the
 reference in [`comparisons.md`](blas/comparisons.md).
 
+How linear algebra fits with FFT, signal processing and statistics, as one kernel layer under one high-level API (`rstd.math`), is in [`math/design.md`](../math/design.md).
+
 Upstream references are to the OpenBLAS checkout that `tools/blas_asm` converts, v0.3.34-794
 (commit dbf2c24c9), unless a file names another. Paths are relative to `src/linalg/blas/` unless
 they start with `build/`, `tools/`, `test/` or `src/`. The toolchain is Zig 0.18.0-dev.751.
