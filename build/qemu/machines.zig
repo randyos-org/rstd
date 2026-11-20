@@ -18,7 +18,7 @@ pub const Machine = struct {
     /// `.small` from Zig 0.18.0-dev.250 jumps into unrelated code in the gemm
     /// parameter test (an LLVM `-Oz` miscompile on sparc64, it appears; issue #183).
     optimize: ?Optimize = null,
-    memory: []const u8 = "128M",
+    memory: []const u8 = "256M",
     /// `memory` under `-Drstd-tsan`, whose shadow memory and bigger test
     /// outgrow it (ENOMEM in faer's evd tests at 3G, issue #408)
     tsan_memory: ?[]const u8 = null,
@@ -357,7 +357,7 @@ const base_machines = [_]Machine{
         .query = .{ .cpu_arch = .x86, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.x86.cpu.pentium3 } },
         .qemu = "qemu-system-i386",
         .args = &.{ "-M", "pc", "-cpu", "pentium3" },
-        .memory = "128M",
+        .memory = "256M",
         .boot = .{ .kernel = .{
             .linker_script = "test/qemu/x86.ld",
         } },
@@ -369,7 +369,7 @@ const base_machines = [_]Machine{
         .query = .{ .cpu_arch = .x86, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.x86.cpu.nehalem } },
         .qemu = "qemu-system-i386",
         .args = &.{ "-M", "pc", "-cpu", "max" },
-        .memory = "128M",
+        .memory = "256M",
         .boot = .{ .kernel = .{
             .linker_script = "test/qemu/x86.ld",
         } },
@@ -381,7 +381,7 @@ const base_machines = [_]Machine{
         .args = &.{ "-M", "pc", "-cpu", "max" },
         .hvf = &.{ "-accel", "hvf", "-M", "pc", "-cpu", "host" },
         .kvm = &.{ "-accel", "kvm", "-M", "pc", "-cpu", "host" },
-        .memory = "128M",
+        .memory = "256M",
         .boot = .{ .kernel = .{
             .linker_script = "test/qemu/x86_64.ld",
             .llvm = true,
@@ -395,7 +395,7 @@ const base_machines = [_]Machine{
         .args = &.{ "-M", "pc", "-cpu", "max" },
         .hvf = &.{ "-accel", "hvf", "-M", "pc", "-cpu", "host" },
         .kvm = &.{ "-accel", "kvm", "-M", "pc", "-cpu", "host" },
-        .memory = "128M",
+        .memory = "256M",
         .boot = .{ .kernel = .{
             .linker_script = "test/qemu/x86_64.ld",
             .llvm = true,
@@ -412,7 +412,7 @@ const base_machines = [_]Machine{
         .qemu = "qemu-system-x86_64",
         .args = &.{ "-accel", "whpx", "-M", "pc", "-cpu", "SapphireRapids,+fma4,+xop" },
         .whpx = true,
-        .memory = "128M",
+        .memory = "256M",
         .boot = .{ .kernel = .{
             .linker_script = "test/qemu/x86_64.ld",
             .llvm = true,
