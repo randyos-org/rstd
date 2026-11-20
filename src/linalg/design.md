@@ -672,7 +672,7 @@ complex, for every float type, through the same code.
   portable kernels stayed, so the vtable's unrolls are always the installed kernels'. The `q`
   and `x` slots keep the portable kernels (`core_precisions`).
 - **Parameters.** `blas3/gemm/params.zig` fills the blocking as `kernel/setparam-ref.c` does,
-  from `params_data.zig` (generated from `param.h`): `p` of the older x86 cores follows the L2
+  from `params_data/` (generated from `param.h`): `p` of the older x86 cores follows the L2
   size, x86's `r` derives from the packing buffer and its `p` rounds up to the unroll (elsewhere
   `Blocking.of` takes whole panels: loongson3r4's `dgemm` `p` of 44 runs as 40), x86's 3M variants
   take the real ones' `p` and `q` unless the header says otherwise (no other `DYNAMIC_ARCH` build
@@ -681,7 +681,7 @@ complex, for every float type, through the same code.
   OpenBLAS ignores it in dynamic builds, which do not link `parameter.c`
   (`driver/others/Makefile:44`).
   Haswell's and Zen's `dgemm` `q` is 128 under `WINDOWS_ABI`, 256 otherwise (`param.h:1614-1620`,
-  `:705-711`); `params_data.zig` takes 256 on every OS. The cut is for the stack, not tuning:
+  `:705-711`); `params_data/` takes 256 on every OS. The cut is for the stack, not tuning:
   `dgemm_kernel_4x8_haswell.S:54-70` keeps a `q * 8 * 12`-byte buffer on the stack and touches
   its pages on Windows (`:82-106`), and 47b22763f ("reduced stack usage on windows to 16K")
   halved `q` to hold it near 16 KiB; Zen took Haswell's values in 832a27278. The Zig kernels
@@ -702,7 +702,7 @@ complex, for every float type, through the same code.
   (`param.h:4456-4483`). The generic table follows its target's branch (`GenericBranch`,
   `params_data.generic_off_x86`), and so does a core with no table of its own (T116).
   `dtb_entries` per core is `getarch.c`'s `DTB_DEFAULT_ENTRIES`, which `params.zig` also
-  extracts into `params_data.zig` (`dtbFor`). A 32-bit family takes `Makefile.system`'s 32-bit
+  extracts into `params_data/` (`dtbFor`). A 32-bit family takes `Makefile.system`'s 32-bit
   fallback entries (`Makefile.system:115-158`) (x86's AVX cores Nehalem's, the Bulldozer family and Zen Barcelona's, POWER8
   to 10 POWER6's), as do the 32-bit x86 kernels' `config.h` macros; POWER's tables also follow
   the byte order (`PPC970`'s unrolls).
@@ -1719,9 +1719,10 @@ edited.
 
 | Tool | Reads | Writes |
 | --- | --- | --- |
-| `gen.zig` | the `.S` kernels of level 1 and level 2 | `blas<n>/<routine>/<arch>/asm/*.zig` and their `__root__.zig` index |
-| `uk.zig` | the inline-assembly microkernels of the C drivers (`<p><routine>_microk_<core>-2.c`) | `blas1/<routine>/<arch>/uk/*.zig` and their index |
-| `params.zig` | `param.h`, through a C program per core | `blas3/gemm/params_data.zig` |
+| `gen.zig` | the `.S` kernels of level 1 and level 2 | `blas<n>/<routine>/<arch>/asm/*.zig` (a folder for a long one) and their `__root__.zig` index |
+| `uk.zig` | the inline-assembly microkernels of the C drivers (`<p><routine>_microk_<core>-2.c`) | `blas1/<routine>/<arch>/uk/*.zig` (a folder for a long one) and their index |
+| `params.zig` | `param.h`, through a C program per core | `blas3/gemm/params_data/`, a file per architecture family |
+| `sections.zig` | | (library) where a long text is cut into files |
 | `survey.zig` | the `KERNEL` files and `Makefile.L1`, `L2`, `L3`; rstd's `asm/` and `uk/` indexes, hand `ports` and registries | the `coverage.md` tables (every `blas1/<routine>/` and `blas3/<routine>/`, and `blas2/`) |
 | `openblas.zig` | `kernel/<arch>/KERNEL.<core>`, `KERNEL`, `Makefile.L1` | (library) which source each core uses |
 | `roles.zig` | the `kernel/Makefile.L*` rules | (library) each role's make variable and flags |
@@ -1760,7 +1761,7 @@ assembly, unchanged in substance:
   (`Variant.without`): POWER's 32-bit-only `ppc440`, `ppc440fp2` and `ppcg4` have no `64` or
   `64be` build.
 - **Merged texts.** Cores whose expansions are identical share one file; texts that differ in
-  under about a tenth of their lines (`similar`, our threshold: `tools/blas_asm/gen.zig:395`) share one too, with the differing lines under
+  under about a tenth of their lines (`similar`, our threshold: `tools/blas_asm/gen.zig:382`) share one too, with the differing lines under
   `parts`, chosen at comptime.
 - **Rewrites.** Directives that declare the function or its section go (Zig places it); tabs
   become spaces; named labels become numeric local labels, so none reach the symbol table; x86
@@ -1773,6 +1774,7 @@ assembly, unchanged in substance:
   where one source splits, and the variant: `daxpy_atom_sysv.zig`,
   `daxpy_sse2_barcelona_win.zig`. The routine's `asm/__root__.zig` lists every file by slot;
   `registry.Kernels` turns it into a module for `kernels/<arch>.zig`.
+- **Long files.** No converted kernel is a file over 500 lines (`sections.max_lines`). One that would be is a folder of that name: `__root__.zig` with the `keys` and `Body`, and its text in `text<nn>.zig` sections that the root joins, cut only at a label or macro outside any macro, so each is a run of whole labeled blocks, as few and as even as the limit allows. A long file of microkernels is a folder with a file per form (the source preprocessed with `CONJ`, `XCONJ`, both or neither: `plain.zig`, `c.zig`, `x.zig`, `cx.zig`) and a `__root__.zig` that names every function. The indexes import either form, and a rerun removes the other.
 - **arm64's x18.** One build serves every OS, and x18 is the platform register on Windows (the
   TEB) and Apple (reserved; "Don't use this register"). Sources: Microsoft, "Overview of ARM64 ABI
   conventions", <https://learn.microsoft.com/en-us/cpp/build/arm64-windows-abi-conventions>;
@@ -1965,7 +1967,7 @@ interface mirrors an upstream one with a CBLAS row-major branch (`ger`'s `gerv_k
 | `kernels/__root__.zig`, `kernels/<arch>.zig` | per-architecture kernel registries |
 | `blas1/` | level-1 routines, one directory each; `interface.zig`; `extremum.zig` (portable extremes); `uk_block.zig` (C-driver ports); `c_kernels.md` |
 | `blas2/` | `gemv`, `ger`, `symv`, `hemv` directories; `interface.zig`, `triangular.zig`, `banded.zig`, `symmetric.zig`; `buffers.md`, `coverage.md` |
-| `blas3/` | one directory per routine; `interface.zig`, `driver.zig`; `gemm/` holds the tile kernels, `params.zig`, `params_data.zig`, `notes.md`, `coverage.md` |
+| `blas3/` | one directory per routine; `interface.zig`, `driver.zig`; `gemm/` holds the tile kernels, `params.zig`, `params_data/`, `notes.md`, `coverage.md` |
 | `ext/` | `bf16/` (bfloat16 and half kernels); `interface.zig`; `geadd/`, `matcopy.zig` (the `omatcopy` and `imatcopy` kernels), `laswp/` and `neg/` (their kernels over the gemm tile, in `kernel.zig`) |
 | `../lapack/` | LAPACK over these routines: `cholesky.zig` (`potrf`, `potf2`, `potrs`, `potri`), `lu.zig` (`getrf`, `getrs`, `gesv`, `getri`), `gbtrf.zig` (`gbtrf`), `triangular.zig` (`trtri`, `trti2`, `lauum`, `lauu2`, `trtrs`), `relapack.zig` with `relapack_sygst.zig` and `relapack_pbtrf.zig` (ReLAPACK's `sygst`, `hegst`, `pbtrf`, and under `-Drelapack` `potrf`, `getrf`, `trtri`, `lauum`), `sytrf.zig` (`sytrf`, `hetrf` and `_rook` forms) over `indefinite.zig`'s and `indefinite_panel.zig`'s kernels, `trsyl.zig` and `tgsyl.zig` over `sylvester.zig`'s, `laln2.zig`'s, `lasy2.zig`'s and `tgsy2.zig`'s; Reference-LAPACK's own: `norm.zig` (`lange`), `gecon.zig` (`gecon`) over `lacn2.zig` and `latrs.zig`, `schur.zig` (`hseqr`, `gees`), `trexc.zig` and `trsen.zig` over `laexc.zig`, `lsq.zig` (`gelsy`), `stebr.zig` (values-only divide and conquer, `xSTEBR`) over `laed8_br.zig`, `laed9_br.zig` and `laed4.zig`; `lq.zig` (`gelqf`, `orglq`, `ormlq`, libflame's method), `trevc.zig` (`trevc3`); shared: `interface.zig` (argument checks, vtable, thread rules), `auxiliary.zig` (`lascl`, `lartg`, `larfg`, `lapy2`, `laset` and the rest); faer's ports: `ops.zig`, `blas_calls.zig`, `householder.zig`, `qr.zig` (`geqrf`, `orgqr`, `ormqr`), `qr_pivot.zig` (`geqp3`), `qr_solve.zig` (`gels`), `bidiag.zig`, `bidiag_svd.zig` (with `bdsqr.zig`, `bidiag_secular.zig`, `bidiag_deflate.zig`), `svd.zig` (`gesvd`, `gesdd`), `tridiag.zig`, `tridiag_evd.zig`, `hessenberg.zig` (`gehrd`, `orghr`), `real_schur.zig`, `complex_schur.zig`, `balance.zig` (`gebal`, `gebak`), `evd.zig` (`syevd`, `syev`, `geev`) |
 | `blas3/gemmt/` | `gemmt`'s tests; it runs the driver |

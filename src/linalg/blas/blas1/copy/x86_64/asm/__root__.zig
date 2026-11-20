@@ -5,14 +5,14 @@ const registry = @import("../../../../registry.zig");
 pub const Entry = registry.Entry;
 
 pub const entries = [_]Entry{
-    .{ .slot = .scopy_k, .module = @import("scopy_sse_sysv.zig") },
-    .{ .slot = .scopy_k, .module = @import("scopy_sse_win.zig") },
+    .{ .slot = .scopy_k, .module = @import("scopy_sse_sysv/__root__.zig") },
+    .{ .slot = .scopy_k, .module = @import("scopy_sse_win/__root__.zig") },
     .{ .slot = .dcopy_k, .module = @import("dcopy_sse2_atom_sysv.zig") },
     .{ .slot = .dcopy_k, .module = @import("dcopy_sse2_cooperlake_sysv.zig") },
     .{ .slot = .dcopy_k, .module = @import("dcopy_sse2_atom_win.zig") },
     .{ .slot = .dcopy_k, .module = @import("dcopy_sse2_cooperlake_win.zig") },
-    .{ .slot = .ccopy_k, .module = @import("ccopy_sse_sysv.zig") },
-    .{ .slot = .ccopy_k, .module = @import("ccopy_sse_win.zig") },
+    .{ .slot = .ccopy_k, .module = @import("ccopy_sse_sysv/__root__.zig") },
+    .{ .slot = .ccopy_k, .module = @import("ccopy_sse_win/__root__.zig") },
     .{ .slot = .zcopy_k, .module = @import("zcopy_sse2_atom_sysv.zig") },
     .{ .slot = .zcopy_k, .module = @import("zcopy_sse2_cooperlake_sysv.zig") },
     .{ .slot = .zcopy_k, .module = @import("zcopy_sse2_atom_win.zig") },

@@ -5,8 +5,8 @@ const registry = @import("../../../../registry.zig");
 pub const Entry = registry.Entry;
 
 pub const entries = [_]Entry{
-    .{ .slot = .srot_k, .module = @import("srot.zig") },
-    .{ .slot = .drot_k, .module = @import("drot.zig") },
+    .{ .slot = .srot_k, .module = @import("srot/__root__.zig") },
+    .{ .slot = .drot_k, .module = @import("drot/__root__.zig") },
     .{ .slot = .csrot_k, .module = @import("csrot.zig") },
     .{ .slot = .zdrot_k, .module = @import("zdrot.zig") },
     .{ .slot = .srot_k, .module = @import("srot_ppc440_32_32le.zig") },
