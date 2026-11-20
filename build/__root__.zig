@@ -275,7 +275,7 @@ pub fn build(b: *Build) !void {
     pty_tee_step.dependOn(pty_tee_install);
 
     // the same tests that need no OS, on emulated machines
-    const rigs = try qemutest.addQemuTests(b, optimize);
+    const rigs = try qemutest.addQemuTests(b, optimize, test_filter);
     if (rigs.linux_vm) try bench.addLinuxBenches(b, rigs.test_host, rigs.whpx_host);
     try wasmtest.addWasmTests(b, optimize);
 }
