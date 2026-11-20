@@ -107,6 +107,12 @@ fn runCpp(t: Target, source: []const u8, form: Form, endian: Endian) ![]const u8
     try argv.appendSlice(map.arena, &.{ source, "-o", "-" });
     const r = std.process.run(map.arena, map.io, .{ .argv = argv.items }) catch |e|
         map.die("cannot run the preprocessor: {t}", .{e});
+    if (r.stderr.len > 0) std.debug.print("{s}", .{r.stderr});
+    // a failed run (out of memory) would write an empty microkernel (issue #566)
+    switch (r.term) {
+        .exited => |code| if (code != 0) map.die("the preprocessor failed on {s}", .{source}),
+        else => map.die("the preprocessor died on {s}", .{source}),
+    }
     return r.stdout;
 }
 
