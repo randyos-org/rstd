@@ -132,7 +132,7 @@ pub fn extTable(io: Io, gpa: std.mem.Allocator, comptime lv: Level, comptime ops
     std.debug.print("\n{s} GFLOP/s, best of {d} batches of at least {d} ms; ratios are over OpenBLAS. {s} {s}\n\n", .{ ext_leads[@backingInt(lv)], t.batches, @divTrunc(t.min_ns, std.time.ns_per_ms), libs.io_note, ext_note });
     printHeader("routine | p | n", "------- | - | -:", &ext_cols);
     inline for (ops) |E| {
-        inline for (precs) |p| try raceExt(io, gpa, E, lv, p);
+        if (libs.wanted(E.name)) inline for (precs) |p| try raceExt(io, gpa, E, lv, p);
     }
 }
 

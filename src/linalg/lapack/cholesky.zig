@@ -12,6 +12,7 @@ const accel = @import("../blas/apple_accel.zig");
 const Vtable = @import("../blas/Vtable.zig");
 const ops = @import("ops.zig");
 const interface = @import("interface.zig");
+const Kept = @import("Kept.zig");
 const tri = @import("triangular.zig");
 
 const Allocator = std.mem.Allocator;
@@ -101,10 +102,11 @@ pub fn potrfChecked(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, 
     const vt = interface.table(T);
     const blk = driver.Blocking.of(T, vt);
     const upper = uplo == .u;
-    return if (interface.threads(.potrf, T, n)) |w|
-        try factorParallel(allocator, io, T, vt, upper, blk, n, a.ptr, lda, w)
-    else
-        try factor(allocator, io, T, vt, upper, interface.dtbOf(vt), blk.q, n, a.ptr, lda);
+    const w = interface.threads(.potrf, T, n) orelse return factor(allocator, io, T, vt, upper, interface.dtbOf(vt), blk.q, n, a.ptr, lda);
+    // one packing space for every team, as upstream's one buffer per call
+    var kept: Kept = .init(allocator);
+    defer kept.deinit();
+    return factorParallel(kept.allocator(), io, T, vt, upper, blk, n, a.ptr, lda, w, interface.team_grain, interface.block_grain);
 }
 
 /// `?POTF2`: `potrf` unblocked (`potf2_U.c` and the rest, as loops), with
@@ -129,7 +131,7 @@ fn factor(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, upp
         const bk = @min(n - j, blocking);
         const d = a + j * (lda + 1);
         if (try factor(allocator, io, T, vt, upper, dtb, q, bk, d, lda)) |k| return k + j;
-        try trailing(allocator, io, T, vt, upper, n - j - bk, bk, d, lda, 1);
+        try trailing(allocator, io, T, vt, upper, n - j - bk, bk, d, lda, 1, interface.team_grain);
     }
     return null;
 }
@@ -137,37 +139,49 @@ fn factor(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, upp
 /// `potrf_U_parallel.c` and `potrf_L_parallel.c`: blocks of half the order
 /// rounded up to `unroll_n`, at most `Q`, each factored recursively, until
 /// `4 * unroll_n` is left for `factor`; the drivers take up to `want`
-/// workers. Upstream drops to `factor` for one thread too; here only the
-/// size does (`threads`).
-pub fn factorParallel(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, upper: bool, blk: driver.Blocking, n: usize, a: [*]T, lda: usize, want: u32) driver.Error!?usize {
-    if (n <= 4 * blk.un) return factor(allocator, io, T, vt, upper, interface.dtbOf(vt), blk.q, n, a, lda);
+/// workers, one per `grain` of each call (`interface.crew`). Upstream drops
+/// to `factor` for one thread; here a block does whose first updates would
+/// each take one worker at `block`, by its size alone (`threads`,
+/// `oneWorker`): `factor` is the faster at one worker to n = 128 (issue #546).
+pub fn factorParallel(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, upper: bool, blk: driver.Blocking, n: usize, a: [*]T, lda: usize, want: u32, grain: u64, block: u64) driver.Error!?usize {
     const blocking = @min((n / 2 + blk.un - 1) / blk.un * blk.un, blk.q);
+    if (n <= 4 * blk.un or oneWorker(T, block, n, blocking)) return factor(allocator, io, T, vt, upper, interface.dtbOf(vt), blk.q, n, a, lda);
     var i: usize = 0;
     while (i < n) : (i += blocking) {
         const bk = @min(n - i, blocking);
         const d = a + i * (lda + 1);
-        if (try factorParallel(allocator, io, T, vt, upper, blk, bk, d, lda, want)) |k| return k + i;
-        try trailing(allocator, io, T, vt, upper, n - i - bk, bk, d, lda, want);
+        if (try factorParallel(allocator, io, T, vt, upper, blk, bk, d, lda, want, grain, block)) |k| return k + i;
+        try trailing(allocator, io, T, vt, upper, n - i - bk, bk, d, lda, want, grain);
     }
     return null;
+}
+
+/// Whether the `trsm` and `herk` after the first `bk` of an order `n` block
+/// each take one worker at `grain`, whatever the workers.
+fn oneWorker(comptime T: type, grain: u64, n: usize, bk: usize) bool {
+    const any = std.math.maxInt(u32);
+    const rest = n - @min(n, bk);
+    return interface.crew(T, any, grain, bk, bk, rest) == 1 and interface.crew(T, any, grain, rest, rest, bk) == 1;
 }
 
 /// The `rest` columns (`u`: rows) past the `bk` just factored at `d`:
 /// `A12 := U11^-H A12; A22 -= A12^H A12`, or `A21 := A21 L11^-H;
 /// A22 -= A21 A21^H` (`TRSM_LCUN`, `HERK_UC`; `TRSM_RCLN`, `HERK_LN`).
-fn trailing(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, upper: bool, rest: usize, bk: usize, d: [*]T, lda: usize, want: u32) driver.Error!void {
+/// Each takes `want` workers, at most one per `grain` (`interface.crew`).
+fn trailing(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, upper: bool, rest: usize, bk: usize, d: [*]T, lda: usize, want: u32, grain: u64) driver.Error!void {
     if (rest == 0) return;
     const complex = comptime isComplex(T);
     const one = scalar(T, 1);
     const minus = scalar(T, -1);
     const p = if (upper) d + bk * lda else d + bk;
     const c = d + bk * (lda + 1);
+    const solvers = interface.crew(T, want, grain, bk, bk, rest);
     if (upper) {
-        try driver.trsm(allocator, io, T, vt, true, true, true, complex, false, bk, rest, one, d, lda, p, lda, want);
+        try driver.trsm(allocator, io, T, vt, true, true, true, complex, false, bk, rest, one, d, lda, p, lda, solvers);
     } else {
-        try driver.trsm(allocator, io, T, vt, false, false, true, complex, false, rest, bk, one, d, lda, p, lda, want);
+        try driver.trsm(allocator, io, T, vt, false, false, true, complex, false, rest, bk, one, d, lda, p, lda, solvers);
     }
-    try driver.syrk(allocator, io, T, vt, complex, upper, upper, rest, bk, minus, p, lda, null, 0, one, c, lda, want);
+    try driver.syrk(allocator, io, T, vt, complex, upper, upper, rest, bk, minus, p, lda, null, 0, one, c, lda, interface.crew(T, want, grain, rest, rest, bk));
 }
 
 /// `?POTRS`: solves `A X = B` for the `n x nrhs` `X`, in place of `B`,
