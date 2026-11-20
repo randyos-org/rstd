@@ -62,8 +62,8 @@ pub fn addQemuTests(b: *Build, optimize: Optimize, rstd_filters: []const []const
             .linux => b.step(b.fmt("qemu-check-{s}", .{m.name}), b.fmt("Build {s}'s initramfs and check its inline asm, without running qemu", .{m.name})),
         };
         const parts: []const Part = if (filters.len != 0) &.{} else switch (m.boot) {
-            .kernel => m.parts,
-            .linux => if (buildroot.tsan and m.tsan_parts.len != 0) try withRest(b, m.tsan_parts) else &.{},
+            .kernel => if (m.split.len != 0) try withRest(b, m.split) else m.parts,
+            .linux => if (buildroot.tsan and m.tsan_parts.len != 0) try withRest(b, m.tsan_parts) else if (m.split.len != 0) try withRest(b, m.split) else &.{},
         };
         if (parts.len != 0) {
             const step = b.step(b.fmt("qemu-test-{s}", .{m.name}), b.fmt("Run rstd's tests under qemu-system on {s}, in {d} parts (live logs: .zig-cache/qemu-test-{s}-<part>.log)", .{ m.name, parts.len, m.name }));
@@ -98,7 +98,8 @@ fn hasPart(name: []const u8) bool {
     for (machines.all) |m| {
         for (m.parts) |p| if (std.mem.eql(u8, p.name, name)) return true;
         for (m.tsan_parts) |p| if (std.mem.eql(u8, p.name, name)) return true;
-        if (m.tsan_parts.len != 0 and std.mem.eql(u8, name, "rest")) return true;
+        for (m.split) |p| if (std.mem.eql(u8, p.name, name)) return true;
+        if ((m.tsan_parts.len != 0 or m.split.len != 0) and std.mem.eql(u8, name, "rest")) return true;
     }
     return false;
 }

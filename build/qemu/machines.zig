@@ -25,6 +25,8 @@ pub const Machine = struct {
     /// A Linux rig's `parts` under `-Drstd-tsan`, each a VM of its own, and a
     /// `rest` part of every test they leave out.
     tsan_parts: []const Part = &.{},
+    /// As `tsan_parts`, in every run, kernel rigs too.
+    split: []const Part = &.{},
     boot: Boot,
     /// Why this rig is not wired up yet; a stub gets no step.
     stub: ?[]const u8 = null,
@@ -122,6 +124,26 @@ const tsan_parts = [_]Part{
     .{ .name = "lapack", .filters = &.{"linalg.lapack."} },
 };
 
+/// The SVE rigs' runs, each part a VM or image: in one, TCG on CI's arm64
+/// runners takes 3.3 to 4.6 hours (issue #569). Balanced on `aarch64-sve`'s
+/// test times in run 44702146209, 22 to 33 minutes a part.
+const sve_parts = [_]Part{
+    .{ .name = "blas1", .filters = &.{ "linalg.blas.blas1.", "linalg.blas._test.blas1.", "linalg.blas._test.from_openblas." } },
+    .{ .name = "blas2-edge", .filters = &.{"linalg.blas._test.blas2.edge."} },
+    .{ .name = "blas2", .filters = &.{
+        "linalg.blas.blas2.",
+        "linalg.blas._test.blas2.banded.",
+        "linalg.blas._test.blas2.interface.",
+        "linalg.blas._test.blas2.interface_any.",
+        "linalg.blas._test.blas2.symcopy.",
+        "linalg.blas._test.blas2.threaded.",
+        "linalg.blas._test.blas2.triangular.",
+    } },
+    .{ .name = "blas3-tri", .filters = &.{ "linalg.blas.blas3.trmm.", "linalg.blas.blas3.trsm.", "linalg.blas.blas3.syrk.", "linalg.blas.blas3.syr2k.", "linalg.blas._test.blas3." } },
+    .{ .name = "blas3", .filters = &.{ "linalg.blas.blas3.gemm.", "linalg.blas.blas3.gemm3m.", "linalg.blas.blas3.gemmt.", "linalg.blas.blas3.hemm.", "linalg.blas.blas3.hemm3m.", "linalg.blas.blas3.symm.", "linalg.blas.blas3.symm3m." } },
+    .{ .name = "lapack-lu", .filters = &.{ "linalg.lapack._test.lu.", "linalg.lapack._test.lu_solve.", "linalg.lapack._test.cholesky." } },
+};
+
 /// Tier 4 (user, 2026-11-01): the images outgrow OpenBIOS's window faster
 /// than parts split them (rstd issue #131).
 const sparc64_stub = "tier 4: its images outgrow OpenBIOS's 4 MiB window (rstd issue #131)";
@@ -190,6 +212,7 @@ const base_machines = [_]Machine{
         .qemu = "qemu-system-aarch64",
         // max has SVE2, SME2 and BF16, so every core but Apple's runs
         .args = &.{ "-M", "virt", "-cpu", "max,pauth-impdef=on" },
+        .split = &sve_parts,
         .boot = .{ .kernel = .{
             .linker_script = "test/qemu/aarch64.ld",
         } },
@@ -757,6 +780,7 @@ const base_machines = [_]Machine{
         .qemu = "qemu-system-aarch64",
         .args = &.{ "-M", "virt", "-cpu", "max,pauth-impdef=on" },
         .memory = "1G",
+        .split = &sve_parts,
         .boot = .{ .kernel = .{
             .linker_script = "",
             .firmware = "edk2-aarch64-code.fd",
@@ -783,6 +807,7 @@ const base_machines = [_]Machine{
         .args = &.{ "-M", "virt", "-cpu", "max,pauth-impdef=on", "-smp", "4" },
         .core = "armv9sme",
         .memory = "1G",
+        .split = &sve_parts,
         .boot = .{ .linux = .{ .dep = "debian_netboot_arm64", .kernel = "debian-installer/arm64/linux", .console = "ttyAMA0" } },
     },
     .{

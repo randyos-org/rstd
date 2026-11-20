@@ -501,9 +501,22 @@ jobs:
           # arm64 runners: KVM where they expose it, else TCG; SVE under TCG `max`
           - { rig: aarch64, runner: ubuntu-24.04-arm }
           - { rig: aarch64-smp, runner: ubuntu-24.04-arm }
-          - { rig: aarch64-sve, runner: ubuntu-24.04-arm }
           - { rig: aarch64-uefi, runner: ubuntu-24.04-arm }
-          - { rig: aarch64-uefi-sve, runner: ubuntu-24.04-arm }
+          # the SVE rigs in parts: 3.3 to 4.6 hours each in one run (#569)
+          - { rig: aarch64-sve, runner: ubuntu-24.04-arm, part: blas1 }
+          - { rig: aarch64-sve, runner: ubuntu-24.04-arm, part: blas2-edge }
+          - { rig: aarch64-sve, runner: ubuntu-24.04-arm, part: blas2 }
+          - { rig: aarch64-sve, runner: ubuntu-24.04-arm, part: blas3-tri }
+          - { rig: aarch64-sve, runner: ubuntu-24.04-arm, part: blas3 }
+          - { rig: aarch64-sve, runner: ubuntu-24.04-arm, part: lapack-lu }
+          - { rig: aarch64-sve, runner: ubuntu-24.04-arm, part: rest }
+          - { rig: aarch64-uefi-sve, runner: ubuntu-24.04-arm, part: blas1 }
+          - { rig: aarch64-uefi-sve, runner: ubuntu-24.04-arm, part: blas2-edge }
+          - { rig: aarch64-uefi-sve, runner: ubuntu-24.04-arm, part: blas2 }
+          - { rig: aarch64-uefi-sve, runner: ubuntu-24.04-arm, part: blas3-tri }
+          - { rig: aarch64-uefi-sve, runner: ubuntu-24.04-arm, part: blas3 }
+          - { rig: aarch64-uefi-sve, runner: ubuntu-24.04-arm, part: lapack-lu }
+          - { rig: aarch64-uefi-sve, runner: ubuntu-24.04-arm, part: rest }
           # 32-bit Arm: TCG on any runner
           - { rig: arm, runner: ubuntu-24.04 }
           - { rig: arm-softfp, runner: ubuntu-24.04 }
@@ -513,7 +526,13 @@ jobs:
           # zfls's Linux: KVM on x86_64, TCG on the arm64 runners
           - { rig: linux-x86_64, runner: ubuntu-24.04 }
           - { rig: linux-aarch64, runner: ubuntu-24.04-arm }
-          - { rig: linux-aarch64-sve, runner: ubuntu-24.04-arm }
+          - { rig: linux-aarch64-sve, runner: ubuntu-24.04-arm, part: blas1 }
+          - { rig: linux-aarch64-sve, runner: ubuntu-24.04-arm, part: blas2-edge }
+          - { rig: linux-aarch64-sve, runner: ubuntu-24.04-arm, part: blas2 }
+          - { rig: linux-aarch64-sve, runner: ubuntu-24.04-arm, part: blas3-tri }
+          - { rig: linux-aarch64-sve, runner: ubuntu-24.04-arm, part: blas3 }
+          - { rig: linux-aarch64-sve, runner: ubuntu-24.04-arm, part: lapack-lu }
+          - { rig: linux-aarch64-sve, runner: ubuntu-24.04-arm, part: rest }
           # the glibc targets: ThreadSanitizer, glibc from the runner's Nix (#408)
           # in parts: past the job limit in one run under TCG, out of memory under KVM (#412)
           - { rig: linux-x86_64, runner: ubuntu-24.04, tsan: true, part: blas1-2 }

@@ -2400,6 +2400,7 @@ Rig mechanics:
   their tests into images by filter (`parts` in `build/qemu/machines.zig`), and the build, under
   `qemu-check` too, fails an image whose loaded span is past that window (`load_window`,
   `tools/rig/load_window.zig`). `-Dqemu-test-part=<part>` builds and runs only that image.
+  The SVE rigs, 3.3 to 4.6 hours under TCG in one run, run in seven parts (`split`: `blas1`, `blas2-edge`, `blas2`, `blas3-tri`, `blas3`, `lapack-lu` and `rest`, every test the others leave out), one CI leg each ([#569](https://github.com/randyos-org/rstd/issues/569)).
 - **UEFI.** The app boots from a read-only FAT drive (QEMU's vvfat) with the edk2 firmware
   Nix's QEMU ships, as read-only pflash (`tools/nix/run.sh` finds it, so only on the test
   host). It takes its heap and a 1 MiB stack from boot services, turns off the watchdog,
