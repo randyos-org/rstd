@@ -935,7 +935,8 @@ allows.
   `ormqr`), `qr_solve.zig` (`qr/no_pivoting/solve.rs`, with `gels`), `bidiag.zig`
   (`svd/bidiag.rs`), `bidiag_svd.zig` with `bdsqr.zig`, `bidiag_secular.zig` and `bidiag_deflate.zig` (`svd/bidiag_svd.rs`: QR iteration, divide and
   conquer, and the secular root finder the eigensolver shares), `svd.zig` (`svd/mod.rs`, with
-  `gesvd` and `gesdd`), `tridiag.zig` (`evd/tridiag.rs`), `tridiag_evd.zig`
+  `gesvd` and `gesdd`), `tridiag.zig` (`evd/tridiag.rs`; the values alone take `sytrd.zig`, Reference-LAPACK's blocked
+  `dsytrd.f`, `zhetrd.f`), `tridiag_evd.zig`
   (`evd/tridiag_evd.rs`), `hessenberg.zig` (`evd/hessenberg.rs`), `real_schur.zig` and
   `complex_schur.zig` (`evd/schur/`), `balance.zig` (Reference-LAPACK's `dgebal.f`,
   `dgebak.f`, which faer lacks), `trevc.zig` (Reference-LAPACK's `dtrevc3.f`, `ztrevc3.f`

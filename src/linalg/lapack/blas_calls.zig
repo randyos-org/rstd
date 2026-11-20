@@ -186,3 +186,23 @@ pub fn zrot(comptime T: type, n: usize, x: [*]T, incx: usize, y: [*]T, incy: usi
 pub fn trsv(al: Allocator, io: Io, comptime T: type, upper: bool, op: Trans, unit: bool, n: usize, a: [*]const T, lda: usize, x: [*]T) Error!void {
     l2.trsv(al, io, T, if (upper) .u else .l, op, if (unit) .u else .n, @intCast(n), @constCast(a), @intCast(lda), x, 1) catch |e| return narrow(Error, e);
 }
+
+/// `y := alpha S x` for the `n x n` symmetric (complex: Hermitian) `S` whose
+/// lower triangle is `a` (`?SYMV`, `?HEMV` with `beta` 0).
+pub fn symvLower(al: Allocator, io: Io, comptime T: type, alpha: T, a: Mat(T), x: [*]T, y: [*]T) Error!void {
+    const n: isize = @intCast(a.rows);
+    if (n == 0) return;
+    const r = if (comptime isComplex(T)) l2.hemv(al, io, T, .l, n, alpha, a.ptr, @intCast(a.ld), x, 1, zero(T), y, 1) else l2.symv(al, io, T, .l, n, alpha, a.ptr, @intCast(a.ld), x, 1, zero(T), y, 1);
+    r catch |e| return narrow(Error, e);
+}
+
+/// The lower triangle of `C -= A Bᴴ + B Aᴴ` (`?SYR2K`, `?HER2K` lower `N`
+/// with `alpha` -1, `beta` 1), `A` and `B` being `n x k`.
+pub fn rank2kLower(al: Allocator, io: Io, comptime T: type, a: Mat(T), b: Mat(T), c: Mat(T)) Error!void {
+    const n = c.rows;
+    if (n == 0 or a.cols == 0) return;
+    // inside a routine: at most one worker per `team_grain` (`interface.crew`)
+    const want = threaded.workers(.syr2k, T, threading.product(&.{ n, a.cols }));
+    const w = interface.crew(T, want, interface.team_grain, n, n, 2 * a.cols);
+    try driver.syrk(al, io, T, table(T), comptime isComplex(T), false, false, n, a.cols, scalar(T, -1), a.ptr, a.ld, b.ptr, b.ld, scalar(T, 1), c.ptr, c.ld, w);
+}

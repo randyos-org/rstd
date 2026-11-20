@@ -14,6 +14,7 @@ const qr = @import("qr.zig");
 const tridiag = @import("tridiag.zig");
 const tevd = @import("tridiag_evd.zig");
 const stebr_dc = @import("stebr.zig");
+const sytrd = @import("sytrd.zig");
 const hessenberg = @import("hessenberg.zig");
 const real_schur = @import("real_schur.zig");
 const complex_schur = @import("complex_schur.zig");
@@ -108,12 +109,34 @@ pub fn symmetric(al: Allocator, io: Io, comptime T: type, vectors: bool, lower: 
     };
 }
 
+/// The eigenvalues alone of the self-adjoint `trid` (lower triangle,
+/// overwritten) into `s`, nondecreasing: LAPACK's blocked `?SYTRD`/`?HETRD`
+/// (`sytrd.zig`; faer's unblocked reduction ran at 0.13 to 0.77 of
+/// OpenBLAS's `syevd` rate, issue #552), then `stebr` or QR iteration.
+fn values(al: Allocator, io: Io, comptime T: type, trid: Mat(T), s: []Float(T)) (ops.Error || error{NoConvergence})!void {
+    const F = Float(T);
+    const n = trid.rows;
+    const real = try al.alloc(F, 2 * n);
+    defer al.free(real);
+    const diag = real[0..n];
+    const offdiag = real[n..];
+    @memset(offdiag, 0);
+    const tau = try al.alloc(T, @max(n, 2) - 1);
+    defer al.free(tau);
+    try sytrd.sytrd(al, io, T, trid, diag, offdiag[0 .. n - 1], tau);
+    if (n < stebr_crossover) {
+        try tevd.qrAlgorithm(F, diag, offdiag, null);
+    } else try stebr_dc.stebr(al, F, diag, offdiag[0 .. n - 1]);
+    @memcpy(s, diag);
+}
+
 /// `self_adjoint_evd`: `trid`'s lower triangle (overwritten) to the
 /// eigenvalues in `s`, nondecreasing, and the vectors in `u` if given.
 pub fn selfAdjointEvd(al: Allocator, io: Io, comptime T: type, trid: Mat(T), s: []Float(T), u: ?Mat(T), threshold: usize) (ops.Error || error{NoConvergence})!void {
     const F = Float(T);
     const n = trid.rows;
     if (n == 0) return;
+    if (u == null) return values(al, io, T, trid, s);
     const bs = qr.blockSize(n, n);
     const h = try ops.alloc(T, al, bs, @max(n, 2) - 1);
     defer ops.free(T, al, h);
@@ -126,13 +149,7 @@ pub fn selfAdjointEvd(al: Allocator, io: Io, comptime T: type, trid: Mat(T), s: 
         diag[i] = ops.re(T, trid.get(i, i));
         offdiag[i] = if (i + 1 < n) (if (comptime isComplex(T)) ops.abs(T, trid.get(i + 1, i)) else trid.get(i + 1, i)) else 0;
     }
-    const um = u orelse {
-        if (n < stebr_crossover) {
-            try tevd.qrAlgorithm(F, diag, offdiag, null);
-        } else try stebr_dc.stebr(al, F, diag, offdiag[0 .. n - 1]);
-        @memcpy(s, diag);
-        return;
-    };
+    const um = u.?;
     const ur: Mat(F) = if (comptime isComplex(T)) try ops.alloc(F, al, n, n) else um;
     defer if (comptime isComplex(T)) ops.free(F, al, ur);
     if (n < threshold) {
