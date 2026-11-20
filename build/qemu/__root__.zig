@@ -19,10 +19,12 @@ const Part = machines.Part;
 pub const Rigs = struct { test_host: ?TestHost, whpx_host: bool, linux_vm: bool };
 
 /// Adds the `qemu-test` step and each machine's `qemu-test-<name>` step.
-pub fn addQemuTests(b: *Build, optimize: Optimize) !Rigs {
+/// `rstd_filters`: `-Drstd-test-filter`, which the rigs take when
+/// `-Dqemu-test-filter` is not given (issue #568).
+pub fn addQemuTests(b: *Build, optimize: Optimize, rstd_filters: []const []const u8) !Rigs {
     const all = b.step("qemu-test", "Run rstd's hardware-independent tests under qemu-system-* (all archs)");
     const check = b.step("qemu-check", "Build every kernel rig's test images and check their inline asm, without running qemu");
-    const filters = b.option([]const []const u8, "qemu-test-filter", "Only run tests whose name contains this (repeatable)") orelse &.{};
+    const filters = b.option([]const []const u8, "qemu-test-filter", "Only run tests whose name contains this (repeatable)") orelse rstd_filters;
     const only_parts = b.option([]const []const u8, "qemu-test-part", "Only build and run this part of a rig that splits its tests into images, e.g. blas3-kernel-complex (repeatable)") orelse &.{};
     for (only_parts) |o| if (!hasPart(o)) std.debug.panic("-Dqemu-test-part: no rig has a part named {s}", .{o});
     // declared whether or not a Linux rig's kernel is fetched yet
