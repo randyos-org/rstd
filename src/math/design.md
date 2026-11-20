@@ -45,7 +45,7 @@ FFT and statistics are not built on BLAS, in MKL, Accelerate, FFTW or PocketFFT 
 
 ## The kernel layer
 
-- **Every knob is an explicit argument:** the element type, strides, the summation mode (`Summation`), the `Io` that threads it, and the allocator first wherever it allocates. No options structs.
+- **Every knob is an explicit argument:** the element type, strides, the summation mode (`Summation`), the `Io` that threads it, and the allocator first wherever it allocates. No options structs: the kernel layer is called by code that knows what it wants.
 - **Zig-native and column-major:** no CBLAS or Fortran names, no row-major layer (`linalg/design.md`).
 - **Each routine states its contract:** what it computes and its source, its accuracy, and that its bits are the same for any worker count on a core, reductions in a fixed, size-determined order.
 - **Exact error sets** with plain names; panics only for a broken invariant, documented.
@@ -55,8 +55,8 @@ FFT and statistics are not built on BLAS, in MKL, Accelerate, FFTW or PocketFFT 
 ## The high-level API
 
 - **A plain function with the best defaults and no options:** `stats.variance(io, xs, normalize)`, `fft` transforms, `Matrix` operations.
-- **A `*With` sibling for advanced users:** `stats.varianceWith(io, xs, normalize, s)` takes the kernel layer's own types (`blas.Summation`) and passes them through unchanged, so a user reaches the knobs without calling the kernel layer themselves.
-- **No options structs**, where a call passes `.{}` to mean the defaults: an option becomes a plain argument of the `*With` sibling. `fft`'s `Options` (`.norm`) and `stats.quantile`'s `QuantileOptions` (`.method`) change this way in their moves ([#611](https://github.com/randyos-org/rstd/issues/611), [#613](https://github.com/randyos-org/rstd/issues/613)). Build-time settings a root declares once (`rstd_linalg_options`) are not call options and stay.
+- **A `*With` sibling for advanced users, with an options struct:** `stats.varianceWith(io, xs, normalize, .{ .summation = .compensated })`. Each field defaults to what the plain function uses, so a caller names only what they change; a field takes the kernel layer's own type (`blas.Summation`) and passes it through unchanged, so a user reaches the knobs without calling the kernel layer themselves.
+- **No options on the plain function** (user, 2026-11-20): nobody passes `.{}` just to say "the defaults". The options struct belongs to the `*With` sibling only. `fft`'s `Options` (`.norm`) and `stats.quantile`'s `QuantileOptions` (`.method`) move from the plain functions to new `*With` siblings in their moves ([#611](https://github.com/randyos-org/rstd/issues/611), [#613](https://github.com/randyos-org/rstd/issues/613)); today's `meanWith`, `varianceWith` and `stdDevWith` take a struct in place of their `Summation` argument ([#605](https://github.com/randyos-org/rstd/issues/605)). Build-time settings a root declares once (`rstd_linalg_options`) are not call options and stay.
 - **No switch on a kernel option:** a high-level function that would have to switch on the summation mode or a method itself is a sign the algorithm belongs in a kernel ([#597](https://github.com/randyos-org/rstd/issues/597)): variance's deviation pass became a `kernels.stats` reduction ([#605](https://github.com/randyos-org/rstd/issues/605)).
 
 ## Shared infrastructure
