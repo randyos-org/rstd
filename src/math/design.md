@@ -52,6 +52,118 @@ FFT and statistics are not built on BLAS, in MKL, Accelerate, FFTW or PocketFFT 
 - **Per-core dispatch where it pays:** a routine reaches its kernels through slots (`blas.kernel(.slot)`, `portable.fetch`), filled when a core is selected; a domain without per-core kernels yet uses the portable `@Vector` code.
 - **Backends below the signature:** a routine may run rstd's kernels or a vendor's (below), chosen per process, never per call.
 
+## Kernel API
+
+Every routine of `rstd.math.kernels`, by domain ([#607](https://github.com/randyos-org/rstd/issues/607)): what rstd implements today, what it maps to in Accelerate (the macOS backend) and MKL (a later backend, [#617](https://github.com/randyos-org/rstd/issues/617)), and whether v0.1.0 has it. The wrappers here are the only entry points: each runs rstd's kernels or, where the process routes it, the vendor's.
+
+**Signatures.** `name(allocator, io, comptime T, scalars, inputs, outputs)`, as the BLAS already is (`axpy(io, T, alpha, x, y)`): the allocator only where the routine allocates, the `Io` where it may thread, vectors as `ConstStrided(T)` in and `Strided(T)` out, matrices as column-major views with a leading dimension. Knobs are trailing plain arguments (`Summation`, a norm, a method). An output may alias an input only where the routine says so.
+
+**Status.** "yes": in rstd today, kept for v0.1.0 as it is or renamed in its move. "stub": its API is in place and returns `error.NotImplemented`. An issue number: work planned for v0.1.0. "backlog": named here so the API has room for it; each domain's backlog rows are one `backlog` issue, split when picked up: `lapack` [#623](https://github.com/randyos-org/rstd/issues/623), `sparse` [#624](https://github.com/randyos-org/rstd/issues/624), `fft` [#625](https://github.com/randyos-org/rstd/issues/625), `elementwise` [#626](https://github.com/randyos-org/rstd/issues/626), `dsp` [#627](https://github.com/randyos-org/rstd/issues/627), `stats` [#628](https://github.com/randyos-org/rstd/issues/628).
+
+### `kernels.blas`
+
+| Routines | What | rstd today | Accelerate | MKL | v0.1.0 |
+| --- | --- | --- | --- | --- | --- |
+| `copy`, `swap`, `scal`, `scalReal`, `axpy`, `axpyc`, `axpby` | vector updates | `blas1`, per-core kernels | `cblas_?copy` and the rest, `catlas_?axpby`; `axpyc` not | `cblas_?copy` and the rest, `cblas_?axpby` | yes |
+| `dot`, `dotc`, `dsdot`, `sdsdot`, `dotWith`, `dotcWith` | dot products; `*With` takes a `Summation` | `blas1` | `cblas_?dot`, `?dotc_sub`; `*With` not | `cblas_?dot` | yes |
+| `nrm2`, `asum`, `sum`, `asumWith`, `sumWith` | norms and sums | `blas1` | `cblas_?nrm2`, `?asum`; `sum` none | `cblas_?nrm2`, `?asum`; `sum` none | yes |
+| `index`, `extreme` | position and value of the largest or smallest (magnitude or value) | `blas1` | `cblas_i?amax`; not routed (rstd's NaN rule) | `cblas_i?amax`, `i?amin` | yes |
+| `rot`, `rotm`, `rotg`, `zrotg`, `rotmg`, `cabs1` | plane rotations | `blas1` | `cblas_?rot`, `?rotm`; the generators not routed | `cblas_?rot` and the rest | yes |
+| `sbdot`, `bscal`, `sbtobf16`, `bf16to` | bfloat16 level 1 | `blas1` | none | none | yes |
+| `gemv`, `gbmv`, `ger`, `gerc`, `gemvHalf` | general level 2; `Half` in `f16` or bfloat16 | `blas2` | `cblas_?gemv` and the rest; `Half` none | `cblas_?gemv` and the rest | yes |
+| `symv`, `hemv`, `sbmv`, `hbmv`, `spmv`, `hpmv`, `syr`, `her`, `spr`, `hpr`, `syr2`, `her2`, `spr2`, `hpr2` | symmetric and Hermitian level 2 | `blas2` | the CBLAS forms; complex symmetric none | the CBLAS forms | yes |
+| `trmv`, `trsv`, `tbmv`, `tbsv`, `tpmv`, `tpsv` | triangular level 2 | `blas2` | the CBLAS forms | the CBLAS forms | yes |
+| `gemm`, `symm`, `hemm`, `syrk`, `herk`, `syr2k`, `her2k`, `trmm`, `trsm` | level 3 | `blas3` | the CBLAS forms | the CBLAS forms | yes |
+| `gemmt`, `gemm3m`, `symm3m`, `hemm3m` | one triangle of a product; complex in three real products | `blas3` | none | `cblas_?gemmt`, `cblas_?gemm3m` | yes |
+| `gemmHalf`, `gemmtHalf` | `f16` and bfloat16 products | `blas3` | none | `cblas_hgemm`, `cblas_gemm_bf16bf16f32` | yes |
+| `gemmBatch`, `gemmBatchStrided`, `gemmHalfBatch`, `gemmHalfBatchStrided` | batched products | `blas3` | none | `cblas_?gemm_batch`, `_batch_strided` | yes |
+| `geadd`, `omatcopy`, `imatcopy`, `laswp` | matrix add, copies and transposes, row swaps | `ext` | none; `laswp` in LAPACK | `mkl_?omatadd`, `mkl_?omatcopy`, `mkl_?imatcopy`; `?laswp` | yes |
+
+### `kernels.lapack`
+
+Accelerate (macOS 13.3's LAPACK, `$NEWLAPACK$ILP64`) and MKL have every routine here; rstd routes only `potrf` to Accelerate so far.
+
+| Routines | What | v0.1.0 | Backlog |
+| --- | --- | --- | --- |
+| `potrf`, `potf2`, `potrs`, `potri`, `pbtrf` | Cholesky: factor, solve, inverse, banded factor | yes | `posv`, `pbtrs`, `pptrf` (packed), `pstrf` (pivoted), `pocon` |
+| `getrf`, `getrs`, `gesv`, `getri`, `gbtrf` | LU with partial pivoting | yes | `gbtrs`, `gbsv`, `gesvx` (expert) |
+| `trtri`, `trti2`, `lauum`, `lauu2`, `trtrs` | triangular inverse, products, solves | yes | `trcon` |
+| `sytrf`, `hetrf`, `sytrfRook`, `hetrfRook`, `sygst`, `hegst` | symmetric indefinite factor; generalized eigenproblem's reduction | yes | `sytrs`, `sysv`, `sytri` |
+| `geqrf`, `orgqr`, `ungqr`, `ormqr`, `unmqr`, `gelqf`, `orglq`, `unglq`, `ormlq`, `unmlq`, `geqp3`, `gels`, `gelsy` | QR and LQ, pivoted QR, least squares | yes | `gelsd`, `gelss` (SVD least squares), `gglse`, `ggglm` |
+| `syevd`, `heevd`, `syev`, `heev` | symmetric and Hermitian eigenproblems (with `sytrd`, `stebr` inside) | yes | `syevr`, `syevx` (subsets), `sygvd` (generalized) |
+| `geev`, `hseqr`, `gees`, `trevc3`, `trevc`, `gebal`, `gebak`, `gehrd`, `orghr`, `unghr`, `trexc`, `trsen`, `trsyl`, `tgsyl` | nonsymmetric eigenproblems, Schur forms, Sylvester equations | yes | `geevx`, `ggev`, `gges` (generalized) |
+| `gesvd`, `gesdd` | singular value decomposition | yes | `gesvdx`, `gejsv`, `ggsvd3` |
+| `lange`, `gecon`, `laset`, `lapy2` | norms, condition estimate, fills | yes | `lansy`, `lantr` |
+
+### `kernels.sparse`
+
+| Routines | What | rstd today | Accelerate | MKL | v0.1.0 |
+| --- | --- | --- | --- | --- | --- |
+| `Csr`, `Csc`, `Triplets`; `toCsc`, `toCsr`, `fromDense`, `toDense`, `transpose`, `ctranspose`, `selectCols`, `scal`, `sub` | formats, conversions, scaling, difference | `sparse/` | `SparseConvertToCoordinate` and the like | `mkl_sparse_convert_*`, `mkl_sparse_?_add` | yes |
+| `mulVec`, `mulDense` | sparse times dense vector or matrix | `sparse/mul.zig` | `SparseMultiply`, `SparseMultiplyAdd` | `mkl_sparse_?_mv`, `mkl_sparse_?_mm` | yes |
+| `spgemm` (`symbolic`, `numeric`) | sparse times sparse | `sparse/spgemm.zig` | none | `mkl_sparse_sp2m` | yes |
+| `solveTri` | sparse triangular solve | `sparse/triangular.zig` | `SparseSolve` (triangular) | `mkl_sparse_?_trsv` | yes |
+| `cg`, `gmres` (over an `Operator`) | iterative solvers | `sparse/iterative.zig` | `SparseConjugateGradient`, `SparseGMRES` | RCI ISS (`dcg`, `dfgmres`) | yes |
+| `add`; Cholesky, LDLᵀ, LU, QR factorizations and solves; `lsmr`; preconditioners | direct solvers and the rest | none | `SparseFactor`, `SparseSolve`, `SparseLSMR`, `SparsePreconditioner` | PARDISO, `mkl_sparse_qr` | backlog |
+
+### `kernels.fft`
+
+`Layout` describes the data (count, stride, distance), not a knob; the norm is a trailing argument in the kernel layer, where the high-level `Options` struct moves to the `*With` siblings ([#611](https://github.com/randyos-org/rstd/issues/611)).
+
+| Routines | What | rstd today | Accelerate | MKL | v0.1.0 |
+| --- | --- | --- | --- | --- | --- |
+| `Plan(T)`: `transform`, `transformInto` | complex transforms of any length, batched by `Layout` | PocketFFT's `cfftp` and Bluestein; pffft for `f32` at its lengths | `vDSP_DFT_zop`, `vDSP_fft_zip` (powers of two) | DFTI, complex | yes |
+| `RealPlan(T)`: `forward`, `backward`, `forwardUnordered`, `backwardUnordered`, `convolveAccumulate` | real transforms; the unordered forms and their products for fast convolution | `rfftp`, pffft | `vDSP_DFT_zrop`, `vDSP_fft_zrip` | DFTI, real | yes |
+| `StaticPlan`, `StaticRealPlan` | lengths fixed at compile time | stub | none | none | stub |
+| `TrigPlan(T)` (`dct1` to `dct4`, `dst1` to `dst4`) | trigonometric transforms | stub | `vDSP_DCT_CreateSetup` (II, III, IV) | trigonometric transforms (TT) | stub |
+| `Mdct(T)` | modified DCT, for audio frames | stub | none | none | stub |
+| 2-D and 3-D transforms | multi-dimensional | none | `vDSP_fft2d_zip` | DFTI | backlog |
+
+### `kernels.elementwise`
+
+`f(io, T, x, y)`: `y[i] = f(x[i])`, and `f(io, T, x, y, z)` for two inputs; `y` may be `x`. v0.1.0 has the set Zig's vector builtins compute ([#614](https://github.com/randyos-org/rstd/issues/614)), each stating its accuracy; the rest waits for the backlog, where faster vector polynomials may replace builtins.
+
+| Routines | Accelerate (vForce, vDSP) | MKL (VM) | v0.1.0 |
+| --- | --- | --- | --- |
+| `add`, `sub`, `mul`, `div` | `vDSP_vadd`, `vDSP_vsub`, `vDSP_vmul`, `vvdiv` | `v?Add`, `v?Sub`, `v?Mul`, `v?Div` | #614 |
+| `sqrt` | `vvsqrt` | `v?Sqrt` | #614 |
+| `exp`, `exp2`, `log`, `log2`, `log10` | `vvexp`, `vvexp2`, `vvlog`, `vvlog2`, `vvlog10` | `v?Exp`, `v?Exp2`, `v?Ln`, `v?Log2`, `v?Log10` | #614 |
+| `sin`, `cos`, `tan` | `vvsin`, `vvcos`, `vvtan` | `v?Sin`, `v?Cos`, `v?Tan` | #614 |
+| `abs`, `floor`, `ceil`, `trunc`, `round` | `vvfabs`, `vvfloor`, `vvceil`, `vvint`, `vvnint` | `v?Abs`, `v?Floor`, `v?Ceil`, `v?Trunc`, `v?Round` | #614 |
+| `rsqrt`, `recip`, `cbrt`, `hypot` | `vvrsqrt`, `vvrec`; `cbrt`, `hypot` none | `v?InvSqrt`, `v?Inv`, `v?Cbrt`, `v?Hypot` | backlog |
+| `expm1`, `log1p`, `pow`, `powx` | `vvexpm1`, `vvlog1p`, `vvpow`, `vvpows` | `v?Expm1`, `v?Log1p`, `v?Pow`, `v?Powx` | backlog |
+| `sincos`, `asin`, `acos`, `atan`, `atan2` | `vvsincos`, `vvasin`, `vvacos`, `vvatan`, `vvatan2` | `v?SinCos`, `v?Asin`, `v?Acos`, `v?Atan`, `v?Atan2` | backlog |
+| `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh` | `vvsinh` and the rest | `v?Sinh` and the rest | backlog |
+| `erf`, `erfc`, `lgamma`, `tgamma` | none | `v?Erf`, `v?Erfc`, `v?LGamma`, `v?TGamma` | backlog |
+| complex `abs`, `arg`, `conj`, `exp` | `vDSP_zvabs`, `vDSP_zvphas`, `vDSP_zvconj` | `v?Abs`, `v?Arg`, `v?Conj`, `v?Exp` | backlog |
+
+### `kernels.dsp`
+
+| Routines | What | rstd today | Accelerate (vDSP) | MKL | v0.1.0 |
+| --- | --- | --- | --- | --- | --- |
+| `window(T, out, kind, symmetry)` | Hann, Hamming, Blackman, Kaiser, sine windows | `signal/window.zig` | `vDSP_hann_window`, `vDSP_hamm_window`, `vDSP_blkman_window` | none | yes, moved by #612 |
+| partitioned convolution (`RealPlan.convolveAccumulate`) | long FIR filters through FFT products | `fft/real_plan.zig`, used by `signal.Convolver` | none | VS convolution (`vslsConvExec`) | yes |
+| `sadd`, `sdiv`, `ma`, `fill`, `ramp`, `neg`, `clip`, `reverse` | scalar operations on vectors, fills, clipping | none (`scal` is in `blas`) | `vDSP_vsadd`, `vDSP_vsdiv`, `vDSP_vma`, `vDSP_vfill`, `vDSP_vramp`, `vDSP_vneg`, `vDSP_vclip`, `vDSP_vrvrs` | VM in part (`v?LinearFrac`) | backlog |
+| `convolve`, `correlate` (direct) | short FIR filters, correlation | none | `vDSP_conv` | VS (`vslsConvExec`, `vslsCorrExec`) | backlog |
+| `biquad`, `decimate`, `runningSum`, `poly`, `interpolate` | IIR sections, resampling, running sums, polynomials, linear interpolation | none | `vDSP_biquad`, `vDSP_desamp`, `vDSP_vrsum`, `vDSP_vpoly`, `vDSP_vlint` | none | backlog |
+| `magnitudes`, `phases`, `toDecibels`, split and interleaved complex | spectra | none | `vDSP_zvmags`, `vDSP_zvphas`, `vDSP_vdbcon`, `vDSP_ctoz`, `vDSP_ztoc` | VM in part | backlog |
+
+### `kernels.stats`
+
+| Routines | What | rstd today | Accelerate | MKL (VS) | v0.1.0 |
+| --- | --- | --- | --- | --- | --- |
+| `sum`, `sumWith`, `index`, `extreme` | sums and extremes | `kernels.blas` (reused, not copied) | `vDSP_sve`, `vDSP_maxv`, `vDSP_minv` | VS | yes |
+| `deviations(io, T, x, m, s)` | `Σ(x − m)` and `Σ(x − m)²` in one pass, every `Summation` | none | `vDSP_measqv`, `vDSP_mvessq` in part | VS central moments | #605 |
+| running moments (`Running`'s update) | Welford's one-pass mean and variance | `stats/running.zig` | none | VS streaming | yes, moved by #613 |
+| histogram counting | counts into bins | `stats/histogram.zig` | none | none | yes, moved by #613 |
+| selection for quantiles | order statistics | `stats/quantile.zig` | none | VS quantiles, order statistics | yes, moved by #613 |
+| covariance, correlation | through `kernels.blas.syrk` | `stats/cov.zig` | none | VS | yes |
+| third and fourth moments (skewness, kurtosis), median and mean absolute deviation, robust estimates, random numbers | the rest of a summary-statistics library | none | none | VS, VS RNG | backlog |
+
+### `rstd.math` (scalar)
+
+`floor`, `ceil`, `round` (exact where the builtins are not), `x87_f64`, `Fraction` and `rationalApprox`: today's `math.zig`, moved by [#608](https://github.com/randyos-org/rstd/issues/608).
+
 ## The high-level API
 
 - **A plain function with the best defaults and no options:** `stats.variance(io, xs, normalize)`, `fft` transforms, `Matrix` operations.
