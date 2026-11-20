@@ -503,6 +503,8 @@ test {
     // hosted only: the rigs' `linalg.blas._test.` filter would take it
     if (comptime test_io.hosted) _ = @import("_test/apple_accel.zig");
     _ = @import("threading.zig");
+    _ = @import("threading/_test/plan.zig");
+    _ = @import("threading/_test/region.zig");
     _ = @import("strided.zig");
     _ = @import("_test/__root__.zig");
     zigstd.testRefAllDecls(@This());
