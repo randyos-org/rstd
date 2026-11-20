@@ -135,6 +135,7 @@ pub fn main(init: std.process.Init) !void {
                 .@"max-n" => libs.n_max = std.fmt.parseInt(usize, v, 10) catch return error.BadOption,
                 .only => libs.only = v,
                 .@"ob-core" => opts.ob_core = v,
+                .@"openblas-prefix" => libs.ob_prefix = v,
                 .@"rstd-accelerate" => opts.rstd_accelerate = !std.mem.eql(u8, v, "0"),
                 .routines => kernels.l1_only = v,
                 .@"accelerate-alone" => alone = !std.mem.eql(u8, v, "0"),
@@ -209,7 +210,7 @@ pub fn main(init: std.process.Init) !void {
 }
 
 /// `--name=value` options.
-const Opt = enum { openblas, blis, accelerate, reference, eigen, @"aocl-libflame", threads, @"rstd-io", @"max-n", only, @"ob-core", @"rstd-accelerate", @"accelerate-alone", routines };
+const Opt = enum { openblas, blis, accelerate, reference, eigen, @"aocl-libflame", threads, @"rstd-io", @"max-n", only, @"ob-core", @"openblas-prefix", @"rstd-accelerate", @"accelerate-alone", routines };
 
 /// `--accelerate-alone`: only the libraries race; nothing of rstd's runs, so
 /// nothing sets `VECLIB_MAXIMUM_THREADS` or `BLASSetThreading`.
