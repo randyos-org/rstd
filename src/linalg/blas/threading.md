@@ -516,7 +516,7 @@ What the tests check today, and where they run:
     kernel it holds. `std.testing.allocator` checks every free.
   - A concurrent task runs on a thread of its own, with a fresh copy of the thread-locals.
 - **Split inputs:** each core's `Q`, at every precision, is the same at 0, 1, 2, 3 and 64
-  threads (`params.zig`, `checkCore`); only LA464's `P` and `R` move. The level 3 tests
+  threads (`_test/blas3/params.zig`, `checkCore`); only LA464's `P` and `R` move. The level 3 tests
   record the depth of every `gemm`, `trsm` and `trmm` kernel call, so each packed slice's
   `Q`. A threaded run must see the depths the serial driver sees, at every worker count.
   Level 1 and 2 chunks ignore the CPU count and the ceiling (above).

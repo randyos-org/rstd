@@ -235,7 +235,7 @@ fn checkIsa(b: *Build, target: ResolvedTarget, query: std.Target.Query, core: an
     for (arch.allFeaturesList(), 0..) |f, i| {
         if (ex.isEnabled(@intCast(i))) try names.print(b.allocator, " {s}", .{f.name});
     }
-    std.process.fatal("the BLAS kernel object serving {s} on {s} uses{s}, which some {s} CPUs lack (`machine` in cpu/corespec.zig)", .{
+    std.process.fatal("the BLAS kernel object serving {s} on {s} uses{s}, which some {s} CPUs lack (`machine` in cpu/machine.zig)", .{
         @tagName(core), target.result.cpu.model.name, names.items, @tagName(core),
     });
 }
