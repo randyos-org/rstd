@@ -202,14 +202,16 @@ pub fn Complex(comptime F: type, comptime U: comptime_int) type {
         /// The sum of `|re| + |im|`.
         pub fn asum(n: BlasLong, x: [*]F, incx: BlasLong) callconv(.c) F {
             if (n <= 0 or incx <= 0) return 0;
-            if (incx == 1) return R.absSum(@intCast(2 * n), x);
-            var acc: [2]V2 = @splat(@splat(0));
+            if (incx == 1) return @floatCast(R.absSum(@intCast(2 * n), x));
+            // in `D` (`f64` for `f32`), as `sum`: issue #572
+            const D2 = @Vector(2, R.D);
+            var acc: [2]D2 = @splat(@splat(0));
             var i: BlasLong = 0;
             while (i + 2 <= n) : (i += 2) {
-                inline for (0..2) |q| acc[q] += abs(ld2(x, (i + q) * incx));
+                inline for (0..2) |q| acc[q] += abs(@as(D2, ld2(x, (i + q) * incx)));
             }
-            if (i < n) acc[0] += abs(ld2(x, i * incx));
-            return @reduce(.Add, acc[0] + acc[1]);
+            if (i < n) acc[0] += abs(@as(D2, ld2(x, i * incx)));
+            return @floatCast(@reduce(.Add, acc[0] + acc[1]));
         }
 
         /// The sum of `re + im`: `Real.plainSum`'s over the `2n` floats;

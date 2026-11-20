@@ -175,27 +175,28 @@ pub fn Real(comptime F: type, comptime U: comptime_int) type {
             return root(F, 1, s, n, x, incx);
         }
 
-        /// The sum of `|x[0..len]|`.
-        pub fn absSum(len: usize, x: [*]F) F {
-            var acc: [2]V = @splat(@splat(0));
+        /// The sum of `|x[0..len]|` in `D`, in `plainSum`'s order (`f64` for
+        /// `f32`, as `sum` and `dot`: issue #572).
+        pub fn absSum(len: usize, x: [*]F) D {
+            var acc: [2]AV = @splat(@splat(0));
             var i: usize = 0;
-            while (i + 2 * W <= len) : (i += 2 * W) {
-                inline for (0..2) |q| acc[q] += abs(ld(x + i + q * W));
+            while (i + 2 * AW <= len) : (i += 2 * AW) {
+                inline for (0..2) |q| acc[q] += abs(@as(AV, ldA(x + i + q * AW)));
             }
             var s = @reduce(.Add, acc[0] + acc[1]);
-            while (i < len) : (i += 1) s += abs(x[i]);
+            while (i < len) : (i += 1) s += abs(@as(D, x[i]));
             return s;
         }
 
         pub fn asum(n: BlasLong, x: [*]F, incx: BlasLong) callconv(.c) F {
             if (n <= 0 or incx <= 0) return 0;
-            if (incx == 1) return absSum(@intCast(n), x);
-            var acc: G = @splat(0);
+            if (incx == 1) return @floatCast(absSum(@intCast(n), x));
+            var acc: DG = @splat(0);
             var i: BlasLong = 0;
-            while (i + 4 <= n) : (i += 4) acc += abs(gather(x, incx, i));
+            while (i + 4 <= n) : (i += 4) acc += abs(@as(DG, gather(x, incx, i)));
             var s = @reduce(.Add, acc);
-            while (i < n) : (i += 1) s += abs(at(F, x, i * incx).*);
-            return s;
+            while (i < n) : (i += 1) s += abs(@as(D, at(F, x, i * incx).*));
+            return @floatCast(s);
         }
 
         /// The sum of `x[0..len]` in `D`, as `dot` sums: float `i` of each
