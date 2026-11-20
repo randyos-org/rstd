@@ -621,6 +621,7 @@ complex, for every float type, through the same code.
   a scratch tile and add the triangle's part (`syrk_kernel.c`); the reference's shared
   `sa`/`sb` path, which needs `unroll_m == unroll_n`, is not taken. `trmm` and `trsm` follow
   `trmm_L.c`, `trmm_R.c`, `trsm_L.c` and `trsm_R.c` loop for loop.
+- **SME2.** On `vortexm4`, real `gemm` goes first to `blas3/gemm/sme2/` where the CPU has FEAT_SME2 and 512-bit streaming vectors, as upstream's `interface/gemm.c` sends it to `SME_SGEMM_KERNEL` and `SME_DGEMM_KERNEL` (`sme2_gemm_impl.h`): plain loops under 3000 multiply-adds, else a Goto nest of its own on `C^T` over ZA micro-kernels in the object, one part per SME unit from 2^22 multiply-adds ([#585](https://github.com/randyos-org/rstd/issues/585)). Each `asm` block enters and leaves streaming mode itself. The `sme_sgemm_kernel` and `sme_dgemm_kernel` slots take one part (`sme2/job.zig`), on a workspace from the caller's allocator; the bits are the same for any blocking and parts.
 - **`beta`.** Each block of `C` is scaled by `beta` just before the first depth slice first
   touches it, while it is in cache, not in a pass of its own (BLIS's first-`KC` `beta`,
   `frame/3/gemm/bli_gemm_blk_var3.c:92`); `trmm`'s

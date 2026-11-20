@@ -93,4 +93,6 @@ test {
     _ = kernel;
     _ = params;
     _ = @import("small.zig");
+    _ = @import("sme2/job.zig");
+    _ = @import("sme2/_test/sme2.zig");
 }

@@ -10,9 +10,12 @@
 //! `?omatcopy_k_r*`, `?imatcopy_k_r*`) and `sbger_k`, `sbsymv_L`, `sbsymv_U`,
 //! which nothing calls (`kernel/setparam-ref.c:112-113`); they are in the
 //! git-ignored `unused/`. Imports stay in `src/linalg/blas/`, for the
-//! per-core objects; its test is in `__root__.zig`.
+//! per-core objects; its test is in `__root__.zig`. Not upstream's: the
+//! types of `sme_sgemm_kernel` and `sme_dgemm_kernel`, which take one part
+//! of rstd's SME2 `gemm` whose driver is in the main library.
 
 const types = @import("types.zig");
+const sme2_job = @import("blas3/gemm/sme2/job.zig");
 
 const BlasLong = types.BlasLong;
 const HF16 = types.HF16;
@@ -255,7 +258,8 @@ ssymv_U: ?*const fn (BlasLong, BlasLong, f32, [*]f32, BlasLong, [*]f32, BlasLong
 
 //#if (BUILD_SINGLE==1) || (BUILD_DOUBLE==1) || (BUILD_COMPLEX==1)
 //#ifdef ARCH_ARM64
-sme_sgemm_kernel: ?*const fn ([*:0]u8, [*:0]u8, BlasLong, BlasLong, BlasLong, [*]f32, [*]f32, BlasLong, [*]f32, BlasLong, [*]f32, [*]f32, BlasLong) callconv(.c) void = null,
+/// rstd's, not upstream's: one part of the SME2 direct `gemm` (`blas3/gemm/sme2/job.zig`)
+sme_sgemm_kernel: ?*const fn (*const sme2_job.Job(f32)) callconv(.c) void = null,
 //#endif //def ARCH_ARM64
 
 sgemm_kernel: ?*const fn (BlasLong, BlasLong, BlasLong, f32, [*]f32, [*]f32, [*]f32, BlasLong) callconv(.c) i32 = null,
@@ -392,7 +396,8 @@ dsymv_U: ?*const fn (BlasLong, BlasLong, f64, [*]f64, BlasLong, [*]f64, BlasLong
 //#if (BUILD_DOUBLE==1) || (BUILD_COMPLEX16==1)
 //#ifdef ARCH_ARM64
 /// ARCH_ARM64 only
-sme_dgemm_kernel: ?*const fn ([*:0]const u8, [*:0]const u8, BlasLong, BlasLong, BlasLong, [*]const f64, [*]const f64, BlasLong, [*]const f64, BlasLong, [*]const f64, [*]f64, BlasLong) callconv(.c) void = null,
+/// rstd's, as `sme_sgemm_kernel`
+sme_dgemm_kernel: ?*const fn (*const sme2_job.Job(f64)) callconv(.c) void = null,
 //#endif //def ARCH_ARM64
 dgemm_kernel: ?*const fn (BlasLong, BlasLong, BlasLong, f64, [*]f64, [*]f64, [*]f64, BlasLong) callconv(.c) i32 = null,
 dgemm_beta: ?*const fn (BlasLong, BlasLong, BlasLong, f64, [*]f64, BlasLong, [*]f64, BlasLong, [*]f64, BlasLong) callconv(.c) i32 = null,

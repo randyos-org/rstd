@@ -24,6 +24,7 @@ const converted = .{
     registry.Kernels(Core, @import("../blas1/swap/arm64/asm/__root__.zig")),
     @import("../blas2/gemv/arm64/kernel.zig"),
     @import("../blas2/symv/arm64/kernel.zig"),
+    @import("../blas3/gemm/arm64/kernel.zig"),
     @import("../blas3/kernels.zig").Registry(Core),
 };
 

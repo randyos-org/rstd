@@ -31,6 +31,7 @@ The bench takes `--name=value` options, then section names; with none named ever
 - `--max-n=<n>`: library rows of `n` up to that only.
 - `--only=<routine>[,<routine>...]`: the table sections (`lib2`'s and `lib3`'s routines beyond `gemv` and `gemm`, `lapack`) race those routines only, by their names in the tables (`--only=potrf,potri`).
 - `--ob-core=<core>`: `OPENBLAS_CORETYPE`, which rstd reads too.
+- `--openblas-prefix=<prefix>`: the prefix on each OpenBLAS symbol, as SciPy's `scipy-openblas32` wheels have (`scipy_`).
 - `--rstd-accelerate=0`: rstd's own kernels on macOS, not Accelerate.
 - `--routines=<name>[,<name>...]`: only those level-1 routines in `l1` and `lib1` (`sum,asum`), for a short run.
 - `--accelerate-alone=1`: only the libraries, rstd never initialized (see Accelerate's threads below).

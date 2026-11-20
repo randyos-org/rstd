@@ -125,6 +125,10 @@ pub var rstd_io: Io = .failing;
 pub var io_note: []const u8 = "";
 var io_note_buf: [96]u8 = undefined;
 
+/// `--openblas-prefix`: the prefix on each OpenBLAS symbol (`scipy_` in
+/// SciPy's wheels).
+pub var ob_prefix: []const u8 = "";
+
 /// `--max-n`: rows of a larger `n` are skipped.
 pub var n_max: usize = std.math.maxInt(usize);
 
@@ -169,7 +173,15 @@ pub fn lookup(comptime src: Src, comptime T: type, comptime name: [:0]const u8) 
     if (src == .accelerate) {
         if (h.lookup(T, name ++ "$NEWLAPACK")) |f| return f;
     }
+    if (src == .openblas) return lookupPrefixed(h, T, name);
     return h.lookup(T, name);
+}
+
+/// `name` after `ob_prefix`, from OpenBLAS's library `h`.
+fn lookupPrefixed(h: *Dll, comptime T: type, name: []const u8) ?T {
+    var buf: [128]u8 = undefined;
+    const full = std.mem.printSentinel(&buf, "{s}{s}", .{ ob_prefix, name }, 0) catch return null;
+    return h.lookup(T, full);
 }
 
 /// Fortran-ABI routine `base` (`dpotrf`) from `src`'s library: Accelerate's
@@ -181,6 +193,7 @@ pub fn lookupF(comptime src: Src, comptime T: type, comptime base: []const u8) ?
         if (h.lookup(T, std.fmt.comptimePrint("{s}$NEWLAPACK", .{base}))) |f| return f;
         if (h.lookup(T, std.fmt.comptimePrint("{s}_$NEWLAPACK", .{base}))) |f| return f;
     }
+    if (src == .openblas) return lookupPrefixed(h, T, base ++ "_");
     return h.lookup(T, std.fmt.comptimePrint("{s}_", .{base}));
 }
 
