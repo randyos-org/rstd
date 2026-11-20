@@ -10,10 +10,10 @@ name: CI
 # (`gh workflow run CI --ref <branch>`). A pull request that only changes the
 # files listed in no-ci.txt (documentation, editor settings) skips the
 # checks; the "CI" job, the check main's ruleset requires, passes then too. The tier 3 and 4 legs (test-tier34,
-# and rig-tier34's tier 3 rigs, named `<rig> rig`) run on pull requests into
-# main and pushes to main; a run started by hand takes those its `tier34`
-# input names: `all`, `none`, or leg names separated by commas (e.g.
-# `arm-linux, i386 rig`).
+# and rig-tier34's tier 3 rigs, named `<rig> rig`) are off for now, as work is on
+# tiers 1 and 2 only (user, 2026-11-20); a run started by hand takes those its
+# `tier34` input names: `none` (the default), `all`, or leg names separated by
+# commas (e.g. `arm-linux, i386 rig`).
 #
 # Versions: build.zig.zon holds the version the next release will have. When
 # a push to main passes and changes the package (see changes.sh), the commit
@@ -36,7 +36,7 @@ on:
     inputs:
       tier34:
         description: "Tier 3 and 4 legs: all, none, or names separated by commas"
-        default: all
+        default: none
 
 permissions:
   contents: read
@@ -184,10 +184,13 @@ jobs:
           ]
           JSON
           )
-          full=true
+          # tier 1 and 2 only for now (user, 2026-11-20): none run unless a run
+          # started by hand names them
+          full=false
           names='[]'
-          if [ "$EVENT" = workflow_dispatch ] && [ "$WANT" != all ]; then
-            full=false
+          if [ "$EVENT" = workflow_dispatch ] && [ "$WANT" = all ]; then
+            full=true
+          elif [ "$EVENT" = workflow_dispatch ]; then
             names=$(jq -cn --arg want "$WANT" '$want | split(",") | map(gsub("^ +| +$"; ""))')
           fi
           # the tier 3 QEMU rigs (build/qemu), legs named `<rig> rig` (rig-tier34);
