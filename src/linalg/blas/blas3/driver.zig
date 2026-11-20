@@ -10,6 +10,7 @@ const portable = @import("../portable.zig");
 const util = @import("../util.zig");
 const gemm_kernels = @import("gemm/kernel.zig");
 const small = @import("gemm/small.zig");
+const sme2 = @import("gemm/sme2/driver.zig");
 const threaded = @import("threaded.zig");
 const loops = @import("loops.zig");
 const driver = @This();
@@ -403,6 +404,8 @@ pub fn gemm(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, t
         return;
     }
     const cj = comptime isComplex(T);
+    // upstream takes the SME2 kernels before the small-matrix ones
+    if (comptime !cj) if (try sme2.gemm(allocator, io, T, vt, ta, tb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc, want)) return;
     if (small.gemm(T, vt, ta, tb, cj and conj.ofA(), cj and conj.ofB(), m, n, k, alpha, a, lda, b, ldb, beta, c, ldc)) return;
     const x: Matrix(T) = .{ .p = @constCast(a), .ld = lda };
     const y: Matrix(T) = .{ .p = @constCast(b), .ld = ldb };
