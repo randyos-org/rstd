@@ -5,6 +5,7 @@
 const std = @import("std");
 const check = @import("../../blas/_test/check.zig");
 const test_io = @import("../../blas/_test/io.zig");
+const threading = @import("../../blas/threading.zig");
 const blas = @import("../../blas/__root__.zig");
 const auxiliary = @import("../auxiliary.zig");
 const tevd = @import("../tridiag_evd.zig");
@@ -239,7 +240,11 @@ test "stebr: syevd's values alone give one worker's bits at any worker count" {
     defer al.free(a);
     for (0..test_io.worker_runs.len) |c| {
         @memcpy(a, a0.ptr[0 .. n * n]);
-        try evd.syevd(al, runs.io(c), f64, .n, .l, n, a, n, outs[c]);
+        const io = runs.io(c);
+        // the same chunks for every run, one worker's too: the reduction's
+        // `symv` folds partials by chunk, whose count follows the size alone
+        threading.test_serial_max = 4096;
+        try evd.syevd(al, io, f64, .n, .l, n, a, n, outs[c]);
     }
     try test_io.expectSameBytes(outs);
 }

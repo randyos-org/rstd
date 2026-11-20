@@ -277,6 +277,7 @@ test {
     _ = geev_tests;
     _ = hseqr_tests;
     _ = stebr_tests;
+    _ = sytrd_tests;
 }
 
 const std = @import("std");
@@ -298,6 +299,7 @@ const tgsyl_tests = @import("_test/tgsyl.zig");
 const geev_tests = @import("_test/geev.zig");
 const hseqr_tests = @import("_test/hseqr.zig");
 const stebr_tests = @import("_test/stebr.zig");
+const sytrd_tests = @import("_test/sytrd.zig");
 
 test "lapack: ReLAPACK's routines through their public names, 2 x 2 smoke tests" {
     const al = testing.allocator;
