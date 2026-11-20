@@ -153,6 +153,28 @@ pub fn threads(comptime r: Routine, comptime T: type, size: u64) ?u32 {
     return workers(cap);
 }
 
+/// Real multiply-adds (a complex one counts four) a level-3 call inside a
+/// threaded routine needs per worker. Measured, not upstream's (issue #546,
+/// `threading.md`'s LAPACK section): a team costs 2 us a worker to start on
+/// the M6 (macOS), where `potrf`'s rate is flat from 400000 to 2500000, and
+/// 4 to 10 on Zen 3 (Windows), where teams of two lose at 1000000; upstream's
+/// workers spin between calls. Elsewhere macOS's, unmeasured. No result
+/// depends on it.
+pub const team_grain: u64 = if (sysinfo.os.tag == .windows) 4_000_000 else 1_000_000;
+
+/// `team_grain` where the choice of an algorithm reads it, so the bits are
+/// one on every system.
+pub const block_grain: u64 = 1_000_000;
+
+/// The workers a level-3 call of `m * n * k` products takes inside a threaded
+/// routine: `want`, at most one per `grain`. The drivers give the same bits
+/// for any count, so this changes none.
+pub fn crew(comptime T: type, want: u32, grain: u64, m: u64, n: u64, k: u64) u32 {
+    const each: u64 = if (comptime isComplex(T)) 4 else 1;
+    const flops = threading.product(&.{ each, m, n, k });
+    return @intCast(@min(want, @max(1, flops / @max(grain, 1))));
+}
+
 /// `threading.workers` for a size cap, at most `threading.chunks_max`.
 pub fn workers(size_max: u64) u32 {
     // selects the core first, which fills `blas.config`

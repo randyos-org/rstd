@@ -16,6 +16,7 @@ const obx86 = @import("obx86.zig");
 const compensated_bench = @import("compensated_bench.zig");
 const matcopy_bench = @import("matcopy_bench.zig");
 const sparse_bench = @import("sparse_bench.zig");
+const potrf_bench = @import("potrf_bench.zig");
 const inline_bench = @import("inline_bench.zig");
 const rot_reals_bench = @import("rot_reals_bench.zig");
 
@@ -132,6 +133,7 @@ pub fn main(init: std.process.Init) !void {
                 },
                 .@"rstd-io" => opts.rstd_io = std.meta.stringToEnum(RstdIo, v) orelse return error.BadOption,
                 .@"max-n" => libs.n_max = std.fmt.parseInt(usize, v, 10) catch return error.BadOption,
+                .only => libs.only = v,
                 .@"ob-core" => opts.ob_core = v,
                 .@"rstd-accelerate" => opts.rstd_accelerate = !std.mem.eql(u8, v, "0"),
                 .routines => kernels.l1_only = v,
@@ -188,6 +190,7 @@ pub fn main(init: std.process.Init) !void {
     if (!alone and want(sections.items, "l3thread")) try l3thread.run(gpa);
     if (!alone and want(sections.items, "sparse")) try sparse_bench.run(io, gpa);
     if (!alone and want(sections.items, "matcopy")) try matcopy_bench.run(io, gpa);
+    if (!alone and want(sections.items, "potrf")) try potrf_bench.run();
     if (!alone and want(sections.items, "inline")) try inline_bench.run(io, gpa);
     if (!alone and want(sections.items, "compensated")) try compensated_bench.run(io, gpa);
     if (!alone and want(sections.items, "rotreals")) try rot_reals_bench.run(io, gpa);
@@ -206,7 +209,7 @@ pub fn main(init: std.process.Init) !void {
 }
 
 /// `--name=value` options.
-const Opt = enum { openblas, blis, accelerate, reference, eigen, @"aocl-libflame", threads, @"rstd-io", @"max-n", @"ob-core", @"rstd-accelerate", @"accelerate-alone", routines };
+const Opt = enum { openblas, blis, accelerate, reference, eigen, @"aocl-libflame", threads, @"rstd-io", @"max-n", only, @"ob-core", @"rstd-accelerate", @"accelerate-alone", routines };
 
 /// `--accelerate-alone`: only the libraries race; nothing of rstd's runs, so
 /// nothing sets `VECLIB_MAXIMUM_THREADS` or `BLASSetThreading`.

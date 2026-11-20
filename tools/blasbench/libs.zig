@@ -128,6 +128,17 @@ var io_note_buf: [96]u8 = undefined;
 /// `--max-n`: rows of a larger `n` are skipped.
 pub var n_max: usize = std.math.maxInt(usize);
 
+/// `--only`: the routines the table sections race, comma separated; null for all.
+pub var only: ?[]const u8 = null;
+
+/// Whether `--only` leaves `name` in.
+pub fn wanted(name: []const u8) bool {
+    const list = only orelse return true;
+    var it = std.mem.splitScalar(u8, list, ',');
+    while (it.next()) |x| if (std.mem.eql(u8, x, name)) return true;
+    return false;
+}
+
 /// The libraries' thread counts by environment, read when each loads, and
 /// rstd's ceiling (`OPENBLAS_NUM_THREADS`), read when it selects its core.
 pub fn setThreadEnv(threads: ?u31) !void {
