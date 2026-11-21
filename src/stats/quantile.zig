@@ -2,7 +2,7 @@
 //! sorted copy.
 
 const std = @import("std");
-const math = @import("../math.zig");
+const math = @import("../math/__root__.zig");
 const sort = @import("../sort.zig");
 const util = @import("util.zig");
 

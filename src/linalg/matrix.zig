@@ -740,7 +740,7 @@ const V4f64 = vector.V4f64;
 
 const bitwise = @import("blas/_test/bitwise.zig");
 const expectSameBits = bitwise.expectSameBits;
-const math = @import("../math.zig");
+const math = @import("../math/__root__.zig");
 
 test "transposeVecs is pffft's VTRANSPOSE4 (_MM_TRANSPOSE4_PS)" {
     const V = vector.V4f32;

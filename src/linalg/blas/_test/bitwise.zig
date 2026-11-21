@@ -4,7 +4,7 @@
 const std = @import("std");
 const sysinfo = @import("builtin");
 const zigstd = @import("../../../zigstd.zig");
-const math = @import("../../../math.zig");
+const math = @import("../../../math/__root__.zig");
 const types = @import("../types.zig");
 const check = @import("check.zig");
 
