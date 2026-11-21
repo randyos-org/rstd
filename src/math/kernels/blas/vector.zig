@@ -25,7 +25,8 @@ pub const Half = @import("vector/half.zig").Half;
 
 /// Whether `slot`'s converted kernels give way to the portable or these on
 /// every core, for one contract (`readme.md`, "One contract"): `nrm2`, the
-/// extremes, `sdot` and `dsdot`, and the `peels` slots. Their assembly is
+/// extremes, `sdot` and `dsdot`, `.plain`'s single-precision `*_wide_k` and
+/// the `peels` slots. Their assembly is
 /// not converted (the indexes' `skipped`, kept in step).
 pub fn routed(comptime slot: Slot) bool {
     return switch (slot) {
@@ -60,6 +61,13 @@ pub fn routed(comptime slot: Slot) bool {
         .znrm2_k,
         .sdot_k,
         .dsdot_k,
+        // `.plain`'s single-precision sums in `f64`, which no converted kernel fills (issue #584)
+        .sasum_wide_k,
+        .casum_wide_k,
+        .ssum_wide_k,
+        .csum_wide_k,
+        .cdotu_wide_k,
+        .cdotc_wide_k,
         => true,
         else => peels(slot),
     };
@@ -90,6 +98,10 @@ const Fn = enum {
     nrm2,
     asum,
     sum,
+    asum_wide,
+    sum_wide,
+    dotu_wide,
+    dotc_wide,
     copy,
     swap,
     rot,
@@ -110,6 +122,14 @@ const Fn = enum {
     min,
     imin,
 
+    /// Whether it is one of `.plain`'s single-precision sums in `f64` (issue #584).
+    fn wide(f: Fn) bool {
+        return switch (f) {
+            .asum_wide, .sum_wide, .dotu_wide, .dotc_wide => true,
+            else => false,
+        };
+    }
+
     /// Its op; null for `dsdot`, which has one slot (`dsdot_k`), not an op.
     fn op(f: Fn) ?slots.Op {
         return switch (f) {
@@ -123,6 +143,10 @@ const Fn = enum {
             .nrm2 => .nrm2_k,
             .asum => .asum_k,
             .sum => .sum_k,
+            .asum_wide => .asum_wide_k,
+            .sum_wide => .sum_wide_k,
+            .dotu_wide => .dotu_wide_k,
+            .dotc_wide => .dotc_wide_k,
             .copy => .copy_k,
             .swap => .swap_k,
             .rot => .rot_k,
@@ -147,14 +171,15 @@ const Fn = enum {
 };
 
 /// The functions of `Real`, each filling the slot of its op (`slotOf`).
-const real_fns = [_]Fn{ .axpy, .dot, .dsdot, .scal, .nrm2, .asum, .sum, .copy, .swap, .rot, .gemv_n, .gemv_t, .amax, .iamax, .amin, .iamin, .max, .imax, .min, .imin };
+const real_fns = [_]Fn{ .axpy, .dot, .dsdot, .scal, .nrm2, .asum, .sum, .asum_wide, .sum_wide, .copy, .swap, .rot, .gemv_n, .gemv_t, .amax, .iamax, .amin, .iamin, .max, .imax, .min, .imin };
 
 /// The functions of `Complex`, likewise.
-const complex_fns = [_]Fn{ .axpy, .axpyc, .dotu, .dotc, .scal, .nrm2, .asum, .sum, .copy, .swap, .amax, .iamax, .amin, .iamin, .rot, .gemv_n, .gemv_t, .gemv_r, .gemv_c, .gemv_o, .gemv_u, .gemv_s, .gemv_d };
+const complex_fns = [_]Fn{ .axpy, .axpyc, .dotu, .dotc, .scal, .nrm2, .asum, .sum, .asum_wide, .sum_wide, .dotu_wide, .dotc_wide, .copy, .swap, .amax, .iamax, .amin, .iamin, .rot, .gemv_n, .gemv_t, .gemv_r, .gemv_c, .gemv_o, .gemv_u, .gemv_s, .gemv_d };
 
 /// The slot function `f` over `T` fills: its op at `T`'s letter, or null for
-/// `dsdot` past `f32`.
+/// `dsdot` past `f32` and for the `*_wide` functions past single precision.
 fn slotOf(comptime T: type, comptime f: Fn) ?Slot {
+    if (f.wide() and types.Float(T) != f32) return null;
     const op = f.op() orelse return if (T == f32) .dsdot_k else null;
     return slots.slotTag(.from(slots.letter(T).?), op);
 }
@@ -166,12 +191,14 @@ const Kernel = struct { slot: Slot, F: type, complex: bool, f: Fn };
 /// Every function here as a kernel, whatever its type's lanes do with
 /// denormals.
 pub const every: []const Kernel = blk: {
+    // every function at each type, past the default quota
+    @setEvalBranchQuota(10_000);
     var r: []const Kernel = &.{};
     for ([_]type{ f32, f64 }) |F| for (real_fns) |f| {
         if (slotOf(F, f)) |s| r = r ++ &[_]Kernel{.{ .slot = s, .F = F, .complex = false, .f = f }};
     };
     for ([_]type{ f32, f64 }) |F| for (complex_fns) |f| {
-        r = r ++ &[_]Kernel{.{ .slot = slotOf(std.math.Complex(F), f).?, .F = F, .complex = true, .f = f }};
+        if (slotOf(std.math.Complex(F), f)) |s| r = r ++ &[_]Kernel{.{ .slot = s, .F = F, .complex = true, .f = f }};
     };
     break :blk r;
 };

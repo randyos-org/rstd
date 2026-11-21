@@ -33,6 +33,11 @@ pub const Op = enum {
     nrm2_k,
     asum_k,
     sum_k,
+    // rstd's: `.plain`'s single-precision sums in `f64`, beside the slots `.fast` takes (issue #584)
+    asum_wide_k,
+    sum_wide_k,
+    dotu_wide_k,
+    dotc_wide_k,
     amax_k,
     amin_k,
     max_k,

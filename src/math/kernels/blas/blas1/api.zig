@@ -22,12 +22,13 @@ const LengthError = strided.LengthError;
 
 pub const Extreme = core.Extreme;
 /// How `sumWith`, `asumWith`, `dotWith` and `dotcWith` sum; each gives the
-/// same bits at any worker count. `.plain`, the default: as the kernels sum,
-/// `f32` in `f64` (issue #584 lists the exceptions). `.compensated`:
-/// Neumaier's, about one rounding of the result, at portable speed
-/// (`compensated.zig`). `.fast`: speed over accuracy for single precision,
-/// `f32` and `Complex(f32)` added in `f32` lanes as OpenBLAS's kernels add
-/// them (`fast.zig`); `.plain` for wider types.
+/// same bits at any worker count. `.plain`, the default: `f32` in `f64` on
+/// every core. `.compensated`: Neumaier's, about one rounding of the result,
+/// at portable speed (`compensated.zig`). `.fast`: speed over accuracy for
+/// single precision in `f32` lanes: `asum`, `sum` and complex `dot` on the
+/// core's own kernels, OpenBLAS's where it has one, so their bits may differ
+/// between cores (issue #584); real `dot` in `fast.zig`; `.plain` for wider
+/// types.
 pub const Summation = enum { plain, compensated, fast };
 
 /// What a routine of two vectors that may thread returns.
@@ -119,9 +120,14 @@ fn dotsWith(io: Io, comptime T: type, comptime conj: bool, x: ConstStrided(T), y
     const plain = s == .plain or (s == .fast and !fast.serves(T));
     if (plain) return if (conj) dotc(io, T, x, y) else dot(io, T, x, y);
     try x.sameLength(y);
+    // complex: the core's own kernel, OpenBLAS's where it has one (issue #584)
+    if (comptime types.isComplex(T)) if (s == .fast) {
+        const f = if (conj) core.dotcFast else core.dotFast;
+        return f(io, T, len(x), ptr(T, x), inc(x), ptr(T, y), inc(y)) catch |e| return canceled(e);
+    };
     const px = util.first(T, ptr(T, x), len(x), inc(x));
     const py = util.first(T, ptr(T, y), len(y), inc(y));
-    if (comptime fast.serves(T)) if (s == .fast) return fast.dot(io, T, conj, x.n, px, inc(x), py, inc(y));
+    if (comptime fast.serves(T) and !types.isComplex(T)) if (s == .fast) return fast.dot(io, x.n, px, inc(x), py, inc(y));
     return compensated.dot(io, T, conj, x.n, px, inc(x), py, inc(y));
 }
 
@@ -159,7 +165,8 @@ pub fn asumWith(io: Io, comptime T: type, x: ConstStrided(T), s: Summation) Io.C
     return switch (s) {
         .plain => asum(io, T, x),
         .compensated => compensated.asum(io, T, x.n, ptr(T, x), step(x)),
-        .fast => if (comptime fast.serves(T)) fast.asum(io, T, x.n, ptr(T, x), step(x)) else asum(io, T, x),
+        // the core's own kernel, OpenBLAS's where it has one (issue #584)
+        .fast => core.asumFast(io, T, len(x), ptr(T, x), step(x)) catch |e| return canceled(e),
     };
 }
 
@@ -168,7 +175,7 @@ pub fn sumWith(io: Io, comptime T: type, x: ConstStrided(T), s: Summation) Io.Ca
     return switch (s) {
         .plain => sum(io, T, x),
         .compensated => compensated.sum(io, T, x.n, ptr(T, x), step(x)),
-        .fast => if (comptime fast.serves(T)) fast.sum(io, T, x.n, ptr(T, x), step(x)) else sum(io, T, x),
+        .fast => core.sumFast(io, T, len(x), ptr(T, x), step(x)) catch |e| return canceled(e),
     };
 }
 

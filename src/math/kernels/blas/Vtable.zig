@@ -12,7 +12,8 @@
 //! git-ignored `unused/`. Imports stay in `src/math/kernels/blas/`, for the
 //! per-core objects; its test is in `__root__.zig`. Not upstream's: the
 //! types of `sme_sgemm_kernel` and `sme_dgemm_kernel`, which take one part
-//! of rstd's SME2 `gemm` whose driver is in the main library.
+//! of rstd's SME2 `gemm` whose driver is in the main library, and the
+//! `*_wide_k` slots, `.plain`'s single-precision sums in `f64` (issue #584).
 
 const types = @import("types.zig");
 const sme2_job = @import("blas3/gemm/sme2/job.zig");
@@ -229,6 +230,8 @@ sasum_k: ?*const fn (BlasLong, [*]f32, BlasLong) callconv(.c) f32 = null,
 //#endif //(BUILD_SINGLE==1) || (BUILD_COMPLEX==1)
 //#if (BUILD_SINGLE==1)
 ssum_k: ?*const fn (BlasLong, [*]f32, BlasLong) callconv(.c) f32 = null,
+sasum_wide_k: ?*const fn (BlasLong, [*]f32, BlasLong) callconv(.c) f32 = null,
+ssum_wide_k: ?*const fn (BlasLong, [*]f32, BlasLong) callconv(.c) f32 = null,
 //#endif //(BUILD_SINGLE==1)
 //#if (BUILD_SINGLE==1) || (BUILD_DOUBLE==1) || (BUILD_COMPLEX==1
 scopy_k: ?*const fn (BlasLong, [*]f32, BlasLong, [*]f32, BlasLong) callconv(.c) i32 = null,
@@ -605,6 +608,10 @@ csum_k: ?*const fn (BlasLong, [*]f32, BlasLong) callconv(.c) f32 = null,
 ccopy_k: ?*const fn (BlasLong, [*]f32, BlasLong, [*]f32, BlasLong) callconv(.c) i32 = null,
 cdotu_k: ?*const fn (BlasLong, [*]f32, BlasLong, [*]f32, BlasLong) callconv(.c) CComplex32 = null,
 cdotc_k: ?*const fn (BlasLong, [*]f32, BlasLong, [*]f32, BlasLong) callconv(.c) CComplex32 = null,
+casum_wide_k: ?*const fn (BlasLong, [*]f32, BlasLong) callconv(.c) f32 = null,
+csum_wide_k: ?*const fn (BlasLong, [*]f32, BlasLong) callconv(.c) f32 = null,
+cdotu_wide_k: ?*const fn (BlasLong, [*]f32, BlasLong, [*]f32, BlasLong) callconv(.c) CComplex32 = null,
+cdotc_wide_k: ?*const fn (BlasLong, [*]f32, BlasLong, [*]f32, BlasLong) callconv(.c) CComplex32 = null,
 
 csrot_k: ?*const fn (BlasLong, [*]f32, BlasLong, [*]f32, BlasLong, f32, f32) callconv(.c) i32 = null,
 caxpy_k: ?*const fn (BlasLong, BlasLong, BlasLong, f32, f32, [*]f32, BlasLong, [*]f32, BlasLong, [*]f32, BlasLong) callconv(.c) i32 = null,

@@ -208,21 +208,54 @@ pub fn scalReal(io: Io, comptime T: type, n: isize, alpha: Float(T), x: [*]T, in
 
 // ---- dot ---------------------------------------------------------------------
 
-/// `?DOT`/`?DOTU` (`interface/dot.c`, `zdot.c`): `x . y`, 0 for `n <= 0`.
+/// Which slots a single-precision `asum`, `sum` or complex `dot` takes
+/// (`api.Summation`, issue #584): `.plain`'s `*_wide_k`, summed in `f64` on
+/// every core, or `.fast`'s, the core's own (OpenBLAS's where it has one) in
+/// `f32` lanes. Other precisions have one slot.
+const Lanes = enum { plain, fast };
+
+/// Whether `T` is single precision, whose `asum`, `sum` and complex `dot`
+/// never go to Accelerate: `.plain` sums in rstd's `f64` slots, as
+/// Accelerate's precision there is untested, and `.fast` is the core's own
+/// kernel, which on the Intel Mac beats Accelerate's complex `dot` 4 to 1
+/// (issue #584).
+fn single(comptime T: type) bool {
+    return Float(T) == f32;
+}
+
+/// Whether `T` takes `.plain`'s own slot under `lanes`.
+fn wide(comptime T: type, comptime lanes: Lanes) bool {
+    return lanes == .plain and single(T);
+}
+
+/// `?DOT`/`?DOTU` (`interface/dot.c`, `zdot.c`): `x . y`, 0 for `n <= 0`;
+/// complex `f32` summed in `f64`.
 pub fn dot(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) Error!T {
-    return dotImpl(io, T, false, n, x, incx, y, incy);
+    return dotImpl(io, T, false, .plain, n, x, incx, y, incy);
 }
 
 /// `?DOTC`: `conj(x) . y`. Complex only.
 pub fn dotc(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) Error!T {
     comptime util.requireComplex(T, "dotc");
-    return dotImpl(io, T, true, n, x, incx, y, incy);
+    return dotImpl(io, T, true, .plain, n, x, incx, y, incy);
 }
 
-fn dotImpl(io: Io, comptime T: type, comptime conj: bool, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) Error!T {
+/// `dot` for `Summation.fast`: complex `f32` on the core's own kernel.
+pub fn dotFast(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) Error!T {
+    return dotImpl(io, T, false, .fast, n, x, incx, y, incy);
+}
+
+/// `dotc` for `Summation.fast`.
+pub fn dotcFast(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) Error!T {
+    comptime util.requireComplex(T, "dotcFast");
+    return dotImpl(io, T, true, .fast, n, x, incx, y, incy);
+}
+
+fn dotImpl(io: Io, comptime T: type, comptime conj: bool, comptime lanes: Lanes, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) Error!T {
     if (n <= 0) return zero(T);
     try spanXY(T, T, n, incx, incy);
-    if (try accel.dot(io, T, conj, n, x, incx, y, incy)) |r| return r;
+    const complex_op: portable.Op = if (comptime wide(T, lanes)) (if (conj) .dotc_wide_k else .dotu_wide_k) else (if (conj) .dotc_k else .dotu_k);
+    if (comptime !(single(T) and isComplex(T))) if (try accel.dot(io, T, conj, n, x, incx, y, incy)) |r| return r;
     // `kernel/x86_64/ddot.c`, `zdot.c`: a zero stride runs serially
     if (comptime sums(T)) if (incx != 0 and incy != 0) if (chunked(.dot, T, n)) |p| {
         const c: Pair(T, void) = .{ .x = first(T, x, n, incx), .incx = incx, .y = first(T, y, n, incy), .incy = incy, .e = {} };
@@ -233,7 +266,7 @@ fn dotImpl(io: Io, comptime T: type, comptime conj: bool, n: isize, x: [*]T, inc
                 const a = raw(T, shift(T, q.x, at, q.incx));
                 const b = raw(T, shift(T, q.y, at, q.incy));
                 if (comptime isComplex(T)) {
-                    const r = types.complexOf(portable.fetch(T, if (conj) .dotc_k else .dotu_k, blas.vtable)(len, a, q.incx, b, q.incy));
+                    const r = types.complexOf(portable.fetch(T, complex_op, blas.vtable)(len, a, q.incx, b, q.incy));
                     return .init(r.re, r.im);
                 }
                 return portable.fetch(T, .dot_k, blas.vtable)(len, a, q.incx, b, q.incy);
@@ -244,7 +277,7 @@ fn dotImpl(io: Io, comptime T: type, comptime conj: bool, n: isize, x: [*]T, inc
     const px = raw(T, first(T, x, n, incx));
     const py = raw(T, first(T, y, n, incy));
     if (comptime isComplex(T)) {
-        return types.complexOf(portable.fetch(T, if (conj) .dotc_k else .dotu_k, blas.vtable)(n, px, incx, py, incy));
+        return types.complexOf(portable.fetch(T, complex_op, blas.vtable)(n, px, incx, py, incy));
     }
     return portable.fetch(T, .dot_k, blas.vtable)(n, px, incx, py, incy);
 }
@@ -300,11 +333,21 @@ pub fn nrm2(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize) Error!Floa
 
 /// `?ASUM`/`SCASUM`/`DZASUM` (`interface/asum.c`): the sum of `|x|`, of
 /// `|re| + |im|` for complex. 0 for `n <= 0`; the kernel gives 0 for
-/// `incx <= 0`.
+/// `incx <= 0`. Single precision sums in `f64` (`Lanes`).
 pub fn asum(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize) Error!Float(T) {
+    return asumBy(io, T, .plain, n, x, incx);
+}
+
+/// `asum` for `Summation.fast`: single precision on the core's own kernel.
+pub fn asumFast(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize) Error!Float(T) {
+    return asumBy(io, T, .fast, n, x, incx);
+}
+
+fn asumBy(io: Io, comptime T: type, comptime lanes: Lanes, n: isize, x: [*]T, incx: isize) Error!Float(T) {
     if (n <= 0) return 0;
     try spanX(T, n, incx);
-    if (try accel.asum(io, T, n, x, incx)) |r| return r;
+    if (comptime wide(T, lanes)) return summed(io, T, .asum_wide_k, n, x, incx);
+    if (comptime !single(T)) if (try accel.asum(io, T, n, x, incx)) |r| return r;
     return summed(io, T, .asum_k, n, x, incx);
 }
 
@@ -325,8 +368,15 @@ fn summed(io: Io, comptime T: type, comptime op: portable.Op, n: isize, x: [*]T,
 }
 
 /// `?SUM` (`interface/sum.c`, an OpenBLAS extension): the sum of `x`, of
-/// `re + im` for complex.
+/// `re + im` for complex. Single precision sums in `f64` (`Lanes`).
 pub fn sum(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize) Error!Float(T) {
+    if (n <= 0) return 0;
+    try spanX(T, n, incx);
+    return summed(io, T, if (comptime wide(T, .plain)) .sum_wide_k else .sum_k, n, x, incx);
+}
+
+/// `sum` for `Summation.fast`: single precision on the core's own kernel.
+pub fn sumFast(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize) Error!Float(T) {
     if (n <= 0) return 0;
     try spanX(T, n, incx);
     return summed(io, T, .sum_k, n, x, incx);

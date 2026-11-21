@@ -29,9 +29,14 @@ fn Dot(comptime F: type, comptime Acc: type, comptime R: type) type {
 }
 
 /// `kernel/arm/zdot.c`: `x . y`, or `conj(x) . y` (`dotc`), summed in
-/// `types.Acc(F)`. Returned as `CComplex` over a vtable type, else `Complex`.
+/// `types.Acc(F)`, `f32` for `f32` as upstream's. Returned as `CComplex` over a
+/// vtable type, else `Complex`.
 fn Zdot(comptime F: type, comptime conj: bool) type {
-    const A = types.Acc(F);
+    return ZdotIn(F, types.Acc(F), conj);
+}
+
+/// `Zdot` summed in `A`: `f64` for `f32` in `.plain`'s slots (issue #584).
+fn ZdotIn(comptime F: type, comptime A: type, comptime conj: bool) type {
     const R = if (types.hasSlots(F)) types.CComplex(F) else std.math.Complex(F);
     return struct {
         fn k(n: BlasLong, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong) callconv(types.kernelCc(F)) R {
@@ -100,10 +105,17 @@ pub const dsdot_generic = &Dot(f32, f64, f64).k;
 pub const qdot_generic = &Dot(XDouble, XDouble, XDouble).k;
 pub const cdotu_generic = &Zdot(f32, false).k;
 pub const cdotc_generic = &Zdot(f32, true).k;
+pub const cdotu_wide_generic = &ZdotIn(f32, f64, false).k;
+pub const cdotc_wide_generic = &ZdotIn(f32, f64, true).k;
 pub const zdotu_generic = &Zdot(f64, false).k;
 pub const zdotc_generic = &Zdot(f64, true).k;
 pub const xdotu_generic = &Zdot(XDouble, false).k;
 pub const xdotc_generic = &Zdot(XDouble, true).k;
+
+/// `.plain`'s accumulator: `f64` for `f32`, else `types.Acc(F)`.
+fn Wide(comptime F: type) type {
+    return if (F == f32) f64 else types.Acc(F);
+}
 
 /// The portable kernels over `T`, any float or its `Complex`, by the slot
 /// they would fill (`portable.kernel`).
@@ -113,6 +125,9 @@ pub fn Portable(comptime T: type) type {
         pub const dot_k = &Dot(F, types.Acc(F), F).k;
         pub const dotu_k = &Zdot(F, false).k;
         pub const dotc_k = &Zdot(F, true).k;
+        // `f64` for `f32`, as `.plain` wants (issue #584)
+        pub const dotu_wide_k = &ZdotIn(F, Wide(F), false).k;
+        pub const dotc_wide_k = &ZdotIn(F, Wide(F), true).k;
     };
 }
 
@@ -126,6 +141,8 @@ pub fn installGeneric(vt: *Vtable) void {
     vt.qdot_k = qdot_generic;
     vt.cdotu_k = cdotu_generic;
     vt.cdotc_k = cdotc_generic;
+    vt.cdotu_wide_k = cdotu_wide_generic;
+    vt.cdotc_wide_k = cdotc_wide_generic;
     vt.zdotu_k = zdotu_generic;
     vt.zdotc_k = zdotc_generic;
     vt.xdotu_k = xdotu_generic;
@@ -186,6 +203,21 @@ fn complexRef(comptime F: type, re: reference.Wide(F), im: reference.Wide(F), go
     try check.expectCloseRef(F, im, got.im, tol);
 }
 
+/// `(t + ti)^2 = 2t^2 i`, `t` a third: each product and their sum over 2048
+/// are exact in `f64`, so a wide slot gives the sum rounded once; `f32` lanes
+/// round each product. `dotc`'s is `2t^2`, real.
+fn roundsOnce(vt: *const Vtable) !void {
+    var x: [4096]f32 = @splat(1.0 / 3.0);
+    const t: f64 = x[0];
+    const want: f32 = @floatCast(2048 * 2 * t * t);
+    const u = vt.cdotu_wide_k.?(2048, &x, 1, &x, 1);
+    try std.testing.expectEqual(@as(f32, 0), u.re);
+    try std.testing.expectEqual(want, u.im);
+    const c = vt.cdotc_wide_k.?(2048, &x, 1, &x, 1);
+    try std.testing.expectEqual(want, c.re);
+    try std.testing.expectEqual(@as(f32, 0), c.im);
+}
+
 fn checkAll(vt: *const Vtable) !void {
     var failed: ?anyerror = null;
     check.keep(&failed, checkDot(f32, false, vt.sdot_k.?));
@@ -193,6 +225,10 @@ fn checkAll(vt: *const Vtable) !void {
     check.keep(&failed, checkDot(f32, false, vt.dsdot_k.?));
     check.keep(&failed, checkDot(std.math.Complex(f32), false, vt.cdotu_k.?));
     check.keep(&failed, checkDot(std.math.Complex(f32), true, vt.cdotc_k.?));
+    // `.plain`'s own slots: as close, and rounded once (issue #584)
+    check.keep(&failed, checkDot(std.math.Complex(f32), false, vt.cdotu_wide_k.?));
+    check.keep(&failed, checkDot(std.math.Complex(f32), true, vt.cdotc_wide_k.?));
+    check.keep(&failed, roundsOnce(vt));
     check.keep(&failed, checkDot(std.math.Complex(f64), false, vt.zdotu_k.?));
     check.keep(&failed, checkDot(std.math.Complex(f64), true, vt.zdotc_k.?));
     if (failed) |e| return e;
