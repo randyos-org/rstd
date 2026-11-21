@@ -5,7 +5,7 @@
 //! neither the worker count nor the order.
 
 const std = @import("std");
-const threading = @import("../math/kernels/blas/threading.zig");
+const threading = @import("../blas/threading.zig");
 
 const Io = std.Io;
 

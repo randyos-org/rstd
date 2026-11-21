@@ -110,12 +110,12 @@ Each type the kernel layer defines or takes, after the moves; the high-level opt
 | `SparseCholesky(T)`, `SparseLdlt(T)`, `SparseLu(T)`, `SparseQr(T)` | `struct { perm: []u32, parent: []u32, l: CompressedColumns(T) }` (fill-reducing order, elimination tree, factor); `SparseLdlt` adds `d: []T`; `SparseLu`: `struct { row_perm: []u32, col_perm: []u32, l: CompressedColumns(T), u: CompressedColumns(T) }`; `SparseQr`: `struct { col_perm: []u32, v: CompressedColumns(T), tau: []T, r: CompressedColumns(T) }`. Analyzed once from the pattern, refactored per values | none | `kernels.sparse` | backlog (#624) |
 | `JacobiPreconditioner(T)`, `IncompleteLu(T)` | `struct { inv_diag: []T }`; `struct { lu: CompressedRows(T) }`: each with `operator(self) LinearOperator(T)` | none | `kernels.sparse` | backlog (#624) |
 | `Direction` | `enum { forward, backward }` | same | `kernels.fft` | yes |
-| `Normalization` | `enum { backward, ortho, forward }`: which direction scales by `1/n`; `ortho` scales both by `1/√n` | `Norm` | `kernels.fft` | yes |
-| `BatchLayout`, `BatchLayouts` | `struct { count: usize = 1, stride: usize = 1, distance: ?usize = null }`; `struct { in: BatchLayout = .{}, out: BatchLayout = .{} }`: a batch's shape in memory | `Layout`, `Layouts` | `kernels.fft` | yes |
+| `Normalization` | `enum { backward, ortho, forward }`: which direction scales by `1/n`; `ortho` scales both by `1/√n` | same | `kernels.fft` | yes |
+| `BatchLayout`, `BatchLayouts` | `struct { count: usize = 1, stride: usize = 1, distance: ?usize = null }`; `struct { in: BatchLayout = .{}, out: BatchLayout = .{} }`: a batch's shape in memory | same | `kernels.fft` | yes |
 | `Plan(T)`, `RealPlan(T)` | `struct { n: usize, scratch_len: usize, kind: Kind }`: a complex or real transform of length `n`, immutable, shared by threads | same | `kernels.fft` | yes |
 | `StaticPlan(n, T)`, `StaticRealPlan(n, T)` | `struct {}`: `Plan` with `n` fixed at compile time, no allocation | same | `kernels.fft` | stub (#625) |
-| `TrigTransformKind`, `TrigTransformPlan(T)` | `enum { dct1, dct2, dct3, dct4, dst1, dst2, dst3, dst4 }`; `struct { n: usize, kind: TrigTransformKind, scratch_len: usize }`: the discrete cosine and sine transforms of types I to IV | `TrigKind`, `TrigPlan` | `kernels.fft` | stub (#625) |
-| `ModifiedCosineTransform(T)` | `struct { n: usize, scratch_len: usize }`: the MDCT of audio codecs | `Mdct` | `kernels.fft` | stub (#625) |
+| `TrigTransformKind`, `TrigTransformPlan(T)` | `enum { dct1, dct2, dct3, dct4, dst1, dst2, dst3, dst4 }`; `struct { n: usize, kind: TrigTransformKind, scratch_len: usize }`: the discrete cosine and sine transforms of types I to IV | same | `kernels.fft` | stub (#625) |
+| `ModifiedCosineTransform(T)` | `struct { n: usize, scratch_len: usize }`: the MDCT of audio codecs | same | `kernels.fft` | stub (#625) |
 | `MultiDimPlan(T)` | `struct { shape: []const usize, plans: []Plan(T), scratch_len: usize }`: complex transforms over every axis | none | `kernels.fft` | backlog (#625) |
 | `Window`, `Symmetry` | `union(enum) { hann, hamming, blackman, kaiser: f64, sine, kbd: f64 }`; `enum { symmetric, periodic }` | same | `kernels.dsp` | yes |
 | `ConvolutionMode` | `enum { full, same, valid }`: NumPy's `convolve` modes | none | `kernels.dsp` | backlog (#627) |
@@ -129,7 +129,7 @@ Each type the kernel layer defines or takes, after the moves; the high-level opt
 | `Fraction(F)` | `struct { numerator: F, denominator: F }` | same | `rstd.math` | yes |
 | `MomentOptions` | `struct { summation: Summation = .plain }`: `meanWith`, `varianceWith`, `stdDevWith` | none | `rstd.math.stats` | #605 |
 | `QuantileOptions` | `struct { method: QuantileMethod = .linear }`: `quantileWith`; `QuantileMethod` NumPy's nine | same | `rstd.math.stats` | yes, moved by #613 |
-| `FftOptions` | `struct { normalization: Normalization = .backward }`: the `*With` transforms | `fft.Options { norm }` | `rstd.math.fft` | yes, moved by #611 |
+| `FftOptions` | `struct { normalization: Normalization = .backward }`: the `*With` transforms | same | `rstd.math.fft` | yes (#611) |
 
 ### `kernels.blas`
 
@@ -411,12 +411,12 @@ The routines are methods of the formats. Since [#610](https://github.com/randyos
 
 ### `kernels.fft`
 
-In the move the transforms take the normalization as a trailing argument in place of `Options` ([#611](https://github.com/randyos-org/rstd/issues/611)); `rstd.math.fft`'s `*With` siblings take the struct.
+Since [#611](https://github.com/randyos-org/rstd/issues/611) the transforms take the normalization as their last argument in place of an `Options` struct; `rstd.math.fft`'s `*With` siblings take the struct.
 
 | Signature | Computes | Accelerate | MKL | Source | v0.1.0 |
 | --- | --- | --- | --- | --- | --- |
 | `Plan(T)`: `init(allocator, n: usize) InitError!Self`, `deinit(self: *Self, allocator) void`, `scratchLen(self: Self) usize` | plans a complex transform of length `n` | `vDSP_DFT_zop_CreateSetup` | `DftiCreateDescriptor`, `DftiCommitDescriptor` | PocketFFT `cfftp`, Bluestein; pffft for `f32` | yes |
-| `Plan(T)`: `transform(self: *const Self, io, data: []Complex(T), scratch: []Complex(T), direction: Direction, layout: BatchLayout, normalization: Normalization) TransformError!void` | in place, a batch by `layout` | `vDSP_DFT_Execute`, `vDSP_fft_zip` | `DftiComputeForward`, `DftiComputeBackward` | as above | yes (#611: `norm`) |
+| `Plan(T)`: `transform(self: *const Self, io, data: []Complex(T), scratch: []Complex(T), direction: Direction, layout: BatchLayout, normalization: Normalization) TransformError!void` | in place, a batch by `layout` | `vDSP_DFT_Execute`, `vDSP_fft_zip` | `DftiComputeForward`, `DftiComputeBackward` | as above | yes (#611) |
 | `Plan(T)`: `transformInto(self: *const Self, io, out: []Complex(T), in: []const Complex(T), scratch: []Complex(T), direction: Direction, layouts: BatchLayouts, normalization: Normalization) TransformIntoError!void` | out of place | `vDSP_DFT_Execute` | `DftiComputeForward` | as above | yes (#611) |
 | `RealPlan(T)`: `init(allocator, n: usize) InitError!Self`, `deinit(self: *Self, allocator) void`, `scratchLen(self: Self) usize` | plans a real transform | `vDSP_DFT_zrop_CreateSetup` | `DftiCreateDescriptor` (real) | PocketFFT `rfftp`; pffft | yes |
 | `RealPlan(T)`: `forward(self: *const Self, io, out: []Complex(T), in: []const T, scratch: []T, layouts: BatchLayouts, normalization: Normalization) TransformIntoError!void`, `backward(self: *const Self, io, out: []T, in: []const Complex(T), scratch: []T, layouts: BatchLayouts, normalization: Normalization) TransformIntoError!void` | real to half-spectrum and back | `vDSP_DFT_Execute`, `vDSP_fft_zrip` | `DftiComputeForward` | as above | yes (#611) |
@@ -610,13 +610,13 @@ MATLAB's names and argument order where MATLAB has the routine; NumPy's where it
 
 ### `rstd.math.fft`
 
-Today's `fft` module is the plans (`Plan`, `RealPlan` and the stubs), which move to `kernels.fft`; this layer is new ([#611](https://github.com/randyos-org/rstd/issues/611)).
+The plans (`Plan`, `RealPlan` and the stubs) are in `kernels.fft`; this layer, new in [#611](https://github.com/randyos-org/rstd/issues/611), plans per call. Errors: `FftError` (`OutOfMemory`, `ZeroLength`, `Canceled`), and `IrfftError` adds `LengthMismatch`.
 
 | Signature | Computes | v0.1.0 |
 | --- | --- | --- |
-| `fft`, `ifft` | complex transform of a vector and its inverse, allocating the result (NumPy's `fft.fft`, MATLAB's `fft`) | named; #611 |
-| `rfft`, `irfft` | real input to half spectrum and back | named; #611 |
-| `fftWith`, `ifftWith`, `rfftWith`, `irfftWith` | the same with `FftOptions` (`.normalization`) | named; #611 |
+| `fft(allocator, io, T, x: []const Complex(T)) FftError![]Complex(T)`, `ifft` the same | complex transform of a vector and its inverse, allocating the result (NumPy's `fft.fft`, MATLAB's `fft`) | yes |
+| `rfft(allocator, io, T, x: []const T) FftError![]Complex(T)`, `irfft(allocator, io, T, n: usize, x: []const Complex(T)) IrfftError![]T` | real input to the `n / 2 + 1` values of the half spectrum and back | yes |
+| `fftWith`, `ifftWith`, `rfftWith`, `irfftWith` | the same with `options: FftOptions` last (`.normalization`) | yes |
 | `binFrequencies`, `realBinFrequencies`, `centerZeroFrequency`, `uncenterZeroFrequency` | `fftfreq`, `rfftfreq`, `fftshift`, `ifftshift` | named; backlog (#625) |
 | `dct`, `idct`, `dst`, `idst`, `mdct`, `imdct` | the trigonometric transforms, over the stubs | named; backlog (#625) |
 

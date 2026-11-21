@@ -7,8 +7,8 @@
 
 const std = @import("std");
 const sysinfo = @import("builtin");
-const vector = @import("../../linalg/vector.zig");
-const matrix = @import("../../linalg/matrix.zig");
+const vector = @import("../../../../linalg/vector.zig");
+const matrix = @import("../../../../linalg/matrix.zig");
 
 const cpu = sysinfo.cpu;
 const file = @This();

@@ -5,7 +5,7 @@
 //! frame; the plan, the window and the scratch are made up front.
 
 const std = @import("std");
-const fft = @import("../fft/__root__.zig");
+const fft = @import("../math/kernels/fft/__root__.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -77,7 +77,7 @@ pub fn Stft(comptime T: type) type {
                 const at = in[k * self.hop ..][0..self.window.len];
                 for (buf[0..self.window.len], at, self.window) |*b, x, w| b.* = x * w;
                 @memset(buf[self.window.len..], 0);
-                self.plan.forward(io, out[k * m ..][0..m], buf, rest, .{}, .{}) catch |e| return narrow(e);
+                self.plan.forward(io, out[k * m ..][0..m], buf, rest, .{}, .backward) catch |e| return narrow(e);
             }
         }
 
@@ -95,7 +95,7 @@ pub fn Stft(comptime T: type) type {
             const rest = scratch[self.nfft..];
             @memset(out[0..len], 0);
             for (0..frame_count) |k| {
-                self.plan.backward(io, buf, in[k * m ..][0..m], rest, .{}, .{}) catch |e| return narrow(e);
+                self.plan.backward(io, buf, in[k * m ..][0..m], rest, .{}, .backward) catch |e| return narrow(e);
                 for (out[k * self.hop ..][0..wl], buf[0..wl], self.window) |*o, x, w| o.* += x * w;
             }
             for (out[0..len], 0..) |*o, i| {
@@ -148,7 +148,7 @@ test "Stft: each frame's spectrum is the windowed frame's, and the inverse gives
         var frame: [128]f64 = @splat(0);
         for (frame[0..64], x[2 * hn[0] ..][0..64], win) |*f, v, w| f.* = v * w;
         var want: [65]Complex(f64) = undefined;
-        try s.plan.forward(testing.io, want[0..m], frame[0..hn[1]], scratch[hn[1]..], .{}, .{});
+        try s.plan.forward(testing.io, want[0..m], frame[0..hn[1]], scratch[hn[1]..], .{}, .backward);
         for (want[0..m], spec[2 * m ..][0..m]) |a, b| {
             try testing.expectEqual(a.re, b.re);
             try testing.expectEqual(a.im, b.im);

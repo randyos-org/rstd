@@ -1,4 +1,4 @@
-//! Fast Fourier transforms (rstd's design.md, "FFT"): PocketFFT's algorithms
+//! `rstd.math.kernels.fft` (`../../design.md`, #611): PocketFFT's algorithms
 //! in Zig, pffft's SIMD (`pffft/`, f32 at its sizes). `Plan` and `RealPlan`
 //! are done (`plan.zig`, `real_plan.zig`); the rest are stubs whose
 //! bodies return `error.NotImplemented`, their tests skip. A plan depends only
@@ -17,19 +17,16 @@ const Io = std.Io;
 pub const Direction = enum { forward, backward };
 
 /// Which direction divides by `n`; `ortho` divides both by `√n`.
-pub const Norm = enum { backward, ortho, forward };
-
-/// NumPy's default: a round trip gives back its input.
-pub const Options = struct { norm: Norm = .backward };
+pub const Normalization = enum { backward, ortho, forward };
 
 /// A batch of transforms in a slice: transform `k`'s element `i` is at
 /// `k * distance + i * stride`. `distance` null is `len * stride`, `len`
 /// being that slice's elements per transform (`n`, or `n / 2 + 1` for a half
 /// spectrum). Transforms must not overlap.
-pub const Layout = struct { count: usize = 1, stride: usize = 1, distance: ?usize = null };
+pub const BatchLayout = struct { count: usize = 1, stride: usize = 1, distance: ?usize = null };
 
 /// An out-of-place batch: both sides' counts must match.
-pub const Layouts = struct { in: Layout = .{}, out: Layout = .{} };
+pub const BatchLayouts = struct { in: BatchLayout = .{}, out: BatchLayout = .{} };
 
 pub const InitError = error{ OutOfMemory, ZeroLength, NotImplemented };
 pub const TransformError = error{ SliceTooShort, Canceled, NotImplemented };
@@ -58,7 +55,7 @@ pub const RealPlan = real_plan.RealPlan;
 /// allocator; the same calls on a value `.{}`.
 pub fn StaticPlan(comptime n: usize, comptime T: type) type {
     comptime checkFloat(T);
-    if (n == 0) @compileError("rstd.fft.StaticPlan: n is 0");
+    if (n == 0) @compileError("rstd.math.kernels.fft.StaticPlan: n is 0");
     return struct {
         const Self = @This();
         const C = Complex(T);
@@ -68,25 +65,25 @@ pub fn StaticPlan(comptime n: usize, comptime T: type) type {
             return n;
         }
 
-        pub fn transform(self: Self, io: Io, data: []C, scratch: []C, direction: Direction, layout: Layout, options: Options) TransformError!void {
+        pub fn transform(self: Self, io: Io, data: []C, scratch: []C, direction: Direction, layout: BatchLayout, normalization: Normalization) TransformError!void {
             _ = self;
             _ = io;
             _ = data;
             _ = scratch;
             _ = direction;
             _ = layout;
-            _ = options;
+            _ = normalization;
             return error.NotImplemented;
         }
 
-        pub fn transformInto(self: Self, io: Io, out: []C, in: []const C, scratch: []C, direction: Direction, layouts: Layouts, options: Options) TransformIntoError!void {
+        pub fn transformInto(self: Self, io: Io, out: []C, in: []const C, scratch: []C, direction: Direction, layouts: BatchLayouts, normalization: Normalization) TransformIntoError!void {
             _ = self;
             _ = io;
             _ = out;
             _ = in;
             _ = scratch;
             _ = direction;
-            _ = options;
+            _ = normalization;
             if (layouts.in.count != layouts.out.count) return error.CountMismatch;
             return error.NotImplemented;
         }
@@ -96,7 +93,7 @@ pub fn StaticPlan(comptime n: usize, comptime T: type) type {
 /// `RealPlan` for a comptime `n`, as `StaticPlan`.
 pub fn StaticRealPlan(comptime n: usize, comptime T: type) type {
     comptime checkFloat(T);
-    if (n == 0) @compileError("rstd.fft.StaticRealPlan: n is 0");
+    if (n == 0) @compileError("rstd.math.kernels.fft.StaticRealPlan: n is 0");
     return struct {
         const Self = @This();
         const C = Complex(T);
@@ -106,24 +103,24 @@ pub fn StaticRealPlan(comptime n: usize, comptime T: type) type {
             return n;
         }
 
-        pub fn forward(self: Self, io: Io, out: []C, in: []const T, scratch: []T, layouts: Layouts, options: Options) TransformIntoError!void {
+        pub fn forward(self: Self, io: Io, out: []C, in: []const T, scratch: []T, layouts: BatchLayouts, normalization: Normalization) TransformIntoError!void {
             _ = self;
             _ = io;
             _ = out;
             _ = in;
             _ = scratch;
-            _ = options;
+            _ = normalization;
             if (layouts.in.count != layouts.out.count) return error.CountMismatch;
             return error.NotImplemented;
         }
 
-        pub fn backward(self: Self, io: Io, out: []T, in: []const C, scratch: []T, layouts: Layouts, options: Options) TransformIntoError!void {
+        pub fn backward(self: Self, io: Io, out: []T, in: []const C, scratch: []T, layouts: BatchLayouts, normalization: Normalization) TransformIntoError!void {
             _ = self;
             _ = io;
             _ = out;
             _ = in;
             _ = scratch;
-            _ = options;
+            _ = normalization;
             if (layouts.in.count != layouts.out.count) return error.CountMismatch;
             return error.NotImplemented;
         }
@@ -133,18 +130,18 @@ pub fn StaticRealPlan(comptime n: usize, comptime T: type) type {
 /// DCT and DST types 1 to 4, as SciPy's `dct` and `dst`: `.backward` leaves
 /// the forward unscaled, `.ortho` makes the matrix orthogonal. A type 2's
 /// inverse is the type 3, and the reverse.
-pub const TrigKind = enum { dct1, dct2, dct3, dct4, dst1, dst2, dst3, dst4 };
+pub const TrigTransformKind = enum { dct1, dct2, dct3, dct4, dst1, dst2, dst3, dst4 };
 
-pub fn TrigPlan(comptime T: type) type {
+pub fn TrigTransformPlan(comptime T: type) type {
     comptime checkFloat(T);
     return struct {
         n: usize,
-        kind: TrigKind,
+        kind: TrigTransformKind,
         scratch_len: usize,
 
         const Self = @This();
 
-        pub fn init(allocator: Allocator, n: usize, kind: TrigKind) InitError!Self {
+        pub fn init(allocator: Allocator, n: usize, kind: TrigTransformKind) InitError!Self {
             _ = allocator;
             _ = kind;
             if (n == 0) return error.ZeroLength;
@@ -160,13 +157,13 @@ pub fn TrigPlan(comptime T: type) type {
             return self.scratch_len;
         }
 
-        pub fn transform(self: *const Self, io: Io, data: []T, scratch: []T, layout: Layout, options: Options) TransformError!void {
+        pub fn transform(self: *const Self, io: Io, data: []T, scratch: []T, layout: BatchLayout, normalization: Normalization) TransformError!void {
             _ = self;
             _ = io;
             _ = data;
             _ = scratch;
             _ = layout;
-            _ = options;
+            _ = normalization;
             return error.NotImplemented;
         }
     };
@@ -175,7 +172,7 @@ pub fn TrigPlan(comptime T: type) type {
 /// The MDCT (audio codecs) on a DCT-IV: `2 n` samples to `n` coefficients
 /// and back. The caller windows; with a Princen-Bradley window (sine, KBD),
 /// windowed overlap-add at hop `n` gives back the input (TDAC).
-pub fn Mdct(comptime T: type) type {
+pub fn ModifiedCosineTransform(comptime T: type) type {
     comptime checkFloat(T);
     return struct {
         n: usize,
@@ -219,7 +216,7 @@ pub fn Mdct(comptime T: type) type {
 }
 
 fn checkFloat(comptime T: type) void {
-    if (@typeInfo(T) != .float) @compileError("rstd.fft: " ++ @typeName(T) ++ " is not a float type");
+    if (@typeInfo(T) != .float) @compileError("rstd.math.kernels.fft: " ++ @typeName(T) ++ " is not a float type");
 }
 
 test {
