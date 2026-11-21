@@ -1,6 +1,6 @@
 //! Window functions: Hann, Hamming and Blackman as MATLAB's `hann`,
 //! `hamming` and `blackman`, Kaiser as its `kaiser`; the sine window and the
-//! Kaiser-Bessel-derived one, the `Mdct`'s Princen-Bradley windows, as
+//! Kaiser-Bessel-derived one, `ModifiedCosineTransform`'s Princen-Bradley windows, as
 //! SciPy's `windows.cosine` and `windows.kaiser_bessel_derived`. Computed in
 //! f64 (wider types in their own), written to the caller's slice.
 
@@ -33,7 +33,7 @@ pub const Error = error{
 /// `out[n]` for `n < out.len`; an empty `out` is nothing to do, one point
 /// is 1 (MATLAB's).
 pub fn window(comptime T: type, out: []T, kind: Window, symmetry: Symmetry) Error!void {
-    comptime if (@typeInfo(T) != .float) @compileError("rstd.signal: " ++ @typeName(T) ++ " is not a float type");
+    comptime if (@typeInfo(T) != .float) @compileError("rstd.math.kernels.dsp: " ++ @typeName(T) ++ " is not a float type");
     const H = if (@bitSizeOf(T) > 64) T else f64;
     if (kind == .kbd) {
         if (symmetry == .periodic) return error.UnsupportedSymmetry;
