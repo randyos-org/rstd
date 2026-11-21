@@ -172,6 +172,7 @@ jobs:
             { "name": "arm-linux", "tier": 3, "runner": "ubuntu-24.04", "args": "-Dtarget=arm-linux-musleabihf -fqemu", "qemu": true },
             { "name": "riscv64-linux", "tier": 3, "runner": "ubuntu-24.04", "args": "-Dtarget=riscv64-linux-musl -fqemu", "qemu": true },
             { "name": "powerpc64le-linux", "tier": 3, "runner": "ubuntu-24.04", "args": "-Dtarget=powerpc64le-linux-musl -fqemu", "qemu": true },
+            { "name": "powerpc64le-linux-power10", "tier": 3, "runner": "ubuntu-24.04", "args": "-Dtarget=powerpc64le-linux-musl -Dcpu=pwr10 -fqemu", "qemu": true, "qemu_cpu": "power10" },
             { "name": "powerpc64-linux", "tier": 4, "runner": "ubuntu-24.04", "args": "-Dtarget=powerpc64-linux-musl -fqemu", "qemu": true },
             { "name": "loongarch64-linux", "tier": 4, "runner": "ubuntu-24.04", "args": "-Dtarget=loongarch64-linux-musl -fqemu", "qemu": true },
             { "name": "s390x-linux", "tier": 4, "runner": "ubuntu-24.04", "args": "-Dtarget=s390x-linux-musl -fqemu", "qemu": true },
@@ -202,8 +203,7 @@ jobs:
             "powerpc64le", "powerpc64le-power10", "powerpc64", "powerpc", "powerpc-pseries", "powerpc-power9",
             "mips64r2el", "mips64r2", "mips64r6el", "mips64r6", "mips32r2el", "mips32r2", "mips32r5el", "mips32r5",
             "loongarch64", "s390x",
-            "aarch64-sve", "aarch64-uefi-sve",
-            "linux-arm", "linux-riscv64", "linux-powerpc64le", "linux-powerpc64le-power10"
+            "aarch64-sve", "aarch64-uefi-sve"
           ] | map({ name: "\(.) rig", rig: . })')
           pick() {
             jq -c --argjson names "$names" --arg full "$full" '
