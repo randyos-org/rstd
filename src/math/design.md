@@ -431,28 +431,28 @@ Since [#611](https://github.com/randyos-org/rstd/issues/611) the transforms take
 
 ### `kernels.elementwise`
 
-`Error = LengthError || Io.Cancelable` for all. One input: `y[i] = f(x[i])`, `y` may be `x`; two: `z[i] = f(x[i], y[i])`, `z` may be either. Each states its accuracy: the v0.1.0 set ([#614](https://github.com/randyos-org/rstd/issues/614)) is Zig's vector builtins, the accuracy of Zig's `std.math` (musl's algorithms), or exact.
+`Error = LengthError || Io.Cancelable` for all. One input: `y[i] = f(x[i])`, `y` may be `x`; two: `z[i] = f(x[i], y[i])`, `z` may be either. Each states its accuracy: the v0.1.0 set ([#614](https://github.com/randyos-org/rstd/issues/614)) is Zig's vector builtins, the accuracy of Zig's `std.math` (musl's algorithms), or exact. Real floats throughout; complex for the arithmetic and `abs`, the other functions' complex forms with the rest in [#626](https://github.com/randyos-org/rstd/issues/626).
 
 | Signature | Computes | Accelerate | MKL | Source | v0.1.0 |
 | --- | --- | --- | --- | --- | --- |
-| `add(io, T, x: ConstStrided(T), y: ConstStrided(T), z: Strided(T)) Error!void` | `x + y`, exact rounding | `vDSP_vadd`, `vDSP_zvadd` | `v?Add` | `@Vector` | #614 |
-| `sub(io, T, x: ConstStrided(T), y: ConstStrided(T), z: Strided(T)) Error!void` | `x − y` | `vDSP_vsub` (operands swapped: vDSP subtracts its first from its second) | `v?Sub` | `@Vector` | #614 |
-| `mul(io, T, x: ConstStrided(T), y: ConstStrided(T), z: Strided(T)) Error!void` | `x · y` | `vDSP_vmul`, `vDSP_zvmul` | `v?Mul` | `@Vector` | #614 |
-| `div(io, T, x: ConstStrided(T), y: ConstStrided(T), z: Strided(T)) Error!void` | `x / y` | `vvdiv`, `vDSP_zvdiv` | `v?Div` | `@Vector` | #614 |
-| `sqrt(io, T, x: ConstStrided(T), y: Strided(T)) Error!void` | `√x`, correctly rounded | `vvsqrt` | `v?Sqrt` | `@sqrt` | #614 |
-| `exp(io, T, x: ConstStrided(T), y: Strided(T)) Error!void` | `eˣ` | `vvexp` | `v?Exp` | `@exp` | #614 |
-| `exp2(io, T, x: ConstStrided(T), y: Strided(T)) Error!void` | `2ˣ` | `vvexp2` | `v?Exp2` | `@exp2` | #614 |
-| `log(io, T, x: ConstStrided(T), y: Strided(T)) Error!void` | `ln x` | `vvlog` | `v?Ln` | `@log` | #614 |
-| `log2(io, T, x: ConstStrided(T), y: Strided(T)) Error!void` | `log₂ x` | `vvlog2` | `v?Log2` | `@log2` | #614 |
-| `log10(io, T, x: ConstStrided(T), y: Strided(T)) Error!void` | `log₁₀ x` | `vvlog10` | `v?Log10` | `@log10` | #614 |
-| `sin(io, T, x: ConstStrided(T), y: Strided(T)) Error!void` | `sin x` | `vvsin` | `v?Sin` | `@sin` | #614 |
-| `cos(io, T, x: ConstStrided(T), y: Strided(T)) Error!void` | `cos x` | `vvcos` | `v?Cos` | `@cos` | #614 |
-| `tan(io, T, x: ConstStrided(T), y: Strided(T)) Error!void` | `tan x` | `vvtan` | `v?Tan` | `@tan` | #614 |
-| `abs(io, T, x: ConstStrided(T), y: Strided(Float(T))) Error!void` | `\|x\|`; complex: the modulus, without overflow | `vvfabs`, `vDSP_zvabs` | `v?Abs` | `@abs`; complex by `std.math.hypot` | #614 |
-| `floor(io, T, x: ConstStrided(T), y: Strided(T)) Error!void` | `⌊x⌋` | `vvfloor` | `v?Floor` | `@floor` | #614 |
-| `ceil(io, T, x: ConstStrided(T), y: Strided(T)) Error!void` | `⌈x⌉` | `vvceil` | `v?Ceil` | `@ceil` | #614 |
-| `trunc(io, T, x: ConstStrided(T), y: Strided(T)) Error!void` | toward zero | `vvint` | `v?Trunc` | `@trunc` | #614 |
-| `round(io, T, x: ConstStrided(T), y: Strided(T)) Error!void` | to nearest, ties away from zero (Fortran's `ANINT`) | none (`vvnint` ties to even) | `v?Round` | `@round` | #614 |
+| `add(io, T, x: ConstStrided(T), y: ConstStrided(T), z: Strided(T)) Error!void` | `x + y`, exact rounding | `vDSP_vadd`, `vDSP_zvadd` | `v?Add` | `@Vector` | yes (#614) |
+| `sub(io, T, x: ConstStrided(T), y: ConstStrided(T), z: Strided(T)) Error!void` | `x − y` | `vDSP_vsub` (operands swapped: vDSP subtracts its first from its second) | `v?Sub` | `@Vector` | yes (#614) |
+| `mul(io, T, x: ConstStrided(T), y: ConstStrided(T), z: Strided(T)) Error!void` | `x · y` | `vDSP_vmul`, `vDSP_zvmul` | `v?Mul` | `@Vector` | yes (#614) |
+| `div(io, T, x: ConstStrided(T), y: ConstStrided(T), z: Strided(T)) Error!void` | `x / y` | `vvdiv`, `vDSP_zvdiv` | `v?Div` | `@Vector` | yes (#614) |
+| `sqrt(io, T, x: ConstStrided(T), y: Strided(T)) Error!void` | `√x`, correctly rounded | `vvsqrt` | `v?Sqrt` | `@sqrt` | yes (#614) |
+| `exp(io, T, x: ConstStrided(T), y: Strided(T)) Error!void` | `eˣ` | `vvexp` | `v?Exp` | `@exp` | yes (#614) |
+| `exp2(io, T, x: ConstStrided(T), y: Strided(T)) Error!void` | `2ˣ` | `vvexp2` | `v?Exp2` | `@exp2` | yes (#614) |
+| `log(io, T, x: ConstStrided(T), y: Strided(T)) Error!void` | `ln x` | `vvlog` | `v?Ln` | `@log` | yes (#614) |
+| `log2(io, T, x: ConstStrided(T), y: Strided(T)) Error!void` | `log₂ x` | `vvlog2` | `v?Log2` | `@log2` | yes (#614) |
+| `log10(io, T, x: ConstStrided(T), y: Strided(T)) Error!void` | `log₁₀ x` | `vvlog10` | `v?Log10` | `@log10` | yes (#614) |
+| `sin(io, T, x: ConstStrided(T), y: Strided(T)) Error!void` | `sin x` | `vvsin` | `v?Sin` | `@sin` | yes (#614) |
+| `cos(io, T, x: ConstStrided(T), y: Strided(T)) Error!void` | `cos x` | `vvcos` | `v?Cos` | `@cos` | yes (#614) |
+| `tan(io, T, x: ConstStrided(T), y: Strided(T)) Error!void` | `tan x` | `vvtan` | `v?Tan` | `@tan` | yes (#614) |
+| `abs(io, T, x: ConstStrided(T), y: Strided(Float(T))) Error!void` | `\|x\|`; complex: the modulus, without overflow | `vvfabs`, `vDSP_zvabs` | `v?Abs` | `@abs`; complex by `std.math.hypot` | yes (#614) |
+| `floor(io, T, x: ConstStrided(T), y: Strided(T)) Error!void` | `⌊x⌋` | `vvfloor` | `v?Floor` | `@floor` | yes (#614) |
+| `ceil(io, T, x: ConstStrided(T), y: Strided(T)) Error!void` | `⌈x⌉` | `vvceil` | `v?Ceil` | `@ceil` | yes (#614) |
+| `trunc(io, T, x: ConstStrided(T), y: Strided(T)) Error!void` | toward zero | `vvint` | `v?Trunc` | `@trunc` | yes (#614) |
+| `round(io, T, x: ConstStrided(T), y: Strided(T)) Error!void` | to nearest, ties away from zero (Fortran's `ANINT`) | none (`vvnint` ties to even) | `v?Round` | `@round` | yes (#614) |
 | `inverseSqrt(io, T, x: ConstStrided(T), y: Strided(T)) Error!void` | `1/√x` | `vvrsqrt` | `v?InvSqrt` | `1 / @sqrt` | backlog |
 | `reciprocal(io, T, x: ConstStrided(T), y: Strided(T)) Error!void` | `1/x` | `vvrec` | `v?Inv` | `@Vector` | backlog |
 | `cbrt(io, T, x: ConstStrided(T), y: Strided(T)) Error!void` | `∛x` | none | `v?Cbrt` | `std.math.cbrt`; Julia `Base.Math.cbrt` (MIT) | backlog |
