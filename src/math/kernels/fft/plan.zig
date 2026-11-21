@@ -18,12 +18,12 @@ const Allocator = std.mem.Allocator;
 const Io = std.Io;
 const C = cmplx.C;
 const Direction = fft.Direction;
-const Layout = fft.Layout;
-const Layouts = fft.Layouts;
-const Options = fft.Options;
+const BatchLayout = fft.BatchLayout;
+const BatchLayouts = fft.BatchLayouts;
+const Normalization = fft.Normalization;
 
 pub fn Plan(comptime T: type) type {
-    if (@typeInfo(T) != .float) @compileError("rstd.fft: " ++ @typeName(T) ++ " is not a float type");
+    if (@typeInfo(T) != .float) @compileError("rstd.math.kernels.fft: " ++ @typeName(T) ++ " is not a float type");
     return struct {
         n: usize,
         scratch_len: usize,
@@ -72,24 +72,24 @@ pub fn Plan(comptime T: type) type {
             return self.scratch_len;
         }
 
-        pub fn transform(self: *const Self, io: Io, data: []C(T), scratch: []C(T), direction: Direction, layout: Layout, options: Options) fft.TransformError!void {
+        pub fn transform(self: *const Self, io: Io, data: []C(T), scratch: []C(T), direction: Direction, layout: BatchLayout, normalization: Normalization) fft.TransformError!void {
             if (scratch.len < self.scratch_len) return error.SliceTooShort;
             try covers(data.len, self.n, layout);
             // each transform is gathered whole before it is written back
-            try self.batch(io, data, data, scratch, direction, layout, layout, options);
+            try self.batch(io, data, data, scratch, direction, layout, layout, normalization);
         }
 
         /// `out` and `in` must not overlap.
-        pub fn transformInto(self: *const Self, io: Io, out: []C(T), in: []const C(T), scratch: []C(T), direction: Direction, layouts: Layouts, options: Options) fft.TransformIntoError!void {
+        pub fn transformInto(self: *const Self, io: Io, out: []C(T), in: []const C(T), scratch: []C(T), direction: Direction, layouts: BatchLayouts, normalization: Normalization) fft.TransformIntoError!void {
             if (layouts.in.count != layouts.out.count) return error.CountMismatch;
             if (scratch.len < self.scratch_len) return error.SliceTooShort;
             try covers(in.len, self.n, layouts.in);
             try covers(out.len, self.n, layouts.out);
-            try self.batch(io, out, in, scratch, direction, layouts.in, layouts.out, options);
+            try self.batch(io, out, in, scratch, direction, layouts.in, layouts.out, normalization);
         }
 
         /// The checked batch, through `io` (`batch.zig`).
-        fn batch(self: *const Self, io: Io, out: []C(T), in: []const C(T), scratch: []C(T), direction: Direction, lin: Layout, lout: Layout, options: Options) Io.Cancelable!void {
+        fn batch(self: *const Self, io: Io, out: []C(T), in: []const C(T), scratch: []C(T), direction: Direction, lin: BatchLayout, lout: BatchLayout, normalization: Normalization) Io.Cancelable!void {
             const n = self.n;
             const Ctx = struct {
                 plan: *const Self,
@@ -97,18 +97,18 @@ pub fn Plan(comptime T: type) type {
                 in: []const C(T),
                 scratch: []C(T),
                 direction: Direction,
-                lin: Layout,
-                lout: Layout,
+                lin: BatchLayout,
+                lout: BatchLayout,
                 din: usize,
                 dout: usize,
-                options: Options,
+                normalization: Normalization,
 
                 fn one(c: *const @This(), k: usize, slot: usize) void {
                     const sl = c.plan.scratch_len;
                     const s = c.scratch[slot * sl ..][0..sl];
                     const buf = s[0..c.plan.n];
                     for (buf, 0..) |*b, i| b.* = c.in[k * c.din + i * c.lin.stride];
-                    c.plan.run(buf, s[c.plan.n..], c.direction, c.options);
+                    c.plan.run(buf, s[c.plan.n..], c.direction, c.normalization);
                     for (buf, 0..) |b, i| c.out[k * c.dout + i * c.lout.stride] = b;
                 }
             };
@@ -122,15 +122,15 @@ pub fn Plan(comptime T: type) type {
                 .lout = lout,
                 .din = lin.distance orelse (n * lin.stride),
                 .dout = lout.distance orelse (n * lout.stride),
-                .options = options,
+                .normalization = normalization,
             };
             try batch_.run(io, lin.count, scratch.len / self.scratch_len, &ctx, Ctx.one);
         }
 
         /// One contiguous transform in place, `rest` its working space.
-        fn run(self: *const Self, c: []C(T), rest: []C(T), direction: Direction, options: Options) void {
+        fn run(self: *const Self, c: []C(T), rest: []C(T), direction: Direction, normalization: Normalization) void {
             const fwd = direction == .forward;
-            const f = factor(T, self.n, fwd, options.norm);
+            const f = factor(T, self.n, fwd, normalization);
             switch (self.kind) {
                 .pack => |*p| p.exec(c, rest, f, fwd),
                 .blue => |*b| b.exec(c, rest, f, fwd),
@@ -146,11 +146,11 @@ pub fn Plan(comptime T: type) type {
     };
 }
 
-/// The scale by `norm`: `1 / n` on the side it names, `1 / √n` both ways
+/// The scale by `normalization`: `1 / n` on the side it names, `1 / √n` both ways
 /// for `ortho`.
-pub fn factor(comptime T: type, n: usize, fwd: bool, norm: fft.Norm) T {
+pub fn factor(comptime T: type, n: usize, fwd: bool, normalization: fft.Normalization) T {
     const nf: T = @floatFromInt(n);
-    return switch (norm) {
+    return switch (normalization) {
         .backward => if (fwd) 1 else 1 / nf,
         .forward => if (fwd) 1 / nf else 1,
         .ortho => 1 / @sqrt(nf),
@@ -159,7 +159,7 @@ pub fn factor(comptime T: type, n: usize, fwd: bool, norm: fft.Norm) T {
 
 /// A layout's last element, `(count - 1) distance + (len - 1) stride`, is in
 /// a slice of `have`.
-pub fn covers(have: usize, len: usize, layout: Layout) error{SliceTooShort}!void {
+pub fn covers(have: usize, len: usize, layout: BatchLayout) error{SliceTooShort}!void {
     if (layout.count == 0) return;
     const dist = layout.distance orelse (std.math.mul(usize, len, layout.stride) catch return error.SliceTooShort);
     const a = std.math.mul(usize, layout.count - 1, dist) catch return error.SliceTooShort;

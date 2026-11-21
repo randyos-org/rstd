@@ -4,7 +4,7 @@
 //! takes its ping-pong buffer from the caller, where PocketFFT allocates one.
 
 const std = @import("std");
-const mem = @import("../../mem.zig");
+const mem = @import("../../../../mem.zig");
 const twiddle = @import("../twiddle.zig");
 const forward = @import("forward.zig");
 const backward = @import("backward.zig");

@@ -133,28 +133,27 @@ pub fn isMember(allocator, a, set) error{OutOfMemory}![]?usize // ismember's; fo
   and `partitionPoint`; the set operations are stubs.
 - num.zig's `sort/ordering.zig` and `sort/search.zig` informed this.
 
-### FFT: `rstd.fft`
+### FFT: `rstd.math.kernels.fft` and `rstd.math.fft`
 
-[`src/fft/__root__.zig`](src/fft/__root__.zig). PocketFFT's algorithms in Zig as the baseline
+[`src/math/kernels/fft/__root__.zig`](src/math/kernels/fft/__root__.zig), the plans; [`src/math/fft.zig`](src/math/fft.zig), NumPy's `fft`, `ifft`, `rfft` and `irfft` over them, with `*With` siblings taking `FftOptions` (`.normalization`) ([`src/math/design.md`](src/math/design.md), #611). PocketFFT's algorithms in Zig as the baseline
 (its C++ header), pffft's SIMD kernels ported for speed, Accelerate on macOS by default. The use
 cases are audio, numerics and images.
 
 ```zig
 pub const Direction = enum { forward, backward }; // forward is exp(-2πi jk/n), as NumPy and FFTW
-pub const Norm = enum { backward, ortho, forward }; // which way divides by n; ortho: √n both ways
-pub const Options = struct { norm: Norm = .backward }; // NumPy's default: round trips are exact
-pub const Layout = struct { count: usize = 1, stride: usize = 1, distance: ?usize = null };
-pub const Layouts = struct { in: Layout = .{}, out: Layout = .{} }; // out of place
+pub const Normalization = enum { backward, ortho, forward }; // which way divides by n; ortho: √n both ways
+pub const BatchLayout = struct { count: usize = 1, stride: usize = 1, distance: ?usize = null };
+pub const BatchLayouts = struct { in: BatchLayout = .{}, out: BatchLayout = .{} }; // out of place
 
 // complex, any n; immutable once built, so one plan serves every thread
 pub fn Plan(comptime T: type) type; // init(allocator, n), deinit(allocator), scratchLen()
-fn transform(plan, io, data: []Complex(T), scratch: []Complex(T), dir, layout, options) !void
-fn transformInto(plan, io, out, in: []const Complex(T), scratch, dir, layouts, options) !void
+fn transform(plan, io, data: []Complex(T), scratch: []Complex(T), dir, layout, normalization) !void
+fn transformInto(plan, io, out, in: []const Complex(T), scratch, dir, layouts, normalization) !void
 
 // real input: n reals to the n/2 + 1 complex values of the half spectrum (NumPy's rfft)
 pub fn RealPlan(comptime T: type) type;
-fn forward(plan, io, out: []Complex(T), in: []const T, scratch: []T, layouts, options) !void
-fn backward(plan, io, out: []T, in: []const Complex(T), scratch: []T, layouts, options) !void
+fn forward(plan, io, out: []Complex(T), in: []const T, scratch: []T, layouts, normalization) !void
+fn backward(plan, io, out: []T, in: []const Complex(T), scratch: []T, layouts, normalization) !void
 
 // fast convolution in the plan's own order (pffft's), skipping the reordering both ways
 fn forwardUnordered(plan, out: []T, in: []const T, scratch) !void
@@ -166,13 +165,13 @@ pub fn StaticPlan(comptime n: usize, comptime T: type) type;
 pub fn StaticRealPlan(comptime n: usize, comptime T: type) type;
 
 // DCT and DST types 1 to 4; the MDCT (audio codecs) on DCT-IV
-pub const TrigKind = enum { dct1, dct2, dct3, dct4, dst1, dst2, dst3, dst4 };
-pub fn TrigPlan(comptime T: type) type; // init(allocator, n, kind)
-pub fn Mdct(comptime T: type) type; // init(allocator, n), forward, backward
+pub const TrigTransformKind = enum { dct1, dct2, dct3, dct4, dst1, dst2, dst3, dst4 };
+pub fn TrigTransformPlan(comptime T: type) type; // init(allocator, n, kind)
+pub fn ModifiedCosineTransform(comptime T: type) type; // init(allocator, n), forward, backward
 
 // planned, with N-d arrays: several axes of a view; plans per axis, scratch allocated
-pub fn transformAxes(allocator, io, v: ArrayView(Complex(T)), axes: []const u8, dir, options) !void
-pub fn realForwardAxes(allocator, io, out, in: ConstArrayView(T), axes, options) !void
+pub fn transformAxes(allocator, io, v: ArrayView(Complex(T)), axes: []const u8, dir, normalization) !void
+pub fn realForwardAxes(allocator, io, out, in: ConstArrayView(T), axes, normalization) !void
 ```
 
 - **Real time:** a transform allocates nothing; the plan and the scratch are made up front.
@@ -185,8 +184,8 @@ pub fn realForwardAxes(allocator, io, out, in: ConstArrayView(T), axes, options)
 - **`io`** runs a batch's transforms concurrently, as many at once as the scratch holds
   (`scratch.len / scratchLen()`). They are independent, so the bits depend on neither. Planned: a
   single huge transform's threads, by a fixed split.
-- **Frames:** the unordered forms and the `Mdct` take no `io` or layout, one frame at a time. The
-  `Mdct` leaves windowing to the caller; its scaling makes windowed overlap-add with a
+- **Frames:** the unordered forms and the `ModifiedCosineTransform` take no `io` or layout, one frame at a time. It
+  leaves windowing to the caller; its scaling makes windowed overlap-add with a
   Princen-Bradley window (sine, KBD) reconstruct the input (TDAC).
 - **Element types:** every float type through the portable code, f16 to f128; f32 at pffft's sizes through its SIMD (below). Planned: f64 SIMD (numerics).
 - **pffft (f32):** `Plan(f32)` takes pffft's complex kernels at `n = 16 2^a 3^b 5^c`, `RealPlan(f32)` its real ones at `n = 32 2^a 3^b 5^c`, both up to `2^26`; other sizes and types stay on PocketFFT. Every target runs pffft's 4-lane algorithm: its SSE header on x86, its NEON header on arm and aarch64, its 4xScalar mode elsewhere (the PowerPC 750), so the unordered layout is the same everywhere. Its multiply-adds fuse where pffft's do: SSE with FMA3, aarch64 NEON, arm NEON with VFPv4. The unordered forms exist only there: `UnsupportedType` for any type but f32 (until f64 SIMD), `UnsupportedSize` for other sizes, never a panic. Matched bit for bit with pffft's C on x86_64; the port reads callers' slices unaligned, where pffft asserts 16-byte alignment.
@@ -199,10 +198,10 @@ pub fn realForwardAxes(allocator, io, out, in: ConstArrayView(T), axes, options)
 
 ### Planned: signal processing, `rstd.signal`
 
-Built on `rstd.fft`, for audio first:
+Built on `rstd.math.kernels.fft`, for audio first:
 
 - **Window functions:** Hann, Hamming, Blackman, Kaiser, and the Princen-Bradley windows the
-  `Mdct` needs (sine, KBD); symmetric or periodic (MATLAB's `'symmetric'`, `'periodic'`). Done (`src/signal/window.zig`): MATLAB's definitions, SciPy's for the sine and KBD windows, which are even-length and symmetric only.
+  `ModifiedCosineTransform` needs (sine, KBD); symmetric or periodic (MATLAB's `'symmetric'`, `'periodic'`). Done (`src/signal/window.zig`): MATLAB's definitions, SciPy's for the sine and KBD windows, which are even-length and symmetric only.
 - **STFT** and its inverse by weighted overlap-add, over `RealPlan`; hop, window and FFT size
   free.
 - **Partitioned convolution:** uniformly partitioned overlap-save (`signal.Convolver`) over the unordered forms, for long
@@ -306,7 +305,7 @@ pub fn gmres(allocator, io, comptime T, a, b, x, options, restart: usize) SolveE
 
 By the user, 2026-10-31:
 
-- `rstd.stats`, `rstd.sort` and `rstd.fft` are top-level modules; N-d arrays and sparse matrices
+- `rstd.stats`, `rstd.sort` and `rstd.fft` are top-level modules (the FFT moved under `rstd.math` in #611); N-d arrays and sparse matrices
   go in `rstd.linalg`.
 - Broadcasting needs equal ranks; MATLAB's implicit expansion is the fallback if padding is ever
   added.
@@ -321,7 +320,7 @@ By the user, 2026-10-31:
 - The API sketches are approved. N-d arrays and sparse matrices start after the public layer
   (linalg's M10), on its real `View(T)` and `Mat(T)`.
 - The stubs' changes to the sketches stand for now (explicit `comptime` element types,
-  `stats.quantile`, `sort.Keep`, `Selected(T)`, `[]?usize`, `fft.Layouts`, scratch-bounded
+  `stats.quantile`, `sort.Keep`, `Selected(T)`, `[]?usize`, `fft.BatchLayouts`, scratch-bounded
   batches); they may be revisited.
 - The FFT comes before statistics and sets.
 - PocketFFT's source is its C++ header (cpp branch), pinned to one commit for provenance.

@@ -8,10 +8,10 @@ const Complex = std.math.Complex;
 const Plan = fft.Plan;
 const RealPlan = fft.RealPlan;
 const StaticPlan = fft.StaticPlan;
-const TrigPlan = fft.TrigPlan;
-const TrigKind = fft.TrigKind;
-const Mdct = fft.Mdct;
-const Layouts = fft.Layouts;
+const TrigTransformPlan = fft.TrigTransformPlan;
+const TrigTransformKind = fft.TrigTransformKind;
+const ModifiedCosineTransform = fft.ModifiedCosineTransform;
+const BatchLayouts = fft.BatchLayouts;
 
 const testing = std.testing;
 
@@ -52,8 +52,8 @@ fn expectNear(comptime T: type, want: []const Complex(f64), got: []const Complex
 test "init rejects n = 0" {
     try testing.expectError(error.ZeroLength, Plan(f32).init(testing.allocator, 0));
     try testing.expectError(error.ZeroLength, RealPlan(f64).init(testing.allocator, 0));
-    try testing.expectError(error.ZeroLength, TrigPlan(f64).init(testing.allocator, 0, .dct2));
-    try testing.expectError(error.ZeroLength, Mdct(f32).init(testing.allocator, 0));
+    try testing.expectError(error.ZeroLength, TrigTransformPlan(f64).init(testing.allocator, 0, .dct2));
+    try testing.expectError(error.ZeroLength, ModifiedCosineTransform(f32).init(testing.allocator, 0));
 }
 
 test "Plan matches a direct DFT, n = 1 to 64" {
@@ -67,7 +67,7 @@ test "Plan matches a direct DFT, n = 1 to 64" {
         defer testing.allocator.free(scratch);
         signal(f32, in[0..n]);
         directDft(f32, want[0..n], in[0..n]);
-        try plan.transformInto(testing.io, out[0..n], in[0..n], scratch, .forward, .{}, .{});
+        try plan.transformInto(testing.io, out[0..n], in[0..n], scratch, .forward, .{}, .backward);
         try expectNear(f32, want[0..n], out[0..n], 1e-5 * @as(f64, @floatFromInt(n)));
     }
 }
@@ -86,15 +86,15 @@ test "Plan round trips, and ortho keeps the energy" {
         signal(f64, x);
         @memcpy(y, x);
 
-        try plan.transform(testing.io, y, scratch, .forward, .{}, .{});
-        try plan.transform(testing.io, y, scratch, .backward, .{}, .{});
+        try plan.transform(testing.io, y, scratch, .forward, .{}, .backward);
+        try plan.transform(testing.io, y, scratch, .backward, .{}, .backward);
         for (x, y) |a, b| {
             try testing.expectApproxEqAbs(a.re, b.re, 1e-12);
             try testing.expectApproxEqAbs(a.im, b.im, 1e-12);
         }
 
         // Parseval
-        try plan.transform(testing.io, y, scratch, .forward, .{}, .{ .norm = .ortho });
+        try plan.transform(testing.io, y, scratch, .forward, .{}, .ortho);
         var ex: f64 = 0;
         var ey: f64 = 0;
         for (x, y) |a, b| {
@@ -120,7 +120,7 @@ test "Plan batch: interleaved channels" {
         for (&channel, 0..) |*x, i| x.* = both[2 * i + c];
         directDft(f64, w, &channel);
     }
-    try plan.transform(testing.io, &both, scratch, .forward, .{ .count = 2, .stride = 2, .distance = 1 }, .{});
+    try plan.transform(testing.io, &both, scratch, .forward, .{ .count = 2, .stride = 2, .distance = 1 }, .backward);
     for (want, 0..) |w, c| {
         var got: [n]Complex(f64) = undefined;
         for (&got, 0..) |*x, i| x.* = both[2 * i + c];
@@ -146,9 +146,9 @@ test "RealPlan matches the complex DFT's half" {
         }
         directDft(f64, want[0..n], full[0..n]);
         const m = n / 2 + 1;
-        try plan.forward(testing.io, half[0..m], re[0..n], scratch, .{}, .{});
+        try plan.forward(testing.io, half[0..m], re[0..n], scratch, .{}, .backward);
         try expectNear(f64, want[0..m], half[0..m], 1e-12);
-        try plan.backward(testing.io, back[0..n], half[0..m], scratch, .{}, .{});
+        try plan.backward(testing.io, back[0..n], half[0..m], scratch, .{}, .backward);
         for (re[0..n], back[0..n]) |a, b| try testing.expectApproxEqAbs(a, b, 1e-12);
     }
 }
@@ -195,18 +195,18 @@ test "StaticPlan matches Plan" {
     signal(f64, &in);
     var want: [n]Complex(f64) = undefined;
     var got: [n]Complex(f64) = undefined;
-    try plan.transformInto(testing.io, &want, &in, scratch, .forward, .{}, .{});
-    static.transformInto(testing.io, &got, &in, scratch, .forward, .{}, .{}) catch |e| return skip(e);
+    try plan.transformInto(testing.io, &want, &in, scratch, .forward, .{}, .backward);
+    static.transformInto(testing.io, &got, &in, scratch, .forward, .{}, .backward) catch |e| return skip(e);
     try testing.expectEqualSlices(Complex(f64), &want, &got); // dispatch by size alone: same bits
 }
 
-test "TrigPlan: ortho DCT-II then DCT-III, and DCT-IV twice, give back the input" {
+test "TrigTransformPlan: ortho DCT-II then DCT-III, and DCT-IV twice, give back the input" {
     const n = 10;
-    const pairs = [_][2]TrigKind{ .{ .dct2, .dct3 }, .{ .dst2, .dst3 }, .{ .dct4, .dct4 }, .{ .dst4, .dst4 } };
+    const pairs = [_][2]TrigTransformKind{ .{ .dct2, .dct3 }, .{ .dst2, .dst3 }, .{ .dct4, .dct4 }, .{ .dst4, .dst4 } };
     for (pairs) |pair| {
-        var there = TrigPlan(f64).init(testing.allocator, n, pair[0]) catch |e| return skip(e);
+        var there = TrigTransformPlan(f64).init(testing.allocator, n, pair[0]) catch |e| return skip(e);
         defer there.deinit(testing.allocator);
-        var back = try TrigPlan(f64).init(testing.allocator, n, pair[1]);
+        var back = try TrigTransformPlan(f64).init(testing.allocator, n, pair[1]);
         defer back.deinit(testing.allocator);
         const scratch = try testing.allocator.alloc(f64, @max(there.scratchLen(), back.scratchLen()));
         defer testing.allocator.free(scratch);
@@ -214,15 +214,15 @@ test "TrigPlan: ortho DCT-II then DCT-III, and DCT-IV twice, give back the input
         var x: [n]f64 = undefined;
         for (&x, 0..) |*v, i| v.* = @sin(1 + 0.7 * @as(f64, @floatFromInt(i)));
         var y = x;
-        try there.transform(testing.io, &y, scratch, .{}, .{ .norm = .ortho });
-        try back.transform(testing.io, &y, scratch, .{}, .{ .norm = .ortho });
+        try there.transform(testing.io, &y, scratch, .{}, .ortho);
+        try back.transform(testing.io, &y, scratch, .{}, .ortho);
         for (x, y) |a, b| try testing.expectApproxEqAbs(a, b, 1e-12);
     }
 }
 
-test "Mdct: TDAC with a sine window" {
+test "ModifiedCosineTransform: TDAC with a sine window" {
     const n = 16;
-    var mdct = Mdct(f64).init(testing.allocator, n) catch |e| return skip(e);
+    var mdct = ModifiedCosineTransform(f64).init(testing.allocator, n) catch |e| return skip(e);
     defer mdct.deinit(testing.allocator);
     const scratch = try testing.allocator.alloc(f64, mdct.scratchLen());
     defer testing.allocator.free(scratch);
@@ -263,7 +263,7 @@ test "Plan matches a direct DFT at every float type, mixed radix, the generic pa
             defer al.free(want);
             signal(T, in);
             directDft(T, want, in);
-            try p.transformInto(testing.io, out, in, scratch, .forward, .{}, .{});
+            try p.transformInto(testing.io, out, in, scratch, .forward, .{}, .backward);
             const nf: f64 = @floatFromInt(n);
             // the f64 reference bounds the wider types
             try expectNear(T, want, out, @max(8 * eps * nf, 1e-13 * nf));
@@ -287,12 +287,12 @@ test "Plan: short scratch or data, and a count mismatch" {
     const scratch = try al.alloc(Complex(f64), p.scratchLen());
     defer al.free(scratch);
     var data: [16]Complex(f64) = @splat(.init(0, 0));
-    try testing.expectError(error.SliceTooShort, p.transform(testing.io, &data, scratch[1..], .forward, .{}, .{}));
-    try testing.expectError(error.SliceTooShort, p.transform(testing.io, data[0..7], scratch, .forward, .{}, .{}));
-    try testing.expectError(error.SliceTooShort, p.transform(testing.io, &data, scratch, .forward, .{ .count = 3 }, .{}));
-    try p.transform(testing.io, &data, scratch, .forward, .{ .count = 2 }, .{});
-    try p.transform(testing.io, &data, scratch, .forward, .{ .count = 0 }, .{});
-    try testing.expectError(error.CountMismatch, p.transformInto(testing.io, &data, &data, scratch, .forward, .{ .in = .{ .count = 2 } }, .{}));
+    try testing.expectError(error.SliceTooShort, p.transform(testing.io, &data, scratch[1..], .forward, .{}, .backward));
+    try testing.expectError(error.SliceTooShort, p.transform(testing.io, data[0..7], scratch, .forward, .{}, .backward));
+    try testing.expectError(error.SliceTooShort, p.transform(testing.io, &data, scratch, .forward, .{ .count = 3 }, .backward));
+    try p.transform(testing.io, &data, scratch, .forward, .{ .count = 2 }, .backward);
+    try p.transform(testing.io, &data, scratch, .forward, .{ .count = 0 }, .backward);
+    try testing.expectError(error.CountMismatch, p.transformInto(testing.io, &data, &data, scratch, .forward, .{ .in = .{ .count = 2 } }, .backward));
 }
 
 test "RealPlan matches the direct DFT's half at every float type, radix 2 to 5, the general passes and Bluestein's" {
@@ -322,11 +322,11 @@ test "RealPlan matches the direct DFT's half at every float type, radix 2 to 5, 
                 c.im = 0;
             }
             directDft(T, want, full);
-            try p.forward(testing.io, half, re, scratch, .{}, .{});
+            try p.forward(testing.io, half, re, scratch, .{}, .backward);
             const nf: f64 = @floatFromInt(n);
             const tol = @max(8 * eps * nf, 1e-13 * nf);
             try expectNear(T, want[0..m], half, tol);
-            try p.backward(testing.io, back, half, scratch, .{}, .{});
+            try p.backward(testing.io, back, half, scratch, .{}, .backward);
             for (re, back) |a, b| try testing.expectApproxEqAbs(@as(f64, @floatCast(a)), @as(f64, @floatCast(b)), tol);
         }
     }
@@ -351,23 +351,23 @@ test "RealPlan: 97 takes the general passes, 1009 Bluestein's; strided channels 
     var x: [2 * n]f64 = undefined;
     for (&x, 0..) |*v, i| v.* = @sin(0.3 * @as(f64, @floatFromInt(i * i)));
     var spec: [2 * m]Complex(f64) = undefined;
-    const lay: Layouts = .{ .in = .{ .count = 2, .stride = 2, .distance = 1 }, .out = .{ .count = 2, .stride = 2, .distance = 1 } };
-    try p.forward(testing.io, &spec, &x, scratch, lay, .{ .norm = .ortho });
+    const lay: BatchLayouts = .{ .in = .{ .count = 2, .stride = 2, .distance = 1 }, .out = .{ .count = 2, .stride = 2, .distance = 1 } };
+    try p.forward(testing.io, &spec, &x, scratch, lay, .ortho);
     for (0..2) |c| {
         var one: [n]f64 = undefined;
         for (&one, 0..) |*v, i| v.* = x[2 * i + c];
         var want: [m]Complex(f64) = undefined;
-        try p.forward(testing.io, &want, &one, scratch, .{}, .{ .norm = .ortho });
+        try p.forward(testing.io, &want, &one, scratch, .{}, .ortho);
         for (0..m) |j| {
             try testing.expectEqual(want[j].re, spec[2 * j + c].re);
             try testing.expectEqual(want[j].im, spec[2 * j + c].im);
         }
     }
     var y: [2 * n]f64 = undefined;
-    try p.backward(testing.io, &y, &spec, scratch, lay, .{ .norm = .ortho });
+    try p.backward(testing.io, &y, &spec, scratch, lay, .ortho);
     for (x, y) |u, v| try testing.expectApproxEqAbs(u, v, 1e-13);
-    try testing.expectError(error.SliceTooShort, p.forward(testing.io, spec[0..m], &x, scratch, lay, .{}));
-    try testing.expectError(error.CountMismatch, p.backward(testing.io, &y, &spec, scratch, .{ .in = .{ .count = 2 } }, .{}));
+    try testing.expectError(error.SliceTooShort, p.forward(testing.io, spec[0..m], &x, scratch, lay, .backward));
+    try testing.expectError(error.CountMismatch, p.backward(testing.io, &y, &spec, scratch, .{ .in = .{ .count = 2 } }, .backward));
 }
 
 test "a batch runs as many at once as the scratch holds, with one slot's bits" {
@@ -387,15 +387,15 @@ test "a batch runs as many at once as the scratch holds, with one slot's bits" {
     signal(f64, &x);
     var one = x;
     var many = x;
-    try p.transform(testing.io, &one, scratch[0..p.scratchLen()], .forward, .{ .count = count }, .{});
-    try p.transform(testing.io, &many, scratch, .forward, .{ .count = count }, .{});
+    try p.transform(testing.io, &one, scratch[0..p.scratchLen()], .forward, .{ .count = count }, .backward);
+    try p.transform(testing.io, &many, scratch, .forward, .{ .count = count }, .backward);
     try testing.expectEqualSlices(Complex(f64), &one, &many);
     var re: [n * count]f64 = undefined;
     for (&re, x) |*v, c| v.* = c.re;
     var h1: [(n / 2 + 1) * count]Complex(f64) = undefined;
     var h2: [(n / 2 + 1) * count]Complex(f64) = undefined;
-    const lay: Layouts = .{ .in = .{ .count = count }, .out = .{ .count = count } };
-    try r.forward(testing.io, &h1, &re, rscratch[0..r.scratchLen()], lay, .{});
-    try r.forward(testing.io, &h2, &re, rscratch, lay, .{});
+    const lay: BatchLayouts = .{ .in = .{ .count = count }, .out = .{ .count = count } };
+    try r.forward(testing.io, &h1, &re, rscratch[0..r.scratchLen()], lay, .backward);
+    try r.forward(testing.io, &h2, &re, rscratch, lay, .backward);
     try testing.expectEqualSlices(Complex(f64), &h1, &h2);
 }

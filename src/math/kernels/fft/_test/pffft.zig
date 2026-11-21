@@ -39,7 +39,7 @@ test "Plan(f32) at pffft's sizes matches PocketFFT's, both ways" {
         inline for (.{ fft.Direction.forward, .backward }) |dir| {
             @memcpy(want, in);
             q.exec(want, scratch[0..n], 1, dir == .forward);
-            try p.transformInto(testing.io, got, in, scratch, dir, .{}, .{ .norm = .forward });
+            try p.transformInto(testing.io, got, in, scratch, dir, .{}, .forward);
             for (want, got) |w, g| {
                 const f: f32 = if (dir == .forward) 1 / nf else 1;
                 try testing.expectApproxEqAbs(w.re * f, g.re, tol);
@@ -47,8 +47,8 @@ test "Plan(f32) at pffft's sizes matches PocketFFT's, both ways" {
             }
         }
         // a round trip
-        try p.transformInto(testing.io, got, in, scratch, .forward, .{}, .{});
-        try p.transform(testing.io, got, scratch, .backward, .{}, .{});
+        try p.transformInto(testing.io, got, in, scratch, .forward, .{}, .backward);
+        try p.transform(testing.io, got, scratch, .backward, .{}, .backward);
         for (in, got) |a, b| {
             try testing.expectApproxEqAbs(a.re, b.re, 1e-5);
             try testing.expectApproxEqAbs(a.im, b.im, 1e-5);
@@ -78,7 +78,7 @@ test "RealPlan(f32) at pffft's sizes matches PocketFFT's, both ways" {
         signal(x, 2);
         @memcpy(hc, x);
         q.exec(hc, scratch[0..n], 1, true);
-        try p.forward(testing.io, half, x, scratch, .{}, .{});
+        try p.forward(testing.io, half, x, scratch, .{}, .backward);
         const tol = 2e-6 * @as(f32, @floatFromInt(n));
         try testing.expectApproxEqAbs(hc[0], half[0].re, tol);
         try testing.expectEqual(@as(f32, 0), half[0].im);
@@ -90,10 +90,10 @@ test "RealPlan(f32) at pffft's sizes matches PocketFFT's, both ways" {
         try testing.expectEqual(@as(f32, 0), half[n / 2].im);
 
         // backward: PocketFFT's from the same halfcomplex values
-        try p.backward(testing.io, back, half, scratch, .{}, .{ .norm = .forward });
+        try p.backward(testing.io, back, half, scratch, .{}, .forward);
         q.exec(hc, scratch[0..n], 1, false);
         for (hc, back) |w, g| try testing.expectApproxEqAbs(w, g, tol);
-        try p.backward(testing.io, back, half, scratch, .{}, .{});
+        try p.backward(testing.io, back, half, scratch, .{}, .backward);
         for (x, back) |a, b| try testing.expectApproxEqAbs(a, b, 1e-5);
     }
 }

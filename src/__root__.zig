@@ -27,7 +27,6 @@ pub const bytes = @import("bytes.zig");
 pub const crypto = @import("crypto/__root__.zig");
 pub const debug = @import("debug.zig");
 pub const dll = @import("dll.zig");
-pub const fft = @import("fft/__root__.zig");
 pub const io = @import("io.zig");
 pub const linalg = @import("linalg/__root__.zig");
 pub const log = @import("log.zig");

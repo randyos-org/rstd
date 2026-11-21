@@ -1,6 +1,6 @@
 //! Signal processing (rstd's design.md, "Planned: signal processing"), for
 //! audio first: window functions, the STFT and uniformly partitioned
-//! convolution over `rstd.fft`.
+//! convolution over `rstd.math.kernels.fft`.
 
 const window_ = @import("window.zig");
 const stft = @import("stft.zig");

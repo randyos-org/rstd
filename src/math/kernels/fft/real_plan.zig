@@ -19,12 +19,12 @@ const batch = @import("batch.zig");
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
 const C = cmplx.C;
-const Layout = fft.Layout;
-const Layouts = fft.Layouts;
-const Options = fft.Options;
+const BatchLayout = fft.BatchLayout;
+const BatchLayouts = fft.BatchLayouts;
+const Normalization = fft.Normalization;
 
 pub fn RealPlan(comptime T: type) type {
-    if (@typeInfo(T) != .float) @compileError("rstd.fft: " ++ @typeName(T) ++ " is not a float type");
+    if (@typeInfo(T) != .float) @compileError("rstd.math.kernels.fft: " ++ @typeName(T) ++ " is not a float type");
     return struct {
         n: usize,
         scratch_len: usize,
@@ -72,7 +72,7 @@ pub fn RealPlan(comptime T: type) type {
             return self.scratch_len;
         }
 
-        pub fn forward(self: *const Self, io: Io, out: []C(T), in: []const T, scratch: []T, layouts: Layouts, options: Options) fft.TransformIntoError!void {
+        pub fn forward(self: *const Self, io: Io, out: []C(T), in: []const T, scratch: []T, layouts: BatchLayouts, normalization: Normalization) fft.TransformIntoError!void {
             if (layouts.in.count != layouts.out.count) return error.CountMismatch;
             const n = self.n;
             const m = n / 2 + 1;
@@ -84,8 +84,8 @@ pub fn RealPlan(comptime T: type) type {
                 out: []C(T),
                 in: []const T,
                 scratch: []T,
-                lin: Layout,
-                lout: Layout,
+                lin: BatchLayout,
+                lout: BatchLayout,
                 din: usize,
                 dout: usize,
                 f: T,
@@ -113,14 +113,14 @@ pub fn RealPlan(comptime T: type) type {
                 .lout = layouts.out,
                 .din = layouts.in.distance orelse (n * layouts.in.stride),
                 .dout = layouts.out.distance orelse (m * layouts.out.stride),
-                .f = complex_plan.factor(T, n, true, options.norm),
+                .f = complex_plan.factor(T, n, true, normalization),
             };
             try batch.run(io, layouts.in.count, scratch.len / self.scratch_len, &ctx, Ctx.one);
         }
 
         /// Reads only the half spectrum; the imaginary parts at 0 (and at
         /// `n / 2` for even `n`) are ignored, as NumPy's `irfft`.
-        pub fn backward(self: *const Self, io: Io, out: []T, in: []const C(T), scratch: []T, layouts: Layouts, options: Options) fft.TransformIntoError!void {
+        pub fn backward(self: *const Self, io: Io, out: []T, in: []const C(T), scratch: []T, layouts: BatchLayouts, normalization: Normalization) fft.TransformIntoError!void {
             if (layouts.in.count != layouts.out.count) return error.CountMismatch;
             const n = self.n;
             const m = n / 2 + 1;
@@ -132,8 +132,8 @@ pub fn RealPlan(comptime T: type) type {
                 out: []T,
                 in: []const C(T),
                 scratch: []T,
-                lin: Layout,
-                lout: Layout,
+                lin: BatchLayout,
+                lout: BatchLayout,
                 din: usize,
                 dout: usize,
                 f: T,
@@ -163,7 +163,7 @@ pub fn RealPlan(comptime T: type) type {
                 .lout = layouts.out,
                 .din = layouts.in.distance orelse (m * layouts.in.stride),
                 .dout = layouts.out.distance orelse (n * layouts.out.stride),
-                .f = complex_plan.factor(T, n, false, options.norm),
+                .f = complex_plan.factor(T, n, false, normalization),
             };
             try batch.run(io, layouts.in.count, scratch.len / self.scratch_len, &ctx, Ctx.one);
         }
