@@ -98,12 +98,11 @@ pub const Boot = union(enum) {
 
     pub const Window = struct { base: u64, size: u64 };
 
-    /// A Debian netboot kernel (a lazy dependency) and an initramfs of
+    /// nixpkgs' kernel (`tools/nix/kernel.sh`) and an initramfs of
     /// `test/linux/init.zig` as PID 1 and the hosted test executable.
     pub const Linux = struct {
-        /// The `build.zig.zon` dependency, and the kernel's path in it.
-        dep: []const u8,
-        kernel: []const u8,
+        /// The kernel's Nix system.
+        nix: []const u8,
         /// The kernel's console, on the machine's first serial port.
         console: []const u8,
 
@@ -797,7 +796,7 @@ const base_machines = [_]Machine{
         .memory = "1G",
         .tsan_memory = "8G",
         .tsan_parts = &tsan_parts,
-        .boot = .{ .linux = .{ .dep = "debian_netboot_arm64", .kernel = "debian-installer/arm64/linux", .console = "ttyAMA0" } },
+        .boot = .{ .linux = .{ .nix = "aarch64-linux", .console = "ttyAMA0" } },
     },
     .{
         // the SVE and SME cores, linked only for an SVE target; TCG, as `aarch64-sve`
@@ -808,7 +807,7 @@ const base_machines = [_]Machine{
         .core = "armv9sme",
         .memory = "1G",
         .split = &sve_parts,
-        .boot = .{ .linux = .{ .dep = "debian_netboot_arm64", .kernel = "debian-installer/arm64/linux", .console = "ttyAMA0" } },
+        .boot = .{ .linux = .{ .nix = "aarch64-linux", .console = "ttyAMA0" } },
     },
     .{
         .name = "linux-x86_64",
@@ -823,7 +822,7 @@ const base_machines = [_]Machine{
         .memory = "3G",
         .tsan_memory = "12G",
         .tsan_parts = &tsan_parts,
-        .boot = .{ .linux = .{ .dep = "debian_netboot_amd64", .kernel = "debian-installer/amd64/linux", .console = "ttyS0" } },
+        .boot = .{ .linux = .{ .nix = "x86_64-linux", .console = "ttyS0" } },
     },
     .{
         .name = "linux-arm",
@@ -831,7 +830,8 @@ const base_machines = [_]Machine{
         .qemu = "qemu-system-arm",
         .args = &.{ "-M", "virt", "-cpu", "cortex-a15", "-smp", "4" },
         .memory = "1G",
-        .boot = .{ .linux = .{ .dep = "debian_netboot_armhf", .kernel = "debian-installer/armhf/vmlinuz", .console = "ttyAMA0" } },
+        .stub = "no armv7l-linux kernel in nixpkgs' binary cache; CI's qemu-user arm-linux leg covers it (issue #656)",
+        .boot = .{ .linux = .{ .nix = "armv7l-linux", .console = "ttyAMA0" } },
     },
     .{
         .name = "linux-riscv64",
@@ -840,7 +840,8 @@ const base_machines = [_]Machine{
         // the vector extension at the widest linked core's VLEN, as `riscv64`
         .args = &.{ "-M", "virt", "-cpu", "rv64,v=true,vlen=512", "-smp", "4" },
         .memory = "1G",
-        .boot = .{ .linux = .{ .dep = "debian_netboot_riscv64", .kernel = "debian-installer/riscv64/linux", .console = "ttyS0" } },
+        .stub = "no riscv64-linux kernel in nixpkgs' binary cache; CI's qemu-user riscv64-linux leg covers it (issue #656)",
+        .boot = .{ .linux = .{ .nix = "riscv64-linux", .console = "ttyS0" } },
     },
     .{
         .name = "linux-powerpc64le",
@@ -852,7 +853,8 @@ const base_machines = [_]Machine{
         // kernels); the caps TCG lacks are off, so qemu warns of none
         .args = &.{ "-M", "pseries,cap-cfpc=broken,cap-sbbc=broken,cap-ibs=broken,cap-ccf-assist=off", "-cpu", "power10", "-smp", "4" },
         .memory = "1G",
-        .boot = .{ .linux = .{ .dep = "debian_netboot_ppc64el", .kernel = "debian-installer/ppc64el/vmlinux", .console = "hvc0" } },
+        .stub = "no powerpc64le-linux kernel in nixpkgs' binary cache; CI's qemu-user powerpc64le-linux legs cover it (issue #656)",
+        .boot = .{ .linux = .{ .nix = "powerpc64le-linux", .console = "hvc0" } },
     },
     .{
         // a POWER10 build, so power10's kernels link and run
@@ -864,7 +866,8 @@ const base_machines = [_]Machine{
         .args = &.{ "-M", "pseries,cap-cfpc=broken,cap-sbbc=broken,cap-ibs=broken,cap-ccf-assist=off", "-cpu", "power10", "-smp", "4" },
         .core = "power10",
         .memory = "1G",
-        .boot = .{ .linux = .{ .dep = "debian_netboot_ppc64el", .kernel = "debian-installer/ppc64el/vmlinux", .console = "hvc0" } },
+        .stub = "no powerpc64le-linux kernel in nixpkgs' binary cache; CI's qemu-user powerpc64le-linux legs cover it (issue #656)",
+        .boot = .{ .linux = .{ .nix = "powerpc64le-linux", .console = "hvc0" } },
     },
     .{
         .name = "linux-i386",
@@ -874,7 +877,7 @@ const base_machines = [_]Machine{
         .memory = "1G",
         // boots and runs; filtered runs pass
         .stub = "TCG's fldt/fstpt misplace the significand bytes past a page boundary, which i386's 4-aligned f80 arrays cross (issue #221)",
-        .boot = .{ .linux = .{ .dep = "debian_netboot_i386", .kernel = "debian-installer/i386/linux", .console = "ttyS0" } },
+        .boot = .{ .linux = .{ .nix = "i686-linux", .console = "ttyS0" } },
     },
 };
 

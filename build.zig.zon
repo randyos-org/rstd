@@ -33,42 +33,6 @@
         //     .hash = "rc-0.0.0-rMftL9REAADo6nZWJwkxvJGHVKNNwXT-SxFQGdbiv5DW",
         //     .lazy = true,
         // },
-        // Debian 13 netboot kernels for the Linux rigs (build/qemu/__root__.zig: when
-        // rstd is the root project, unless -Dlinux-vm-off); a dated installer
-        // build, so the archive stays put
-        // arm64's is Debian 14's (forky, kernel 7.0.13): 13's 6.12 has no SME,
-        // which Linux allows from 6.16
-        .debian_netboot_arm64 = .{
-            .url = "https://deb.debian.org/debian/dists/sid/main/installer-arm64/20260628/images/netboot/netboot.tar.gz",
-            .hash = "N-V-__8AAEMW7AW3mrKJsjEmKEDbWifDL_TdYW5m06zBqmb7",
-            .lazy = true,
-        },
-        .debian_netboot_amd64 = .{
-            .url = "https://deb.debian.org/debian/dists/trixie/main/installer-amd64/20250803+deb13u8/images/netboot/netboot.tar.gz",
-            .hash = "N-V-__8AAAJOiQPrNqumKoJYrZ3ynfjgp-smKyFA7fdJ42mx",
-            .lazy = true,
-        },
-        .debian_netboot_armhf = .{
-            .url = "https://deb.debian.org/debian/dists/trixie/main/installer-armhf/20250803+deb13u8/images/netboot/netboot.tar.gz",
-            .hash = "N-V-__8AAEwFRgS9OPO3qOkUiOX_EXjEZ3JHt_790KjGQWtE",
-            .lazy = true,
-        },
-        .debian_netboot_riscv64 = .{
-            .url = "https://deb.debian.org/debian/dists/trixie/main/installer-riscv64/20250803+deb13u8/images/netboot/netboot.tar.gz",
-            .hash = "N-V-__8AAIeGngRAm01Fr0NE81p-hafjddQRjDvQmO7r3jbL",
-            .lazy = true,
-        },
-        .debian_netboot_ppc64el = .{
-            .url = "https://deb.debian.org/debian/dists/trixie/main/installer-ppc64el/20250803+deb13u8/images/netboot/netboot.tar.gz",
-            .hash = "N-V-__8AABagZgQZBgZqEbp9_n5T4h0t-t5Pu4GgVnsyYPiQ",
-            .lazy = true,
-        },
-        // Debian 12's: 13 has no i386 installer
-        .debian_netboot_i386 = .{
-            .url = "https://deb.debian.org/debian/dists/bookworm/main/installer-i386/20230607+deb12u15/images/netboot/netboot.tar.gz",
-            .hash = "N-V-__8AAPlKiQI6Ff4yPGDDl3AfuWMrf7hwQswZLDKyV9md",
-            .lazy = true,
-        },
         // Its Aro does not build on current Zig master (issue #217);
         // src/buildutils/renderdoc.zig uses the built-in translate-c until it does.
         // .translate_c = .{

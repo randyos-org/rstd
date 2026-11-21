@@ -359,7 +359,7 @@ const bench_machines = [_]struct { m: Machine, cpu: ?*const std.Target.Cpu.Model
             .args = &.{ "-accel", "whpx", "-M", "pc", "-cpu", "EPYC-Milan", "-smp", "8" },
             .whpx = true,
             .memory = "4G",
-            .boot = .{ .linux = .{ .dep = "debian_netboot_amd64", .kernel = "debian-installer/amd64/linux", .console = "ttyS0" } },
+            .boot = .{ .linux = .{ .nix = "x86_64-linux", .console = "ttyS0" } },
         },
         // built here, for this CPU, as bench-native is
         .cpu = null,
@@ -376,7 +376,7 @@ const bench_machines = [_]struct { m: Machine, cpu: ?*const std.Target.Cpu.Model
             .args = &hvf_bench_args,
             .hvf = &hvf_bench_args,
             .memory = "4G",
-            .boot = .{ .linux = .{ .dep = "debian_netboot_arm64", .kernel = "debian-installer/arm64/linux", .console = "ttyAMA0" } },
+            .boot = .{ .linux = .{ .nix = "aarch64-linux", .console = "ttyAMA0" } },
         },
         // as ssh-bench-aarch64-macos builds for the Mac
         .cpu = &std.Target.aarch64.cpu.apple_m1,
@@ -400,7 +400,8 @@ pub fn addLinuxBenches(b: *Build, host: ?TestHost, whpx_host: bool) !void {
         if (m.whpx and !whpx_host) continue;
         const l = m.boot.linux;
         const step = b.step(b.fmt("qemu-{s}", .{m.name}), b.fmt("Race rstd's BLAS against nixpkgs' libraries in a Linux VM on the host's CPU (live log: {s})", .{qemutest.liveLog(b, m)}));
-        const kernel = b.dependencyLazy(l.dep, .{}) catch continue;
+        // nixpkgs' kernel, from -Dtest-host's Nix or this machine's (issue #656)
+        const kernel = try tools.nixKernel(b, if (host) |h| h.alias else null, l.nix);
         var query = m.query;
         query.cpu_model = if (bm.cpu) |c| .{ .explicit = c } else .native;
         const exe = try benchExe(b, b.resolveTargetQuery(query), null);
@@ -423,7 +424,7 @@ pub fn addLinuxBenches(b: *Build, host: ?TestHost, whpx_host: bool) !void {
         const host_mac = m.hvf != null;
         if (host_mac) {
             const base: qemutest.Initramfs = .init(b, "base.cpio", init_exe, exe);
-            try addFlyoffStage(b, m, kernel.path(l.kernel), base.cpio, "base.cpio", vm_append.items);
+            try addFlyoffStage(b, m, kernel, base.cpio, "base.cpio", vm_append.items);
         }
 
         const nix = host orelse {
@@ -434,12 +435,12 @@ pub fn addLinuxBenches(b: *Build, host: ?TestHost, whpx_host: bool) !void {
         // the libraries' closure, fetched once per flake.lock
         const libs = (try tools.nixBlas(b, nix.alias, bm.nix, true)).captureStdOut(.{});
         pack.run.addPrefixedFileArg("+", libs);
-        if (!host_mac) try addFlyoffStage(b, m, kernel.path(l.kernel), pack.cpio, "initramfs.cpio", vm_append.items);
+        if (!host_mac) try addFlyoffStage(b, m, kernel, pack.cpio, "initramfs.cpio", vm_append.items);
 
         const run = qemutest.qemuCommand(b, m, host);
         qemutest.addConsole(b, run, m, host);
         run.addArg("-kernel");
-        qemutest.fileArg(run, m, host, kernel.path(l.kernel));
+        qemutest.fileArg(run, m, host, kernel);
         run.addArg("-initrd");
         qemutest.fileArg(run, m, host, pack.cpio);
         for (bench_args) |a| try append.print(b.allocator, " {s}", .{a});
