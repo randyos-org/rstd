@@ -1,6 +1,8 @@
-//! Histograms: counts over even bins or given edges.
+//! Histograms: counts over even bins or given edges, over
+//! `kernels.stats`' bins.
 
 const std = @import("std");
+const kernels_stats = @import("../kernels/stats/__root__.zig");
 const util = @import("util.zig");
 
 const Allocator = std.mem.Allocator;
@@ -9,28 +11,10 @@ const to = util.to;
 const checkReal = util.checkReal;
 const checkFloat = util.checkFloat;
 
-/// `count` bins spread evenly over `xs`'s range, or the given sorted edges.
-pub fn Bins(comptime F: type) type {
-    return union(enum) { count: usize, edges: []const F };
-}
-
-/// `counts[k]` holds `edges[k] <= x < edges[k + 1]`; the last bin includes
-/// its right edge, as MATLAB's `histcounts` and NumPy's `histogram`.
-pub fn Histogram(comptime F: type) type {
-    return struct {
-        counts: []u64,
-        edges: []F,
-
-        pub fn deinit(self: *@This(), allocator: Allocator) void {
-            allocator.free(self.counts);
-            allocator.free(self.edges);
-            self.* = undefined;
-        }
-    };
-}
-
+pub const Bins = kernels_stats.Bins;
+pub const Histogram = kernels_stats.Histogram;
 pub const HistogramError = error{ EmptyInput, OutOfMemory, ZeroBins, EdgesNotSorted };
-pub const HistogramIntoError = error{ ZeroBins, EdgesNotSorted, SliceTooShort };
+pub const HistogramIntoError = kernels_stats.HistogramIntoError;
 
 /// `.count` bins need a value in `xs` that is not NaN, for their range: its
 /// least to its greatest, widened by 0.5 each way when they are equal, as
@@ -62,8 +46,11 @@ pub fn histogram(allocator: Allocator, comptime F: type, xs: anytype, bins: Bins
             break :blk e;
         },
         .edges => |given| blk: {
-            if (given.len < 2) return error.ZeroBins;
-            try sortedEdges(F, given);
+            kernels_stats.checkBins(F, given, given.len -| 1) catch |e| switch (e) {
+                error.ZeroBins => return error.ZeroBins,
+                error.EdgesNotSorted => return error.EdgesNotSorted,
+                error.SliceTooShort => unreachable,
+            };
             break :blk try allocator.dupe(F, given);
         },
     };
@@ -78,29 +65,18 @@ pub fn histogram(allocator: Allocator, comptime F: type, xs: anytype, bins: Bins
 }
 
 /// Adds to `counts[0 .. edges.len - 1]`; values outside the edges, and NaNs,
-/// are not counted.
+/// are not counted. Floats of type `F` count through
+/// `kernels.stats.histogramInto`, other elements here, by the same bins.
 pub fn histogramInto(comptime F: type, counts: []u64, xs: anytype, edges: []const F) HistogramIntoError!void {
+    const E = Elem(@TypeOf(xs));
     comptime checkFloat(F);
-    comptime checkReal(Elem(@TypeOf(xs)));
-    if (edges.len < 2) return error.ZeroBins;
-    if (counts.len < edges.len - 1) return error.SliceTooShort;
-    try sortedEdges(F, edges);
-    const last = edges.len - 1;
-    for (xs) |x0| {
-        const x = to(F, x0);
-        if (!(x >= edges[0] and x <= edges[last])) continue;
-        // the last `k` with `edges[k] <= x`, the right edge in the last bin
-        var lo: usize = 0;
-        var hi: usize = last;
-        while (hi - lo > 1) {
-            const mid = lo + (hi - lo) / 2;
-            if (edges[mid] <= x) lo = mid else hi = mid;
-        }
-        counts[lo] += 1;
+    comptime checkReal(E);
+    if (comptime E == F) {
+        const sl: []const F = xs;
+        return kernels_stats.histogramInto(F, edges, .of(sl), counts);
     }
-}
-
-/// Edges ascend (equal neighbors allowed, as NumPy's), and none is NaN.
-fn sortedEdges(comptime F: type, edges: []const F) error{EdgesNotSorted}!void {
-    for (edges[0 .. edges.len - 1], edges[1..]) |a, b| if (!(a <= b)) return error.EdgesNotSorted;
+    try kernels_stats.checkBins(F, edges, counts.len);
+    for (xs) |x| if (kernels_stats.bin(F, edges, to(F, x))) |k| {
+        counts[k] += 1;
+    };
 }

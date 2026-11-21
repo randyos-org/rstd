@@ -3,9 +3,9 @@
 //! `kernels.stats.deviationSums`).
 
 const std = @import("std");
-const blas = @import("../math/kernels/blas/__root__.zig");
-const blas_types = @import("../math/kernels/blas/types.zig");
-const kernels_stats = @import("../math/kernels/stats/__root__.zig");
+const blas = @import("../kernels/blas/__root__.zig");
+const blas_types = @import("../kernels/blas/types.zig");
+const kernels_stats = @import("../kernels/stats/__root__.zig");
 const util = @import("util.zig");
 
 const Io = std.Io;
@@ -18,9 +18,8 @@ const to = util.to;
 const checkPair = util.checkPair;
 const checkFloat = util.checkFloat;
 
-/// The variance's divisor: `n - 1` (MATLAB's default) or `n`. A sample of
-/// one has variance 0 either way, as MATLAB's `var`.
-pub const Normalize = enum { sample, population };
+/// The variance's divisor (`kernels.stats`').
+pub const Normalize = kernels_stats.Normalize;
 
 pub const MomentError = error{ EmptyInput, Canceled };
 

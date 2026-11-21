@@ -35,7 +35,6 @@ pub const math = @import("math/__root__.zig");
 pub const mem = @import("mem.zig");
 pub const msoffice = @import("msoffice/__root__.zig");
 pub const sort = @import("sort.zig");
-pub const stats = @import("stats/__root__.zig");
 pub const rgl = @import("rgl/__root__.zig");
 pub const windows = @import("_os/windows/__root__.zig");
 /// zigwin32 bindings, re-exported so consumers share rstd's pinned version

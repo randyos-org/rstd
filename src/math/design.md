@@ -123,12 +123,12 @@ Each type the kernel layer defines or takes, after the moves; the high-level opt
 | `DecibelScale` | `enum { power, amplitude }`: `10·log10` or `20·log10` | none | `kernels.dsp` | backlog (#627) |
 | `DeviationSums(T)` | `struct { sum: T, sum_sq: Float(T) }`: `Σ(x − m)` and `Σ\|x − m\|²` | same | `kernels.stats` | yes (#605) |
 | `CentralMomentSums(F)` | `struct { m2: F, m3: F, m4: F }`: `Σ(x − m)²`, `Σ(x − m)³`, `Σ(x − m)⁴` | none | `kernels.stats` | backlog (#628) |
-| `RunningMoments(F)` | `struct { count: u64 = 0, avg: F = 0, m2: F = 0 }`: Welford's state | `Running` | `kernels.stats` | yes |
+| `RunningMoments(F)` | `struct { count: u64 = 0, avg: F = 0, m2: F = 0 }`: Welford's state | same | `kernels.stats` | yes |
 | `Bins(F)`, `Histogram(F)` | `union(enum) { count: usize, edges: []const F }`; `struct { counts: []u64, edges: []F }` | same | `kernels.stats` | yes |
 | `RandomStream` | `struct { state: std.Random.Xoshiro256 }`: one stream; a chunk's stream is the seed's jumped by its index, so the bits do not depend on the worker count | none | `kernels.stats` | backlog (#628) |
 | `Fraction(F)` | `struct { numerator: F, denominator: F }` | same | `rstd.math` | yes |
 | `MomentOptions` | `struct { summation: Summation = .plain }`: `meanWith`, `varianceWith`, `stdDevWith` | same | `rstd.math.stats` | yes (#605) |
-| `QuantileOptions` | `struct { method: QuantileMethod = .linear }`: `quantileWith`; `QuantileMethod` NumPy's nine | same | `rstd.math.stats` | yes, moved by #613 |
+| `QuantileOptions` | `struct { method: QuantileMethod = .linear }`: `quantileWith`; `QuantileMethod` NumPy's nine | same | `rstd.math.stats` | yes (#613) |
 | `FftOptions` | `struct { normalization: Normalization = .backward }`: the `*With` transforms | same | `rstd.math.fft` | yes (#611) |
 
 ### `kernels.blas`
@@ -515,7 +515,7 @@ Since [#611](https://github.com/randyos-org/rstd/issues/611) the transforms take
 | `centralMoments(io, T, s: Summation, m: T, x: ConstStrided(T)) Io.Cancelable!CentralMomentSums(T)` | `Σ(x − m)²`, `³`, `⁴`, for skewness and kurtosis | none | `vsldSSCompute` (`VSL_SS_4C_MOM`) | SciPy `stats.moment`; StatsBase `moment` | backlog |
 | `RunningMoments(F)`: `push(self: *Self, x: F) void`, `mean(self: Self) error{EmptyInput}!F`, `variance(self: Self, normalize: Normalize) error{EmptyInput}!F` | Welford's running mean and variance | none | VS streaming | Welford 1962 | yes (#613) |
 | `RunningMoments(F)`: `merge(self: *Self, other: Self) void` | combines two runs (Chan's formula), for threads | none | none | Chan, Golub and LeVeque 1979 | backlog |
-| `histogramInto(T, edges: []const T, x: ConstStrided(T), counts: []u64) HistogramIntoError!void` | counts into the bins `edges` bound, NumPy's half-open bins, the last closed | `vImageHistogramCalculation` in part | none | NumPy `histogram` | yes (#613: `ConstStrided` in place of today's `anytype`, arguments in the kernel order) |
+| `histogramInto(T, edges: []const T, x: ConstStrided(T), counts: []u64) HistogramIntoError!void` | counts into the bins `edges` bound, NumPy's half-open bins, the last closed | `vImageHistogramCalculation` in part | none | NumPy `histogram` | yes (#613: `ConstStrided` in place of `anytype`, arguments in the kernel order) |
 | `selectNth(T, x: []T, k: usize) T` | the `k`th smallest, `x` partitioned around it, in O(n); NaNs last | none | `vsldSSCompute` (`VSL_SS_QUANTS`) | NumPy `partition` (introselect); Rust `select_nth_unstable` (MIT) | backlog; `quantile` sorts a copy today |
 | `medianAbsDeviation(allocator, T, x: []const T) MadError!T` | `median(\|x − median(x)\|)` | none | `vsldSSCompute` (`VSL_SS_MDAD`) | SciPy `stats.median_abs_deviation` | backlog |
 | `RandomStream`: `init(seed: u64) RandomStream`, `jump(self: *RandomStream, chunks: u64) void` | a stream and its chunk's stream | none | `vslNewStream`, `vslSkipAheadStream` | Zig `std.Random.Xoshiro256` (MIT) | backlog |
@@ -647,8 +647,8 @@ The plans (`Plan`, `RealPlan` and the stubs) are in `kernels.fft`; this layer, n
 | `stdDev(io, R: type, xs: anytype, normalize: Normalize) MomentError!R`, `stdDevWith(...)` | its square root | yes (#605) |
 | `RunningMoments(F)`: `push(self: *Self, x: F) void`, `mean(self: Self) error{EmptyInput}!F`, `variance(self: Self, normalize: Normalize) error{EmptyInput}!F` | a running mean and variance | yes (#613) |
 | `median(allocator, R: type, xs: anytype) MedianError!R` | the median; NaN if any | yes |
-| `quantile(allocator, R: type, xs: anytype, p: []const R) QuantileError![]R`, `quantileInto(allocator, R: type, out: []R, xs: anytype, p: []const R) QuantileIntoError!void` | quantiles at `p`, NumPy's `linear` | yes; options move to `quantileWith` (#613) |
-| `quantileWith(allocator, R: type, xs: anytype, p: []const R, options: QuantileOptions) QuantileError![]R` | quantiles by any of NumPy's nine methods | #613 |
+| `quantile(allocator, R: type, xs: anytype, p: []const R) QuantileError![]R`, `quantileInto(allocator, R: type, out: []R, xs: anytype, p: []const R) QuantileIntoError!void` | quantiles at `p`, NumPy's `linear` | yes (#613: options moved to `quantileWith`) |
+| `quantileWith(allocator, R: type, xs: anytype, p: []const R, options: QuantileOptions) QuantileError![]R`, `quantileIntoWith(allocator, R: type, out: []R, xs: anytype, p: []const R, options: QuantileOptions) QuantileIntoError!void` | quantiles by any of NumPy's nine methods | yes (#613) |
 | `histogram(allocator, F: type, xs: anytype, bins: Bins(F)) HistogramError!Histogram(F)`, `histogramInto(F: type, counts: []u64, xs: anytype, edges: []const F) HistogramIntoError!void` | counts into bins | yes |
 | `cov(allocator, io, x: anytype) CovError!Mat(...)`, `corrcoef(allocator, io, x: anytype) CovError!Mat(...)` | covariance and correlation of a matrix's columns (MATLAB's `cov`, `corrcoef`) | yes |
 | `skewness`, `kurtosis`, `medianAbsDeviation`, `zscore` | over `kernels.stats` | named; backlog (#628) |

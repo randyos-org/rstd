@@ -2,8 +2,8 @@
 //! sorted copy.
 
 const std = @import("std");
-const math = @import("../math/__root__.zig");
-const sort = @import("../sort.zig");
+const scalar = @import("../scalar.zig");
+const sort = @import("../../sort.zig");
 const util = @import("util.zig");
 
 const Allocator = std.mem.Allocator;
@@ -59,13 +59,20 @@ pub const QuantileMethod = enum {
     normal_unbiased,
 };
 
+/// The `*With` quantiles' options; each default is the plain function's.
 pub const QuantileOptions = struct { method: QuantileMethod = .linear };
 
 pub const QuantileError = error{ EmptyInput, OutOfMemory, ProbabilityOutOfRange };
 pub const QuantileIntoError = QuantileError || error{SliceTooShort};
 
-/// One quantile of `xs` per `p`, each in [0, 1]; owned by the caller.
-pub fn quantile(allocator: Allocator, comptime R: type, xs: anytype, p: []const R, options: QuantileOptions) QuantileError![]R {
+/// One quantile of `xs` per `p`, each in [0, 1], NumPy's `linear`; owned
+/// by the caller.
+pub fn quantile(allocator: Allocator, comptime R: type, xs: anytype, p: []const R) QuantileError![]R {
+    return quantileWith(allocator, R, xs, p, .{});
+}
+
+/// `quantile` by `options.method`.
+pub fn quantileWith(allocator: Allocator, comptime R: type, xs: anytype, p: []const R, options: QuantileOptions) QuantileError![]R {
     const out = try allocator.alloc(R, p.len);
     errdefer allocator.free(out);
     try quantiles(allocator, R, out, xs, p, options);
@@ -73,7 +80,12 @@ pub fn quantile(allocator: Allocator, comptime R: type, xs: anytype, p: []const 
 }
 
 /// `quantile` into `out[0..p.len]`; the allocator holds the sorted copy.
-pub fn quantileInto(allocator: Allocator, comptime R: type, out: []R, xs: anytype, p: []const R, options: QuantileOptions) QuantileIntoError!void {
+pub fn quantileInto(allocator: Allocator, comptime R: type, out: []R, xs: anytype, p: []const R) QuantileIntoError!void {
+    return quantileIntoWith(allocator, R, out, xs, p, .{});
+}
+
+/// `quantileInto` by `options.method`.
+pub fn quantileIntoWith(allocator: Allocator, comptime R: type, out: []R, xs: anytype, p: []const R, options: QuantileOptions) QuantileIntoError!void {
     if (out.len < p.len) return error.SliceTooShort;
     return quantiles(allocator, R, out, xs, p, options);
 }
@@ -96,7 +108,7 @@ fn quantiles(allocator: Allocator, comptime R: type, out: []R, xs: anytype, p: [
 
 /// NumPy's `_quantile` on the sorted `s` (numpy/lib/_function_base_impl.py,
 /// v2.1): the method's virtual index, then the two neighbors and `gamma`.
-/// `math.floor`, as `@floor` keeps fractions on x87 (issue #481).
+/// `scalar.floor`, as `@floor` keeps fractions on x87 (issue #481).
 fn quantileOf(comptime R: type, comptime E: type, s: []const E, p: R, method: QuantileMethod) R {
     const W = Wide(R);
     const n: W = @floatFromInt(s.len);
@@ -106,7 +118,7 @@ fn quantileOf(comptime R: type, comptime E: type, s: []const E, p: R, method: Qu
         .inverted_cdf, .closest_observation => {
             // the discontinuous ones pick an order statistic
             const vi = if (method == .inverted_cdf) n * q - 1 else n * q - 1 - 0.5;
-            const prev = math.floor(vi);
+            const prev = scalar.floor(vi);
             const exact = vi == prev;
             const take_prev = if (method == .inverted_cdf) exact else exact and @mod(prev, 2) == 0;
             const k = if (take_prev) prev else prev + 1;
@@ -114,7 +126,7 @@ fn quantileOf(comptime R: type, comptime E: type, s: []const E, p: R, method: Qu
         },
         .averaged_inverted_cdf => {
             const vi = n * q - 1;
-            const prev = math.floor(vi);
+            const prev = scalar.floor(vi);
             const gamma: W = if (vi == prev) 0.5 else 1;
             return lerp(R, to(R, s[index(W, prev, last)]), to(R, s[index(W, prev + 1, last)]), gamma);
         },
@@ -132,7 +144,7 @@ fn quantileOf(comptime R: type, comptime E: type, s: []const E, p: R, method: Qu
             // `_get_indexes`: past either end, that end
             if (vi < 0) return to(R, s[0]);
             if (vi >= @as(W, @floatFromInt(last))) return to(R, s[last]);
-            const prev = math.floor(vi);
+            const prev = scalar.floor(vi);
             return lerp(R, to(R, s[index(W, prev, last)]), to(R, s[index(W, prev + 1, last)]), vi - prev);
         },
     }
