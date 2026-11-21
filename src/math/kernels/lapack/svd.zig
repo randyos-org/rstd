@@ -21,12 +21,12 @@ const Mat = ops.Mat;
 const Float = ops.Float;
 const isComplex = ops.isComplex;
 
-/// `JOBU`, `JOBVT`, `JOBZ`: all of `U` (`m x m`) or `Vᴴ` (`n x n`), the first
-/// `min(m, n)` columns of `U` or rows of `Vᴴ` (`s`), those overwritten on
-/// `A` (`o`), or none (`n`).
-pub const Job = enum { a, s, o, n };
+/// LAPACK's `JOBU`, `JOBVT`, `JOBZ`: all of `U` (`m x m`) or `Vᴴ` (`n x n`)
+/// (`A`), the first `min(m, n)` columns of `U` or rows of `Vᴴ` (`S`), those
+/// overwritten on `A` (`O`), or none (`N`).
+pub const SingularVectorJob = enum { all, leading, overwrite, none };
 
-/// What `gesvd` returns: `ConflictingJobs` when both jobs are `o`, a slice
+/// What `gesvd` returns: `ConflictingJobs` when both jobs are `.overwrite`, a slice
 /// too short (`a`, `s` under `min(m, n)`, `u` and `vt` where their jobs
 /// write them) or a leading dimension too small, `NoConvergence`.
 pub const GesvdError = error{ConflictingJobs} || interface.ShapeError || error{NoConvergence} || Allocator.Error || Io.Cancelable;
@@ -54,14 +54,14 @@ const qr_ratio = 11.0 / 6.0;
 /// zero (`min(m, n) - 1`, all of them, for an infinity or NaN in `A`); `s`,
 /// `U` and `Vᴴ` are then undefined. The reference also leaves that
 /// bidiagonal in `S` and `WORK`; rstd has no `WORK`.
-pub fn gesvd(allocator: Allocator, io: Io, comptime T: type, jobu: Job, jobvt: Job, m: usize, n: usize, a: []T, lda: usize, s: []Float(T), u: []T, ldu: usize, vt: []T, ldvt: usize, unconverged: ?*usize) GesvdError!void {
+pub fn gesvd(allocator: Allocator, io: Io, comptime T: type, jobu: SingularVectorJob, jobvt: SingularVectorJob, m: usize, n: usize, a: []T, lda: usize, s: []Float(T), u: []T, ldu: usize, vt: []T, ldvt: usize, unconverged: ?*usize) GesvdError!void {
     comptime ops.requireFloat(T, "gesvd");
     const minmn = @min(m, n);
-    if (jobu == .o and jobvt == .o) return error.ConflictingJobs;
+    if (jobu == .overwrite and jobvt == .overwrite) return error.ConflictingJobs;
     try util.holds(a.len, m, n, lda);
     if (s.len < minmn) return error.SliceTooShort;
-    if (jobu == .a or jobu == .s) try util.holds(u.len, m, if (jobu == .a) m else minmn, ldu);
-    if (jobvt == .a or jobvt == .s) try util.holds(vt.len, if (jobvt == .a) n else minmn, n, ldvt);
+    if (jobu == .all or jobu == .leading) try util.holds(u.len, m, if (jobu == .all) m else minmn, ldu);
+    if (jobvt == .all or jobvt == .leading) try util.holds(vt.len, if (jobvt == .all) n else minmn, n, ldvt);
     if (m == 0 or n == 0) return;
     run(allocator, io, T, jobu, jobvt, m, n, a.ptr, lda, s.ptr, u.ptr, ldu, vt.ptr, ldvt, std.math.maxInt(usize), unconverged) catch |e| return switch (e) {
         error.NanInA => error.NoConvergence,
@@ -69,33 +69,33 @@ pub fn gesvd(allocator: Allocator, io: Io, comptime T: type, jobu: Job, jobvt: J
     };
 }
 
-/// `?GESDD`: as `gesvd`, with one job for both: `a`, `s` and `n` as
-/// `gesvd`'s for `U` and `Vᴴ` alike; `o` puts `U` on `A` and all of `Vᴴ` in
+/// `?GESDD`: as `gesvd`, with one job for both: `.all`, `.leading` and
+/// `.none` as `gesvd`'s for `U` and `Vᴴ` alike; `.overwrite` puts `U` on `A` and all of `Vᴴ` in
 /// `vt` when `m >= n`, else all of `U` in `u` and `Vᴴ` on `A`. The
 /// bidiagonal by divide and conquer.
-pub fn gesdd(allocator: Allocator, io: Io, comptime T: type, jobz: Job, m: usize, n: usize, a: []T, lda: usize, s: []Float(T), u: []T, ldu: usize, vt: []T, ldvt: usize) GesddError!void {
+pub fn gesdd(allocator: Allocator, io: Io, comptime T: type, jobz: SingularVectorJob, m: usize, n: usize, a: []T, lda: usize, s: []Float(T), u: []T, ldu: usize, vt: []T, ldvt: usize) GesddError!void {
     comptime ops.requireFloat(T, "gesdd");
     const minmn = @min(m, n);
     try util.holds(a.len, m, n, lda);
     if (s.len < minmn) return error.SliceTooShort;
     const ucols = switch (jobz) {
-        .a => m,
-        .s => minmn,
-        .o => if (m < n) m else 0,
-        .n => 0,
+        .all => m,
+        .leading => minmn,
+        .overwrite => if (m < n) m else 0,
+        .none => 0,
     };
     const vtrows = switch (jobz) {
-        .a => n,
-        .s => minmn,
-        .o => if (m >= n) n else 0,
-        .n => 0,
+        .all => n,
+        .leading => minmn,
+        .overwrite => if (m >= n) n else 0,
+        .none => 0,
     };
     if (ucols > 0) try util.holds(u.len, m, ucols, ldu);
     if (vtrows > 0) try util.holds(vt.len, vtrows, n, ldvt);
     if (m == 0 or n == 0) return;
-    const jobu: Job, const jobvt: Job = switch (jobz) {
-        .o => if (m >= n) .{ .o, .a } else .{ .a, .o },
-        .a, .s, .n => .{ jobz, jobz },
+    const jobu: SingularVectorJob, const jobvt: SingularVectorJob = switch (jobz) {
+        .overwrite => if (m >= n) .{ .overwrite, .all } else .{ .all, .overwrite },
+        .all, .leading, .none => .{ jobz, jobz },
     };
     try run(allocator, io, T, jobu, jobvt, m, n, a.ptr, lda, s.ptr, u.ptr, ldu, vt.ptr, ldvt, dc_threshold, null);
 }
@@ -104,7 +104,7 @@ const RunError = error{ NanInA, NoConvergence } || ops.Error;
 
 /// Both drivers after their checks: the scaling of `dgesvd.f:652-667` and
 /// `dgesdd.f:585-606`, faer's SVD, and the vectors where the jobs put them.
-fn run(al: Allocator, io: Io, comptime T: type, jobu: Job, jobvt: Job, m: usize, n: usize, a: [*]T, lda: usize, s: [*]Float(T), u: [*]T, ldu: usize, vt: [*]T, ldvt: usize, threshold: usize, unconverged: ?*usize) RunError!void {
+fn run(al: Allocator, io: Io, comptime T: type, jobu: SingularVectorJob, jobvt: SingularVectorJob, m: usize, n: usize, a: [*]T, lda: usize, s: [*]Float(T), u: [*]T, ldu: usize, vt: [*]T, ldvt: usize, threshold: usize, unconverged: ?*usize) RunError!void {
     const F = Float(T);
     const minmn = @min(m, n);
     const am: Mat(T) = .{ .ptr = a, .rows = m, .cols = n, .ld = lda };
@@ -117,18 +117,18 @@ fn run(al: Allocator, io: Io, comptime T: type, jobu: Job, jobvt: Job, m: usize,
     };
     const anrm = scaled.anrm;
     const to = scaled.to;
-    // U: into `u`, or for `o` into a copy that goes to `A`
+    // U: into `u`, or for `.overwrite` into a copy that goes to `A`
     const ucols: usize = switch (jobu) {
-        .a => m,
-        .s, .o => minmn,
-        .n => 0,
+        .all => m,
+        .leading, .overwrite => minmn,
+        .none => 0,
     };
-    const want_u = jobu != .n;
-    const want_v = jobvt != .n;
-    const uo: ?Mat(T) = if (jobu == .o) try ops.alloc(T, al, m, minmn) else null;
+    const want_u = jobu != .none;
+    const want_v = jobvt != .none;
+    const uo: ?Mat(T) = if (jobu == .overwrite) try ops.alloc(T, al, m, minmn) else null;
     defer if (uo) |x| ops.free(T, al, x);
     const um: ?Mat(T) = if (!want_u) null else uo orelse Mat(T){ .ptr = u, .rows = m, .cols = ucols, .ld = ldu };
-    const vcols: usize = if (jobvt == .a) n else minmn;
+    const vcols: usize = if (jobvt == .all) n else minmn;
     const vm: ?Mat(T) = if (want_v) try ops.alloc(T, al, n, vcols) else null;
     defer if (vm) |x| ops.free(T, al, x);
     const sv = s[0..minmn];
@@ -139,8 +139,8 @@ fn run(al: Allocator, io: Io, comptime T: type, jobu: Job, jobvt: Job, m: usize,
     }
     if (uo) |x| am.sub(0, 0, m, minmn).copyFrom(x);
     if (vm) |x| {
-        // Vᴴ into `vt`, or for `o` into A's first rows
-        const dst: Mat(T) = if (jobvt == .o) am.sub(0, 0, minmn, n) else .{ .ptr = vt, .rows = vcols, .cols = n, .ld = ldvt };
+        // Vᴴ into `vt`, or for `.overwrite` into A's first rows
+        const dst: Mat(T) = if (jobvt == .overwrite) am.sub(0, 0, minmn, n) else .{ .ptr = vt, .rows = vcols, .cols = n, .ld = ldvt };
         for (0..n) |j| for (0..vcols) |i| {
             dst.at(i, j).* = ops.conj(T, x.get(j, i));
         };

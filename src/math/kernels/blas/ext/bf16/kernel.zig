@@ -14,12 +14,12 @@ const vector = @import("../../vector.zig");
 
 const BlasLong = types.BlasLong;
 const HF16 = types.HF16;
-const BF16 = types.BF16;
+const BFloat16 = types.BFloat16;
 
 // ---- conversions -----------------------------------------------------------
 
 /// `kernel/x86_64/tobf16.c`.
-pub fn toBf16(v: f32) BF16 {
+pub fn toBf16(v: f32) BFloat16 {
     var bits: u32 = @bitCast(v);
     const top: u16 = switch (bits & 0xff800000) {
         0x00000000 => 0x0000,
@@ -34,7 +34,7 @@ pub fn toBf16(v: f32) BF16 {
 }
 
 /// `kernel/x86_64/bf16to.c`.
-pub fn fromBf16(b: BF16) f32 {
+pub fn fromBf16(b: BFloat16) f32 {
     const h: u16 = @backingInt(b);
     const top: u16 = switch (h & 0xff80) {
         0x0000 => 0x0000,
@@ -48,10 +48,10 @@ pub fn fromBf16(b: BF16) f32 {
 /// To bfloat16 from `F`; a double rounds to float first, as upstream does.
 fn To(comptime F: type) type {
     return struct {
-        fn k(n: BlasLong, in: [*]F, inc_in: BlasLong, out: [*]BF16, inc_out: BlasLong) callconv(.c) void {
+        fn k(n: BlasLong, in: [*]F, inc_in: BlasLong, out: [*]BFloat16, inc_out: BlasLong) callconv(.c) void {
             var i: BlasLong = 0;
             while (i < n) : (i += 1) {
-                util.at(BF16, out, i * inc_out).* = toBf16(@floatCast(util.at(F, in, i * inc_in).*));
+                util.at(BFloat16, out, i * inc_out).* = toBf16(@floatCast(util.at(F, in, i * inc_in).*));
             }
         }
     };
@@ -60,10 +60,10 @@ fn To(comptime F: type) type {
 /// From bfloat16 to `F`.
 fn From(comptime F: type) type {
     return struct {
-        fn k(n: BlasLong, in: [*]BF16, inc_in: BlasLong, out: [*]F, inc_out: BlasLong) callconv(.c) void {
+        fn k(n: BlasLong, in: [*]BFloat16, inc_in: BlasLong, out: [*]F, inc_out: BlasLong) callconv(.c) void {
             var i: BlasLong = 0;
             while (i < n) : (i += 1) {
-                util.at(F, out, i * inc_out).* = fromBf16(util.at(BF16, in, i * inc_in).*);
+                util.at(F, out, i * inc_out).* = fromBf16(util.at(BFloat16, in, i * inc_in).*);
             }
         }
     };
@@ -81,12 +81,12 @@ pub const dbf16tod = &From(f64).k;
 /// `dummy2`: with 0 a zero `da` zeroes `x`; with 1, which the interface
 /// passes, it turns NaN and infinity into NaN. As in the C, the flag-1 test
 /// is on the bits of `da` (`bfloat16` is a `uint16_t`, so only +0 counts).
-fn bscal(n: BlasLong, _: BlasLong, _: BlasLong, da: BF16, x: [*]BF16, inc_x: BlasLong, _: [*]BF16, _: BlasLong, _: [*]BF16, flag: BlasLong) callconv(.c) i32 {
+fn bscal(n: BlasLong, _: BlasLong, _: BlasLong, da: BFloat16, x: [*]BFloat16, inc_x: BlasLong, _: [*]BFloat16, _: BlasLong, _: [*]BFloat16, flag: BlasLong) callconv(.c) i32 {
     if (n <= 0 or inc_x <= 0) return 0;
     const da_f = fromBf16(da);
     var j: BlasLong = 0;
     while (j < n) : (j += 1) {
-        const p = util.at(BF16, x, j * inc_x);
+        const p = util.at(BFloat16, x, j * inc_x);
         var v: f32 = undefined;
         if (flag == 0) {
             v = if (da_f == 0) 0 else da_f * fromBf16(p.*);
@@ -109,11 +109,11 @@ pub const bscal_k = &bscal;
 /// `x . y` with both operands widened to `f32`, the products and the sum in
 /// `f64`, returned as `f32`. (`kernel/x86_64/sbdot.c` widens into `malloc`ed
 /// buffers and calls `sdot`; this needs neither.)
-fn sbdot(n: BlasLong, x: [*]BF16, inc_x: BlasLong, y: [*]BF16, inc_y: BlasLong) callconv(.c) f32 {
+fn sbdot(n: BlasLong, x: [*]BFloat16, inc_x: BlasLong, y: [*]BFloat16, inc_y: BlasLong) callconv(.c) f32 {
     var sum: f64 = 0;
     var i: BlasLong = 0;
     while (i < n) : (i += 1) {
-        sum += @as(f64, fromBf16(util.at(BF16, x, i * inc_x).*)) * fromBf16(util.at(BF16, y, i * inc_y).*);
+        sum += @as(f64, fromBf16(util.at(BFloat16, x, i * inc_x).*)) * fromBf16(util.at(BFloat16, y, i * inc_y).*);
     }
     return @floatCast(sum);
 }
@@ -123,11 +123,11 @@ pub const sbdot_portable = &sbdot;
 // ---- half-precision gemv ---------------------------------------------------
 
 pub fn wide(comptime T: type, v: T) f32 {
-    return if (T == BF16) fromBf16(v) else @floatCast(v);
+    return if (T == BFloat16) fromBf16(v) else @floatCast(v);
 }
 
 pub fn narrow(comptime T: type, v: f32) T {
-    return if (T == BF16) toBf16(v) else @floatCast(v);
+    return if (T == BFloat16) toBf16(v) else @floatCast(v);
 }
 
 /// `y = alpha*op(A)*x + beta*y`, `A` column-major `m` by `n`. `E` is the type
@@ -196,8 +196,8 @@ const row_block = 256;
 /// The vtable roles of the family: slot prefix, type of `A` and `x`, of `y`.
 pub const families = .{
     .{ Gemm.sh, HF16, f32 },
-    .{ Gemm.b, BF16, BF16 },
-    .{ Gemm.sb, BF16, f32 },
+    .{ Gemm.b, BFloat16, BFloat16 },
+    .{ Gemm.sb, BFloat16, f32 },
 };
 
 const Gemm = slots.Gemm;
@@ -377,7 +377,7 @@ fn Lanes(comptime n: usize) type {
 /// `n` elements at `p` as `f32`, converted as `wide` does each.
 pub inline fn widen(comptime T: type, comptime n: usize, p: [*]const T) Lanes(n) {
     if (n == 1) return wide(T, p[0]);
-    if (T != BF16) return @floatCast(@as(@Vector(n, T), p[0..n].*));
+    if (T != BFloat16) return @floatCast(@as(@Vector(n, T), p[0..n].*));
     const U = @Vector(n, u16);
     const q: [*]const u16 = @ptrCast(p);
     const h: U = q[0..n].*;

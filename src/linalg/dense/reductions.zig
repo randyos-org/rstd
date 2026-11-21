@@ -90,12 +90,12 @@ pub fn sumWith(path: Path, io: Io, s: anytype) Io.Cancelable!@TypeOf(s.ptr[0]) {
 /// The largest element, or the first NaN; ties keep the first; 0 for an
 /// empty vector, as the BLAS's `max`. Real only.
 pub fn max(io: Io, x: anytype) VectorError!ElementOf(@TypeOf(x)) {
-    return extreme(.max, io, x);
+    return extreme(.largest, io, x);
 }
 
 /// The smallest element, or the first NaN, as `max`.
 pub fn min(io: Io, x: anytype) VectorError!ElementOf(@TypeOf(x)) {
-    return extreme(.min, io, x);
+    return extreme(.smallest, io, x);
 }
 
 pub fn extreme(comptime which: blas.Extreme, io: Io, x: anytype) VectorError!ElementOf(@TypeOf(x)) {

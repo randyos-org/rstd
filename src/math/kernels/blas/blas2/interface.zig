@@ -8,6 +8,7 @@ const std = @import("std");
 const sysinfo = @import("builtin");
 const blas = @import("../__root__.zig");
 const types = @import("../types.zig");
+const half_precision = @import("../half_precision.zig");
 const util = @import("../util.zig");
 const sym = @import("symmetric.zig");
 const portable = @import("../portable.zig");
@@ -166,31 +167,8 @@ fn gemvRun(allocator: Allocator, io: Io, comptime T: type, comptime t: Trans, m:
 
 // ---- half-precision gemv -----------------------------------------------------
 
-/// The half-precision `gemv`s: `sbgemv` is bfloat16 in and `f32` out, `bgemv`
-/// bfloat16 throughout, `shgemv` `f16` in and `f32` out.
-pub const HalfGemv = enum {
-    sbgemv,
-    bgemv,
-    shgemv,
-
-    pub fn In(comptime k: HalfGemv) type {
-        return if (k == .shgemv) types.HF16 else types.BF16;
-    }
-
-    /// Its family's gemm, which names its slots.
-    fn gemm(comptime k: HalfGemv) portable.Gemm {
-        return switch (k) {
-            .sbgemv => .sb,
-            .bgemv => .b,
-            .shgemv => .sh,
-        };
-    }
-
-    /// The type of `y`, `alpha` and `beta`.
-    pub fn Out(comptime k: HalfGemv) type {
-        return if (k == .bgemv) types.BF16 else f32;
-    }
-};
+/// Which half-precision `gemv` (`half_precision.zig`).
+pub const HalfPrecision = half_precision.HalfPrecision;
 
 /// `SBGEMV`, `BGEMV`, `SHGEMV` (`interface/sbgemv.c`): `y := alpha*op(A)*x +
 /// beta*y`, `A` being `m` by `n`; `trans` is `n`/`r` or `t`/`c`. Unlike
@@ -198,7 +176,7 @@ pub const HalfGemv = enum {
 /// `y` (when `beta` is not 1) without reading `A` or `x`. The kernels take no
 /// scratch buffer, so there is no allocator; the reference's threaded
 /// drivers are not here.
-pub fn gemvHalf(io: Io, comptime kind: HalfGemv, trans: Trans, m: isize, n: isize, alpha: kind.Out(), a: [*]kind.In(), lda: isize, x: [*]kind.In(), incx: isize, beta: kind.Out(), y: [*]kind.Out(), incy: isize) HalfError!void {
+pub fn gemvHalf(io: Io, comptime kind: HalfPrecision, trans: Trans, m: isize, n: isize, alpha: kind.Out(), a: [*]kind.In(), lda: isize, x: [*]kind.In(), incx: isize, beta: kind.Out(), y: [*]kind.Out(), incy: isize) HalfError!void {
     _ = io;
     const In = kind.In();
     const Out = kind.Out();
@@ -221,7 +199,7 @@ pub fn gemvHalf(io: Io, comptime kind: HalfGemv, trans: Trans, m: isize, n: isiz
     if (alpha_f == 0) {
         if (beta_f != 1) {
             const inc: BlasLong = @intCast(@abs(incy));
-            if (comptime kind == .bgemv) {
+            if (comptime kind == .bf16) {
                 _ = blas.kernel(.bscal_k)(leny, 0, 0, beta, y, inc, y, 0, y, 0);
             } else {
                 _ = blas.kernel(.sscal_k)(leny, 0, 0, beta, y, inc, y, 0, y, 0);

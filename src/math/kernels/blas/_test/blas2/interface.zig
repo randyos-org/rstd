@@ -15,7 +15,7 @@ const isComplex = types.isComplex;
 const Float = types.Float;
 const isZero = util.isZero;
 const gemv = interface.gemv;
-const HalfGemv = interface.HalfGemv;
+const HalfPrecision = interface.HalfPrecision;
 const gemvHalf = interface.gemvHalf;
 const ger = interface.ger;
 const gerc = interface.gerc;
@@ -339,14 +339,14 @@ test "interface: problems over the stack buffer allocate, and small gemv and ger
 // ---- half-precision gemv tests ----------------------------------------------
 
 fn halfIn(comptime E: type, v: f32) E {
-    return if (E == types.BF16) bf.toBf16(v) else @floatCast(v);
+    return if (E == types.BFloat16) bf.toBf16(v) else @floatCast(v);
 }
 
 fn halfVal(comptime E: type, v: E) f64 {
-    return if (E == types.BF16) bf.fromBf16(v) else @floatCast(v);
+    return if (E == types.BFloat16) bf.fromBf16(v) else @floatCast(v);
 }
 
-pub fn testGemvHalf(comptime kind: HalfGemv, trans: Trans, m: usize, n: usize, incx: isize, incy: isize, alpha: f32, beta: f32) !void {
+pub fn testGemvHalf(comptime kind: HalfPrecision, trans: Trans, m: usize, n: usize, incx: isize, incy: isize, alpha: f32, beta: f32) !void {
     const In = kind.In();
     const Out = kind.Out();
     const tr = trans.transposed();
@@ -383,7 +383,7 @@ pub fn testGemvHalf(comptime kind: HalfGemv, trans: Trans, m: usize, n: usize, i
     try gemvHalf(check.io, kind, trans, @intCast(m), @intCast(n), halfIn(Out, alpha), a.ptr, @intCast(lda), x.ptr, incx, halfIn(Out, beta), y.ptr, incy);
     for (want, y, 0..) |w, g, i| {
         const wv = halfVal(Out, w);
-        const tol: f64 = if (Out == types.BF16) 0.012 * @abs(wv) + 1e-3 else 1e-5 * @as(f64, @floatFromInt(lenx + 2)) + 1e-6 * @abs(wv);
+        const tol: f64 = if (Out == types.BFloat16) 0.012 * @abs(wv) + 1e-3 else 1e-5 * @as(f64, @floatFromInt(lenx + 2)) + 1e-6 * @abs(wv);
         if (!(@abs(wv - halfVal(Out, g)) <= tol)) {
             check.say("{s} {s} m={d} n={d} inc={d},{d} alpha={d} beta={d} y[{d}]: got {d}, want {d}\n", .{ @tagName(kind), @tagName(trans), m, n, incx, incy, alpha, beta, i, halfVal(Out, g), wv });
             return error.TestExpectedApproxEqAbs;
@@ -396,7 +396,7 @@ const half_scalars = [_][2]f32{ .{ 1.25, 0.5 }, .{ 1, 1 }, .{ 0, 0.5 }, .{ 1.5, 
 test "interface: the half-precision gemvs match plain arithmetic, for every trans, stride and scalar case" {
     const saved = usePortable();
     defer blas.testRestore(saved);
-    inline for (std.enums.values(HalfGemv)) |kind| {
+    inline for (std.enums.values(HalfPrecision)) |kind| {
         for ([_]Trans{ .n, .t, .r, .c }) |trans| for (shapes) |s| for (stride_pairs) |inc| for (half_scalars) |ab| {
             testGemvHalf(kind, trans, s.m, s.n, inc[0], inc[1], ab[0], ab[1]) catch |e| return e;
         };
@@ -406,7 +406,7 @@ test "interface: the half-precision gemvs match plain arithmetic, for every tran
 test "interface: half-precision gemv beta 0 overwrites NaN, alpha 0 never reads x or a" {
     const saved = usePortable();
     defer blas.testRestore(saved);
-    inline for (std.enums.values(HalfGemv)) |kind| {
+    inline for (std.enums.values(HalfPrecision)) |kind| {
         const In = kind.In();
         const Out = kind.Out();
         const nan_in = halfIn(In, std.math.nan(f32));
@@ -430,7 +430,7 @@ test "interface: half-precision gemv beta 0 overwrites NaN, alpha 0 never reads 
 test "interface: half-precision gemv reports the first bad argument and ignores empty problems" {
     const saved = usePortable();
     defer blas.testRestore(saved);
-    inline for (std.enums.values(HalfGemv)) |kind| {
+    inline for (std.enums.values(HalfPrecision)) |kind| {
         const In = kind.In();
         const Out = kind.Out();
         var a = [_]In{ halfIn(In, 1), halfIn(In, 2), halfIn(In, 3), halfIn(In, 4) };

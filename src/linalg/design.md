@@ -1070,7 +1070,7 @@ allows.
   their rook forms the first row of the first zero block of `D` (0-based), or null, as `getrf`
   (Z13). Their pivots are `Pivot`s: a 0-based row and whether it is in a 1 x 1 or a 2 x 2 block,
   packed in a `usize`, where LAPACK signs a 1-based index.
-- **Eigenvalue routines' indices and results** ([Z15](https://github.com/randyos-org/rstd/issues/316)): the reference's `ilo..ihi` is a 0-based `lo..hi`, `hi` past the end, which `gebal` returns as a `Block` and `gebak`, `gehrd`, `orghr` and `hseqr` take (an empty block, `lo == hi`, is allowed); `gebal`'s `scale` holds 0-based rows, and `gebak` returns `error.PivotOutOfRange` for one past `V`'s. `trexc`'s `ifst` and `ilst` are 0-based and stay in-out pointers, as the reference moves both. The single results come back: `gees` returns `sdim`, `trevc3` its columns used, `trsen` a `Reordered` (`m`, with `s` and `sep` as `job` asks, else null). `unconverged` stays an optional pointer, written only on `error.NoConvergence`. A NaN in `A` is `error.NanInA`. `gebal`, `gebak` and `trexc` take no allocator, as they never allocate.
+- **Eigenvalue routines' indices and results** ([Z15](https://github.com/randyos-org/rstd/issues/316)): the reference's `ilo..ihi` is a 0-based `lo..hi`, `hi` past the end, which `gebal` returns as a `BalancedRange` and `gebak`, `gehrd`, `orghr` and `hseqr` take (an empty block, `lo == hi`, is allowed); `gebal`'s `scale` holds 0-based rows, and `gebak` returns `error.PivotOutOfRange` for one past `V`'s. `trexc`'s `ifst` and `ilst` are 0-based and stay in-out pointers, as the reference moves both. The single results come back: `gees` returns `sdim`, `trevc3` its columns used, `trsen` a `ReorderedSchur` (`selected`, with `eigenvalue_condition` and `subspace_separation` as `job` asks, else null). `unconverged` stays an optional pointer, written only on `error.NoConvergence`. A NaN in `A` is `error.NanInA`. `gebal`, `gebak` and `trexc` take no allocator, as they never allocate.
 - **`laed3`:** OpenBLAS's own (`lapack/laed3/`) serves only the reference's `xSTEDC`, which
   rstd does not port: `syevd`'s merge is faer's (`tridiag_evd.zig`), whose `z` from the roots
   takes `sqrt(|prod|)` where `xLAED3` takes `sqrt(-W)` (NaN for a spuriously positive `W`,
@@ -1451,7 +1451,7 @@ the modern LAPACK fixes (T125 and T126) rather than M2 keeping the old routines 
 | `wmul`, `wdiv`, `wsign`, `wlog`, `watan`, `cabs1` | scalars | none (`blas.cabs1` exists) | keep as scalar helpers |
 | `matmul` (STACK2's `*`) | `CxMat.matmul`, `matrixfun` | `blas.gemm` | replace: the old one is an unblocked dot-per-entry loop |
 | `wgefa`, `wgesl` | `det`, `inv`, `mldivide`, `mrdivide` | `getrf`, `getrs` (`.n`, `.c`) | replace: the same partial pivoting by `cabs1` |
-| `wgeco` | `inv`, divisions | `lange(.o)`, `getrf`, `gecon(.o)` | replace: `gecon`'s estimate is tighter (E6) |
+| `wgeco` | `inv`, divisions | `lange(.one)`, `getrf`, `gecon(.one)` | replace: `gecon`'s estimate is tighter (E6) |
 | `wgedi` inverse | `inv` | `getri` (T123) | replace |
 | `wgedi` determinant | `det` | none (a composition) | **keep** the mantissa-times-`10^exponent` scaling over `getrf`'s diagonal (E1) |
 | `wpofa` | `chol` | `potrf(.u)` | replace: `wpofa` passes a NaN diagonal and rejects a complex diagonal entry (E9) |

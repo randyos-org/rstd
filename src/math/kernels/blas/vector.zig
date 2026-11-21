@@ -248,12 +248,12 @@ pub const ported = struct {
             .zhemv_L => &Z.hemv_L,
             .zhemv_V => &Z.hemv_V,
             .zhemv_M => &Z.hemv_M,
-            .sbgemv_n => &Half(types.BF16, f32).gemv_n,
-            .sbgemv_t => &Half(types.BF16, f32).gemv_t,
+            .sbgemv_n => &Half(types.BFloat16, f32).gemv_n,
+            .sbgemv_t => &Half(types.BFloat16, f32).gemv_t,
             .shgemv_n => &Half(types.HF16, f32).gemv_n,
             .shgemv_t => &Half(types.HF16, f32).gemv_t,
-            .bgemv_n => &Half(types.BF16, types.BF16).gemv_n,
-            .bgemv_t => &Half(types.BF16, types.BF16).gemv_t,
+            .bgemv_n => &Half(types.BFloat16, types.BFloat16).gemv_n,
+            .bgemv_t => &Half(types.BFloat16, types.BFloat16).gemv_t,
             else => @compileError(@tagName(slot) ++ " has no kernel in vector.ported"),
         };
     }

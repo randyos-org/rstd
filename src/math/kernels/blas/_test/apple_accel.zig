@@ -198,7 +198,7 @@ test "ddot, dgemm, zdotu_sub and isamax agree with rstd" {
             sx[613] = -3;
             const ia: I = t.cblas_isamax.?(sx.len, &sx, 1);
             try zigstd.testExpectEqual(@as(I, 613), ia);
-            try zigstd.testExpectEqual(try l1.index(check.io, f32, .amax, sx.len, &sx, 1), ia + 1);
+            try zigstd.testExpectEqual(try l1.index(check.io, f32, .largest_magnitude, sx.len, &sx, 1), ia + 1);
 
             // dgemm
             const m = 37;
@@ -400,11 +400,11 @@ fn everyRoutine(comptime T: type, on_: bool) !void {
     try p.saw(true, "asum");
     _ = try l1.sum(io, T, n, &x, 1);
     try p.saw(false, "sum");
-    _ = try l1.index(io, T, .amax, n, &x, 1);
+    _ = try l1.index(io, T, .largest_magnitude, n, &x, 1);
     try p.saw(false, "index amax");
-    _ = try l1.index(io, T, .amin, n, &x, 1);
+    _ = try l1.index(io, T, .smallest_magnitude, n, &x, 1);
     try p.saw(false, "index amin");
-    _ = try l1.extreme(io, T, .amax, n, &x, 1);
+    _ = try l1.extreme(io, T, .largest_magnitude, n, &x, 1);
     try p.saw(false, "extreme amax");
     try l1.rot(io, T, n, &x, 1, &y, 1, 0.6, 0.8);
     try p.saw(true, "rot");
@@ -747,12 +747,12 @@ test "on the 32-bit table, what does not fit c_int runs rstd's kernels" {
     var before = calls.load(.monotonic);
     try zigstd.testExpectEqual(@as(f64, -10.5), try l1.dot(io, f64, 3, &x, 1, &y, 1));
     try expectCalled(true, before, "dot");
-    try zigstd.testExpectEqual(@as(isize, 3), try l1.index(io, f64, .amax, 3, &x, 1));
+    try zigstd.testExpectEqual(@as(isize, 3), try l1.index(io, f64, .largest_magnitude, 3, &x, 1));
     // one element at a stride past `c_int`
     before = calls.load(.monotonic);
     try zigstd.testExpectEqual(@as(f64, 0.5), try l1.dot(io, f64, 1, &x, big, &y, 1));
     try zigstd.testExpectEqual(@as(f64, 1), try l1.asum(io, f64, 1, &x, big));
-    try zigstd.testExpectEqual(@as(isize, 1), try l1.index(io, f64, .amax, 1, &x, big));
+    try zigstd.testExpectEqual(@as(isize, 1), try l1.index(io, f64, .largest_magnitude, 1, &x, big));
     // one column at a leading dimension past it
     var c = [_]f64{ 1, 1, 1 };
     try l2.gemv(al, io, f64, .n, 3, 1, 2, &x, big, &y, 1, 1, &c, 1);
@@ -824,7 +824,7 @@ fn run1(comptime T: type, comptime r: R1, k: usize, n: usize, x: *check.Vector(T
         .dsdot => if (comptime T == f32) return out1(try l1.dsdot(io, ni, xb, x.inc, yb, y.inc)),
         .nrm2 => return out1(try l1.nrm2(io, T, ni, xb, x.inc)),
         .asum => return out1(try l1.asum(io, T, ni, xb, x.inc)),
-        .iamax => return .{ .i = try l1.index(io, T, .amax, ni, xb, x.inc) },
+        .iamax => return .{ .i = try l1.index(io, T, .largest_magnitude, ni, xb, x.inc) },
         .rot => try l1.rot(io, T, ni, xb, x.inc, yb, y.inc, @floatCast(s.cs[0]), @floatCast(s.cs[1])),
         .rotm => if (comptime !isComplex(T)) {
             const param = [5]F{ @floatCast(s.flag), 0.75, -0.5, 0.25, 1.25 };

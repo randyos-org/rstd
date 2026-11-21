@@ -95,7 +95,7 @@ pub const SytrfError = sytrf_factor.SytrfError;
 /// One entry of `sytrf`'s pivots: a row (0-based) and its block of `D`.
 pub const Pivot = sytrf_factor.Pivot;
 /// `sygst`'s and `hegst`'s eigenproblem, LAPACK's `itype`.
-pub const Problem = relapack.Problem;
+pub const GeneralizedProblem = relapack.GeneralizedProblem;
 /// `sygst`, `hegst`.
 pub const SygstError = relapack.SygstError;
 pub const sytrf = sytrf_factor.sytrf;
@@ -135,7 +135,7 @@ pub const gelsy = lsq.gelsy;
 /// infinity in `A`.
 pub const SyevError = evd.SyevError;
 /// The eigensolvers' `jobz`, `jobvl`, `jobvr`.
-pub const Jobz = evd.Jobz;
+pub const VectorJob = evd.VectorJob;
 pub const syevd = evd.syevd;
 pub const heevd = evd.syevd;
 pub const syev = evd.syev;
@@ -150,21 +150,21 @@ pub const Eigenvalues = schur.Eigenvalues;
 /// `hseqr`: its block `lo..hi` 0-based, `hi` past the end, as `gebal`
 /// returns it; `error.NoConvergence`.
 pub const HseqrError = schur.HseqrError;
-pub const HseqrJob = schur.HseqrJob;
-pub const Compz = schur.Compz;
+pub const SchurJob = schur.SchurJob;
+pub const SchurVectors = schur.SchurVectors;
 /// `gees`: returns `sdim`; a NaN in `A` is `error.NanInA`;
 /// `error.NoConvergence`, `error.SelectChanged`, `error.SwapRejected`.
 pub const GeesError = schur.GeesError;
-pub const GeesSelect = schur.GeesSelect;
+pub const EigenvalueSelector = schur.EigenvalueSelector;
 /// `trevc3`: returns the columns used (the reference's `m`).
 pub const Trevc3Error = trevc_vectors.Trevc3Error;
-pub const TrevcSide = trevc_vectors.Side;
-pub const Howmny = trevc_vectors.Howmny;
+pub const EigenvectorSide = trevc_vectors.EigenvectorSide;
+pub const EigenvectorSelection = trevc_vectors.EigenvectorSelection;
 /// `gebal`'s and `gebak`'s `JOB`.
-pub const BalanceJob = balance.BalanceJob;
+pub const Balancing = balance.Balancing;
 /// `gebal`'s result: the block `lo..hi` (0-based, `hi` past the end)
 /// outside which `A` is triangular.
-pub const BalanceBlock = balance.Block;
+pub const BalancedRange = balance.BalancedRange;
 /// `gebal`: returns its block; a NaN in `A` is `error.NanInA`. `scale`'s
 /// swapped rows are 0-based.
 pub const GebalError = balance.GebalError;
@@ -174,25 +174,25 @@ pub const GebakError = balance.GebakError;
 pub const GehrdError = hessenberg.GehrdError;
 pub const OrghrError = hessenberg.OrghrError;
 /// `trexc`'s and `trsen`'s `COMPQ`.
-pub const Compq = schur.Compq;
+pub const ReorderVectors = schur.ReorderVectors;
 /// `trsen`'s `JOB`.
-pub const TrsenJob = schur.TrsenJob;
+pub const ConditionJob = schur.ConditionJob;
 /// `trexc`: `ifst` and `ilst` 0-based; `error.SwapRejected`, real only: a
 /// swap too ill-conditioned to make.
 pub const TrexcError = schur.TrexcError;
-/// `trsen`: returns `Reordered`; `error.SwapRejected`.
+/// `trsen`: returns `ReorderedSchur`; `error.SwapRejected`.
 pub const TrsenError = schur.TrsenError;
-/// `trsen`'s result: the cluster's size, and `s` and `sep` as `job` asks.
-pub const Reordered = schur.Reordered;
-/// `trsyl`: returns `Solved`, `scale` and `perturbed` for close eigenvalues.
+/// `trsen`'s result: the cluster's size, and its condition numbers as `job` asks.
+pub const ReorderedSchur = schur.ReorderedSchur;
+/// `trsyl`: returns `SylvesterSolution`, `scale` and `perturbed` for close eigenvalues.
 pub const TrsylError = trsyl_solve.TrsylError;
 /// `trsyl`'s result.
-pub const Solved = trsyl_solve.Solved;
-/// `tgsyl`: returns `SolvedWithDif`, `scale`, `dif` as `ijob` asks and
+pub const SylvesterSolution = trsyl_solve.SylvesterSolution;
+/// `tgsyl`: returns `GeneralizedSylvesterSolution`, `scale`, `separation` as `ijob` asks and
 /// `perturbed` for close eigenvalues.
 pub const TgsylError = tgsyl_solve.TgsylError;
 /// `tgsyl`'s result.
-pub const SolvedWithDif = tgsyl_solve.SolvedWithDif;
+pub const GeneralizedSylvesterSolution = tgsyl_solve.GeneralizedSylvesterSolution;
 pub const geev = evd.geev;
 pub const hseqr = schur.hseqr;
 pub const gees = schur.gees;
@@ -208,18 +208,18 @@ pub const trsen = schur.trsen;
 pub const trsyl = trsyl_solve.trsyl;
 pub const tgsyl = tgsyl_solve.tgsyl;
 
-/// `gesvd`: both jobs `o` is `error.ConflictingJobs`; `error.NoConvergence`,
+/// `gesvd`: both jobs `.overwrite` is `error.ConflictingJobs`; `error.NoConvergence`,
 /// its count of unconverged superdiagonals in the last argument.
 pub const GesvdError = svd.GesvdError;
 /// `gesdd`: a NaN in `A` is `error.NanInA`; `error.NoConvergence`.
 pub const GesddError = svd.GesddError;
 /// `gesvd`'s and `gesdd`'s jobs.
-pub const Job = svd.Job;
+pub const SingularVectorJob = svd.SingularVectorJob;
 pub const gesvd = svd.gesvd;
 pub const gesdd = svd.gesdd;
 
 /// `lange`'s and `gecon`'s `NORM`.
-pub const Norm = norm.Norm;
+pub const NormType = norm.NormType;
 /// `lange`: a slice too short or short `lda`, or `error.OutOfMemory`.
 pub const LangeError = norm.LangeError;
 /// `gecon`: returns `rcond`; a negative, NaN or infinite `anorm` is
@@ -327,12 +327,12 @@ test "lapack: ReLAPACK's routines through their public names, 2 x 2 smoke tests"
     // sygst, `A x = λ B x`: B = 2 I factored is L = sqrt(2) I, so C = A / 2
     var a = [_]f64{ 4, 2, 2, 6 };
     const l = [_]f64{ @sqrt(2.0), 0, 0, @sqrt(2.0) };
-    try sygst(al, io, f64, .ax_lbx, .l, 2, &a, 2, &l, 2);
+    try sygst(al, io, f64, .ax_equals_lambda_bx, .l, 2, &a, 2, &l, 2);
     try near(&.{ 2, 1 }, &.{ a[0], a[1] });
     try testing.expectApproxEqAbs(@as(f64, 3), a[3], 1e-14);
     var ha = [_]types.Complex64{ .init(4, 0), .init(2, 0), .init(2, 0), .init(6, 0) };
     const hl = [_]types.Complex64{ .init(@sqrt(2.0), 0), .init(0, 0), .init(0, 0), .init(@sqrt(2.0), 0) };
-    try hegst(al, io, types.Complex64, .ax_lbx, .u, 2, &ha, 2, &hl, 2);
+    try hegst(al, io, types.Complex64, .ax_equals_lambda_bx, .u, 2, &ha, 2, &hl, 2);
     try testing.expectApproxEqAbs(@as(f64, 3), ha[3].re, 1e-14);
     // pbtrf: [4 2; 2 5] in upper band storage (kd 1) is U = [2 1; 0 2]
     var ab = [_]f64{ 0, 4, 2, 5 };

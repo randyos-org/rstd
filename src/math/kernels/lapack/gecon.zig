@@ -17,12 +17,13 @@ const Float = types.Float;
 const isComplex = types.isComplex;
 const Trans = types.Trans;
 const Error = ops.Error;
-const Norm = norms.Norm;
+const NormType = norms.NormType;
 const lacn2 = lacn2_estimate.lacn2;
 const rscl = latrs_solve.rscl;
 const scaledSolve = latrs_solve.scaledSolve;
 
-/// What `gecon` returns: `UnsupportedNorm` for other than `o` or `i`; a
+/// What `gecon` returns: `UnsupportedNorm` for other than `.one` or
+/// `.infinity`; a
 /// slice too short or a leading dimension too small; `NormOutOfRange` for a
 /// negative, infinite or NaN `anorm` (the reference's `INFO = -5`, the last
 /// two after its checks); `EstimateFailed` for the reference's `INFO = 1`,
@@ -30,19 +31,19 @@ const scaledSolve = latrs_solve.scaledSolve;
 pub const GeconError = error{ UnsupportedNorm, NormOutOfRange, EstimateFailed } || interface.ShapeError || Allocator.Error || Io.Cancelable;
 
 /// `?GECON` (`dgecon.f`, `zgecon.f`): an estimate of the reciprocal
-/// condition number `1 / (‖A‖ ‖A⁻¹‖)` in the one (`o`) or infinity (`i`)
+/// condition number `1 / (‖A‖ ‖A⁻¹‖)` in the one or infinity
 /// norm, from `getrf`'s `L U` in `A` (`n x n`) and `anorm`, `A`'s norm
 /// before factoring. `‖A⁻¹‖` comes from `lacn2` over solves with `L` and
 /// `U` (`latrs`). Returns `rcond`: 1 for `n = 0`, 0 for `anorm = 0` or a
 /// solve that would overflow, the estimate otherwise. Takes `5 n` elements
 /// of workspace.
-pub fn gecon(allocator: Allocator, io: Io, comptime T: type, norm: Norm, n: usize, a: []const T, lda: usize, anorm: Float(T)) GeconError!Float(T) {
+pub fn gecon(allocator: Allocator, io: Io, comptime T: type, norm: NormType, n: usize, a: []const T, lda: usize, anorm: Float(T)) GeconError!Float(T) {
     comptime ops.requireFloat(T, "gecon");
     const F = Float(T);
     const onenrm = switch (norm) {
-        .o => true,
-        .i => false,
-        .m, .f => return error.UnsupportedNorm,
+        .one => true,
+        .infinity => false,
+        .max_abs, .frobenius => return error.UnsupportedNorm,
     };
     try util.holds(a.len, n, n, lda);
     if (anorm < 0) return error.NormOutOfRange;

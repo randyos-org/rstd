@@ -34,7 +34,7 @@ pub const tgsy2 = tgsy2_kernel.tgsy2;
 
 /// What `trsy2` returns: `scale` and whether a near-singular system was
 /// perturbed (the reference's `INFO = 1`).
-pub fn Solved(comptime F: type) type {
+pub fn SylvesterSolution(comptime F: type) type {
     return struct { scale: F, perturbed: bool };
 }
 
@@ -58,9 +58,9 @@ pub fn blockOf(comptime T: type, n: usize, a: [*]const T, lda: usize, i: usize) 
 }
 
 /// `xTRSYL`: `ta`, `tb` transpose (complex: conjugate-transpose) `A`, `B`.
-pub fn trsy2(comptime T: type, ta: bool, tb: bool, isgn: isize, m: usize, n: usize, a: [*]const T, lda: usize, b: [*]const T, ldb: usize, c: [*]T, ldc: usize) Solved(Float(T)) {
+pub fn trsy2(comptime T: type, ta: bool, tb: bool, isgn: isize, m: usize, n: usize, a: [*]const T, lda: usize, b: [*]const T, ldb: usize, c: [*]T, ldc: usize) SylvesterSolution(Float(T)) {
     const F = Float(T);
-    var out: Solved(F) = .{ .scale = 1, .perturbed = false };
+    var out: SylvesterSolution(F) = .{ .scale = 1, .perturbed = false };
     if (m == 0 or n == 0) return out;
     const eps = std.math.floatEps(F);
     const smlnum = std.math.floatMin(F) * @as(F, @floatFromInt(m * n)) / eps;

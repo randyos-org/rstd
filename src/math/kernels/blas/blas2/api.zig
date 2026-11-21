@@ -26,7 +26,7 @@ const ConstStrided = strided.ConstStrided;
 const holds = util.holds;
 const holdsPacked = util.holdsPacked;
 
-pub const HalfGemv = iface.HalfGemv;
+pub const HalfPrecision = iface.HalfPrecision;
 
 /// A level-2 routine's bad input: counts that disagree, a slice too short for
 /// its matrix, a leading dimension below the matrix's rows; and
@@ -88,7 +88,7 @@ pub fn gemv(allocator: Allocator, io: Io, comptime T: type, trans: Trans, alpha:
 
 /// `gemv` in half precision: `kind` picks bfloat16 or `f16` in, `f32` or
 /// bfloat16 out.
-pub fn gemvHalf(io: Io, comptime kind: HalfGemv, trans: Trans, alpha: kind.Out(), a: []const kind.In(), lda: usize, x: ConstStrided(kind.In()), beta: kind.Out(), y: Strided(kind.Out())) HalfError!void {
+pub fn gemvHalf(io: Io, comptime kind: HalfPrecision, trans: Trans, alpha: kind.Out(), a: []const kind.In(), lda: usize, x: ConstStrided(kind.In()), beta: kind.Out(), y: Strided(kind.Out())) HalfError!void {
     const mn = dims(trans, x.n, y.n);
     try holds(a.len, mn[0], mn[1], lda);
     iface.gemvHalf(io, kind, trans, len(mn[0]), len(mn[1]), alpha, mat(kind.In(), a), len(lda), ptr(kind.In(), x), inc(x), beta, ptr(kind.Out(), y), inc(y)) catch |e| return mappedHalf(e);

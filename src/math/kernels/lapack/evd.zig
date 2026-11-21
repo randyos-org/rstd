@@ -33,7 +33,7 @@ const isComplex = ops.isComplex;
 const Eigenvalues = schur.Eigenvalues;
 const Uplo = types.Uplo;
 
-pub const Jobz = interface.Jobz;
+pub const VectorJob = interface.VectorJob;
 
 /// What `syevd`, `heevd`, `syev` and `heev` return: a reversed `uplo`, a
 /// slice too short (`a`, or `w` under `n`) or a leading dimension too
@@ -46,8 +46,8 @@ pub const dc_threshold = 128;
 
 /// `?SYEVD`, `?HEEVD`: the eigenvalues of the `n x n` symmetric (Hermitian)
 /// `A`, from its `uplo` triangle, into `w` (`n`, nondecreasing); with
-/// `jobz` `v` the orthonormal eigenvectors over `A`. Divide and conquer.
-pub fn syevd(allocator: Allocator, io: Io, comptime T: type, jobz: Jobz, uplo: Uplo, n: usize, a: []T, lda: usize, w: []Float(T)) SyevError!void {
+/// `jobz` `.compute` the orthonormal eigenvectors over `A`. Divide and conquer.
+pub fn syevd(allocator: Allocator, io: Io, comptime T: type, jobz: VectorJob, uplo: Uplo, n: usize, a: []T, lda: usize, w: []Float(T)) SyevError!void {
     return driver(allocator, io, T, jobz, uplo, n, a, lda, w, dc_threshold);
 }
 
@@ -60,17 +60,17 @@ pub fn syevd(allocator: Allocator, io: Io, comptime T: type, jobz: Jobz, uplo: U
 pub const stebr_crossover = 40;
 
 /// `?SYEV`, `?HEEV`: as `syevd`, the tridiagonal's vectors by QR iteration.
-pub fn syev(allocator: Allocator, io: Io, comptime T: type, jobz: Jobz, uplo: Uplo, n: usize, a: []T, lda: usize, w: []Float(T)) SyevError!void {
+pub fn syev(allocator: Allocator, io: Io, comptime T: type, jobz: VectorJob, uplo: Uplo, n: usize, a: []T, lda: usize, w: []Float(T)) SyevError!void {
     return driver(allocator, io, T, jobz, uplo, n, a, lda, w, std.math.maxInt(usize));
 }
 
-fn driver(al: Allocator, io: Io, comptime T: type, jobz: Jobz, uplo: Uplo, n: usize, a: []T, lda: usize, w: []Float(T), threshold: usize) SyevError!void {
+fn driver(al: Allocator, io: Io, comptime T: type, jobz: VectorJob, uplo: Uplo, n: usize, a: []T, lda: usize, w: []Float(T), threshold: usize) SyevError!void {
     comptime ops.requireFloat(T, "syevd");
     try interface.holdsTriangle(uplo, n, a.len, lda);
     if (w.len < n) return error.SliceTooShort;
     if (n == 0) return;
     const am: Mat(T) = .{ .ptr = a.ptr, .rows = n, .cols = n, .ld = lda };
-    return symmetric(al, io, T, jobz == .v, uplo.isLower(), am, w[0..n], threshold);
+    return symmetric(al, io, T, jobz == .compute, uplo.isLower(), am, w[0..n], threshold);
 }
 
 /// The drivers after their checks: `dsyevd.f:292-307`'s scaling into
@@ -178,7 +178,7 @@ pub fn selfAdjointEvd(al: Allocator, io: Io, comptime T: type, trid: Mat(T), s: 
 pub const GeevError = interface.ShapeError || interface.NanError || error{NoConvergence} || Allocator.Error || Io.Cancelable;
 
 /// `?GEEV`: the eigenvalues of the general `n x n` `A` into `w`, and with
-/// `jobvl`, `jobvr` `v` its left (`uᴴ A = λ uᴴ`) and right (`A v = λ v`)
+/// `jobvl`, `jobvr` `.compute` its left (`uᴴ A = λ uᴴ`) and right (`A v = λ v`)
 /// eigenvectors into `vl`, `vr`, each of unit 2-norm with its largest
 /// entry real. Real: complex pairs come together, positive imaginary part
 /// first, their vectors as `v(:, j) ± i v(:, j + 1)`. `A` is overwritten.
@@ -191,13 +191,13 @@ pub const GeevError = interface.ShapeError || interface.NanError || error{NoConv
 /// did not converge, `w[i..n]` hold those that did, and no eigenvectors are
 /// computed (`vl`, `vr` undefined), as `dgeev.f` documents. For an infinity
 /// in `A` it gets `n`.
-pub fn geev(allocator: Allocator, io: Io, comptime T: type, jobvl: Jobz, jobvr: Jobz, n: usize, a: []T, lda: usize, w: Eigenvalues(T), vl: []T, ldvl: usize, vr: []T, ldvr: usize, unconverged: ?*usize) GeevError!void {
+pub fn geev(allocator: Allocator, io: Io, comptime T: type, jobvl: VectorJob, jobvr: VectorJob, n: usize, a: []T, lda: usize, w: Eigenvalues(T), vl: []T, ldvl: usize, vr: []T, ldvr: usize, unconverged: ?*usize) GeevError!void {
     comptime ops.requireFloat(T, "geev");
     const F = Float(T);
     try util.holds(a.len, n, n, lda);
     try schur.eigenvaluesHold(T, w, n);
-    if (jobvl == .v) try util.holds(vl.len, n, n, ldvl);
-    if (jobvr == .v) try util.holds(vr.len, n, n, ldvr);
+    if (jobvl == .compute) try util.holds(vl.len, n, n, ldvl);
+    if (jobvr == .compute) try util.holds(vr.len, n, n, ldvr);
     if (n == 0) return;
     const un = n;
     const am: Mat(T) = .{ .ptr = a.ptr, .rows = un, .cols = un, .ld = lda };
@@ -215,8 +215,8 @@ pub fn geev(allocator: Allocator, io: Io, comptime T: type, jobvl: Jobz, jobvr: 
     const scale = try allocator.alloc(F, un);
     defer allocator.free(scale);
     const bal = try balance.balance(io, T, am, scale);
-    const ul: ?Mat(T) = if (jobvl == .v) Mat(T){ .ptr = vl.ptr, .rows = un, .cols = un, .ld = ldvl } else null;
-    const ur: ?Mat(T) = if (jobvr == .v) Mat(T){ .ptr = vr.ptr, .rows = un, .cols = un, .ld = ldvr } else null;
+    const ul: ?Mat(T) = if (jobvl == .compute) Mat(T){ .ptr = vl.ptr, .rows = un, .cols = un, .ld = ldvl } else null;
+    const ur: ?Mat(T) = if (jobvr == .compute) Mat(T){ .ptr = vr.ptr, .rows = un, .cols = un, .ld = ldvr } else null;
     // `dgeev.f:398-404`: after a failure only `w[info..n]` is scaled back
     var info: usize = 0;
     const res = if (comptime isComplex(T))

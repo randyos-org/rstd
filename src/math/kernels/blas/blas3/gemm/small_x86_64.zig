@@ -13,7 +13,7 @@ const gk = @import("kernel.zig");
 const small_kernel = @import("small_kernel.zig");
 
 const BlasLong = types.BlasLong;
-const BF16 = types.BF16;
+const BFloat16 = types.BFloat16;
 const Slot = util.Slot;
 
 pub const Core = coretypes.X86CoreType;
@@ -355,18 +355,18 @@ pub const Cooperlake = struct {
 
     fn Ops(comptime ta: bool, comptime tb: bool) type {
         return struct {
-            fn scaled(m: BlasLong, n: BlasLong, k: BlasLong, a: [*]BF16, lda: BlasLong, alpha: f32, b: [*]BF16, ldb: BlasLong, beta: f32, c: [*]f32, ldc: BlasLong) callconv(.c) i32 {
+            fn scaled(m: BlasLong, n: BlasLong, k: BlasLong, a: [*]BFloat16, lda: BlasLong, alpha: f32, b: [*]BFloat16, ldb: BlasLong, beta: f32, c: [*]f32, ldc: BlasLong) callconv(.c) i32 {
                 run(ta, tb, false, @intCast(m), @intCast(n), @intCast(k), a, @intCast(lda), alpha, b, @intCast(ldb), beta, c, @intCast(ldc));
                 return 0;
             }
-            fn zero(m: BlasLong, n: BlasLong, k: BlasLong, a: [*]BF16, lda: BlasLong, alpha: f32, b: [*]BF16, ldb: BlasLong, c: [*]f32, ldc: BlasLong) callconv(.c) i32 {
+            fn zero(m: BlasLong, n: BlasLong, k: BlasLong, a: [*]BFloat16, lda: BlasLong, alpha: f32, b: [*]BFloat16, ldb: BlasLong, c: [*]f32, ldc: BlasLong) callconv(.c) i32 {
                 run(ta, tb, true, @intCast(m), @intCast(n), @intCast(k), a, @intCast(lda), alpha, b, @intCast(ldb), 0, c, @intCast(ldc));
                 return 0;
             }
         };
     }
 
-    fn run(comptime ta: bool, comptime tb: bool, b0: bool, m: usize, n: usize, k: usize, a: [*]const BF16, lda: usize, alpha: f32, b: [*]const BF16, ldb: usize, beta: f32, c: [*]f32, ldc: usize) void {
+    fn run(comptime ta: bool, comptime tb: bool, b0: bool, m: usize, n: usize, k: usize, a: [*]const BFloat16, lda: usize, alpha: f32, b: [*]const BFloat16, ldb: usize, beta: f32, c: [*]f32, ldc: usize) void {
         // `sbgemm_zero_operation`, `sbgemm_scal_operation`
         for (0..n) |j| for (c[j * ldc ..][0..m]) |*e| {
             e.* = if (b0) 0 else beta * e.*;
@@ -381,7 +381,7 @@ pub const Cooperlake = struct {
     }
 
     /// Rows by `block_m`, then by a vector, then the rest masked.
-    fn rows(comptime ta: bool, comptime tb: bool, comptime wn: usize, m: usize, l0: usize, kl: usize, a: [*]const BF16, lda: usize, alpha: f32, b: [*]const BF16, ldb: usize, c: [*]f32, ldc: usize, j: usize) void {
+    fn rows(comptime ta: bool, comptime tb: bool, comptime wn: usize, m: usize, l0: usize, kl: usize, a: [*]const BFloat16, lda: usize, alpha: f32, b: [*]const BFloat16, ldb: usize, c: [*]f32, ldc: usize, j: usize) void {
         var i: usize = 0;
         while (i + block_m <= m) : (i += block_m) block(ta, tb, block_m / L, wn, L, i, l0, kl, a, lda, alpha, b, ldb, c, ldc, j);
         while (i + L <= m) : (i += L) block(ta, tb, 1, wn, L, i, l0, kl, a, lda, alpha, b, ldb, c, ldc, j);
@@ -390,22 +390,22 @@ pub const Cooperlake = struct {
 
     /// `nv` vectors of rows (`len` of the last) by `wn` columns over one
     /// slice: `C += alpha*sum`, the product and the sum each rounded.
-    fn block(comptime ta: bool, comptime tb: bool, comptime nv: usize, comptime wn: usize, len: usize, i: usize, l0: usize, kl: usize, a: [*]const BF16, lda: usize, alpha: f32, b: [*]const BF16, ldb: usize, c: [*]f32, ldc: usize, j: usize) void {
+    fn block(comptime ta: bool, comptime tb: bool, comptime nv: usize, comptime wn: usize, len: usize, i: usize, l0: usize, kl: usize, a: [*]const BFloat16, lda: usize, alpha: f32, b: [*]const BFloat16, ldb: usize, c: [*]f32, ldc: usize, j: usize) void {
         var acc: [wn][nv]V = @splat(@splat(@splat(0)));
         for (l0..l0 + kl) |l| {
             var av: [nv]V = undefined;
             inline for (0..nv) |v| {
                 const r0 = i + v * L;
                 if (!ta and len == L) {
-                    av[v] = bf16_kernel.widen(BF16, L, a + r0 + l * lda);
+                    av[v] = bf16_kernel.widen(BFloat16, L, a + r0 + l * lda);
                 } else {
                     var w: [L]f32 = @splat(0);
-                    for (w[0..len], 0..) |*e, r| e.* = bf16_kernel.wide(BF16, if (ta) a[l + (r0 + r) * lda] else a[r0 + r + l * lda]);
+                    for (w[0..len], 0..) |*e, r| e.* = bf16_kernel.wide(BFloat16, if (ta) a[l + (r0 + r) * lda] else a[r0 + r + l * lda]);
                     av[v] = w;
                 }
             }
             inline for (0..wn) |q| {
-                const y = bf16_kernel.wide(BF16, if (tb) b[j + q + l * ldb] else b[l + (j + q) * ldb]);
+                const y = bf16_kernel.wide(BFloat16, if (tb) b[j + q + l * ldb] else b[l + (j + q) * ldb]);
                 inline for (0..nv) |v| acc[q][v] = fma.madd(false, V, av[v], @splat(y), acc[q][v]);
             }
         }

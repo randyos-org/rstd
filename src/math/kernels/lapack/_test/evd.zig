@@ -18,7 +18,7 @@ const Mat = ops.Mat;
 const Float = ops.Float;
 const isComplex = ops.isComplex;
 const Uplo = types.Uplo;
-const Jobz = evd.Jobz;
+const VectorJob = evd.VectorJob;
 
 pub const test_types = .{ f32, f64, types.Complex32, types.Complex64 };
 
@@ -60,7 +60,7 @@ const Routine = enum { syevd, syev };
 
 /// The routine on a copy of `a0` (padded `lda`), both triangles hidden
 /// behind NaN but the one `uplo` names; the vectors into `v`.
-fn decompose(comptime T: type, al: Allocator, io: Io, r: Routine, jobz: Jobz, uplo: Uplo, a0: Mat(T), w: []Float(T), v: ?Mat(T)) !void {
+fn decompose(comptime T: type, al: Allocator, io: Io, r: Routine, jobz: VectorJob, uplo: Uplo, a0: Mat(T), w: []Float(T), v: ?Mat(T)) !void {
     const n = a0.rows;
     const lda = n + 1;
     const a = try ops.alloc(T, al, lda, n);
@@ -92,9 +92,9 @@ test "faer evd: syevd and syev, A V = V L with V orthonormal, both triangles, fa
             const v = try ops.alloc(T, al, n, n);
             defer ops.free(T, al, v);
             for ([_]Routine{ .syevd, .syev }) |r| for ([_]Uplo{ .l, .u }) |uplo| {
-                try decompose(T, al, check.io, r, .v, uplo, a0, w, v);
+                try decompose(T, al, check.io, r, .compute, uplo, a0, w, v);
                 try expectSym(T, al, a0, w, v, @tagName(r));
-                try decompose(T, al, check.io, r, .n, uplo, a0, w2, null);
+                try decompose(T, al, check.io, r, .none, uplo, a0, w2, null);
                 for (w, w2) |x, y| try testing.expect(@abs(x - y) <= tolerance(F, n, auxiliary.normMax(T, a0)));
             };
         }
@@ -146,7 +146,7 @@ test "faer evd: special matrices, faer's test_special: zero, ones, identity; ran
             const v = try ops.alloc(T, al, n, n);
             defer ops.free(T, al, v);
             for ([_]Routine{ .syevd, .syev }) |r| {
-                decompose(T, al, check.io, r, .v, .l, a0, w, v) catch |e| {
+                decompose(T, al, check.io, r, .compute, .l, a0, w, v) catch |e| {
                     check.say("{s} {s} n={d} kind {d}: {t}\n", .{ @tagName(r), @typeName(T), n, kind, e });
                     return e;
                 };
@@ -177,7 +177,7 @@ test "faer evd: OpenBLAS's test_laed3_nan.c: dsyevd on I + 10 v vᵀ, nearly deg
         const a = try ops.alloc(f64, al, n, n);
         defer ops.free(f64, al, a);
         a.copyFrom(a0);
-        try evd.syevd(al, check.io, f64, .v, .u, n, a.slice(), n, w);
+        try evd.syevd(al, check.io, f64, .compute, .u, n, a.slice(), n, w);
         for (w) |x| try testing.expect(!std.math.isNan(x));
         for (a.ptr[0 .. n * n]) |x| try testing.expect(!std.math.isNan(x));
         try expectSym(f64, al, a0, w, a, "laed3");
@@ -198,11 +198,11 @@ test "faer evd: NaN and infinity are NoConvergence; scaled past the bounds; 1 x 
             var a: [9]T = @splat(ops.one(T));
             a[1] = ops.scalar(T, bad);
             var w: [3]F = undefined;
-            try testing.expectError(error.NoConvergence, evd.syevd(al, check.io, T, .v, .l, 3, &a, 3, &w));
+            try testing.expectError(error.NoConvergence, evd.syevd(al, check.io, T, .compute, .l, 3, &a, 3, &w));
             // the other triangle is not read
             a[1] = ops.one(T);
             a[3] = ops.scalar(T, bad);
-            try evd.syevd(al, check.io, T, .n, .l, 3, &a, 3, &w);
+            try evd.syevd(al, check.io, T, .none, .l, 3, &a, 3, &w);
         }
         const n = 20;
         for ([_]F{ std.math.floatMin(F) * 4, std.math.floatMax(F) / 4 }) |sc| {
@@ -214,28 +214,28 @@ test "faer evd: NaN and infinity are NoConvergence; scaled past the bounds; 1 x 
             const a = try ops.alloc(T, al, n, n);
             defer ops.free(T, al, a);
             a.copyFrom(a0);
-            try evd.syevd(al, check.io, T, .n, .l, n, a.slice(), n, &w0);
+            try evd.syevd(al, check.io, T, .none, .l, n, a.slice(), n, &w0);
             for (0..n) |j| for (a0.col(j)[0..n]) |*x| {
                 x.* = ops.mulReal(T, x.*, sc / 8);
             };
-            try evd.syevd(al, check.io, T, .n, .l, n, a0.slice(), n, &w1);
+            try evd.syevd(al, check.io, T, .none, .l, n, a0.slice(), n, &w1);
             const tol = tolerance(F, n, 1) * (sc / 8) * 8;
             for (w0, w1) |x, y| try testing.expect(@abs(x * (sc / 8) - y) <= tol);
         }
         var one = [_]T{ops.scalar(T, -3)};
         var w: [1]F = undefined;
-        try evd.syevd(al, check.io, T, .v, .u, 1, &one, 1, &w);
+        try evd.syevd(al, check.io, T, .compute, .u, 1, &one, 1, &w);
         try testing.expectEqual(@as(F, -3), w[0]);
         try testing.expectEqual(@as(F, 1), ops.re(T, one[0]));
     }
     const fa = testing.failing_allocator;
     var a: [4]f64 = @splat(std.math.nan(f64));
     var w: [2]f64 = @splat(std.math.nan(f64));
-    try testing.expectError(error.UnsupportedUplo, evd.syevd(fa, check.io, f64, .v, .v, 2, &a, 2, &w));
-    try testing.expectError(error.LeadingDimensionTooSmall, evd.syev(fa, check.io, f64, .v, .u, 2, &a, 1, &w));
-    try testing.expectError(error.SliceTooShort, evd.syevd(fa, check.io, f64, .v, .l, 2, a[0..3], 2, &w));
-    try testing.expectError(error.SliceTooShort, evd.syev(fa, check.io, f64, .n, .l, 2, &a, 2, w[0..1]));
-    try evd.syevd(fa, check.io, f64, .v, .l, 0, &a, 1, &w);
+    try testing.expectError(error.UnsupportedUplo, evd.syevd(fa, check.io, f64, .compute, .v, 2, &a, 2, &w));
+    try testing.expectError(error.LeadingDimensionTooSmall, evd.syev(fa, check.io, f64, .compute, .u, 2, &a, 1, &w));
+    try testing.expectError(error.SliceTooShort, evd.syevd(fa, check.io, f64, .compute, .l, 2, a[0..3], 2, &w));
+    try testing.expectError(error.SliceTooShort, evd.syev(fa, check.io, f64, .none, .l, 2, &a, 2, w[0..1]));
+    try evd.syevd(fa, check.io, f64, .compute, .l, 0, &a, 1, &w);
     for (a ++ w) |x| try testing.expect(std.math.isNan(x));
 }
 
@@ -263,7 +263,7 @@ test "faer evd: syevd gives one worker's bits at any worker count" {
         for (0..test_io.worker_runs.len) |c| {
             const io = runs.io(c);
             @memcpy(outs[c], a0.ptr[0 .. n * n]);
-            try evd.syevd(al, io, T, .v, .l, n, outs[c], n, ws[c]);
+            try evd.syevd(al, io, T, .compute, .l, n, outs[c], n, ws[c]);
         }
         try test_io.expectSameBytes(outs);
         try test_io.expectSameBytes(ws);
@@ -308,8 +308,8 @@ test "syevd, syev: graded large at the bottom right given as .u, and at the top 
             defer al.free(w);
             const w128 = try al.alloc(f128, n);
             defer al.free(w128);
-            if (use_qr) try evd.syev(al, check.io, T, .n, uplo, n, a, n, w) else try evd.syevd(al, check.io, T, .n, uplo, n, a, n, w);
-            try evd.syevd(al, check.io, W, .n, uplo, n, a128, n, w128);
+            if (use_qr) try evd.syev(al, check.io, T, .none, uplo, n, a, n, w) else try evd.syevd(al, check.io, T, .none, uplo, n, a, n, w);
+            try evd.syevd(al, check.io, W, .none, uplo, n, a128, n, w128);
             // graded small eigenvalues hold to a few hundred eps (matlab88's
             // bottom-up reduction reaches 1.7e-13 here, M1's E2); reduced
             // from the wrong end they were off by 0.3 to 3e8

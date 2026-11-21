@@ -149,8 +149,8 @@ pub fn expectPaths(comptime T: type, n: usize, rnd: std.Random) !void {
         try testing.expect(wideDiff(try sumWith(path, test_io, sx), sum_ref) <= tol * sum_mag);
         try testing.expect(wideDiff(try normWith(path, test_io, sx), @sqrt(sq)) <= tol * @as(f64, @floatCast(@sqrt(sq))));
         if (comptime !isComplex(T)) {
-            try testing.expectEqual(std.mem.max(T, x), try extremeWith(.max, path, test_io, sx));
-            try testing.expectEqual(std.mem.min(T, x), try extremeWith(.min, path, test_io, sx));
+            try testing.expectEqual(std.mem.max(T, x), try extremeWith(.largest, path, test_io, sx));
+            try testing.expectEqual(std.mem.min(T, x), try extremeWith(.smallest, path, test_io, sx));
         }
         // `gemm` and, one column, `gemv`
         const o = try Mat(T).init(al, n, 3);

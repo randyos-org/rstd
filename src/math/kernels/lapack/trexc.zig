@@ -15,11 +15,11 @@ const Io = std.Io;
 const Float = types.Float;
 const isComplex = types.isComplex;
 const Error = ops.Error;
-const Compq = schur.Compq;
+const ReorderVectors = schur.ReorderVectors;
 const laexc = laexc_swap.laexc;
 
 /// What `trexc` returns: a slice too short or a leading dimension too small
-/// (`q` checked only with `compq` `v`), `RowOutOfRange` for an `ifst` or
+/// (`q` checked only with `compq` `.update`), `RowOutOfRange` for an `ifst` or
 /// `ilst` past `T`'s rows, `SwapRejected` for the reference's `INFO = 1`
 /// (real only): two adjacent blocks were too close to swap stably, `T`
 /// part reordered and `ilst` the moving block's current row.
@@ -27,13 +27,13 @@ pub const TrexcError = interface.ShapeError || error{ RowOutOfRange, SwapRejecte
 
 /// `?TREXC` (`dtrexc.f`, `ztrexc.f`): moves the diagonal block of the
 /// `n x n` Schur form `T` at row `ifst` (0-based) to row `ilst` by
-/// orthogonal (unitary) similarity, `T := Zᴴ T Z`, and with `compq` `v`
+/// orthogonal (unitary) similarity, `T := Zᴴ T Z`, and with `compq` `.update`
 /// `Q := Q Z`. Real: `T` is quasi-triangular with standardized 2 x 2
 /// blocks; `ifst` moves to its block's first row and `ilst` to the moved
 /// block's final first row, as the reference's. Complex: both unchanged.
-pub fn trexc(io: Io, comptime T: type, compq: Compq, n: usize, t: []T, ldt: usize, q: []T, ldq: usize, ifst: *usize, ilst: *usize) TrexcError!void {
+pub fn trexc(io: Io, comptime T: type, compq: ReorderVectors, n: usize, t: []T, ldt: usize, q: []T, ldq: usize, ifst: *usize, ilst: *usize) TrexcError!void {
     comptime ops.requireFloat(T, "trexc");
-    const wantq = compq == .v;
+    const wantq = compq == .update;
     try util.holds(t.len, n, n, ldt);
     if (wantq) try util.holds(q.len, n, n, ldq);
     if (n > 0 and (ifst.* >= n or ilst.* >= n)) return error.RowOutOfRange;

@@ -14,7 +14,7 @@ const fast = @import("fast.zig");
 const util = @import("../util.zig");
 
 const Io = std.Io;
-const BF16 = types.BF16;
+const BFloat16 = types.BFloat16;
 const Float = types.Float;
 const Strided = strided.Strided;
 const ConstStrided = strided.ConstStrided;
@@ -235,26 +235,26 @@ pub fn axpby(io: Io, comptime T: type, alpha: T, x: ConstStrided(T), beta: T, y:
 // ---- bfloat16 ----------------------------------------------------------------
 
 /// The dot of two bfloat16 vectors in `f32`, 0 for empty ones.
-pub fn sbdot(io: Io, x: ConstStrided(BF16), y: ConstStrided(BF16)) LengthError!f32 {
+pub fn sbdot(io: Io, x: ConstStrided(BFloat16), y: ConstStrided(BFloat16)) LengthError!f32 {
     try x.sameLength(y);
-    return core.sbdot(io, len(x), ptr(BF16, x), inc(x), ptr(BF16, y), inc(y)) catch |e| never(e);
+    return core.sbdot(io, len(x), ptr(BFloat16, x), inc(x), ptr(BFloat16, y), inc(y)) catch |e| never(e);
 }
 
 /// `x := alpha*x` over bfloat16.
-pub fn bscal(io: Io, alpha: BF16, x: Strided(BF16)) void {
-    core.bscal(io, len(x), alpha, ptr(BF16, x), step(x)) catch |e| never(e);
+pub fn bscal(io: Io, alpha: BFloat16, x: Strided(BFloat16)) void {
+    core.bscal(io, len(x), alpha, ptr(BFloat16, x), step(x)) catch |e| never(e);
 }
 
 /// `out := bf16(in)`, rounding to nearest even; `f32` or `f64` in.
-pub fn sbtobf16(io: Io, comptime F: type, in: ConstStrided(F), out: Strided(BF16)) LengthError!void {
+pub fn sbtobf16(io: Io, comptime F: type, in: ConstStrided(F), out: Strided(BFloat16)) LengthError!void {
     try out.sameLength(in);
-    core.sbtobf16(io, F, len(in), ptr(F, in), inc(in), ptr(BF16, out), inc(out)) catch |e| never(e);
+    core.sbtobf16(io, F, len(in), ptr(F, in), inc(in), ptr(BFloat16, out), inc(out)) catch |e| never(e);
 }
 
 /// `out := in` widened to `f32` or `f64`.
-pub fn bf16to(io: Io, comptime F: type, in: ConstStrided(BF16), out: Strided(F)) LengthError!void {
+pub fn bf16to(io: Io, comptime F: type, in: ConstStrided(BFloat16), out: Strided(F)) LengthError!void {
     try out.sameLength(in);
-    core.bf16to(io, F, len(in), ptr(BF16, in), inc(in), ptr(F, out), inc(out)) catch |e| never(e);
+    core.bf16to(io, F, len(in), ptr(BFloat16, in), inc(in), ptr(F, out), inc(out)) catch |e| never(e);
 }
 
 pub const rotg = core.rotg;
@@ -300,7 +300,7 @@ test "api: scal, asum, sum and the extremes take every element of a backward vie
     const x = try Strided(f64).init(&a, 4, -2);
     try check.expectClose(f64, 10, try asum(check.io, f64, x.toConst()), 0);
     try check.expectClose(f64, -2, try sum(check.io, f64, x.toConst()), 0);
-    try check.expectClose(f64, 4, (try extreme(check.io, f64, .amax, x.toConst())).?, 0);
+    try check.expectClose(f64, 4, (try extreme(check.io, f64, .largest_magnitude, x.toConst())).?, 0);
     try scal(check.io, f64, 2, x);
     try std.testing.expectEqualSlices(f64, &.{ 2, 9, -4, 9, 6, 0, -8 }, &a);
 }
@@ -309,18 +309,18 @@ test "api: index is the view's first extreme, backward too" {
     const a = [_]f64{ 5, 0, -5, 0, 1 };
     // view order: 1, -5, 5; the first |5| in it is -5, at 1
     const back = try ConstStrided(f64).init(&a, 3, -2);
-    try std.testing.expectEqual(@as(?usize, 1), try index(check.io, f64, .amax, back));
-    try std.testing.expectEqual(@as(?usize, 0), try index(check.io, f64, .amax, try ConstStrided(f64).init(&a, 3, 2)));
-    try std.testing.expectEqual(@as(?usize, 2), try index(check.io, f64, .max, back));
+    try std.testing.expectEqual(@as(?usize, 1), try index(check.io, f64, .largest_magnitude, back));
+    try std.testing.expectEqual(@as(?usize, 0), try index(check.io, f64, .largest_magnitude, try ConstStrided(f64).init(&a, 3, 2)));
+    try std.testing.expectEqual(@as(?usize, 2), try index(check.io, f64, .largest, back));
     const nan = [_]f64{ std.math.nan(f64), 1, std.math.nan(f64) };
-    try std.testing.expectEqual(@as(?usize, 0), try index(check.io, f64, .amax, try ConstStrided(f64).init(&nan, 3, -1)));
+    try std.testing.expectEqual(@as(?usize, 0), try index(check.io, f64, .largest_magnitude, try ConstStrided(f64).init(&nan, 3, -1)));
 }
 
 test "api: empty views, and counts that disagree" {
     var a = [_]f64{ 1, 2, 3 };
     const e = try ConstStrided(f64).init(&a, 0, 1);
-    try std.testing.expectEqual(@as(?usize, null), try index(check.io, f64, .amax, e));
-    try std.testing.expectEqual(@as(?f64, null), try extreme(check.io, f64, .max, e));
+    try std.testing.expectEqual(@as(?usize, null), try index(check.io, f64, .largest_magnitude, e));
+    try std.testing.expectEqual(@as(?f64, null), try extreme(check.io, f64, .largest, e));
     try check.expectClose(f64, 0, nrm2(check.io, f64, e), 0);
     try check.expectClose(f64, 0, try dot(check.io, f64, e, e), 0);
     const x = ConstStrided(f64).of(&a);

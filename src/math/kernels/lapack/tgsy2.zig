@@ -17,7 +17,7 @@ const scalar = ops.scalar;
 const add = ops.add;
 const sub = ops.sub;
 const mul = ops.mul;
-const Solved = sylvester.Solved;
+const SylvesterSolution = sylvester.SylvesterSolution;
 const blockOf = sylvester.blockOf;
 
 /// The `dif` estimate's running sum of squares (`RDSUM`, `RDSCAL`, as
@@ -45,9 +45,9 @@ fn conjT(comptime T: type, x: T) T {
 /// form (`dtgsyl.f`'s (2)), by `getc2` and `gesc2`; with `ijob` 1 or 2 (not
 /// `trans`), `latdf` instead adds the block's part of the `dif` estimate to
 /// `dif`, unscaled. The reference's four real block shapes are one loop.
-pub fn tgsy2(al: Allocator, io: Io, comptime T: type, trans: bool, ijob: u2, m: usize, n: usize, a: [*]const T, lda: usize, b: [*]const T, ldb: usize, c: [*]T, ldc: usize, d: [*]const T, ldd: usize, e: [*]const T, lde: usize, f: [*]T, ldf: usize, dif: *Dif(Float(T))) ops.Error!Solved(Float(T)) {
+pub fn tgsy2(al: Allocator, io: Io, comptime T: type, trans: bool, ijob: u2, m: usize, n: usize, a: [*]const T, lda: usize, b: [*]const T, ldb: usize, c: [*]T, ldc: usize, d: [*]const T, ldd: usize, e: [*]const T, lde: usize, f: [*]T, ldf: usize, dif: *Dif(Float(T))) ops.Error!SylvesterSolution(Float(T)) {
     const F = Float(T);
-    var out: Solved(F) = .{ .scale = 1, .perturbed = false };
+    var out: SylvesterSolution(F) = .{ .scale = 1, .perturbed = false };
     var p: usize = 0;
     var i: usize = 0;
     while (i < m) : (i += blockOf(T, m, a, lda, i)) p += 1;

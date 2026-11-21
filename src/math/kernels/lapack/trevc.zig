@@ -365,15 +365,15 @@ pub fn complex(al: Allocator, io: Io, comptime T: type, right: bool, t: Mat(T), 
 
 // ---- trevc3, every SIDE and HOWMNY ---------------------------------------------------
 
-/// `trevc3`'s vectors: right (`r`), left (`l`) or both (`b`).
-pub const Side = enum { r, l, b };
-/// `trevc3`'s `HOWMNY`: every vector of `T` (`a`), every one times the
-/// `Q` given in `vl`/`vr` (`b`), or those `select` picks (`s`).
-pub const Howmny = enum { a, b, s };
+/// `trevc3`'s vectors (`SIDE`): right (`R`), left (`L`) or both (`B`).
+pub const EigenvectorSide = enum { right, left, both };
+/// `trevc3`'s `HOWMNY`: every vector of `T` (`A`), every one times the
+/// `Q` given in `vl`/`vr` (`B`), or those `select` picks (`S`).
+pub const EigenvectorSelection = enum { all, back_transformed, selected };
 
 /// What `trevc3` returns: a slice too short (`t`, `select` under `n`, `vl`
 /// or `vr` when computed) or a leading dimension too small,
-/// `MissingSelect` for `s` without `select`, `TooFewColumns` when `mm` is
+/// `MissingSelect` for `.selected` without `select`, `TooFewColumns` when `mm` is
 /// short of the columns the vectors need.
 pub const Trevc3Error = interface.ShapeError || error{ MissingSelect, TooFewColumns } || Allocator.Error || Io.Cancelable;
 
@@ -382,26 +382,26 @@ pub const Trevc3Error = interface.ShapeError || error{ MissingSelect, TooFewColu
 /// `hseqr` leaves it), right (`T x = λ x`) into `vr`, left (`uᴴ T = λ uᴴ`)
 /// into `vl`, each `n x mm`. A real complex pair takes two columns, its
 /// real and imaginary parts, the positive-imaginary `λ` first. Each vector
-/// is scaled so its largest entry (`|re| + |im|`) is 1, and with `b` after
+/// is scaled so its largest entry (`|re| + |im|`) is 1, and with `.back_transformed` after
 /// the multiplication by the `Q` given in `vl`/`vr` (from `orghr` and
-/// `hseqr`, so the vectors are `A`'s). With `s`, only the vectors `select`
+/// `hseqr`, so the vectors are `A`'s). With `.selected`, only the vectors `select`
 /// picks, in order; a real pair picked by either entry takes both columns,
 /// `select` then marking its first only, as the reference does. Returns
 /// the columns used (the reference's `m`). `T` is restored on return (the
 /// complex solves scale its diagonal in place).
-pub fn trevc3(allocator: Allocator, io: Io, comptime T: type, side: Side, howmny: Howmny, select: ?[]bool, n: usize, t: []T, ldt: usize, vl: []T, ldvl: usize, vr: []T, ldvr: usize, mm: usize) Trevc3Error!usize {
+pub fn trevc3(allocator: Allocator, io: Io, comptime T: type, side: EigenvectorSide, howmny: EigenvectorSelection, select: ?[]bool, n: usize, t: []T, ldt: usize, vl: []T, ldvl: usize, vr: []T, ldvr: usize, mm: usize) Trevc3Error!usize {
     comptime ops.requireFloat(T, "trevc3");
-    const left = side != .r;
-    const right = side != .l;
-    if (howmny == .s and select == null) return error.MissingSelect;
-    if (select) |sel| if (howmny == .s and sel.len < n) return error.SliceTooShort;
+    const left = side != .right;
+    const right = side != .left;
+    if (howmny == .selected and select == null) return error.MissingSelect;
+    if (select) |sel| if (howmny == .selected and sel.len < n) return error.SliceTooShort;
     try util.holds(t.len, n, n, ldt);
     if (left) try util.holds(vl.len, n, mm, ldvl);
     if (right) try util.holds(vr.len, n, mm, ldvr);
     const un = n;
     const tm: Mat(T) = .{ .ptr = t.ptr, .rows = un, .cols = un, .ld = ldt };
     var count = un;
-    if (howmny == .s) {
+    if (howmny == .selected) {
         const sel = select.?;
         count = 0;
         var j: usize = 0;
@@ -432,8 +432,8 @@ pub fn trevc3(allocator: Allocator, io: Io, comptime T: type, side: Side, howmny
             .{ .ptr = vl.ptr, .rows = un, .cols = mm, .ld = ldvl };
         if (comptime ops.isComplex(T)) try complex(allocator, io, T, r, tm, x, cn, diag) else real(T, r, tm, x, cn);
         switch (howmny) {
-            .a => dst.sub(0, 0, un, un).copyFrom(x),
-            .b => {
+            .all => dst.sub(0, 0, un, un).copyFrom(x),
+            .back_transformed => {
                 const q = try ops.alloc(T, allocator, un, un);
                 defer ops.free(T, allocator, q);
                 q.copyFrom(dst.sub(0, 0, un, un));
@@ -448,7 +448,7 @@ pub fn trevc3(allocator: Allocator, io: Io, comptime T: type, side: Side, howmny
                     } else normalize(T, dst.col(j), null, 0, un);
                 }
             },
-            .s => {
+            .selected => {
                 const sel = select.?;
                 var c: usize = 0;
                 var j: usize = 0;

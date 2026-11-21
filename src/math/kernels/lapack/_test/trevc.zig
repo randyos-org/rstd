@@ -63,12 +63,12 @@ test "trevc3: A's eigenvectors after gehrd, orghr and hseqr, back-transformed an
             const cw = try al.alloc(T, n);
             defer al.free(cw);
             const w: schur.Eigenvalues(T) = if (comptime types.isComplex(T)) cw else .{ .re = ev[0..n], .im = ev[n..] };
-            try schur.hseqr(check.io, T, .s, .v, n, 0, n, t, n, w, z, n, null);
+            try schur.hseqr(check.io, T, .schur_form, .accumulate, n, 0, n, t, n, w, z, n, null);
             const vl = try al.dupe(T, z);
             defer al.free(vl);
             const vr = try al.dupe(T, z);
             defer al.free(vr);
-            var m = try trevc3(al, check.io, T, .b, .b, null, n, t, n, vl, n, vr, n, n);
+            var m = try trevc3(al, check.io, T, .both, .back_transformed, null, n, t, n, vl, n, vr, n, n);
             try testing.expectEqual(n, m);
             const tol = 256 * std.math.floatEps(F) * @as(F, @floatFromInt(n + 1)) * @max(auxiliary.normMax(T, .{ .ptr = a0.ptr, .rows = n, .cols = n, .ld = n }), 1);
             var j: usize = 0;
@@ -92,9 +92,9 @@ test "trevc3: A's eigenvectors after gehrd, orghr and hseqr, back-transformed an
             defer al.free(all);
             const some = try al.alloc(T, n * n);
             defer al.free(some);
-            m = try trevc3(al, check.io, T, .r, .a, null, n, t, n, vl, n, all, n, n);
+            m = try trevc3(al, check.io, T, .right, .all, null, n, t, n, vl, n, all, n, n);
             try testing.expectEqual(n, m);
-            m = try trevc3(al, check.io, T, .r, .s, sel, n, t, n, vl, n, some, n, n);
+            m = try trevc3(al, check.io, T, .right, .selected, sel, n, t, n, vl, n, some, n, n);
             var c: usize = 0;
             j = 0;
             while (j < n) : (j += 1) {
@@ -115,14 +115,14 @@ test "trevc3: A's eigenvectors after gehrd, orghr and hseqr, back-transformed an
     }
     var a: [4]f64 = @splat(0);
     var sel = [_]bool{ true, false };
-    try testing.expectError(error.MissingSelect, trevc3(al, check.io, f64, .r, .s, null, 2, &a, 2, &a, 1, &a, 2, 2));
-    try testing.expectError(error.SliceTooShort, trevc3(al, check.io, f64, .r, .s, sel[0..1], 2, &a, 2, &a, 1, &a, 2, 2));
-    try testing.expectError(error.LeadingDimensionTooSmall, trevc3(al, check.io, f64, .r, .a, null, 2, &a, 2, &a, 1, &a, 1, 2));
-    try testing.expectError(error.LeadingDimensionTooSmall, trevc3(al, check.io, f64, .l, .a, null, 2, &a, 2, &a, 1, &a, 1, 2));
-    try testing.expectError(error.SliceTooShort, trevc3(al, check.io, f64, .r, .a, null, 2, &a, 2, &a, 1, a[0..3], 2, 2));
-    try testing.expectError(error.SliceTooShort, trevc3(al, check.io, f64, .r, .a, null, 2, a[0..3], 2, &a, 1, &a, 2, 2));
-    try testing.expectError(error.TooFewColumns, trevc3(al, check.io, f64, .r, .a, null, 2, &a, 2, &a, 1, &a, 2, 1));
-    try testing.expectEqual(1, try trevc3(al, check.io, f64, .r, .s, &sel, 2, &a, 2, &a, 1, &a, 2, 1));
+    try testing.expectError(error.MissingSelect, trevc3(al, check.io, f64, .right, .selected, null, 2, &a, 2, &a, 1, &a, 2, 2));
+    try testing.expectError(error.SliceTooShort, trevc3(al, check.io, f64, .right, .selected, sel[0..1], 2, &a, 2, &a, 1, &a, 2, 2));
+    try testing.expectError(error.LeadingDimensionTooSmall, trevc3(al, check.io, f64, .right, .all, null, 2, &a, 2, &a, 1, &a, 1, 2));
+    try testing.expectError(error.LeadingDimensionTooSmall, trevc3(al, check.io, f64, .left, .all, null, 2, &a, 2, &a, 1, &a, 1, 2));
+    try testing.expectError(error.SliceTooShort, trevc3(al, check.io, f64, .right, .all, null, 2, &a, 2, &a, 1, a[0..3], 2, 2));
+    try testing.expectError(error.SliceTooShort, trevc3(al, check.io, f64, .right, .all, null, 2, a[0..3], 2, &a, 1, &a, 2, 2));
+    try testing.expectError(error.TooFewColumns, trevc3(al, check.io, f64, .right, .all, null, 2, &a, 2, &a, 1, &a, 2, 1));
+    try testing.expectEqual(1, try trevc3(al, check.io, f64, .right, .selected, &sel, 2, &a, 2, &a, 1, &a, 2, 1));
 }
 
 test "trevc3: a zero Q back-transforms to zero columns, not NaN, real with a pair and complex" {
@@ -138,7 +138,7 @@ test "trevc3: a zero Q back-transforms to zero columns, not NaN, real with a pai
         var tm = t;
         var vl: [n * n]T = @splat(ops.zero(T));
         var vr: [n * n]T = @splat(ops.zero(T));
-        try testing.expectEqual(n, try trevc3(al, check.io, T, .b, .b, null, n, &tm, n, &vl, n, &vr, n, n));
+        try testing.expectEqual(n, try trevc3(al, check.io, T, .both, .back_transformed, null, n, &tm, n, &vl, n, &vr, n, n));
         for (vl, vr) |l, r| try testing.expect(ops.abs1(T, l) == 0 and ops.abs1(T, r) == 0);
     }
 }

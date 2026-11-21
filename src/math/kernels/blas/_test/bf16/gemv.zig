@@ -11,7 +11,7 @@ const fma = @import("../../fma.zig");
 const bf16_kernel = @import("../../ext/bf16/kernel.zig");
 const check = @import("../check.zig");
 
-const BF16 = types.BF16;
+const BFloat16 = types.BFloat16;
 
 const half_sizes = [_][2]usize{ .{ 1, 1 }, .{ 2, 3 }, .{ 3, 2 }, .{ 4, 4 }, .{ 7, 5 }, .{ 8, 8 }, .{ 9, 16 }, .{ 16, 9 }, .{ 17, 17 }, .{ 33, 4 }, .{ 4, 33 } };
 const half_strides = [_][2]usize{ .{ 1, 1 }, .{ 2, 3 }, .{ 3, 2 } };
@@ -56,7 +56,7 @@ fn checkHalf(comptime E: type, comptime Y: type, comptime trans: bool, kern: any
             const prior: f64 = if (beta == 0) 0 else bf16_kernel.wide(Y, orig[yi]);
             const want = @as(f64, alpha) * acc + @as(f64, beta) * prior;
             const got: f64 = bf16_kernel.wide(Y, y[yi]);
-            const tol: f64 = if (Y == BF16)
+            const tol: f64 = if (Y == BFloat16)
                 0.005 * @abs(want) + 1e-4
             else
                 check.tolerance(f32, 4 * inner + 4);
@@ -159,9 +159,9 @@ test "half-precision gemv: the @Vector kernels are the model, bit for bit" {
 
 test "half-precision gemv: an empty operand leaves beta*y" {
     inline for (.{ false, true }) |trans| {
-        const gen = bf16_kernel.Gemv(BF16, f32, trans, false).k;
-        var a: [4]BF16 = @splat(bf16_kernel.narrow(BF16, 1));
-        var x: [4]BF16 = @splat(bf16_kernel.narrow(BF16, 1));
+        const gen = bf16_kernel.Gemv(BFloat16, f32, trans, false).k;
+        var a: [4]BFloat16 = @splat(bf16_kernel.narrow(BFloat16, 1));
+        var x: [4]BFloat16 = @splat(bf16_kernel.narrow(BFloat16, 1));
         var y0: [4]f32 = .{ 2, 4, 6, 8 };
         _ = gen(if (trans) 0 else 4, if (trans) 4 else 0, 3, &a, 4, &x, 1, 0.5, &y0, 1);
         try std.testing.expectEqualSlices(f32, &.{ 1, 2, 3, 4 }, &y0);

@@ -27,13 +27,13 @@ const trsm = relapack.trsm;
 /// `error.OutOfMemory` or `error.Canceled`.
 /// The generalized eigenproblem `sygst` and `hegst` bring to standard form:
 /// LAPACK's `itype` 1, 2 and 3.
-pub const Problem = enum {
+pub const GeneralizedProblem = enum {
     /// `A x = λ B x`
-    ax_lbx,
+    ax_equals_lambda_bx,
     /// `A B x = λ x`
-    abx_lx,
+    abx_equals_lambda_x,
     /// `B A x = λ x`
-    bax_lx,
+    bax_equals_lambda_x,
 };
 
 /// What `sygst` and `hegst` return: a reversed `uplo`, a slice too short or
@@ -43,7 +43,7 @@ pub const SygstError = interface.TriangleError || Allocator.Error || Io.Cancelab
 /// `?SYGST` by ReLAPACK's recursion (`relapack/src/dsygst.c`, `ssygst.c`;
 /// OpenBLAS v0.3.34-317): the symmetric-definite `problem` to standard form,
 /// `B` holding `potrf`'s factor in the same `uplo` triangle:
-/// `A := inv(Uᵀ) A inv(U)` or `inv(L) A inv(Lᵀ)` for `ax_lbx`, `U A Uᵀ` or
+/// `A := inv(Uᵀ) A inv(U)` or `inv(L) A inv(Lᵀ)` for `ax_equals_lambda_bx`, `U A Uᵀ` or
 /// `Lᵀ A L` for the other two, into `A`'s
 /// `uplo` triangle. Real `T`; the other triangles are never read.
 ///
@@ -53,7 +53,7 @@ pub const SygstError = interface.TriangleError || Allocator.Error || Io.Cancelab
 /// otherwise `symm` runs twice. Every level uses it, as `zhegst.c`'s `>=`
 /// has it; `dsygst.c`, `ssygst.c` and `chegst.c` test `>`, which leaves the
 /// top level's exactly sized buffer unused.
-pub fn sygst(allocator: Allocator, io: Io, comptime T: type, problem: Problem, uplo: Uplo, n: usize, a: []T, lda: usize, b: []const T, ldb: usize) SygstError!void {
+pub fn sygst(allocator: Allocator, io: Io, comptime T: type, problem: GeneralizedProblem, uplo: Uplo, n: usize, a: []T, lda: usize, b: []const T, ldb: usize) SygstError!void {
     comptime ops.requireFloat(T, "sygst");
     if (comptime isComplex(T)) @compileError("sygst: " ++ @typeName(T) ++ " is complex; hegst takes it");
     return gstImpl(allocator, io, T, problem, uplo, n, a, lda, b, ldb);
@@ -62,22 +62,22 @@ pub fn sygst(allocator: Allocator, io: Io, comptime T: type, problem: Problem, u
 /// `?HEGST` (`relapack/src/zhegst.c`, `chegst.c`): `sygst` for the
 /// Hermitian-definite problem, `ᴴ` for `ᵀ`; `A`'s diagonal comes out real.
 /// Complex only.
-pub fn hegst(allocator: Allocator, io: Io, comptime T: type, problem: Problem, uplo: Uplo, n: usize, a: []T, lda: usize, b: []const T, ldb: usize) SygstError!void {
+pub fn hegst(allocator: Allocator, io: Io, comptime T: type, problem: GeneralizedProblem, uplo: Uplo, n: usize, a: []T, lda: usize, b: []const T, ldb: usize) SygstError!void {
     comptime ops.requireComplex(T, "hegst");
     return gstImpl(allocator, io, T, problem, uplo, n, a, lda, b, ldb);
 }
 
-fn gstImpl(al: Allocator, io: Io, comptime T: type, problem: Problem, uplo: Uplo, n: usize, a: []T, lda: usize, b: []const T, ldb: usize) SygstError!void {
+fn gstImpl(al: Allocator, io: Io, comptime T: type, problem: GeneralizedProblem, uplo: Uplo, n: usize, a: []T, lda: usize, b: []const T, ldb: usize) SygstError!void {
     try interface.holdsTriangle(uplo, n, a.len, lda);
     try util.holds(b.len, n, n, ldb);
     if (n == 0) return;
     const n1 = split(T, n);
     const work = try al.alloc(T, n1 * (n - n1));
     defer al.free(work);
-    try gstRec(al, io, T, problem == .ax_lbx, uplo, n, a.ptr, lda, b.ptr, ldb, work);
+    try gstRec(al, io, T, problem == .ax_equals_lambda_bx, uplo, n, a.ptr, lda, b.ptr, ldb, work);
 }
 
-/// `RELAPACK_?sygst_rec`; `inv` for `ax_lbx`.
+/// `RELAPACK_?sygst_rec`; `inv` for `ax_equals_lambda_bx`.
 fn gstRec(al: Allocator, io: Io, comptime T: type, inv: bool, uplo: Uplo, n: usize, a: [*]T, lda: usize, b: [*]const T, ldb: usize, work: []T) Error!void {
     if (n <= crossover) return gs2(T, inv, uplo == .u, n, a, lda, b, ldb);
     const zero = scalar(T, 0);

@@ -273,7 +273,7 @@ pub fn gelsy(allocator: Allocator, io: Io, comptime T: type, m: usize, n: usize,
     const smlnum = std.math.floatMin(F) / std.math.floatEps(F);
     const bignum = 1 / smlnum;
     // scale A and B into [smlnum, bignum]
-    const anrm = try norm.matNorm(al, T, .m, um, un, a.ptr, am.ld);
+    const anrm = try norm.matNorm(al, T, .max_abs, um, un, a.ptr, am.ld);
     var iascl: F = 0;
     if (anrm > 0 and anrm < smlnum) {
         auxiliary.lascl(T, false, anrm, smlnum, am);
@@ -286,7 +286,7 @@ pub fn gelsy(allocator: Allocator, io: Io, comptime T: type, m: usize, n: usize,
         return 0;
     }
     const brows = bm.sub(0, 0, um, bm.cols);
-    const bnrm = try norm.matNorm(al, T, .m, um, bm.cols, b.ptr, bm.ld);
+    const bnrm = try norm.matNorm(al, T, .max_abs, um, bm.cols, b.ptr, bm.ld);
     var ibscl: F = 0;
     if (bnrm > 0 and bnrm < smlnum) {
         auxiliary.lascl(T, false, bnrm, smlnum, brows);
@@ -408,7 +408,7 @@ fn gelsyCase(comptime T: type, al: Allocator, m: usize, n: usize, r: usize, nrhs
     defer ops.free(T, al, u);
     const vt = try ops.alloc(T, al, n, n);
     defer ops.free(T, al, vt);
-    try svd.gesvd(al, check.io, T, .a, .a, m, n, sa.slice(), m, sv, u.slice(), m, vt.slice(), n, null);
+    try svd.gesvd(al, check.io, T, .all, .all, m, n, sa.slice(), m, sv, u.slice(), m, vt.slice(), n, null);
     const want = try ops.alloc(T, al, n, nrhs);
     defer ops.free(T, al, want);
     want.fill(ops.zero(T));

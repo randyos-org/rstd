@@ -9,7 +9,7 @@ const Allocator = std.mem.Allocator;
 const Io = std.Io;
 const Mat = ops.Mat;
 const Float = ops.Float;
-const Job = svd_drivers.Job;
+const SingularVectorJob = svd_drivers.SingularVectorJob;
 const gesdd = svd_drivers.gesdd;
 const gesvd = svd_drivers.gesvd;
 
@@ -87,7 +87,7 @@ const Routine = enum { gesvd, gesdd };
 
 /// The routine on a copy of `a0` with jobs `ju`, `jv` (`gesdd`: `ju`), the
 /// vectors gathered from wherever the jobs put them.
-fn decompose(comptime T: type, al: Allocator, io: Io, r: Routine, ju: Job, jv: Job, a0: Mat(T), s: []Float(T), u: Mat(T), vt: Mat(T)) !void {
+fn decompose(comptime T: type, al: Allocator, io: Io, r: Routine, ju: SingularVectorJob, jv: SingularVectorJob, a0: Mat(T), s: []Float(T), u: Mat(T), vt: Mat(T)) !void {
     const m = a0.rows;
     const n = a0.cols;
     const lda = m + 1;
@@ -100,8 +100,8 @@ fn decompose(comptime T: type, al: Allocator, io: Io, r: Routine, ju: Job, jv: J
         .gesdd => try gesdd(al, io, T, ju, m, n, a.slice(), lda, s, u.slice(), u.ld, vt.slice(), vt.ld),
     }
     const k = @min(m, n);
-    const uo = if (r == .gesdd) ju == .o and m >= n else ju == .o;
-    const vo = if (r == .gesdd) ju == .o and m < n else jv == .o;
+    const uo = if (r == .gesdd) ju == .overwrite and m >= n else ju == .overwrite;
+    const vo = if (r == .gesdd) ju == .overwrite and m < n else jv == .overwrite;
     if (uo) u.sub(0, 0, m, k).copyFrom(a.sub(0, 0, m, k));
     if (vo) vt.sub(0, 0, k, n).copyFrom(a.sub(0, 0, k, n));
     // the padding row
@@ -118,31 +118,31 @@ fn svdCases(comptime T: type, al: Allocator, r: Routine, m: usize, n: usize, a0:
     defer ops.free(T, al, u);
     const vt = try ops.alloc(T, al, n, n);
     defer ops.free(T, al, vt);
-    const jobs = [_][2]Job{ .{ .a, .a }, .{ .s, .s }, .{ .o, .s }, .{ .s, .o }, .{ .a, .n }, .{ .n, .a } };
+    const jobs = [_][2]SingularVectorJob{ .{ .all, .all }, .{ .leading, .leading }, .{ .overwrite, .leading }, .{ .leading, .overwrite }, .{ .all, .none }, .{ .none, .all } };
     const name = @tagName(r);
     for (jobs) |j| {
-        if (r == .gesdd and j[0] != j[1] and !(j[0] == .o)) continue;
+        if (r == .gesdd and j[0] != j[1] and !(j[0] == .overwrite)) continue;
         u.fill(lcheck.poisoned(T));
         vt.fill(lcheck.poisoned(T));
         try decompose(T, al, check.io, r, j[0], j[1], a0, s[0..k], u, vt);
-        const gesdd_o = r == .gesdd and j[0] == .o;
+        const gesdd_o = r == .gesdd and j[0] == .overwrite;
         const ucols: usize = if (gesdd_o) (if (m >= n) k else m) else switch (j[0]) {
-            .a => m,
-            .s, .o => k,
-            .n => 0,
+            .all => m,
+            .leading, .overwrite => k,
+            .none => 0,
         };
         const vrows: usize = if (gesdd_o) (if (m >= n) n else k) else switch (if (r == .gesdd) j[0] else j[1]) {
-            .a => n,
-            .s, .o => k,
-            .n => 0,
+            .all => n,
+            .leading, .overwrite => k,
+            .none => 0,
         };
         if (ucols > 0 and vrows > 0) try expectSvd(T, al, a0, s[0..k], u.sub(0, 0, m, ucols), vt.sub(0, 0, vrows, n), name);
     }
     // the values alone agree
     u.fill(lcheck.poisoned(T));
     vt.fill(lcheck.poisoned(T));
-    try decompose(T, al, check.io, r, .n, .n, a0, s2[0..k], u, vt);
-    try decompose(T, al, check.io, r, .a, .a, a0, s[0..k], u, vt);
+    try decompose(T, al, check.io, r, .none, .none, a0, s2[0..k], u, vt);
+    try decompose(T, al, check.io, r, .all, .all, a0, s[0..k], u, vt);
     const tol = tolerance(Float(T), m, n, maxAbs(T, a0));
     for (s[0..k], s2[0..k]) |x, y| try testing.expect(@abs(x - y) <= tol);
 }
@@ -206,7 +206,7 @@ test "faer svd: special matrices, faer's test_special: zero, ones, identity; ran
                     defer ops.free(T, al, u);
                     const vt = try ops.alloc(T, al, n, n);
                     defer ops.free(T, al, vt);
-                    decompose(T, al, check.io, r, .a, .a, a0, s, u, vt) catch |e| {
+                    decompose(T, al, check.io, r, .all, .all, a0, s, u, vt) catch |e| {
                         check.say("{s} {s} {d}x{d} kind {d}: {t}\n", .{ @tagName(r), @typeName(T), m, n, kind, e });
                         return e;
                     };
@@ -222,7 +222,7 @@ test "faer svd: special matrices, faer's test_special: zero, ones, identity; ran
                             check.fill(T, b.ptr[0 .. m * n], m + n);
                             const sb = try al.alloc(F, k);
                             defer al.free(sb);
-                            try decompose(T, al, check.io, r, .n, .n, b, sb, u, vt);
+                            try decompose(T, al, check.io, r, .none, .none, b, sb, u, vt);
                             const sc: F = if (kind == 4) std.math.floatMin(F) * 64 else std.math.floatMax(F) / 64;
                             const tol = tolerance(F, m, n, maxAbs(T, b));
                             for (s, sb) |x, y| try testing.expect(@abs(x / sc - y) <= tol);
@@ -251,10 +251,10 @@ test "faer svd: NaN and infinity: gesdd's NanInA (INFO = -4) for NaN, else NoCon
             const want_dd: anyerror = if (std.math.isNan(bad)) error.NanInA else error.NoConvergence;
             var b = a;
             var count: usize = 99;
-            try testing.expectError(error.NoConvergence, gesvd(al, check.io, T, .a, .a, 4, 3, &b, 4, &s, &u, 4, &vt, 3, &count));
+            try testing.expectError(error.NoConvergence, gesvd(al, check.io, T, .all, .all, 4, 3, &b, 4, &s, &u, 4, &vt, 3, &count));
             try testing.expectEqual(2, count);
             b = a;
-            try testing.expectError(want_dd, gesdd(al, check.io, T, .a, 4, 3, &b, 4, &s, &u, 4, &vt, 3));
+            try testing.expectError(want_dd, gesdd(al, check.io, T, .all, 4, 3, &b, 4, &s, &u, 4, &vt, 3));
         }
     }
 }
@@ -280,7 +280,7 @@ test "faer svd: gesvd's INFO > 0, the unconverged superdiagonals, QR iteration c
             ops.test_iter_limit = lim;
             var a = a0;
             var count: usize = 99;
-            const r = gesvd(al, check.io, T, .a, .a, n, n, &a, n, &s, &u, n, &vt, n, &count);
+            const r = gesvd(al, check.io, T, .all, .all, n, n, &a, n, &s, &u, n, &vt, n, &count);
             if (lim == null) {
                 try r;
                 try testing.expectEqual(99, count);
@@ -289,7 +289,7 @@ test "faer svd: gesvd's INFO > 0, the unconverged superdiagonals, QR iteration c
                 try testing.expectEqual(5, count);
                 // no out-parameter: the same error
                 a = a0;
-                try testing.expectError(error.NoConvergence, gesvd(al, check.io, T, .n, .n, n, n, &a, n, &s, u[0..0], 1, vt[0..0], 1, null));
+                try testing.expectError(error.NoConvergence, gesvd(al, check.io, T, .none, .none, n, n, &a, n, &s, u[0..0], 1, vt[0..0], 1, null));
             }
         }
     }
@@ -302,24 +302,24 @@ test "faer svd: bad arguments, and nothing read when empty" {
     var s: [2]f64 = @splat(nan);
     var u: [4]f64 = @splat(nan);
     var vt: [4]f64 = @splat(nan);
-    try testing.expectError(error.ConflictingJobs, gesvd(fa, check.io, f64, .o, .o, 2, 2, &a, 2, &s, &u, 2, &vt, 2, null));
-    try testing.expectError(error.LeadingDimensionTooSmall, gesvd(fa, check.io, f64, .a, .a, 2, 2, &a, 1, &s, &u, 2, &vt, 2, null));
-    try testing.expectError(error.SliceTooShort, gesvd(fa, check.io, f64, .n, .n, 2, 2, a[0..3], 2, &s, &u, 0, &vt, 0, null));
-    try testing.expectError(error.SliceTooShort, gesvd(fa, check.io, f64, .n, .n, 2, 2, &a, 2, s[0..1], &u, 0, &vt, 0, null));
-    try testing.expectError(error.LeadingDimensionTooSmall, gesvd(fa, check.io, f64, .a, .a, 2, 2, &a, 2, &s, &u, 1, &vt, 2, null));
-    try testing.expectError(error.SliceTooShort, gesvd(fa, check.io, f64, .s, .n, 2, 2, &a, 2, &s, u[0..3], 2, &vt, 0, null));
-    try testing.expectError(error.LeadingDimensionTooSmall, gesvd(fa, check.io, f64, .n, .a, 2, 2, &a, 2, &s, &u, 0, &vt, 1, null));
-    try testing.expectError(error.LeadingDimensionTooSmall, gesvd(fa, check.io, f64, .n, .s, 2, 2, &a, 2, &s, &u, 0, &vt, 1, null));
-    try testing.expectError(error.LeadingDimensionTooSmall, gesdd(fa, check.io, f64, .a, 2, 2, &a, 1, &s, &u, 2, &vt, 2));
-    try testing.expectError(error.SliceTooShort, gesdd(fa, check.io, f64, .n, 2, 2, a[0..3], 2, &s, &u, 0, &vt, 0));
-    try testing.expectError(error.LeadingDimensionTooSmall, gesdd(fa, check.io, f64, .a, 2, 2, &a, 2, &s, &u, 1, &vt, 2));
-    try testing.expectError(error.LeadingDimensionTooSmall, gesdd(fa, check.io, f64, .o, 1, 2, &a, 1, &s, &u, 0, &vt, 0));
-    try testing.expectError(error.LeadingDimensionTooSmall, gesdd(fa, check.io, f64, .o, 2, 2, &a, 2, &s, &u, 0, &vt, 1));
-    try testing.expectError(error.LeadingDimensionTooSmall, gesdd(fa, check.io, f64, .s, 2, 2, &a, 2, &s, &u, 2, &vt, 1));
-    try testing.expectError(error.SliceTooShort, gesdd(fa, check.io, f64, .s, 2, 2, &a, 2, &s, &u, 2, vt[0..3], 2));
+    try testing.expectError(error.ConflictingJobs, gesvd(fa, check.io, f64, .overwrite, .overwrite, 2, 2, &a, 2, &s, &u, 2, &vt, 2, null));
+    try testing.expectError(error.LeadingDimensionTooSmall, gesvd(fa, check.io, f64, .all, .all, 2, 2, &a, 1, &s, &u, 2, &vt, 2, null));
+    try testing.expectError(error.SliceTooShort, gesvd(fa, check.io, f64, .none, .none, 2, 2, a[0..3], 2, &s, &u, 0, &vt, 0, null));
+    try testing.expectError(error.SliceTooShort, gesvd(fa, check.io, f64, .none, .none, 2, 2, &a, 2, s[0..1], &u, 0, &vt, 0, null));
+    try testing.expectError(error.LeadingDimensionTooSmall, gesvd(fa, check.io, f64, .all, .all, 2, 2, &a, 2, &s, &u, 1, &vt, 2, null));
+    try testing.expectError(error.SliceTooShort, gesvd(fa, check.io, f64, .leading, .none, 2, 2, &a, 2, &s, u[0..3], 2, &vt, 0, null));
+    try testing.expectError(error.LeadingDimensionTooSmall, gesvd(fa, check.io, f64, .none, .all, 2, 2, &a, 2, &s, &u, 0, &vt, 1, null));
+    try testing.expectError(error.LeadingDimensionTooSmall, gesvd(fa, check.io, f64, .none, .leading, 2, 2, &a, 2, &s, &u, 0, &vt, 1, null));
+    try testing.expectError(error.LeadingDimensionTooSmall, gesdd(fa, check.io, f64, .all, 2, 2, &a, 1, &s, &u, 2, &vt, 2));
+    try testing.expectError(error.SliceTooShort, gesdd(fa, check.io, f64, .none, 2, 2, a[0..3], 2, &s, &u, 0, &vt, 0));
+    try testing.expectError(error.LeadingDimensionTooSmall, gesdd(fa, check.io, f64, .all, 2, 2, &a, 2, &s, &u, 1, &vt, 2));
+    try testing.expectError(error.LeadingDimensionTooSmall, gesdd(fa, check.io, f64, .overwrite, 1, 2, &a, 1, &s, &u, 0, &vt, 0));
+    try testing.expectError(error.LeadingDimensionTooSmall, gesdd(fa, check.io, f64, .overwrite, 2, 2, &a, 2, &s, &u, 0, &vt, 1));
+    try testing.expectError(error.LeadingDimensionTooSmall, gesdd(fa, check.io, f64, .leading, 2, 2, &a, 2, &s, &u, 2, &vt, 1));
+    try testing.expectError(error.SliceTooShort, gesdd(fa, check.io, f64, .leading, 2, 2, &a, 2, &s, &u, 2, vt[0..3], 2));
     // empty: nothing read or written
-    try gesvd(fa, check.io, f64, .a, .a, 0, 2, &a, 1, &s, &u, 1, &vt, 2, null);
-    try gesdd(fa, check.io, f64, .a, 2, 0, &a, 2, &s, &u, 2, &vt, 1);
+    try gesvd(fa, check.io, f64, .all, .all, 0, 2, &a, 1, &s, &u, 1, &vt, 2, null);
+    try gesdd(fa, check.io, f64, .all, 2, 0, &a, 2, &s, &u, 2, &vt, 1);
     for ([_][]const f64{ &a, &s, &u, &vt }) |x| for (x) |e| try testing.expect(std.math.isNan(e));
 }
 
@@ -329,7 +329,7 @@ test "faer svd: 1 x 1 and a known 2 x 2, exact where the reference is" {
     var s: [1]f64 = undefined;
     var u: [1]f64 = undefined;
     var vt: [1]f64 = undefined;
-    try gesvd(al, check.io, f64, .a, .a, 1, 1, &a, 1, &s, &u, 1, &vt, 1, null);
+    try gesvd(al, check.io, f64, .all, .all, 1, 1, &a, 1, &s, &u, 1, &vt, 1, null);
     try testing.expectEqual(@as(f64, 3), s[0]);
     try testing.expectEqual(@as(f64, -3), u[0] * s[0] * vt[0]);
     // [3 0; 4 5] has singular values sqrt(45) and sqrt(5)
@@ -339,8 +339,8 @@ test "faer svd: 1 x 1 and a known 2 x 2, exact where the reference is" {
         var u_two: [4]f64 = undefined;
         var v2: [4]f64 = undefined;
         switch (r) {
-            .gesvd => try gesvd(al, check.io, f64, .n, .n, 2, 2, &b, 2, &s2, &u_two, 1, &v2, 1, null),
-            .gesdd => try gesdd(al, check.io, f64, .n, 2, 2, &b, 2, &s2, &u_two, 1, &v2, 1),
+            .gesvd => try gesvd(al, check.io, f64, .none, .none, 2, 2, &b, 2, &s2, &u_two, 1, &v2, 1, null),
+            .gesdd => try gesdd(al, check.io, f64, .none, 2, 2, &b, 2, &s2, &u_two, 1, &v2, 1),
         }
         try testing.expectApproxEqRel(@sqrt(45.0), s2[0], 4e-16);
         try testing.expectApproxEqRel(@sqrt(5.0), s2[1], 4e-16);
@@ -381,7 +381,7 @@ test "faer svd: gesdd gives one worker's bits at any worker count" {
                 const io = runs.io(c);
                 const u: Mat(T) = .{ .ptr = outs[c].ptr, .rows = m, .cols = m, .ld = m };
                 const vt: Mat(T) = .{ .ptr = outs[c].ptr + m * m, .rows = n, .cols = n, .ld = n };
-                try decompose(T, al, io, .gesdd, .a, .a, a0, svals[c], u, vt);
+                try decompose(T, al, io, .gesdd, .all, .all, a0, svals[c], u, vt);
             }
             try test_io.expectSameBytes(outs);
             try test_io.expectSameBytes(svals);
@@ -417,13 +417,13 @@ test "gesvd, gesdd: a graded bidiagonal keeps its small singular values to relat
             }
             var s128: [n]f128 = undefined;
             var w128: [n * n]f128 = undefined;
-            try gesvd(al, check.io, f128, .n, .n, n, n, &a128, n, &s128, &w128, 1, &w128, 1, null);
+            try gesvd(al, check.io, f128, .none, .none, n, n, &a128, n, &s128, &w128, 1, &w128, 1, null);
             for ([_]Routine{ .gesvd, .gesdd }) |rt| for ([_]bool{ false, true }) |vectors| {
                 var b = a;
                 var s: [n]F = undefined;
                 var u: [n * n]T = undefined;
                 var vt: [n * n]T = undefined;
-                const job: Job = if (vectors) .a else .n;
+                const job: SingularVectorJob = if (vectors) .all else .none;
                 const ldv: usize = if (vectors) n else 1;
                 switch (rt) {
                     .gesvd => try gesvd(al, check.io, T, job, job, n, n, &b, n, &s, &u, ldv, &vt, ldv, null),

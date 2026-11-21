@@ -10,7 +10,7 @@ const rank = @import("rank.zig");
 pub const Error = iface.Error;
 pub const HalfError = iface.HalfError;
 pub const ArgError = iface.ArgError;
-pub const HalfGemv = iface.HalfGemv;
+pub const HalfPrecision = iface.HalfPrecision;
 
 pub const gemv = iface.gemv;
 pub const gemvHalf = iface.gemvHalf;

@@ -57,13 +57,13 @@ comptime {
 // these are actually built is a per-build choice there (`BUILD_SINGLE`,
 // `BUILD_BFLOAT16`, `BUILD_HFLOAT16`, `QUAD_PRECISION`, ...).
 
-/// `BF16`. A distinct type over a 16-bit payload rather than an
+/// `BFloat16`. A distinct type over a 16-bit payload rather than an
 /// arithmetic type, because that is what it is in the reference too: a
 /// `uint16_t` bit pattern with explicit conversion kernels
 /// (`sbstobf16_k`, `sbf16tos_k`, ...). Nothing computes in bf16 directly;
 /// it is a storage format that gets widened to `f32` to do arithmetic, so
 /// making it non-arithmetic here keeps that honest.
-pub const BF16 = enum(u16) { _ };
+pub const BFloat16 = enum(u16) { _ };
 
 /// IEEE half. `_Float16` in the reference, under `BUILD_HFLOAT16`.
 pub const HF16 = f16;
@@ -147,8 +147,8 @@ pub const CComplexXD = CComplex(XDouble);
 /// families alias `d`/`z`, as in the reference, so `isBlasType` is a
 /// membership test: a switch cannot repeat a type.
 pub const blas_types = .{
-    BF16,    HF16,      f32,       f64,
-    XDouble, Complex32, Complex64, ComplexXD,
+    BFloat16, HF16,      f32,       f64,
+    XDouble,  Complex32, Complex64, ComplexXD,
 };
 
 /// True for any type a BLAS routine can have as its element type.
@@ -164,7 +164,7 @@ pub fn isBlasType(comptime T: type) bool {
 pub fn assertBlasType(comptime T: type, comptime src: SrcInfo) void {
     if (!isBlasType(T)) {
         @compileError(src.fn_name ++ ": " ++ @typeName(T) ++ " is not a BLAS element type" ++
-            " (expected BF16, HF16, f32, f64, XDouble, or a Complex of one)");
+            " (expected BFloat16, HF16, f32, f64, XDouble, or a Complex of one)");
     }
 }
 

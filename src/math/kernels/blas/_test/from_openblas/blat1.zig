@@ -156,7 +156,7 @@ fn check1(comptime F: type) !void {
         try l1.scal(ob.io, F, in, @floatCast(sa1[(incx - 1) * 5 + np1]), &sx, inc);
         try stest(F, .{ .name = p ++ "SCAL", .n = in, .incx = inc }, sx[0..len], dtrue5[col..][0..len], dtrue5[col..][0..len], sfac, false);
         load(F, sx[0..len], dv[col..]);
-        try itest1(.{ .name = "I" ++ p ++ "AMAX", .n = in, .incx = inc }, try l1.index(ob.io, F, .amax, in, &sx, inc), itrue2[np1]);
+        try itest1(.{ .name = "I" ++ p ++ "AMAX", .n = in, .incx = inc }, try l1.index(ob.io, F, .largest_magnitude, in, &sx, inc), itrue2[np1]);
     };
 }
 
@@ -402,7 +402,7 @@ fn ccheck1(comptime C: type, d: anytype, old: bool) !void {
             loadC(C, cx[0..len], d.cv[col..]);
             try stest(F, c, &.{try l1.nrm2(ob.io, C, in, &cx, inc)}, d.strue2[np1..], d.strue2[np1..], sfac, old);
             try stest(F, c, &.{try l1.asum(ob.io, C, in, &cx, inc)}, d.strue4[np1..], d.strue4[np1..], sfac, old);
-            try itest1(c, try l1.index(ob.io, C, .amax, in, &cx, inc), itrue3[np1]);
+            try itest1(c, try l1.index(ob.io, C, .largest_magnitude, in, &cx, inc), itrue3[np1]);
             if (comptime std.mem.eql(u8, which, "scal")) {
                 try l1.scal(ob.io, C, in, ca, &cx, inc);
                 try ctest(C, c, cx[0..len], d.ctrue5[col..], d.ctrue5[col..], sfac, old);

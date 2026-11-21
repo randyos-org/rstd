@@ -81,7 +81,7 @@ pub fn funm(allocator: Allocator, io: Io, a: anytype, f: Derivatives(Complex(Ele
             if (next != pos + 1) {
                 var ifst = next;
                 var ilst = pos + 1;
-                lapack.trexc(io, C, .v, n, t.data, n, u.data, n, &ifst, &ilst) catch return error.NoConvergence;
+                lapack.trexc(io, C, .update, n, t.data, n, u.data, n, &ifst, &ilst) catch return error.NoConvergence;
                 const moved = cluster[next];
                 @memmove(cluster[pos + 2 .. next + 1], cluster[pos + 1 .. next]);
                 cluster[pos + 1] = moved;

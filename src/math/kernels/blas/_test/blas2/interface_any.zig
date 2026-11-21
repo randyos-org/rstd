@@ -18,7 +18,7 @@ const isComplex = types.isComplex;
 const testing = std.testing;
 const all = check.all_types;
 const gemv = interface.gemv;
-const HalfGemv = interface.HalfGemv;
+const HalfPrecision = interface.HalfPrecision;
 const ger = interface.ger;
 const gerc = interface.gerc;
 const symv = interface.symv;
@@ -214,7 +214,7 @@ fn checkAll(vt: *const Vtable) !void {
     // the interface reaches kernels through the global vtable
     const saved = blas.testUse(vt);
     defer blas.testRestore(saved);
-    inline for (std.enums.values(HalfGemv)) |kind| {
+    inline for (std.enums.values(HalfPrecision)) |kind| {
         try testGemvHalf(kind, .n, 9, 7, 2, 1, 1.25, 0.5);
         try testGemvHalf(kind, .t, 9, 7, -1, 3, 1.25, 0.5);
         try testGemvHalf(kind, .n, 33, 4, 1, 1, 1.25, 0);

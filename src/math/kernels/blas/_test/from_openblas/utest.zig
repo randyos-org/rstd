@@ -84,13 +84,13 @@ pub fn lapackAll() !void {
 fn amaxAmin() !void {
     inline for (.{ f32, f64 }) |F| {
         var x = arr(F, 9, .{ -1.1, 2.2, -3.3, 4.4, -5.5, 6.6, -7.7, 8.8, -9.9 });
-        try near(3.3, try l1.extreme(ob.io, F, .amax, 3, &x, 1), eps(F), "amax");
-        try near(1.1, try l1.extreme(ob.io, F, .amin, 3, &x, 1), eps(F), "amin");
+        try near(3.3, try l1.extreme(ob.io, F, .largest_magnitude, 3, &x, 1), eps(F), "amax");
+        try near(1.1, try l1.extreme(ob.io, F, .smallest_magnitude, 3, &x, 1), eps(F), "amin");
     }
     inline for (.{ C32, C64 }) |C| {
         var x = carr(C, 9, .{ -1.1, 2.2, -3.3, 4.4, -5.5, 6.6, -7.7, 8.8, -9.9, 10.10, -1.1, 2.2, -3.3, 4.4, -5.5, 6.6, -7.7, 8.8 });
-        try near(20.0, try l1.extreme(ob.io, C, .amax, 9, &x, 1), eps(ob.Float(C)), "camax");
-        try near(3.3, try l1.extreme(ob.io, C, .amin, 9, &x, 1), eps(ob.Float(C)), "camin");
+        try near(20.0, try l1.extreme(ob.io, C, .largest_magnitude, 9, &x, 1), eps(ob.Float(C)), "camax");
+        try near(3.3, try l1.extreme(ob.io, C, .smallest_magnitude, 9, &x, 1), eps(ob.Float(C)), "camin");
     }
 }
 
@@ -105,11 +105,11 @@ fn minMax() !void {
     inline for (.{ f32, f64 }) |F| {
         for (mins) |c| {
             var x = arr(F, 3, c[1]);
-            try near(c[2], try l1.extreme(ob.io, F, .min, 3, &x, 1), eps(F), c[0]);
+            try near(c[2], try l1.extreme(ob.io, F, .smallest, 3, &x, 1), eps(F), c[0]);
         }
         for (maxs) |c| {
             var x = arr(F, 3, c[1]);
-            try near(c[2], try l1.extreme(ob.io, F, .max, 3, &x, 1), eps(F), c[0]);
+            try near(c[2], try l1.extreme(ob.io, F, .largest, 3, &x, 1), eps(F), c[0]);
         }
     }
 }
@@ -124,16 +124,16 @@ fn isminIsmax() !void {
     var x: [n * inc]f32 = undefined;
     for (&x, 0..) |*v, i| v.* = @floatFromInt(i + 1000);
     x[8 * inc] = 0;
-    try ob.expect(try l1.index(ob.io, f32, .min, n, &x, inc) == 9, "ismin positive_step_2");
+    try ob.expect(try l1.index(ob.io, f32, .smallest, n, &x, inc) == 9, "ismin positive_step_2");
     for (&x, 0..) |*v, i| v.* = -@as(f32, @floatFromInt(i)) - 1000;
     x[8 * inc] = -123456.0;
-    try ob.expect(try l1.index(ob.io, f32, .min, n, &x, inc) == 9, "ismin negative_step_2");
+    try ob.expect(try l1.index(ob.io, f32, .smallest, n, &x, inc) == 9, "ismin negative_step_2");
     for (&x, 0..) |*v, i| v.* = @floatFromInt(i + 1000);
     x[8 * inc] = 123456.0;
-    try ob.expect(try l1.index(ob.io, f32, .max, n, &x, inc) == 9, "ismax positive_step_2");
+    try ob.expect(try l1.index(ob.io, f32, .largest, n, &x, inc) == 9, "ismax positive_step_2");
     for (&x, 0..) |*v, i| v.* = -@as(f32, @floatFromInt(i)) - 1000;
     x[8 * inc] = 0;
-    try ob.expect(try l1.index(ob.io, f32, .max, n, &x, inc) == 9, "ismax negative_step_2");
+    try ob.expect(try l1.index(ob.io, f32, .largest, n, &x, inc) == 9, "ismax negative_step_2");
 }
 
 test "utest: ismin, ismax at stride 2" {
@@ -567,7 +567,7 @@ fn kernelRegress() !void {
         a.* = (@as(f64, @floatFromInt(g.next())) + 0.0) / 2147483647.0 * 10;
         t.* = a.*;
     }
-    try lapack.gesvd(al, ob.io, f64, .a, .a, n, n, m, n, &s, u, n, vt, n, null);
+    try lapack.gesvd(al, ob.io, f64, .all, .all, n, n, m, n, &s, u, n, vt, n, null);
     for (0..n) |j| for (0..n) |i| {
         u[i + j * n] *= s[j];
     };

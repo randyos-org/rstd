@@ -30,7 +30,7 @@ const scalar = ops.scalar;
 
 const Error = driver.Error;
 
-pub const Problem = relapack_sygst.Problem;
+pub const GeneralizedProblem = relapack_sygst.GeneralizedProblem;
 pub const SygstError = relapack_sygst.SygstError;
 pub const sygst = relapack_sygst.sygst;
 pub const hegst = relapack_sygst.hegst;

@@ -21,28 +21,28 @@ const Pair = interface.Pair;
 
 /// Which extreme: by magnitude (`|re| + |im|` for complex) or by value.
 pub const Extreme = enum {
-    amax,
-    amin,
-    max,
-    min,
+    largest_magnitude,
+    smallest_magnitude,
+    largest,
+    smallest,
 
     /// The slot of the kernel giving the extreme's value.
     pub fn op(e: Extreme) portable.Op {
         return switch (e) {
-            .amax => .amax_k,
-            .amin => .amin_k,
-            .max => .max_k,
-            .min => .min_k,
+            .largest_magnitude => .amax_k,
+            .smallest_magnitude => .amin_k,
+            .largest => .max_k,
+            .smallest => .min_k,
         };
     }
 
     /// The slot of the kernel giving its index.
     pub fn indexOp(e: Extreme) portable.Op {
         return switch (e) {
-            .amax => .iamax_k,
-            .amin => .iamin_k,
-            .max => .imax_k,
-            .min => .imin_k,
+            .largest_magnitude => .iamax_k,
+            .smallest_magnitude => .iamin_k,
+            .largest => .imax_k,
+            .smallest => .imin_k,
         };
     }
 };
@@ -79,7 +79,7 @@ pub fn extreme(io: Io, comptime T: type, comptime which: Extreme, n: isize, x: [
     try spanX(T, n, incx);
     if (incx == 0) {
         if (comptime isComplex(T)) return util.abs(x[0].re) + util.abs(x[0].im);
-        return if (which == .amax or which == .amin) @abs(x[0]) else x[0];
+        return if (which == .largest_magnitude or which == .smallest_magnitude) @abs(x[0]) else x[0];
     }
     const c: Pair(T, void) = .{ .x = x, .incx = incx, .y = x, .incy = incx, .e = {} };
     const S = struct {
@@ -103,8 +103,8 @@ pub fn Best(comptime T: type, comptime which: Extreme) type {
 
         fn better(k: F, best: F) bool {
             return switch (which) {
-                .amax, .max => k > best,
-                .amin, .min => k < best,
+                .largest_magnitude, .largest => k > best,
+                .smallest_magnitude, .smallest => k < best,
             };
         }
 
@@ -116,7 +116,7 @@ pub fn Best(comptime T: type, comptime which: Extreme) type {
 
         pub fn of(v: T, at: isize) Pick {
             if (comptime isComplex(T)) return .{ .at = at, .key = util.abs(v.re) + util.abs(v.im), .q = util.abs(v.re) / 4 + util.abs(v.im) / 4 };
-            const k = if (which == .amax or which == .amin) @abs(v) else v;
+            const k = if (which == .largest_magnitude or which == .smallest_magnitude) @abs(v) else v;
             return .{ .at = at, .key = k, .q = k };
         }
 
@@ -130,5 +130,5 @@ pub fn Best(comptime T: type, comptime which: Extreme) type {
 }
 
 fn realOnly(comptime T: type, comptime which: Extreme) void {
-    if (isComplex(T) and (which == .max or which == .min)) @compileError(@tagName(which) ++ ": " ++ @typeName(T) ++ " has no ordering; use ." ++ (if (which == .max) "amax" else "amin") ++ ", which compares |re| + |im|");
+    if (isComplex(T) and (which == .largest or which == .smallest)) @compileError(@tagName(which) ++ ": " ++ @typeName(T) ++ " has no ordering; use ." ++ (if (which == .largest) "largest_magnitude" else "smallest_magnitude") ++ ", which compares |re| + |im|");
 }

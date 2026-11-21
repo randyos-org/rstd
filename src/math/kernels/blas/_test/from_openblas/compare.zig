@@ -11,7 +11,7 @@ const l1 = @import("../../blas1/interface.zig");
 const check = @import("../check.zig");
 const types = @import("../../types.zig");
 
-const BF16 = types.BF16;
+const BFloat16 = types.BFloat16;
 const HF16 = types.HF16;
 const al = std.testing.allocator;
 
@@ -21,15 +21,15 @@ fn isClose(a: f32, b: f32, rtol: f64, atol: f64) bool {
 }
 
 /// `sbstobf16_` of one value.
-fn toBf(v: f32) !BF16 {
+fn toBf(v: f32) !BFloat16 {
     var in = v;
-    var out: BF16 = undefined;
+    var out: BFloat16 = undefined;
     try l1.sbtobf16(ob.io, f32, 1, @ptrCast(&in), 1, @ptrCast(&out), 1);
     return out;
 }
 
 /// `float16to32`: `sbf16tos_` of one value.
-fn fromBf(v: BF16) !f32 {
+fn fromBf(v: BFloat16) !f32 {
     var in = v;
     var out: f32 = undefined;
     try l1.bf16to(ob.io, f32, 1, @ptrCast(&in), 1, @ptrCast(&out), 1);
@@ -43,23 +43,23 @@ fn truncate(v: f32) !f32 {
 
 /// `v` in the half type `E`: `sbstobf16_` or a `_Float16` cast.
 fn toHalf(comptime E: type, v: f32) !E {
-    return if (E == BF16) toBf(v) else @floatCast(v);
+    return if (E == BFloat16) toBf(v) else @floatCast(v);
 }
 
 /// A half value as `f32`: `float16to32` or a `float` cast.
 fn fromHalf(comptime E: type, v: E) !f32 {
-    return if (E == BF16) fromBf(v) else @floatCast(v);
+    return if (E == BFloat16) fromBf(v) else @floatCast(v);
 }
 
 /// `n` values at stride `inc` into `E`, as `toHalf` does each.
 fn toHalves(comptime E: type, n: usize, src: []const f32, inc: usize, dst: []E) !void {
-    if (E == BF16) return l1.sbtobf16(ob.io, f32, @intCast(n), @constCast(src.ptr), @intCast(inc), dst.ptr, @intCast(inc));
+    if (E == BFloat16) return l1.sbtobf16(ob.io, f32, @intCast(n), @constCast(src.ptr), @intCast(inc), dst.ptr, @intCast(inc));
     for (0..n) |i| dst[i * inc] = @floatCast(src[i * inc]);
 }
 
 /// `n` values at stride `inc` out of `E`, as `fromHalf` does each.
 fn fromHalves(comptime E: type, n: usize, src: []const E, inc: usize, dst: []f32) !void {
-    if (E == BF16) return l1.bf16to(ob.io, f32, @intCast(n), @constCast(src.ptr), @intCast(inc), dst.ptr, @intCast(inc));
+    if (E == BFloat16) return l1.bf16to(ob.io, f32, @intCast(n), @constCast(src.ptr), @intCast(inc), dst.ptr, @intCast(inc));
     for (0..n) |i| dst[i * inc] = @floatCast(src[i * inc]);
 }
 
@@ -93,9 +93,9 @@ const Tally = struct {
 // ---- gemv ----------------------------------------------------------------------
 
 /// `compare_sgemv_<kind>.c`.
-fn gemvAgainst(comptime kind: blas.HalfGemv, small: bool) !void {
-    const In = if (kind == .shgemv) HF16 else BF16;
-    const Out = if (kind == .bgemv) BF16 else f32;
+fn gemvAgainst(comptime kind: blas.HalfPrecision, small: bool) !void {
+    const In = if (kind == .f16_to_f32) HF16 else BFloat16;
+    const Out = if (kind == .bf16) BFloat16 else f32;
     const loop: usize = if (small) 24 else 256;
     var prng = std.Random.DefaultPrng.init(std.hash.Wyhash.hash(0x5be3, @tagName(kind)));
     const r = prng.random();
@@ -153,8 +153,8 @@ fn gemvAgainst(comptime kind: blas.HalfGemv, small: bool) !void {
                     for (0..x) |j| {
                         const got = try fromHalf(Out, cc[j << @intCast(l)]);
                         // `bgemv` against the others rounded to bfloat16
-                        const vs_c = if (Out == BF16) try truncate(c[j << @intCast(l)]) else c[j << @intCast(l)];
-                        const vs_d = if (Out == BF16) try truncate(dd[j]) else dd[j];
+                        const vs_c = if (Out == BFloat16) try truncate(c[j << @intCast(l)]) else c[j << @intCast(l)];
+                        const vs_d = if (Out == BFloat16) try truncate(dd[j]) else dd[j];
                         t.check(isClose(got, vs_c, 0.01, 0.001), "{s} {s} x={d} inc={d} alpha={d} beta={d} y[{d}]: {d}, sgemv {d}\n", .{ @tagName(kind), @tagName(trans), x, inc, alpha, beta, j, got, vs_c });
                         t.check(isClose(got, vs_d, 0.001, 0.0001), "{s} {s} x={d} inc={d} alpha={d} beta={d} y[{d}]: {d}, loop {d}\n", .{ @tagName(kind), @tagName(trans), x, inc, alpha, beta, j, got, vs_d });
                     }
@@ -226,7 +226,7 @@ fn orders(small: bool) [2]usize {
 
 /// `compare_sgemm_sbgemm.c`, and the first part of `compare_sgemm_shgemm.c`,
 /// whose loop check is as loose as its `sgemm` one.
-fn gemmAgainst(comptime kind: blas.HalfGemm, small: bool) !void {
+fn gemmAgainst(comptime kind: blas.HalfPrecision, small: bool) !void {
     const In = kind.In();
     const Out = kind.Out();
     const dense, const largest = orders(small);
@@ -235,9 +235,9 @@ fn gemmAgainst(comptime kind: blas.HalfGemm, small: bool) !void {
     var t: Tally = .{ .name = @tagName(kind) };
     // `bgemm` takes `beta` 1 onto a `C` of 100
     const alpha: f32 = 1;
-    const beta: f32 = if (kind == .bgemm) 1 else 0;
-    const c0: f32 = if (kind == .bgemm) 100 else 0;
-    const loop_rtol: f64, const loop_atol: f64 = if (kind == .sbgemm) .{ 0.001, 0.0001 } else .{ 0.01, 0.001 };
+    const beta: f32 = if (kind == .bf16) 1 else 0;
+    const c0: f32 = if (kind == .bf16) 100 else 0;
+    const loop_rtol: f64, const loop_atol: f64 = if (kind == .bf16_to_f32) .{ 0.001, 0.0001 } else .{ 0.01, 0.001 };
     for (0..largest + 1) |x| {
         if (x > dense and x != largest) continue;
         const ops = try Operands(In).init(x, r);
@@ -259,8 +259,8 @@ fn gemmAgainst(comptime kind: blas.HalfGemm, small: bool) !void {
             for (0..x) |i| for (0..x) |j| {
                 for (0..x) |l| dd[i * x + j] += ops.product(x, tr[0] == .t, tr[1] == .t, i, j, l);
                 const got = try fromHalf(Out, cc[i * x + j]);
-                const vs_c = if (Out == BF16) try truncate(c[i * x + j]) else c[i * x + j];
-                const vs_d = if (Out == BF16) try truncate(dd[i * x + j]) else dd[i * x + j];
+                const vs_c = if (Out == BFloat16) try truncate(c[i * x + j]) else c[i * x + j];
+                const vs_d = if (Out == BFloat16) try truncate(dd[i * x + j]) else dd[i * x + j];
                 t.check(isClose(got, vs_c, 0.01, 0.001), "{s} {s}{s} x={d} C[{d},{d}]: {d}, sgemm {d}\n", .{ @tagName(kind), @tagName(tr[0]), @tagName(tr[1]), x, j, i, got, vs_c });
                 t.check(isClose(got, vs_d, loop_rtol, loop_atol), "{s} {s}{s} x={d} C[{d},{d}]: {d}, loop {d}\n", .{ @tagName(kind), @tagName(tr[0]), @tagName(tr[1]), x, j, i, got, vs_d });
             };
@@ -292,7 +292,7 @@ fn shgemmScalars(small: bool) !void {
                     @memset(c, 0);
                     @memset(cc, 0);
                     try l3.gemm(al, ob.io, f32, tr[0], tr[1], xi, xi, xi, alpha, ops.a.ptr, xi, ops.b.ptr, xi, beta, c.ptr, xi);
-                    try l3.gemmHalf(al, ob.io, .shgemm, tr[0], tr[1], xi, xi, xi, alpha, ops.aa.ptr, xi, ops.bb.ptr, xi, beta, cc.ptr, xi);
+                    try l3.gemmHalf(al, ob.io, .f16_to_f32, tr[0], tr[1], xi, xi, xi, alpha, ops.aa.ptr, xi, ops.bb.ptr, xi, beta, cc.ptr, xi);
                     for (c, cc, 0..) |w, g, at| t.check(isClose(g, w, 0.01, 0.001), "shgemm {s}{s} x={d} alpha={d} beta={d} C[{d}]: {d}, sgemm {d}\n", .{ @tagName(tr[0]), @tagName(tr[1]), x, alpha, beta, at, g, w });
                 }
             }
@@ -303,17 +303,17 @@ fn shgemmScalars(small: bool) !void {
 
 /// Every program; `small` takes the rigs' sizes.
 pub fn all(small: bool) !void {
-    inline for (std.enums.values(blas.HalfGemv)) |kind| try gemvAgainst(kind, small);
-    inline for (std.enums.values(blas.HalfGemm)) |kind| try gemmAgainst(kind, small);
+    inline for (std.enums.values(blas.HalfPrecision)) |kind| try gemvAgainst(kind, small);
+    inline for (std.enums.values(blas.HalfPrecision)) |kind| try gemmAgainst(kind, small);
     try shgemmScalars(small);
 }
 
 test "compare_sgemv_sbgemv, bgemv, shgemv: the half gemvs against sgemv and a plain loop" {
-    inline for (std.enums.values(blas.HalfGemv)) |kind| try gemvAgainst(kind, check.rig());
+    inline for (std.enums.values(blas.HalfPrecision)) |kind| try gemvAgainst(kind, check.rig());
 }
 
 test "compare_sgemm_sbgemm, bgemm, shgemm: the half gemms against sgemm and a plain loop" {
-    inline for (std.enums.values(blas.HalfGemm)) |kind| try gemmAgainst(kind, check.rig());
+    inline for (std.enums.values(blas.HalfPrecision)) |kind| try gemmAgainst(kind, check.rig());
 }
 
 test "compare_sgemm_shgemm: shgemm's alpha and beta sweep against sgemm" {

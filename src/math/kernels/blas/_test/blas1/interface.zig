@@ -6,7 +6,7 @@ const util = @import("../../util.zig");
 const bf = @import("../../ext/bf16/__root__.zig");
 const interface = @import("../../blas1/interface.zig");
 
-const BF16 = types.BF16;
+const BFloat16 = types.BFloat16;
 const XDouble = types.XDouble;
 const isComplex = types.isComplex;
 const Float = types.Float;
@@ -77,8 +77,8 @@ test "interface: n <= 0 changes nothing and returns zero" {
             try check.expectClose(Float(T), 0, try nrm2(check.io, T, n, &x, 1), 0);
             try check.expectClose(Float(T), 0, try asum(check.io, T, n, &x, 1), 0);
             try check.expectClose(Float(T), 0, try sum(check.io, T, n, &x, 1), 0);
-            try check.expectClose(Float(T), 0, try extreme(check.io, T, .amax, n, &x, 1), 0);
-            try sameInt(0, try index(check.io, T, .amax, n, &x, 1));
+            try check.expectClose(Float(T), 0, try extreme(check.io, T, .largest_magnitude, n, &x, 1), 0);
+            try sameInt(0, try index(check.io, T, .largest_magnitude, n, &x, 1));
         }
     }
     try check.expectClose(f32, 2.5, try sdsdot(check.io, 0, 2.5, undefined, 1, undefined, 1), 0);
@@ -121,8 +121,8 @@ test "interface: a vector past the address space is its stride's error, x's firs
             try testing.expectError(error.InvalidIncx, nrm2(check.io, T, 2, &x, b));
             try testing.expectError(error.InvalidIncx, asum(check.io, T, 2, &x, b));
             try testing.expectError(error.InvalidIncx, sum(check.io, T, 2, &x, b));
-            try testing.expectError(error.InvalidIncx, index(check.io, T, .amax, 2, &x, b));
-            try testing.expectError(error.InvalidIncx, extreme(check.io, T, .amax, 2, &x, b));
+            try testing.expectError(error.InvalidIncx, index(check.io, T, .largest_magnitude, 2, &x, b));
+            try testing.expectError(error.InvalidIncx, extreme(check.io, T, .largest_magnitude, 2, &x, b));
             // the early returns come first
             try copy(check.io, T, 0, &x, b, &y, b);
             try testing.expectEqual(zero(T), try dot(check.io, T, 0, &x, b, &y, b));
@@ -138,7 +138,7 @@ test "interface: a vector past the address space is its stride's error, x's firs
     }
     var f = [_]f32{ 1, 2 };
     var d = [_]f64{ 1, 2 };
-    var h = [_]BF16{ b16(1), b16(2) };
+    var h = [_]BFloat16{ b16(1), b16(2) };
     for (bad) |b| {
         try testing.expectError(error.InvalidIncx, dsdot(check.io, 2, &f, b, &f, 1));
         try testing.expectError(error.InvalidIncy, dsdot(check.io, 2, &f, 1, &f, b));
@@ -222,20 +222,20 @@ test "interface: nrm2 of a zero stride is sqrt(n) * |x[0]|" {
 
 test "interface: extremes, by magnitude and by value" {
     var x = [_]f64{ 3, -7, 7, 1, -2 };
-    try sameInt(2, try index(check.io, f64, .amax, 5, &x, 1));
-    try sameInt(4, try index(check.io, f64, .amin, 5, &x, 1));
-    try sameInt(3, try index(check.io, f64, .max, 5, &x, 1));
-    try sameInt(2, try index(check.io, f64, .min, 5, &x, 1));
-    try sameInt(0, try index(check.io, f64, .amax, 5, &x, 0));
-    try check.expectClose(f64, 7, try extreme(check.io, f64, .amax, 5, &x, 1), 0);
-    try check.expectClose(f64, 1, try extreme(check.io, f64, .amin, 5, &x, 1), 0);
-    try check.expectClose(f64, 7, try extreme(check.io, f64, .max, 5, &x, 1), 0);
-    try check.expectClose(f64, -7, try extreme(check.io, f64, .min, 5, &x, 1), 0);
-    try check.expectClose(f64, -7, try extreme(check.io, f64, .max, 5, x[1..], 0), 0);
-    try check.expectClose(f64, 7, try extreme(check.io, f64, .amax, 5, x[1..], 0), 0);
+    try sameInt(2, try index(check.io, f64, .largest_magnitude, 5, &x, 1));
+    try sameInt(4, try index(check.io, f64, .smallest_magnitude, 5, &x, 1));
+    try sameInt(3, try index(check.io, f64, .largest, 5, &x, 1));
+    try sameInt(2, try index(check.io, f64, .smallest, 5, &x, 1));
+    try sameInt(0, try index(check.io, f64, .largest_magnitude, 5, &x, 0));
+    try check.expectClose(f64, 7, try extreme(check.io, f64, .largest_magnitude, 5, &x, 1), 0);
+    try check.expectClose(f64, 1, try extreme(check.io, f64, .smallest_magnitude, 5, &x, 1), 0);
+    try check.expectClose(f64, 7, try extreme(check.io, f64, .largest, 5, &x, 1), 0);
+    try check.expectClose(f64, -7, try extreme(check.io, f64, .smallest, 5, &x, 1), 0);
+    try check.expectClose(f64, -7, try extreme(check.io, f64, .largest, 5, x[1..], 0), 0);
+    try check.expectClose(f64, 7, try extreme(check.io, f64, .largest_magnitude, 5, x[1..], 0), 0);
     var z = [_]Complex32{ .init(1, 1), .init(-3, 2), .init(0, 4) };
-    try sameInt(2, try index(check.io, Complex32, .amax, 3, &z, 1));
-    try check.expectClose(f32, 5, try extreme(check.io, Complex32, .amax, 3, &z, 1), 0);
+    try sameInt(2, try index(check.io, Complex32, .largest_magnitude, 3, &z, 1));
+    try check.expectClose(f32, 5, try extreme(check.io, Complex32, .largest_magnitude, 3, &z, 1), 0);
 }
 
 test "interface: rot, rotm and axpby match a plain loop" {
@@ -326,12 +326,12 @@ test "interface: axpy with negative strides, and axpyc" {
     try same(XDouble, &.{ 3, 5, 7 }, &qy);
 }
 
-fn b16(v: f32) BF16 {
+fn b16(v: f32) BFloat16 {
     return bf.toBf16(v);
 }
 
 test "interface: sbdot, the conversions and bscal do nothing for n <= 0" {
-    var x = [_]BF16{ b16(1), b16(2) };
+    var x = [_]BFloat16{ b16(1), b16(2) };
     var f = [_]f32{ 7, 8 };
     var d = [_]f64{ 7, 8 };
     for ([_]isize{ 0, -3 }) |n| {
@@ -351,7 +351,7 @@ test "interface: a negative stride reads and writes bfloat16 vectors from their 
     const n = 5;
     var f: [n * 2]f32 = undefined;
     check.fill(f32, &f, 21);
-    var h: [n * 3]BF16 = @splat(b16(0));
+    var h: [n * 3]BFloat16 = @splat(b16(0));
     // stride -3 puts element 0 last: the last element of the buffer region
     try sbtobf16(check.io, f32, n, &f, 2, &h, -3);
     for (0..n) |i| {
@@ -361,7 +361,7 @@ test "interface: a negative stride reads and writes bfloat16 vectors from their 
     try bf16to(check.io, f64, n, &h, -3, &back, 1);
     for (0..n) |i| try std.testing.expectEqual(@as(f64, bf.fromBf16(b16(f[i * 2]))), back[i]);
     // a reversed read of the same storage dots against itself forwards
-    var fwd: [n]BF16 = undefined;
+    var fwd: [n]BFloat16 = undefined;
     for (0..n) |i| fwd[i] = h[(n - 1 - i) * 3];
     try std.testing.expectEqual(try sbdot(check.io, n, &fwd, 1, &fwd, 1), try sbdot(check.io, n, &h, -3, &h, -3));
     var want: f64 = 0;
@@ -370,7 +370,7 @@ test "interface: a negative stride reads and writes bfloat16 vectors from their 
 }
 
 test "interface: bscal skips alpha 1 and a non-positive stride, and scales the rest" {
-    var x = [_]BF16{ b16(1.5), b16(-2), b16(4) };
+    var x = [_]BFloat16{ b16(1.5), b16(-2), b16(4) };
     try bscal(check.io, 3, b16(1), &x, 1);
     try bscal(check.io, 3, b16(2), &x, 0);
     try bscal(check.io, 3, b16(2), &x, -1);
