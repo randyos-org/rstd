@@ -7,7 +7,7 @@ const std = @import("std");
 const mem = @import("../mem.zig");
 const rstd_matrix = @import("rstd_matrix");
 const vector = @import("vector.zig");
-const ops = @import("lapack/ops.zig");
+const ops = @import("../math/kernels/lapack/ops.zig");
 
 const Vec = vector.Vec;
 const Elem = vector.Elem;
@@ -738,7 +738,7 @@ const V2f32 = vector.V2f32;
 const V3f32 = vector.V3f32;
 const V4f64 = vector.V4f64;
 
-const bitwise = @import("blas/_test/bitwise.zig");
+const bitwise = @import("../math/kernels/blas/_test/bitwise.zig");
 const expectSameBits = bitwise.expectSameBits;
 const math = @import("../math/__root__.zig");
 

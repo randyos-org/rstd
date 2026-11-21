@@ -5,4 +5,4 @@ pub const page_size: usize = 1 << page_shift;
 pub const page_mask: usize = page_size - 1;
 
 /// `a` and `b` exchanged as values, not bytes (issue #185).
-pub const swap = @import("linalg/blas/util.zig").swap;
+pub const swap = @import("math/kernels/blas/util.zig").swap;

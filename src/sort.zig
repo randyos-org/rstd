@@ -9,7 +9,7 @@
 //! weak order once a NaN appears.
 
 const std = @import("std");
-const blas_util = @import("linalg/blas/util.zig");
+const blas_util = @import("math/kernels/blas/util.zig");
 
 const Allocator = std.mem.Allocator;
 

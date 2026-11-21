@@ -1,6 +1,6 @@
 //! `l3thread` (only when named): rstd's public `gemm`, square `n`, serial and
 //! at 2, 4, 8 and 16 workers, medians in GFLOPS; the bench behind
-//! `src/linalg/blas/threading.md`'s level-3 timings. Moved from
+//! `src/math/kernels/blas/threading.md`'s level-3 timings. Moved from
 //! `blas3/threaded.zig`'s test, which forced each count through the driver:
 //! here a count is rstd's ceiling (`blas.config.num_threads`), so its size
 //! rule and `cpu_count` may use fewer.

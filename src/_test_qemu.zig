@@ -14,6 +14,6 @@ pub const uefi_io = if (sysinfo.target.os.tag == .uefi) @import("_os/uefi/io/__r
 
 test {
     // the whole BLAS tree; `-Dqemu-test-filter` picks what runs
-    _ = @import("linalg/blas/__root__.zig");
-    _ = @import("linalg/lapack/__root__.zig");
+    _ = @import("math/kernels/blas/__root__.zig");
+    _ = @import("math/kernels/lapack/__root__.zig");
 }

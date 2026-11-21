@@ -1,6 +1,6 @@
 //! A sparse vector against a dense one: `axpy` scatters, `dot` gathers.
 
-const ops = @import("../lapack/ops.zig");
+const ops = @import("../../math/kernels/lapack/ops.zig");
 
 pub const VectorError = error{DimensionMismatch};
 

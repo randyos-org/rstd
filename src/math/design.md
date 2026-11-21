@@ -1,6 +1,6 @@
 # `rstd.math` design
 
-How rstd's math is organized: one low-level kernel layer, modeled on Intel's MKL and Apple's Accelerate, under a high-level API with no tuning options. Decided with the user on 2026-11-20 ([#597](https://github.com/randyos-org/rstd/issues/597), [#606](https://github.com/randyos-org/rstd/issues/606)); the moves that get there are [#607](https://github.com/randyos-org/rstd/issues/607) to [#616](https://github.com/randyos-org/rstd/issues/616) and [#618](https://github.com/randyos-org/rstd/issues/618). The details of each domain stay in its own documents: BLAS and LAPACK in [`linalg/design.md`](../linalg/design.md), threading in [`threading.md`](../linalg/blas/threading.md).
+How rstd's math is organized: one low-level kernel layer, modeled on Intel's MKL and Apple's Accelerate, under a high-level API with no tuning options. Decided with the user on 2026-11-20 ([#597](https://github.com/randyos-org/rstd/issues/597), [#606](https://github.com/randyos-org/rstd/issues/606)); the moves that get there are [#607](https://github.com/randyos-org/rstd/issues/607) to [#616](https://github.com/randyos-org/rstd/issues/616) and [#618](https://github.com/randyos-org/rstd/issues/618). The details of each domain stay in its own documents: BLAS and LAPACK in [`linalg/design.md`](../linalg/design.md), threading in [`threading.md`](kernels/blas/threading.md).
 
 ## Goals
 
@@ -133,7 +133,7 @@ Each type the kernel layer defines or takes, after the moves; the high-level opt
 
 ### `kernels.blas`
 
-The BLAS levels 1 to 3 and rstd's extensions, as `src/linalg/blas/` has them today. Every routine is generic over `T` (`f16` to `f128`, and complex); a CBLAS or MKL name with `?` stands for its letters (`s`, `d`, `c`, `z`).
+The BLAS levels 1 to 3 and rstd's extensions, as `src/math/kernels/blas/` has them today. Every routine is generic over `T` (`f16` to `f128`, and complex); a CBLAS or MKL name with `?` stands for its letters (`s`, `d`, `c`, `z`).
 
 #### Level 1
 
@@ -235,7 +235,7 @@ The BLAS levels 1 to 3 and rstd's extensions, as `src/linalg/blas/` has them tod
 
 ### `kernels.lapack`
 
-As `src/linalg/lapack/` has it today. Accelerate (macOS 13.3's `$NEWLAPACK$ILP64`) and MKL have every routine under its LAPACK name; rstd routes only `potrf` to Accelerate so far.
+As `src/math/kernels/lapack/` has it today. Accelerate (macOS 13.3's `$NEWLAPACK$ILP64`) and MKL have every routine under its LAPACK name; rstd routes only `potrf` to Accelerate so far.
 
 #### Cholesky
 

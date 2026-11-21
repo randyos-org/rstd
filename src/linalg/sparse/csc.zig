@@ -4,8 +4,8 @@
 
 const std = @import("std");
 const matrix = @import("../matrix.zig");
-const types = @import("../blas/types.zig");
-const ops = @import("../lapack/ops.zig");
+const types = @import("../../math/kernels/blas/types.zig");
+const ops = @import("../../math/kernels/lapack/ops.zig");
 const util = @import("util.zig");
 const vector = @import("vector.zig");
 const csr = @import("csr.zig");

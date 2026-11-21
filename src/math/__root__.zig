@@ -3,6 +3,8 @@
 
 const scalar = @import("scalar.zig");
 
+pub const kernels = @import("kernels/__root__.zig");
+
 pub const x87_f64 = scalar.x87_f64;
 pub const floor = scalar.floor;
 pub const ceil = scalar.ceil;

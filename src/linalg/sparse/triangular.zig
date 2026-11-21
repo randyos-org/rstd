@@ -4,8 +4,8 @@
 //! `x_j` gathers its column's dot. Serial: each step needs the last. The
 //! diagonal is found by row, so entries off the triangle are skipped.
 
-const types = @import("../blas/types.zig");
-const ops = @import("../lapack/ops.zig");
+const types = @import("../../math/kernels/blas/types.zig");
+const ops = @import("../../math/kernels/lapack/ops.zig");
 const util = @import("util.zig");
 const csc = @import("csc.zig");
 

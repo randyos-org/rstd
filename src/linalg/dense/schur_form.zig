@@ -4,10 +4,10 @@
 //! the complex one. Replaces `matlab/schur.zig` (issue #322).
 
 const std = @import("std");
-const lapack = @import("../lapack/__root__.zig");
+const lapack = @import("../../math/kernels/lapack/__root__.zig");
 const matrix = @import("../matrix.zig");
 const vector = @import("../vector.zig");
-const ops = @import("../lapack/ops.zig");
+const ops = @import("../../math/kernels/lapack/ops.zig");
 const util = @import("util.zig");
 
 const Allocator = std.mem.Allocator;

@@ -2,7 +2,7 @@
 //! arrays, so each routine here is the `Csc` one on that view.
 
 const std = @import("std");
-const types = @import("../blas/types.zig");
+const types = @import("../../math/kernels/blas/types.zig");
 const csc = @import("csc.zig");
 const vector = @import("vector.zig");
 

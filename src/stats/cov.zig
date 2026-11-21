@@ -1,9 +1,9 @@
 //! `cov` and `corrcoef` over the public layer's views.
 
 const std = @import("std");
-const blas_types = @import("../linalg/blas/types.zig");
+const blas_types = @import("../math/kernels/blas/types.zig");
 const matrix = @import("../linalg/matrix.zig");
-const l3 = @import("../linalg/blas/blas3/interface.zig");
+const l3 = @import("../math/kernels/blas/blas3/interface.zig");
 const util = @import("util.zig");
 
 const Allocator = std.mem.Allocator;

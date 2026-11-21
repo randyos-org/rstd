@@ -5,8 +5,8 @@
 
 const std = @import("std");
 const sysinfo = @import("builtin");
-const fma = @import("blas/fma.zig");
-const types = @import("blas/types.zig");
+const fma = @import("../math/kernels/blas/fma.zig");
+const types = @import("../math/kernels/blas/types.zig");
 
 /// SPIR-V (rgl's shaders) has no f64, which `length`'s `hypot` fallback
 /// needs; shader inputs never near its extremes, so `length` skips it there.
@@ -538,7 +538,7 @@ const Before = struct {
     }
 };
 
-const expectSameBits = @import("blas/_test/bitwise.zig").expectSameBits;
+const expectSameBits = @import("../math/kernels/blas/_test/bitwise.zig").expectSameBits;
 
 fn expectAsBefore(comptime T: type, comptime n: comptime_int, random: std.Random) !void {
     const scales = [_]f64{ 1, 1e-3, 1e3, 1e30, 1e-30, 1e200, 1e-200 };

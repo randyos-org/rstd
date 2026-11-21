@@ -14,9 +14,9 @@ const ResolvedTarget = rstdbuild.ResolvedTarget;
 // Only `cpu/`'s light files (`corespec.zig`, `select.zig` and the `detect/<arch>.zig` detectors
 // it names): the registries or `cpu.Arch` would make this script's
 // compile depend on every kernel source.
-const corespec = @import("../src/linalg/blas/cpu/corespec.zig");
-const select = @import("../src/linalg/blas/cpu/select.zig");
-const abi = @import("../src/linalg/blas/abi.zig");
+const corespec = @import("../src/math/kernels/blas/cpu/corespec.zig");
+const select = @import("../src/math/kernels/blas/cpu/select.zig");
+const abi = @import("../src/math/kernels/blas/abi.zig");
 
 /// Cores with equal specs, served by one object.
 const Group = struct {
@@ -128,7 +128,7 @@ fn addForArch(
         const obj = b.addObject(.{
             .name = b.fmt("rstd-blaskernel-{s}", .{g.cores.items[0]}),
             .root_module = b.createModule(.{
-                .root_source_file = b.path("src/linalg/blas/_kernel.zig"),
+                .root_source_file = b.path("src/math/kernels/blas/_kernel.zig"),
                 .target = b.resolveTargetQuery(g.query),
                 // Kernels are always built for speed, whatever the consumer uses.
                 .optimize = .fast,
