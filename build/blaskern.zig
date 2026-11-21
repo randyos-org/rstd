@@ -5,6 +5,7 @@
 const std = @import("std");
 const sysinfo = @import("builtin");
 const rstdbuild = @import("../src/buildutils/__root__.zig");
+const buildroot = @import("__root__.zig");
 const Build = rstdbuild.Build;
 const Module = rstdbuild.Module;
 const Compile = rstdbuild.CompileStep;
@@ -203,6 +204,8 @@ pub fn asmCheck(b: *Build, comp: *Compile, query: std.Target.Query) !*Build.Step
 /// into anything.
 fn objectPic(mod: *Module, target: ResolvedTarget) ?bool {
     const t = &target.result;
+    // ThreadSanitizer links a PIE, which Zig 0.17's non-PIC objects fail on x86_64 (issue #652)
+    if (buildroot.tsan and t.os.tag == .linux and t.abi.isGnu()) return true;
     if (!t.cpu.arch.isMips()) return null;
     return mod.pic orelse switch (t.os.tag) {
         .freestanding => false,

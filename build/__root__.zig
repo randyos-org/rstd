@@ -97,6 +97,10 @@ pub fn build(b: *Build) !void {
     const optimize = rstdbuild.getOptimize(b);
     const target = rstdbuild.getTarget(b);
     const docs = rstdbuild.addDocs(b);
+    // glibc only: static on musl it faults at start; macOS needs SDK headers
+    // the toolchain lacks (issue #178). Read before any module, as the BLAS
+    // kernel objects follow it (issue #652).
+    tsan = b.option(bool, "rstd-tsan", "Build rstd's linux-gnu tests with ThreadSanitizer; the x86_64 and aarch64 Linux rigs then take glibc from Nix on -Dtest-host") orelse false;
 
     // Debug builds link only the target's BLAS kernels, which is far faster
     // to compile; `-Dblas-cores=all` builds every core to test dispatch.
@@ -186,9 +190,6 @@ pub fn build(b: *Build) !void {
 
     // tests
     // -----
-    // glibc only: static on musl it faults at start; macOS needs SDK headers
-    // the toolchain lacks (issue #178)
-    tsan = b.option(bool, "rstd-tsan", "Build rstd's linux-gnu tests with ThreadSanitizer; the x86_64 and aarch64 Linux rigs then take glibc from Nix on -Dtest-host") orelse false;
     const test_filter = b.option([]const []const u8, "rstd-test-filter", "Only run rstd tests whose name contains this (repeatable)") orelse &.{};
     const rstd_test_exe = try addRstdTest(b, rstd_mod, target, optimize, test_filter);
     const run_rstd_test = b.addRunArtifact(rstd_test_exe);
