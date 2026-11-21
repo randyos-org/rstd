@@ -1,15 +1,15 @@
 # Porting OpenBLAS's C level-1 kernels
 
-Some OpenBLAS kernels are C, not assembly: a driver (`kernel/<arch>/ddot.c`) around a block kernel, which is an inline-assembly microkernel (`ddot_microk_haswell-2.c`) or C intrinsics, or a driver with no block at all. `axpy` was the first routine ported this way, `dot` on x86_64 the second, then x86_64 `scal`, `rot` and `gemv` (level 2, in `blas2/gemv`). All go through the same machinery, so a new routine adds a table row and its driver, not a new converter. Where these ports sit among the other kernel kinds is in [`design.md`](../../design.md#kernel-kinds).
+Some OpenBLAS kernels are C, not assembly: a driver (`kernel/<arch>/ddot.c`) around a block kernel, which is an inline-assembly microkernel (`ddot_microk_haswell-2.c`) or C intrinsics, or a driver with no block at all. `axpy` was the first routine ported this way, `dot` on x86_64 the second, then x86_64 `scal`, `rot` and `gemv` (level 2, in `blas2/gemv`). All go through the same machinery. Where these ports sit among the other kernel kinds is in [`design.md`](../../design.md#kernel-kinds).
 
 ## The parts
 
 | Part                  | Where                                   | Made how               |
 | --------------------- | --------------------------------------- | ---------------------- |
-| Inline-assembly block | `<routine>/<arch>/uk/<p><r>_<core>.zig` | generated, `uk.zig`    |
-| Driver's own assembly | `<routine>/<arch>/uk/<p><r>.zig`        | generated, `uk.zig`    |
-| Index: core to block  | `<routine>/<arch>/uk/__root__.zig`      | generated, `uk.zig`    |
-| Index for `gemv`      | `gemv/<arch>/uk/index_n.zig`, `_t`      | generated, `uk.zig`    |
+| Inline-assembly block | `<routine>/<arch>/uk/<p><r>_<core>.zig` | converted, by hand now |
+| Driver's own assembly | `<routine>/<arch>/uk/<p><r>.zig`        | converted, by hand now |
+| Index: core to block  | `<routine>/<arch>/uk/__root__.zig`      | converted, by hand now |
+| Index for `gemv`      | `gemv/<arch>/uk/index_n.zig`, `_t`      | converted, by hand now |
 | Driver                | `<routine>/kernel.zig`                  | hand-ported            |
 | Intrinsics block      | `<routine>/<arch>/kernel.zig`           | hand-ported, `@Vector` |
 | Composition per arch  | `<routine>/<arch>/kernel.zig`           | `uk.Kernels(...)`      |
@@ -18,34 +18,28 @@ Some OpenBLAS kernels are C, not assembly: a driver (`kernel/<arch>/ddot.c`) aro
 
 `uk_block.zig` holds what is shared: `Entry` (a row of the index), `find`, the `Block` kinds, and `Kernels`, which exports the core's kernels (`blaskern_<slot>_<core>`) and points the vtable at them. A core whose source is a whole `.S` kernel still goes through `asm/__root__.zig`; `Kernels` takes both and prefers the assembly.
 
-## What the generator converts
+## How the blocks were converted
 
-`tools/blas_asm/uk.zig`, run as
+`tools/blas_asm/uk.zig` converted them; it is retired ([#618](https://github.com/randyos-org/rstd/issues/618), user, 2026-11-20), and the converted files are maintained by hand. A new block is written by hand the same way. For each routine and each target that listed it, the converter:
 
-```bash
-OPENBLAS=<checkout> zig run tools/blas_asm/uk.zig [-- <routine>...]
-```
+1. converted every function with assembly in each `<p><routine>_microk_<core>-N.c` (or, for `zarch`, the function in the driver's own file): the `__asm__` statement as written, named operands, clobbers at the width of the registers used, `#if CONJ` resolved once per form. Where a file also tests `XCONJ` (complex `gemv`), each of the four forms is named by a suffix (`_c`, `_x`, `_cx`), and a form whose function is another's is an alias. A leading C branch that returns (`add_y`'s strided loop) is the driver's; the rest is converted as `<name>_asm`;
+2. read the `#if defined(CORE)` chain at the top of each driver for which block each core includes and the driver's block size (`n & -N`);
+3. converted the functions with assembly the driver itself defines (`dscal.c`'s `dscal_kernel_inc_8`), preprocessed with an empty `common.h` and no core defined, so its own fallbacks stay; one with statements it could not convert (a C loop before the assembly) was left to the ported driver;
+4. wrote the index. A core that uses the driver but no chain link gets `.none`; a link whose file has no assembly gets `.vector`; `.own` names the driver's own assembly.
 
-For each routine in the `Routine` table of `tools/blas_asm/openblas.zig` and each target that lists it, it:
-
-1. Converts every function with assembly in each `<p><routine>_microk_<core>-N.c` (or, for `zarch`, the function in the driver's own file): the `__asm__` statement as written, named operands, clobbers at the width of the registers used, `#if CONJ` resolved once per form. Where a file also tests `XCONJ` (complex `gemv`), each of the four forms is named by a suffix (`_c`, `_x`, `_cx`), and a form whose function is another's is an alias. A leading C branch that returns (`add_y`'s strided loop) is the driver's; the rest is converted as `<name>_asm`;
-2. reads the `#if defined(CORE)` chain at the top of each driver for which block each core includes and the driver's block size (`n & -N`);
-3. converts the functions with assembly the driver itself defines (`dscal.c`'s `dscal_kernel_inc_8`), preprocessed with an empty `common.h` and no core defined, so its own fallbacks stay; one with statements it cannot convert (a C loop before the assembly) is left to the ported driver;
-4. writes the index. A core that uses the driver but no chain link gets `.none`; a link whose file has no assembly gets `.vector`; `.own` names the driver's own assembly.
-
-Which cores use the driver comes from `KERNEL.<core>`, then `KERNEL`, then `Makefile.L1`, through the roles' make variables (`SDOTKERNEL`, `DSDOTKERNEL`). It does not edit what it converts, so a mistake upstream is fixed by a patch.
+Which cores use the driver comes from `KERNEL.<core>`, then `KERNEL`, then `Makefile.L1`, through the roles' make variables (`SDOTKERNEL`, `DSDOTKERNEL`). It did not edit what it converted, so a mistake upstream was fixed by a patch.
 
 ### Patches
 
-A target's `patches` are `arch.Patch` rows, the same type `gen.zig` uses for the `.S` kernels, matched on the microkernel's file name. `find` must occur `count` times or the generator stops. List each in [`design.md`](../../design.md#fixes-to-upstream-sources)'s "Fixes to upstream sources". The x86_64 `dot` blocks the host can run needed none; the Bulldozer, Piledriver and Steamroller ones are untested at run time.
+A target's `patches` were `arch.Patch` rows, as for the `.S` kernels: exact find-and-replace edits on the upstream text. The converted files carry them. A fix now is an edit of the converted file, listed in [`design.md`](../../design.md#fixes-to-upstream-sources)'s "Fixes to upstream sources". The x86_64 `dot` blocks the host can run needed none; the Bulldozer, Piledriver and Steamroller ones are untested at run time.
 
 ### Adding a routine
 
-1. A `Routine` and its roles in `tools/blas_asm/openblas.zig`: the role's slot, precision letter, make prefix (`DS` for `DSDOTKERNEL`), and which function of a block it calls (the conjugated `axpyc` calls the second); the routine's directory, driver file and defaults makefile where they differ.
-2. The routine in a target's `routines` in `uk.zig`, then run it.
+1. The blocks and index under `<routine>/<arch>/uk/`, converted by hand from the microkernels as the existing ones are: one function per `__asm__` statement, its operands, clobbers and forms as above.
+2. Which cores take which block, from `KERNEL.<core>`, `KERNEL` and `Makefile.L1`, in the index.
 3. The driver, `<routine>/kernel.zig` (below), with `slots`, `form(slot)`, `Kernel(slot)`, `Asm(slot, f)` and `entry(slot, mask, Block)`.
 4. A `<routine>/<arch>/kernel.zig` that is a `uk.Kernels(...)` plus the architecture's `Vector` block, and its line in `kernels/<arch>.zig` (replacing the routine's plain `registry.Kernels(...)` line).
-5. Tests; `survey.zig -- <routine>` for `coverage.md`.
+5. Tests, and the routine's `coverage.md` updated by hand.
 
 ## What is ported by hand: the driver
 

@@ -153,10 +153,10 @@ fn addNativeBench(b: *Build, libs: BenchLibs, openblas_src: ?[]const u8) !void {
     step.dependOn(&run.step);
 }
 
-/// OpenBLAS's vortex gemm kernels and copies from `checkout`, as
-/// `tools/blas_asm` has them, named `ob_<routine>`.
+/// OpenBLAS's vortex gemm kernels and copies, assembled from `checkout`'s
+/// sources, named `ob_<routine>`.
 fn addVortexAsm(b: *Build, mod: *rstdbuild.Module, checkout: []const u8) !void {
-    // `config.h` as `tools/blas_asm` writes it
+    // the `config.h` the sources include, as OpenBLAS's build writes it
     const inc = b.addWriteFiles();
     _ = inc.add("config.h", "#define ARCH_ARM64 1\n#define BINARY64 1\n");
     const kernel_dir = b.pathJoin(&.{ checkout, "kernel", "arm64" });
