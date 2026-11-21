@@ -5,7 +5,7 @@
 const rstd = @import("rstd");
 const bb = @import("blas_bench.zig");
 
-const CoreType = rstd.linalg.blas.cpu.CoreType;
+const CoreType = rstd.math.kernels.blas.cpu.CoreType;
 const Fn = bb.Fn;
 
 pub const Core = enum { haswell, zen };

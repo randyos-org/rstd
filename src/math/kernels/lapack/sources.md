@@ -1,6 +1,6 @@
 # LAPACK and kernel sources
 
-The anthology's source table (design.md, Settled decisions: "`rstd.linalg` is an anthology of the best open-source methods", 2026-10-30; T113). For each LAPACK routine rstd has or plans, and each BLAS kernel family with more than one source, it lists the candidates, which of them implement it (read in their trees at the pins below, not guessed), the current choice, why, and the evidence. A choice changes when a benchmark or an accuracy test favors another source. Reference-LAPACK and Eigen are baselines only; Eigen is never a source.
+The anthology's source table (design.md, Settled decisions: "`rstd.math.linalg` is an anthology of the best open-source methods", 2026-10-30; T113). For each LAPACK routine rstd has or plans, and each BLAS kernel family with more than one source, it lists the candidates, which of them implement it (read in their trees at the pins below, not guessed), the current choice, why, and the evidence. A choice changes when a benchmark or an accuracy test favors another source. Reference-LAPACK and Eigen are baselines only; Eigen is never a source.
 
 ## Candidates
 
@@ -12,7 +12,7 @@ The anthology's source table (design.md, Settled decisions: "`rstd.linalg` is an
 | libflame | tag `5.2.0` (`53bd60c50b`, 2019-08-09), <https://github.com/flame/libflame> | BSD-3 (`LICENSE`); its f2c parts under AT&T, Lucent and Bellcore's permission notice (same file) | FLAME algorithms behind LAPACK names |
 | AOCL-libFLAME | tag `5.3.2` (`3b3251adec`, 2026-08-20), <https://github.com/amd/libflame> | BSD-3 and MIT, per file (`LICENSE.txt`); third-party parts BSD-3 or MIT (`NOTICE.txt`) | libflame plus AMD's x86 tuning |
 | BLIS | `2.1` (`caf0db6be1`) | BSD-3 | kernels and the level-3 framework; no LAPACK (no `getrf`, `potrf` or `geqrf` under `frame/` or `kernels/`) |
-| Apple Accelerate | macOS's, bound at run time | Apple's; called, never ported | the routines `apple_accel.zig` routes ([BLAS design](../../../linalg/design.md#apple-accelerate)) |
+| Apple Accelerate | macOS's, bound at run time | Apple's; called, never ported | the routines `apple_accel.zig` routes ([BLAS design](../../linalg/design.md#apple-accelerate)) |
 | Reference-LAPACK | OpenBLAS's `lapack-netlib/` | baseline | the semantics, and a benchmark baseline |
 | Eigen | upstream, built through Nix ([#120](https://github.com/randyos-org/rstd/issues/120)) | MPL 2.0 | a benchmark baseline only |
 
@@ -30,7 +30,7 @@ Two of libflame's names are not what they say: `gesdd` is "redirected to GESVD" 
 
 ## LAPACK routines
 
-"Needs" says why rstd wants the routine: **has** (in `src/math/kernels/lapack/`; the T34, T110, T111, T115 and T123 in this table are items from before the move to issues, all landed), or **M** for `rstd.linalg`'s MATLAB-like API (M1 to M4; M2 names the LINPACK and EISPACK routines each replaces). In the source columns "own" is the candidate's own implementation, with its file (OpenBLAS's from its root, ReLAPACK's in `relapack/src/`, faer's in `faer/src/linalg/`, libflame's and AOCL-libFLAME's in `src/map/lapack2flamec/` and its `f2c/c/`); "-" is none. Evidence for **has** rows is the accuracy tests design.md's Verification lists for `src/math/kernels/lapack/`.
+"Needs" says why rstd wants the routine: **has** (in `src/math/kernels/lapack/`; the T34, T110, T111, T115 and T123 in this table are items from before the move to issues, all landed), or **M** for `rstd.math.linalg`'s MATLAB-like API (M1 to M4; M2 names the LINPACK and EISPACK routines each replaces). In the source columns "own" is the candidate's own implementation, with its file (OpenBLAS's from its root, ReLAPACK's in `relapack/src/`, faer's in `faer/src/linalg/`, libflame's and AOCL-libFLAME's in `src/map/lapack2flamec/` and its `f2c/c/`); "-" is none. Evidence for **has** rows is the accuracy tests design.md's Verification lists for `src/math/kernels/lapack/`.
 
 ### Cholesky and triangular
 
@@ -123,7 +123,7 @@ Faer also has what no item asks for yet: pivoted Cholesky (`llt_pivoting`, LAPAC
 
 ## BLAS kernel families
 
-Where more than one source serves a family. The per-core detail is in the `coverage.md` files (one per level-1 routine, [`blas2/coverage.md`](../blas/blas2/coverage.md), [`blas3/gemm/coverage.md`](../blas/blas3/gemm/coverage.md)); the reasoning in [BLAS design](../../../linalg/design.md) and [`comparisons.md`](../blas/comparisons.md); the numbers in `tools/blasbench/results/results-*.md`.
+Where more than one source serves a family. The per-core detail is in the `coverage.md` files (one per level-1 routine, [`blas2/coverage.md`](../blas/blas2/coverage.md), [`blas3/gemm/coverage.md`](../blas/blas3/gemm/coverage.md)); the reasoning in [BLAS design](../../linalg/design.md) and [`comparisons.md`](../blas/comparisons.md); the numbers in `tools/blasbench/results/results-*.md`.
 
 | Family | Candidates | Choice | Why | Evidence |
 | --- | --- | --- | --- | --- |
@@ -149,7 +149,7 @@ Where more than one source serves a family. The per-core detail is in the `cover
 
 Candidates for the timing session; none is ported, and each would race the current choice.
 
-1. **AOCL-libFLAME's small-size x86 kernels** (`src/lapack/x86/avx2/`, `avx512/`): `getrf` for `s`, `d` and `z` (`d` below 81 on AVX2 and 160 on AVX-512, `FLA_macro_defs.h:294-296`; `FLA_getrf.c:203-291`), `potrf` and `potri` for `d`, `getrs` untransposed, `getri` (plain C), `geqrf` for every type, `gelqf`, and `gesvd`'s small cases (`FLA_DGESVD_SMALL_SIZE_THRESH*`, 16 to 386, `FLA_macro_defs.h:349-351`), with `dlasr`, `larf` and `lange` kernels underneath. `rstd.linalg`'s MATLAB-like layer calls small matrices often (M10 to M14), and Zen 3 is a host rstd times. They are intrinsics; a port would be `@Vector` code, as T20's strategy does for level 1 and 2.
+1. **AOCL-libFLAME's small-size x86 kernels** (`src/lapack/x86/avx2/`, `avx512/`): `getrf` for `s`, `d` and `z` (`d` below 81 on AVX2 and 160 on AVX-512, `FLA_macro_defs.h:294-296`; `FLA_getrf.c:203-291`), `potrf` and `potri` for `d`, `getrs` untransposed, `getri` (plain C), `geqrf` for every type, `gelqf`, and `gesvd`'s small cases (`FLA_DGESVD_SMALL_SIZE_THRESH*`, 16 to 386, `FLA_macro_defs.h:349-351`), with `dlasr`, `larf` and `lange` kernels underneath. `rstd.math.linalg`'s MATLAB-like layer calls small matrices often (M10 to M14), and Zen 3 is a host rstd times. They are intrinsics; a port would be `@Vector` code, as T20's strategy does for level 1 and 2.
 2. **AOCL-libFLAME's OpenMP paths**: `geqrf`, `ormqr`, `sytrd`, `potrf` (`dpotrf_var2`) and `getrf` (`FLA_LU_piv_*_parallel`). Each must first be shown to give the same bits for any thread count before it can be a candidate.
 3. **Libflame's restructured tridiagonal and bidiagonal QR** (F. G. Van Zee, R. A. van de Geijn, G. Quintana-Ortí, "Restructuring the Tridiagonal and Bidiagonal QR Algorithms for Performance", ACM TOMS 40(3), 2014, <https://doi.org/10.1145/2535371>): Givens rotations applied in waves, so vectors update at level-3-like speed. It is libflame's `gesvd` (`FLA_Svd_ext`) and its `FLA_Hevd` and `FLA_Tevd`, which no LAPACK name reaches. It would race faer's QR iteration in `gesvd` and divide and conquer in `syevd`.
 4. **Libflame's `FLA_Eig_gest` and `FLA_Sylv`**: the only non-reference rivals to ReLAPACK's `sygst` and `trsyl` (T110); `FLA_Sylv` is mapped only with `FLA_ENABLE_YET_LAPACK2FLAME`.

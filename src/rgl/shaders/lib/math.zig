@@ -1,5 +1,5 @@
 const std = @import("std");
-const linalg = @import("../../../linalg/__root__.zig");
+const linalg = @import("../../../math/linalg/__root__.zig");
 const vec = linalg.vector;
 const V3f32 = vec.V3f32;
 

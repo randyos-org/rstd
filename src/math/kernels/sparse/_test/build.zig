@@ -2,7 +2,7 @@
 //! columns as sparse vectors, extraction, transposes and the CSR twin.
 
 const std = @import("std");
-const matrix = @import("../../../../linalg/matrix.zig");
+const matrix = @import("../../../linalg/matrix.zig");
 const types = @import("../../blas/types.zig");
 const ops = @import("../../lapack/ops.zig");
 const check = @import("../../blas/_test/check.zig");

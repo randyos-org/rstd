@@ -4,7 +4,7 @@
 //! `generators.magic`, `hilber` and `random.Urand` (issue #330).
 
 const std = @import("std");
-const mem = @import("../mem.zig");
+const mem = @import("../../mem.zig");
 const matrix = @import("matrix.zig");
 const vector = @import("vector.zig");
 

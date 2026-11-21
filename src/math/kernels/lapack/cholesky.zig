@@ -92,7 +92,7 @@ fn potrfAccel(allocator: Allocator, comptime T: type, uplo: Uplo, n: usize, a: [
 /// `potrf`, a failure returned as the index (0-based) of the first pivot
 /// that is not positive, or null: the leading minor one larger is not
 /// positive definite, `A` partly factored as `potrf` leaves it. Not in
-/// `rstd.linalg.lapack`: MATLAB's `[R, p] = chol(A)` `p`, for a caller wanting it.
+/// `rstd.math.kernels.lapack`: MATLAB's `[R, p] = chol(A)` `p`, for a caller wanting it.
 pub fn potrfChecked(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: usize, a: []T, lda: usize) CheckedError!?usize {
     comptime ops.requireFloat(T, "potrf");
     try interface.holdsTriangle(uplo, n, a.len, lda);

@@ -4,15 +4,15 @@ const sysinfo = @import("builtin");
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
-const blas = @import("../../math/kernels/blas/__root__.zig");
-const ext = @import("../../math/kernels/blas/ext/interface.zig");
-const l3 = @import("../../math/kernels/blas/blas3/core.zig");
-const l2 = @import("../../math/kernels/blas/blas2/core.zig");
-const l1 = @import("../../math/kernels/blas/blas1/interface.zig");
-const lapack = @import("../../math/kernels/lapack/__root__.zig");
+const blas = @import("../../kernels/blas/__root__.zig");
+const ext = @import("../../kernels/blas/ext/interface.zig");
+const l3 = @import("../../kernels/blas/blas3/core.zig");
+const l2 = @import("../../kernels/blas/blas2/core.zig");
+const l1 = @import("../../kernels/blas/blas1/interface.zig");
+const lapack = @import("../../kernels/lapack/__root__.zig");
 const vector = @import("../vector.zig");
 const matrix = @import("../matrix.zig");
-const ops = @import("../../math/kernels/lapack/ops.zig");
+const ops = @import("../../kernels/lapack/ops.zig");
 
 const View = matrix.View;
 const ConstView = matrix.ConstView;
@@ -53,10 +53,10 @@ pub fn mulInto(allocator: Allocator, io: Io, out: anytype, a: anytype, b: anytyp
     const ca = constOf(a);
     const cb = constOf(b);
     if (ca.cols != cb.rows or o.rows != ca.rows or o.cols != cb.cols) return error.DimensionMismatch;
-    return mulWith(pathOf(&.{ ca.rows, cb.cols, ca.cols }), allocator, io, o, ca, cb);
+    return mulOn(pathOf(&.{ ca.rows, cb.cols, ca.cols }), allocator, io, o, ca, cb);
 }
 
-pub fn mulWith(path: Path, allocator: Allocator, io: Io, o: anytype, ca: ConstView(@TypeOf(o).Element), cb: ConstView(@TypeOf(o).Element)) (Allocator.Error || Io.Cancelable)!void {
+pub fn mulOn(path: Path, allocator: Allocator, io: Io, o: anytype, ca: ConstView(@TypeOf(o).Element), cb: ConstView(@TypeOf(o).Element)) (Allocator.Error || Io.Cancelable)!void {
     const T = @TypeOf(o).Element;
     const m = ca.rows;
     const n = cb.cols;
@@ -98,21 +98,21 @@ pub fn transposed(comptime trans: blas.Trans, allocator: Allocator, io: Io, a: a
     const ca = constOf(a);
     const r = try Mat(ElementOf(@TypeOf(a))).init(allocator, ca.cols, ca.rows);
     errdefer r.deinit(allocator);
-    transposeWith(trans, io, r.view(), ca) catch |e| return narrow(Io.Cancelable, e);
+    transposeAs(trans, io, r.view(), ca) catch |e| return narrow(Io.Cancelable, e);
     return r;
 }
 
 /// `out = aᵀ`, by the BLAS's `omatcopy`.
 pub fn transposeInto(io: Io, out: anytype, a: anytype) TransposeError!void {
-    return transposeWith(.t, io, viewOf(out), constOf(a));
+    return transposeAs(.t, io, viewOf(out), constOf(a));
 }
 
 /// `out = aᴴ`, by the BLAS's `omatcopy`.
 pub fn ctransposeInto(io: Io, out: anytype, a: anytype) TransposeError!void {
-    return transposeWith(.c, io, viewOf(out), constOf(a));
+    return transposeAs(.c, io, viewOf(out), constOf(a));
 }
 
-pub fn transposeWith(comptime trans: blas.Trans, io: Io, o: anytype, a: anytype) TransposeError!void {
+pub fn transposeAs(comptime trans: blas.Trans, io: Io, o: anytype, a: anytype) TransposeError!void {
     const T = @TypeOf(a).Element;
     if (o.rows != a.cols or o.cols != a.rows) return error.DimensionMismatch;
     if (a.rows == 0 or a.cols == 0) return;

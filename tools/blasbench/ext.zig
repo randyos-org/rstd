@@ -7,8 +7,8 @@ const bb = @import("blas_bench.zig");
 const kernels = @import("kernels.zig");
 const libs = @import("libs.zig");
 
-const blas = rstd.linalg.blas;
-const lapack = rstd.linalg.lapack;
+const blas = rstd.math.kernels.blas;
+const lapack = rstd.math.kernels.lapack;
 
 const clock = bb.clock;
 const l1_timing = bb.l1_timing;

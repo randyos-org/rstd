@@ -7,7 +7,7 @@ const LocaTable = @import("../loca.zig").LocaTable;
 const GlyfTable = @import("GlyfTable.zig");
 const SimpleGlyph = @import("SimpleGlyph.zig");
 const CompositeGlyph = @import("CompositeGlyph.zig");
-const vector = @import("../../../../../linalg/__root__.zig").vector;
+const vector = @import("../../../../../math/linalg/__root__.zig").vector;
 
 const Allocator = zigstd.Allocator;
 const GlyphIndex = types.GlyphIndex;

@@ -1,6 +1,6 @@
 # Porting OpenBLAS's C level-1 kernels
 
-Some OpenBLAS kernels are C, not assembly: a driver (`kernel/<arch>/ddot.c`) around a block kernel, which is an inline-assembly microkernel (`ddot_microk_haswell-2.c`) or C intrinsics, or a driver with no block at all. `axpy` was the first routine ported this way, `dot` on x86_64 the second, then x86_64 `scal`, `rot` and `gemv` (level 2, in `blas2/gemv`). All go through the same machinery. Where these ports sit among the other kernel kinds is in [`design.md`](../../../../linalg/design.md#kernel-kinds).
+Some OpenBLAS kernels are C, not assembly: a driver (`kernel/<arch>/ddot.c`) around a block kernel, which is an inline-assembly microkernel (`ddot_microk_haswell-2.c`) or C intrinsics, or a driver with no block at all. `axpy` was the first routine ported this way, `dot` on x86_64 the second, then x86_64 `scal`, `rot` and `gemv` (level 2, in `blas2/gemv`). All go through the same machinery. Where these ports sit among the other kernel kinds is in [`design.md`](../../../linalg/design.md#kernel-kinds).
 
 ## The parts
 
@@ -31,7 +31,7 @@ Which cores use the driver comes from `KERNEL.<core>`, then `KERNEL`, then `Make
 
 ### Patches
 
-A target's `patches` were `arch.Patch` rows, as for the `.S` kernels: exact find-and-replace edits on the upstream text. The converted files carry them. A fix now is an edit of the converted file, listed in [`design.md`](../../../../linalg/design.md#fixes-to-upstream-sources)'s "Fixes to upstream sources". The x86_64 `dot` blocks the host can run needed none; the Bulldozer, Piledriver and Steamroller ones are untested at run time.
+A target's `patches` were `arch.Patch` rows, as for the `.S` kernels: exact find-and-replace edits on the upstream text. The converted files carry them. A fix now is an edit of the converted file, listed in [`design.md`](../../../linalg/design.md#fixes-to-upstream-sources)'s "Fixes to upstream sources". The x86_64 `dot` blocks the host can run needed none; the Bulldozer, Piledriver and Steamroller ones are untested at run time.
 
 ### Adding a routine
 

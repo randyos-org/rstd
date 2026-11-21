@@ -28,7 +28,6 @@ pub const crypto = @import("crypto/__root__.zig");
 pub const debug = @import("debug.zig");
 pub const dll = @import("dll.zig");
 pub const io = @import("io.zig");
-pub const linalg = @import("linalg/__root__.zig");
 pub const log = @import("log.zig");
 pub const bootinfo = @import("bootinfo.zig");
 pub const math = @import("math/__root__.zig");

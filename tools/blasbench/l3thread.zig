@@ -10,7 +10,7 @@ const Io = std.Io;
 const rstd = @import("rstd");
 const bb = @import("blas_bench.zig");
 
-const blas = rstd.linalg.blas;
+const blas = rstd.math.kernels.blas;
 
 const counts = [_]u32{ 2, 4, 8, 16 };
 

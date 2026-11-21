@@ -11,7 +11,7 @@ const shader_mod = rstd.rgl.shaders;
 const lib = shader_mod.lib;
 const types = shader_mod.types;
 const math = lib.math;
-const matrix = rstd.linalg.matrix;
+const matrix = rstd.math.linalg.matrix;
 const Vec3 = types.Vec3;
 const Vec4 = types.Vec4;
 const Mat4 = types.Mat4;
@@ -189,7 +189,7 @@ pub fn compute(comptime op: Op, in: Inputs) Vec4 {
         .faceforward => out3(math.faceforward(a, b, c)),
         .inversesqrt => out1(math.inversesqrt(t)),
         .inversesqrt_vec => out3(math.inversesqrt(a)),
-        .fma_muladd => out3(rstd.linalg.vector.mulAdd(Vec3, a, b, c)),
+        .fma_muladd => out3(rstd.math.linalg.vector.mulAdd(Vec3, a, b, c)),
         .fma_builtin => out3(@mulAdd(Vec3, a, b, c)),
         .mix => out3(math.mix(a, b, t)),
         .mix_scalar => out1(math.mix(a[0], b[0], t)),

@@ -2,18 +2,18 @@
 
 const sysinfo = @import("builtin");
 const std = @import("std");
-const mem = @import("../../../mem.zig");
+const mem = @import("../../../../mem.zig");
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
-const blas = @import("../../../math/kernels/blas/__root__.zig");
-const ext = @import("../../../math/kernels/blas/ext/interface.zig");
-const l3 = @import("../../../math/kernels/blas/blas3/core.zig");
-const l2 = @import("../../../math/kernels/blas/blas2/core.zig");
-const l1 = @import("../../../math/kernels/blas/blas1/interface.zig");
-const lapack = @import("../../../math/kernels/lapack/__root__.zig");
+const blas = @import("../../../kernels/blas/__root__.zig");
+const ext = @import("../../../kernels/blas/ext/interface.zig");
+const l3 = @import("../../../kernels/blas/blas3/core.zig");
+const l2 = @import("../../../kernels/blas/blas2/core.zig");
+const l1 = @import("../../../kernels/blas/blas1/interface.zig");
+const lapack = @import("../../../kernels/lapack/__root__.zig");
 const vector = @import("../../vector.zig");
 const matrix = @import("../../matrix.zig");
-const ops = @import("../../../math/kernels/lapack/ops.zig");
+const ops = @import("../../../kernels/lapack/ops.zig");
 
 const View = matrix.View;
 const ConstView = matrix.ConstView;
@@ -23,8 +23,8 @@ const Real = vector.Real;
 const eMul = matrix.eMul;
 const eMulAdd = matrix.eMulAdd;
 
-const zigstd = @import("../../../zigstd.zig");
-const bitwise = @import("../../../math/kernels/blas/_test/bitwise.zig");
+const zigstd = @import("../../../../zigstd.zig");
+const bitwise = @import("../../../kernels/blas/_test/bitwise.zig");
 const testing = std.testing;
 const sameBitsOrX87 = bitwise.sameBitsOrX87;
 const C64 = std.math.Complex(f64);
@@ -38,17 +38,17 @@ const randomMat = test_inverse.randomMat;
 const shiftDiag = test_inverse.shiftDiag;
 const tolOf = test_inverse.tolOf;
 const inverse = @import("../inverse.zig");
-const detWith = inverse.detWith;
-const invWith = inverse.invWith;
-const solveWith = inverse.solveWith;
+const detOn = inverse.detOn;
+const invOn = inverse.invOn;
+const solveOn = inverse.solveOn;
 const products = @import("../products.zig");
 const mul = products.mul;
-const mulWith = products.mulWith;
+const mulOn = products.mulOn;
 const reductions = @import("../reductions.zig");
-const dotWith = reductions.dotWith;
-const extremeWith = reductions.extremeWith;
-const normWith = reductions.normWith;
-const sumWith = reductions.sumWith;
+const dotOn = reductions.dotOn;
+const extremeOn = reductions.extremeOn;
+const normOn = reductions.normOn;
+const sumOn = reductions.sumOn;
 const util = @import("../util.zig");
 const Path = util.Path;
 const constOf = util.constOf;
@@ -145,32 +145,32 @@ pub fn expectPaths(comptime T: type, n: usize, rnd: std.Random) !void {
     const tol = tolOf(T, n);
     const nf: f64 = @floatFromInt(n);
     for ([_]Path{ .fixed, .blas }) |path| {
-        try testing.expect(wideDiff(try dotWith(path, test_io, sx, sy), dot_ref) <= tol * dot_mag);
-        try testing.expect(wideDiff(try sumWith(path, test_io, sx), sum_ref) <= tol * sum_mag);
-        try testing.expect(wideDiff(try normWith(path, test_io, sx), @sqrt(sq)) <= tol * @as(f64, @floatCast(@sqrt(sq))));
+        try testing.expect(wideDiff(try dotOn(path, test_io, sx, sy), dot_ref) <= tol * dot_mag);
+        try testing.expect(wideDiff(try sumOn(path, test_io, sx), sum_ref) <= tol * sum_mag);
+        try testing.expect(wideDiff(try normOn(path, test_io, sx), @sqrt(sq)) <= tol * @as(f64, @floatCast(@sqrt(sq))));
         if (comptime !isComplex(T)) {
-            try testing.expectEqual(std.mem.max(T, x), try extremeWith(.largest, path, test_io, sx));
-            try testing.expectEqual(std.mem.min(T, x), try extremeWith(.smallest, path, test_io, sx));
+            try testing.expectEqual(std.mem.max(T, x), try extremeOn(.largest, path, test_io, sx));
+            try testing.expectEqual(std.mem.min(T, x), try extremeOn(.smallest, path, test_io, sx));
         }
         // `gemm` and, one column, `gemv`
         const o = try Mat(T).init(al, n, 3);
         defer o.deinit(al);
         const mul_bound = tol * nf * maxAbs(T, a.constView()) * maxAbs(T, b.constView());
         for ([_]usize{ 3, 1 }) |k| {
-            try mulWith(path, al, test_io, try o.view().sub(0, 0, n, k), a.constView(), try b.constView().sub(0, 0, n, k));
+            try mulOn(path, al, test_io, try o.view().sub(0, 0, n, k), a.constView(), try b.constView().sub(0, 0, n, k));
             for (0..k) |j| for (0..n) |i| try testing.expect(wideDiff(o.at(i, j), prod_ref[i + j * n]) <= mul_bound);
         }
-        try testing.expect(wideDiff(try detWith(path, al, test_io, a.constView()), det_ref) <= tol * nf * wideAbs(det_ref));
+        try testing.expect(wideDiff(try detOn(path, al, test_io, a.constView()), det_ref) <= tol * nf * wideAbs(det_ref));
         const ai = try Mat(T).init(al, n, n);
         defer ai.deinit(al);
-        try invWith(path, al, test_io, ai.view(), a.constView());
+        try invOn(path, al, test_io, ai.view(), a.constView());
         const p = try mul(al, test_io, a, ai);
         defer p.deinit(al);
         const id = try Mat(T).zeros(al, n, n);
         defer id.deinit(al);
         shiftDiag(T, id, 1);
         try testing.expect(maxDiff(T, p.constView(), id.constView()) <= tol * nf * maxAbs(T, a.constView()) * maxAbs(T, ai.constView()));
-        try solveWith(path, al, test_io, o.view(), a.constView(), b.constView());
+        try solveOn(path, al, test_io, o.view(), a.constView(), b.constView());
         try expectSolves(T, a.constView(), o.constView(), b.constView());
     }
 }

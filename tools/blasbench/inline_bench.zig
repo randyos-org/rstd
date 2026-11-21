@@ -1,9 +1,9 @@
-//! The `inline` section (M4; only when named, any host): `rstd.linalg`'s
+//! The `inline` section (M4; only when named, any host): `rstd.math.linalg`'s
 //! inline `@Vector` forms (`vector.dot` and `length`, `matrix.any_size`'s
 //! `mul`, `det` and `solve`) against the BLAS and LAPACK calls that serve
 //! past the inline limit, at sizes 4 to 16, `f32` and `f64`, one worker:
 //! where the inline code stops winning, which set the limit (12; 8 before, M4)
-//! (`src/linalg/design.md`, Dispatch).
+//! (`src/math/linalg/design.md`, Dispatch).
 
 const std = @import("std");
 const Io = std.Io;
@@ -12,9 +12,9 @@ const bench = @import("bench.zig");
 const bb = @import("blas_bench.zig");
 const libs = @import("libs.zig");
 
-const linalg = rstd.linalg;
-const blas = linalg.blas;
-const lapack = linalg.lapack;
+const linalg = rstd.math.linalg;
+const blas = rstd.math.kernels.blas;
+const lapack = rstd.math.kernels.lapack;
 const fail = libs.fail;
 
 const timing: bench.Timing = .{ .min_ns = 5 * std.time.ns_per_ms, .batches = 9 };

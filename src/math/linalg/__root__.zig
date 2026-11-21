@@ -1,9 +1,8 @@
 pub const vector = @import("vector.zig");
 pub const matrix = @import("matrix.zig");
 pub const array = @import("array.zig");
-pub const sparse = @import("../math/kernels/sparse/__root__.zig");
-pub const blas = @import("../math/kernels/blas/__root__.zig");
-pub const lapack = @import("../math/kernels/lapack/__root__.zig");
+/// Sparse matrices: `kernels.sparse`'s types and solvers, which users take as they are.
+pub const sparse = @import("../kernels/sparse/__root__.zig");
 pub const gallery = @import("gallery.zig");
 pub const poly = @import("poly.zig");
 const rref_ = @import("rref.zig");
@@ -18,7 +17,7 @@ pub const diagMatrix = structure.diagMatrix;
 pub const diagonal = structure.diagonal;
 pub const kron = structure.kron;
 
-// the public layer (design.md, "Planned: the public `rstd.linalg` layer"):
+// the public layer (design.md, "Planned: the public `rstd.math.linalg` layer"):
 // its types, and `dense/`'s run-time-shape functions, flat
 const dense = @import("dense/__root__.zig");
 pub const Vec = vector.Vec;
@@ -119,6 +118,6 @@ pub const rank = dense.rank;
 pub const cond = dense.cond;
 
 test {
-    const zigstd = @import("../zigstd.zig");
+    const zigstd = @import("../../zigstd.zig");
     zigstd.testRefAllDecls(@This());
 }

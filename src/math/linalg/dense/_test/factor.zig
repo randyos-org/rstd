@@ -2,18 +2,18 @@
 
 const sysinfo = @import("builtin");
 const std = @import("std");
-const mem = @import("../../../mem.zig");
+const mem = @import("../../../../mem.zig");
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
-const blas = @import("../../../math/kernels/blas/__root__.zig");
-const ext = @import("../../../math/kernels/blas/ext/interface.zig");
-const l3 = @import("../../../math/kernels/blas/blas3/core.zig");
-const l2 = @import("../../../math/kernels/blas/blas2/core.zig");
-const l1 = @import("../../../math/kernels/blas/blas1/interface.zig");
-const lapack = @import("../../../math/kernels/lapack/__root__.zig");
+const blas = @import("../../../kernels/blas/__root__.zig");
+const ext = @import("../../../kernels/blas/ext/interface.zig");
+const l3 = @import("../../../kernels/blas/blas3/core.zig");
+const l2 = @import("../../../kernels/blas/blas2/core.zig");
+const l1 = @import("../../../kernels/blas/blas1/interface.zig");
+const lapack = @import("../../../kernels/lapack/__root__.zig");
 const vector = @import("../../vector.zig");
 const matrix = @import("../../matrix.zig");
-const ops = @import("../../../math/kernels/lapack/ops.zig");
+const ops = @import("../../../kernels/lapack/ops.zig");
 
 const View = matrix.View;
 const ConstView = matrix.ConstView;
@@ -23,8 +23,8 @@ const Real = vector.Real;
 const eMul = matrix.eMul;
 const eMulAdd = matrix.eMulAdd;
 
-const zigstd = @import("../../../zigstd.zig");
-const bitwise = @import("../../../math/kernels/blas/_test/bitwise.zig");
+const zigstd = @import("../../../../zigstd.zig");
+const bitwise = @import("../../../kernels/blas/_test/bitwise.zig");
 const testing = std.testing;
 const sameBitsOrX87 = bitwise.sameBitsOrX87;
 const C64 = std.math.Complex(f64);

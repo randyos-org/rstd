@@ -1,4 +1,4 @@
-//! N-d arrays beside `Mat(T)` (src/linalg/design.md, "Planned: N-d
+//! N-d arrays beside `Mat(T)` (src/math/linalg/design.md, "Planned: N-d
 //! arrays"): `StaticArray` (comptime shape) and `Array` with its views,
 //! column-major (the first index varies fastest), up to `max_rank`. Stubs
 //! for now: the types and `Array`'s storage are real; the view and
@@ -37,7 +37,7 @@ pub const Index = union(enum) { all, at: usize, range: Range };
 /// A comptime shape (`.{ 4, 4, 3 }`), a value with no allocator.
 pub fn StaticArray(comptime dims: anytype, comptime T: type) type {
     const ds: [dims.len]usize = dims;
-    if (ds.len > max_rank) @compileError("rstd.linalg: StaticArray of rank past max_rank");
+    if (ds.len > max_rank) @compileError("rstd.math.linalg: StaticArray of rank past max_rank");
     var n: usize = 1;
     for (ds) |d| n *= d;
     const count = n;

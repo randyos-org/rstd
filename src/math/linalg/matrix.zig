@@ -1,13 +1,13 @@
-//! `rstd.linalg`'s matrices (design.md, "Planned: the public `rstd.linalg`
+//! `rstd.math.linalg`'s matrices (design.md, "Planned: the public `rstd.math.linalg`
 //! layer"): `StaticMat(R, C, T)` and free functions over it, `T` a float or
 //! its `std.math.Complex` (interleaved), inferring the sizes and `T`; vectors
 //! are `linalg.vector`'s. Shaderlib re-exports them under GLSL names.
 
 const std = @import("std");
-const mem = @import("../mem.zig");
+const mem = @import("../../mem.zig");
 const rstd_matrix = @import("rstd_matrix");
 const vector = @import("vector.zig");
-const ops = @import("../math/kernels/lapack/ops.zig");
+const ops = @import("../kernels/lapack/ops.zig");
 
 const Vec = vector.Vec;
 const Elem = vector.Elem;
@@ -18,7 +18,7 @@ const splat = vector.splat;
 const mulAdd = vector.mulAdd;
 const root = @import("root");
 
-/// `rstd.linalg`'s build settings, from a root's `rstd_linalg_options`
+/// `rstd.math.linalg`'s build settings, from a root's `rstd_linalg_options`
 /// (design.md, Dispatch, decision 3).
 pub const Options = struct {
     /// `L`, per dimension: at or below it the inline kernels, past it the
@@ -40,7 +40,7 @@ fn dimsOf(comptime X: type) [2]comptime_int {
     return if (isMat(X)) .{ X.rows, X.cols } else .{ count(X), 1 };
 }
 
-/// Past the inline limit a `StaticMat` takes `rstd.linalg`'s `instead`,
+/// Past the inline limit a `StaticMat` takes `rstd.math.linalg`'s `instead`,
 /// with an allocator and `io` (design.md, Dispatch); SPIR-V has no limit.
 fn expectInline(comptime X: type, comptime Y: type, comptime instead: []const u8) void {
     if (vector.on_spirv) return;
@@ -49,7 +49,7 @@ fn expectInline(comptime X: type, comptime Y: type, comptime instead: []const u8
 }
 
 /// `mul`, `det`, `inv` and `solve` at every size, past the inline limit
-/// too: `rstd.linalg`'s inline path (its tests run it to 16) and timing.
+/// too: `rstd.math.linalg`'s inline path (its tests run it to 16) and timing.
 pub const any_size = struct {
     pub const mul = mulAnySize;
     pub const det = detAnySize;
@@ -279,9 +279,9 @@ fn Product(comptime A: type, comptime B: type) type {
 /// by a matrix (MATLAB's and GLSL's `*`). `M v` sums the columns scaled by
 /// `v`'s elements in column order, `v M` is a dot per column in element order
 /// (no conjugate), as `@Matrix` (decision 16).
-/// Past the inline limit, a compile error naming `rstd.linalg.mulInto`.
+/// Past the inline limit, a compile error naming `rstd.math.linalg.mulInto`.
 pub fn mul(a: anytype, b: anytype) Product(@TypeOf(a), @TypeOf(b)) {
-    comptime expectInline(@TypeOf(a), @TypeOf(b), "rstd.linalg.mulInto(allocator, io, &out, &a, &b)");
+    comptime expectInline(@TypeOf(a), @TypeOf(b), "rstd.math.linalg.mulInto(allocator, io, &out, &a, &b)");
     return mulAnySize(a, b);
 }
 
@@ -488,9 +488,9 @@ pub fn luSolve(comptime n: comptime_int, comptime T: type, lu: *const [n][n]T, p
 
 /// The determinant (MATLAB's `det`, GLSL's `determinant`): real `m` up to 3
 /// by 3 by cofactors, else the product of LU's pivots in order; 0 when
-/// singular. Past the inline limit, a compile error naming `rstd.linalg.det`.
+/// singular. Past the inline limit, a compile error naming `rstd.math.linalg.det`.
 pub fn det(m: anytype) @TypeOf(m).Element {
-    comptime expectInline(@TypeOf(m), @TypeOf(m), "rstd.linalg.det(allocator, io, &m)");
+    comptime expectInline(@TypeOf(m), @TypeOf(m), "rstd.math.linalg.det(allocator, io, &m)");
     return detAnySize(m);
 }
 
@@ -513,9 +513,9 @@ fn detAnySize(m: anytype) @TypeOf(m).Element {
 /// `m⁻¹` (MATLAB's `inv`, GLSL's `inverse`): real `m` up to 3 by 3 as its
 /// adjugate over `det`, `error.Singular` when that is 0; else by LU,
 /// `error.Singular` at a zero pivot. Past the inline limit, a compile error
-/// naming `rstd.linalg.invInto`.
+/// naming `rstd.math.linalg.invInto`.
 pub fn inv(m: anytype) error{Singular}!@TypeOf(m) {
-    comptime expectInline(@TypeOf(m), @TypeOf(m), "rstd.linalg.invInto(allocator, io, &out, &m)");
+    comptime expectInline(@TypeOf(m), @TypeOf(m), "rstd.math.linalg.invInto(allocator, io, &out, &m)");
     return invAnySize(m);
 }
 
@@ -561,9 +561,9 @@ fn invAnySize(m: anytype) error{Singular}!@TypeOf(m) {
 
 /// `a \ b` (MATLAB's `mldivide`) for square `a` and `b` a vector or a matrix
 /// of right-hand sides, by LU at every size; `error.Singular` at a zero pivot.
-/// Past the inline limit, a compile error naming `rstd.linalg.solveInto`.
+/// Past the inline limit, a compile error naming `rstd.math.linalg.solveInto`.
 pub fn solve(a: anytype, b: anytype) error{Singular}!@TypeOf(b) {
-    comptime expectInline(@TypeOf(a), @TypeOf(b), "rstd.linalg.solveInto(allocator, io, &out, &a, &b)");
+    comptime expectInline(@TypeOf(a), @TypeOf(b), "rstd.math.linalg.solveInto(allocator, io, &out, &a, &b)");
     return solveAnySize(a, b);
 }
 
@@ -733,14 +733,14 @@ inline fn eDiv(x: anytype, y: @TypeOf(x)) @TypeOf(x) {
 
 // ---- tests ------------------------------------------------------------------
 
-const zigstd = @import("../zigstd.zig");
+const zigstd = @import("../../zigstd.zig");
 const V2f32 = vector.V2f32;
 const V3f32 = vector.V3f32;
 const V4f64 = vector.V4f64;
 
-const bitwise = @import("../math/kernels/blas/_test/bitwise.zig");
+const bitwise = @import("../kernels/blas/_test/bitwise.zig");
 const expectSameBits = bitwise.expectSameBits;
-const math = @import("../math/__root__.zig");
+const math = @import("../__root__.zig");
 
 test "transposeVecs is pffft's VTRANSPOSE4 (_MM_TRANSPOSE4_PS)" {
     const V = vector.V4f32;

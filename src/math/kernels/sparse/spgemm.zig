@@ -1,4 +1,4 @@
-//! `C := A B`, all CSC, by Gustavson's column form (src/linalg/design.md,
+//! `C := A B`, all CSC, by Gustavson's column form (src/math/linalg/design.md,
 //! "Sparse matrices", `spgemm`): `C(:, j) = Σ_k B(k, j) A(:, k)`, reading
 //! columns only (Gustavson, "Two fast algorithms for sparse matrices", ACM
 //! TOMS 4(3), 1978). The symbolic pass marks each column's rows and sorts

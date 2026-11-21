@@ -1,6 +1,6 @@
 # Linear algebra
 
-`rstd.linalg` is dense linear algebra for Zig: vectors and matrices of any float or complex element type, the operations MATLAB users expect under the names they expect, and results that are bit-identical for any thread count. Below it sit [`linalg.blas`](../math/kernels/blas/readme.md) and `linalg.lapack`, for tools, tests and experts; most code needs only this layer. How it is built, and why, is in [`design.md`](design.md).
+`rstd.math.linalg` is dense linear algebra for Zig: vectors and matrices of any float or complex element type, the operations MATLAB users expect under the names they expect, and results that are bit-identical for any thread count. Below it sit [`linalg.blas`](../kernels/blas/readme.md) and `linalg.lapack`, for tools, tests and experts; most code needs only this layer. How it is built, and why, is in [`design.md`](design.md).
 
 ## Matrices and views
 
@@ -22,7 +22,7 @@
 - Results are the same bits on every run and for any number of threads.
 
 ```zig
-const linalg = rstd.linalg;
+const linalg = rstd.math.linalg;
 
 // x := A \ b, then A x again
 const x = try linalg.solve(allocator, io, a, b);
@@ -50,6 +50,6 @@ A real matrix stays real wherever the result is real: `schur` gives the real Sch
 
 ## Below this layer
 
-- [`linalg.blas`](../math/kernels/blas/readme.md): the BLAS, OpenBLAS ported to Zig with its per-core kernels, on slices and strided views.
+- [`linalg.blas`](../kernels/blas/readme.md): the BLAS, OpenBLAS ported to Zig with its per-core kernels, on slices and strided views.
 - `linalg.lapack`: the LAPACK routines this layer uses, ported from faer, Reference-LAPACK and ReLAPACK, on slices.
 - `linalg.matrix` and `linalg.vector`: the fixed-size types and their operations.

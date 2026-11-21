@@ -2,10 +2,10 @@
 //! `lange` and `gecon`, the cheap companion to `cond`'s SVD (issue #324).
 
 const std = @import("std");
-const lapack = @import("../../math/kernels/lapack/__root__.zig");
+const lapack = @import("../../kernels/lapack/__root__.zig");
 const matrix = @import("../matrix.zig");
 const vector = @import("../vector.zig");
-const ops = @import("../../math/kernels/lapack/ops.zig");
+const ops = @import("../../kernels/lapack/ops.zig");
 const util = @import("util.zig");
 
 const Allocator = std.mem.Allocator;

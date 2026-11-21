@@ -5,7 +5,7 @@ const std = @import("std");
 const sysinfo = @import("builtin");
 const rstd = @import("rstd");
 
-const blas = rstd.linalg.blas;
+const blas = rstd.math.kernels.blas;
 
 pub fn main() void {
     std.debug.print("{t}-{t}, cpu model {s}, detected core {t}, runs {s}\n", .{

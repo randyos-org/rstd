@@ -7,7 +7,7 @@ and 2 interfaces): every level 3 routine but `gemmt` threads, and levels 1 and 2
 the split keeps the bits ([Levels 1 and 2](#levels-1-and-2-fixed-chunks-dynamic-claiming-ordered-combine)).
 Upstream references are to the OpenBLAS checkout the kernels were converted from
 (v0.3.34-794), BLIS references to its tag 2.1, std references to Zig's `lib/std` at
-0.18.0-dev.751. The library's overall structure is in [`design.md`](../../../linalg/design.md); how this rule
+0.18.0-dev.751. The library's overall structure is in [`design.md`](../../linalg/design.md); how this rule
 compares with MKL, BLIS and OpenBLAS is in [`comparisons.md`](comparisons.md) (8).
 
 ## Requirements
@@ -277,7 +277,7 @@ thresholds are `gemm`'s and `symm`'s, as upstream builds them from the same inte
 ### LAPACK
 
 The LAPACK routines (`../lapack/`) thread through the level-3 drivers, at upstream's interface
-thresholds (`cholesky.zig`'s `threads`; [`design.md`](../../../linalg/design.md#lapack)). Upstream switches to
+thresholds (`cholesky.zig`'s `threads`; [`design.md`](../../linalg/design.md#lapack)). Upstream switches to
 its `_parallel.c` algorithms, with other blocks, whenever it has more than one thread; here
 the problem size alone picks the algorithm, so its bits never depend on the worker count.
 `getrf`'s lookahead runs on `team`: the caller factors the next block while the other workers
@@ -327,7 +327,7 @@ constants; `threading.zig`'s `rule` holds them all. These are defaults; per-core
 replace them, and the chunk sizes, later. `switch_ratio` already lives in the vtable
 (`blas3/gemm/params.zig`). M ranges round to `unroll_m` and a cache line to avoid false
 sharing in `C`. The rank-update cut-offs only pick the thread count; their serial small-`n`
-paths are already ported ([`design.md`](../../../linalg/design.md), Level 2).
+paths are already ported ([`design.md`](../../linalg/design.md), Level 2).
 
 ### Memory
 
@@ -400,7 +400,7 @@ runs it single-threaded. Accelerate's does (its threaded `gemv` rounds otherwise
 documents no mode that keeps its bits across thread counts (MKL has one, CNR), so
 `apple_accel.load` makes it single-threaded for the process and the loading thread; every other
 thread sets its own model (`singleThreadHere`) on its first call into it
-([`design.md`](../../../linalg/design.md#apple-accelerate)).
+([`design.md`](../../linalg/design.md#apple-accelerate)).
 
 Rstd's workers parallelize around it (`apple_accel/split.zig`), under the rules above:
 
@@ -449,7 +449,7 @@ Reproducibility:
   an exe's new threads, `tlssup.c:84`). Every task enters through `team`'s worker or `Region.work`; `team` and `forEachIn`
   capture `FpState` on the caller, and each task's first step adopts it, restoring its
   thread's own when it ends. Only control bits move: exception flags stay per thread, and the
-  caller's state is never changed ([`design.md`](../../../linalg/design.md), Settled decisions).
+  caller's state is never changed ([`design.md`](../../linalg/design.md), Settled decisions).
 
 Memory safety for concurrent work:
 

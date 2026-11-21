@@ -1,5 +1,5 @@
 const std = @import("std");
-const linalg = @import("../../../linalg/__root__.zig");
+const linalg = @import("../../../math/linalg/__root__.zig");
 const shader_math = @import("../../shaders/lib/math.zig");
 
 const vec = linalg.vector;
