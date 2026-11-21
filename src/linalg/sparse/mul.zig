@@ -8,9 +8,9 @@
 
 const std = @import("std");
 const matrix = @import("../matrix.zig");
-const types = @import("../blas/types.zig");
-const threading = @import("../blas/threading.zig");
-const ops = @import("../lapack/ops.zig");
+const types = @import("../../math/kernels/blas/types.zig");
+const threading = @import("../../math/kernels/blas/threading.zig");
+const ops = @import("../../math/kernels/lapack/ops.zig");
 const util = @import("util.zig");
 const csc = @import("csc.zig");
 

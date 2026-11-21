@@ -51,7 +51,7 @@ after it. Rig names are `zig build` steps: `qemu-test-<rig>` unless named in ful
 | `s390x-linux`, `mips64el-linux` | 4 | | no rig: `zig fetch` of single files (T49) |
 | `loongarch64-linux`, `powerpc64-linux`, `sparc64-linux`, 32-bit `mips-linux` | 4 | | no Linux rig (T71) |
 | `powerpc-macos` (Mach-O) | 4 | | `powerpc-macho` stub: no powerpc-macos Zig port (T50) |
-| alpha, ia64, csky, e2k | 4 | | no Zig target or backend ([`readme.md`](src/linalg/blas/readme.md#not-supported-by-zig)) |
+| alpha, ia64, csky, e2k | 4 | | no Zig target or backend ([`readme.md`](src/math/kernels/blas/readme.md#not-supported-by-zig)) |
 | every other target (FreeBSD, riscv32, ...) | 4 | | none; compiles with the portable kernels |
 
 Notes:
@@ -82,7 +82,7 @@ tier-2 component of both macOS platforms.
 ## BLAS cores
 
 A core is in its platform's tier. Kernel cores are `kernelCores` in
-[`cpu/corespec.zig`](src/linalg/blas/cpu/corespec.zig); a core runs where detection
+[`cpu/corespec.zig`](src/math/kernels/blas/cpu/corespec.zig); a core runs where detection
 (`runnable`) says the rig's CPU can run it. Unlisted cores have no kernels: the portable ones
 serve them.
 
@@ -155,8 +155,8 @@ and every POWER core is tier 3.
 | `power10` in 32-bit POWER builds | the dev toolchain's LLVM cannot build 32-bit compiler-rt for it, so it does not link | T105 |
 | every sparc64 object | sparc64 is tier 4; its rigs are out of the sweeps | T39 |
 | every 32-bit SPARC object | lld cannot link 32-bit SPARC | T48 |
-| `c910v` (RISC-V) | no `xtheadvector` in LLVM; no object | [`readme.md`](src/linalg/blas/readme.md#not-supported-by-zig) |
-| POWER BG/P (double FPU) | LLVM cannot assemble its instructions; not converted | [`readme.md`](src/linalg/blas/readme.md#not-supported-by-zig) |
+| `c910v` (RISC-V) | no `xtheadvector` in LLVM; no object | [`readme.md`](src/math/kernels/blas/readme.md#not-supported-by-zig) |
+| POWER BG/P (double FPU) | LLVM cannot assemble its instructions; not converted | [`readme.md`](src/math/kernels/blas/readme.md#not-supported-by-zig) |
 
 ## Toolchains
 

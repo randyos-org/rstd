@@ -5,14 +5,14 @@ requirements, the layers from the public interface down to the per-core kernels,
 detected and selected, where every kernel comes from, and how all of it is tested. Then LAPACK,
 the matlab port's audit, the planned public `rstd.linalg` layer and sparse matrices, and the
 decisions behind all of them. It describes the code as it is, and says "Planned" where it is not. BLAS usage is in
-[`readme.md`](blas/readme.md), threading in [`threading.md`](blas/threading.md), problems in other
+[`readme.md`](../math/kernels/blas/readme.md), threading in [`threading.md`](../math/kernels/blas/threading.md), problems in other
 projects in [the upstream issues](https://github.com/randyos-org/rstd/labels?q=upstream), and the numerical decisions measured against BLIS and the
-reference in [`comparisons.md`](blas/comparisons.md).
+reference in [`comparisons.md`](../math/kernels/blas/comparisons.md).
 
 How linear algebra fits with FFT, signal processing and statistics, as one kernel layer under one high-level API (`rstd.math`), is in [`math/design.md`](../math/design.md).
 
 Upstream references are to the OpenBLAS checkout the kernels were converted from, v0.3.34-794
-(commit dbf2c24c9), unless a file names another. Paths are relative to `src/linalg/blas/` unless
+(commit dbf2c24c9), unless a file names another. Paths are relative to `src/math/kernels/blas/` unless
 they start with `build/`, `tools/`, `test/` or `src/`. The toolchain is Zig 0.18.0-dev.751.
 
 ## Requirements
@@ -32,19 +32,19 @@ they start with `build/`, `tools/`, `test/` or `src/`. The toolchain is Zig 0.18
 - **Per-core code only where `@Vector` cannot match it.** A kernel of its own for one core
   exists where a generic `@Vector` kernel is measurably slower or cannot express the
   instructions (SVE, MMA, AMX, SME). The level-3 kernels are one `@Vector` source for every core
-  ([`blas3/gemm/notes.md`](blas/blas3/gemm/notes.md),
+  ([`blas3/gemm/notes.md`](../math/kernels/blas/blas3/gemm/notes.md),
   [`results-m6.md`](../../tools/blasbench/results/results-m6.md)).
 - **No CBLAS or Fortran ABI.** There are no `cblas_*` or `dgemv_` symbols, no row-major layer
   and no `xerbla` callback. Bad arguments return named errors. This is a decision, so the audit
   gaps for those layers are closed by it, not by code.
 - **One numerical contract per routine.** Every core gives a routine's results the same meaning;
-  cores differ in rounding only ([`readme.md`](blas/readme.md#one-contract-on-every-core)).
+  cores differ in rounding only ([`readme.md`](../math/kernels/blas/readme.md#one-contract-on-every-core)).
 - **Bit-exactness only against converted code.** A Zig kernel standing in for a converted kernel
   of the same core (an x87 `q`/`x` reduction, a C driver around a microkernel, an intrinsics
   block) gives that kernel's bits. Everything else is held to the reference semantics within a
   stated tolerance, not to OpenBLAS's accumulation order.
 - **Reproducibility.** For a given build and core, results depend neither on scheduling, the
-  number of threads, nor where the operands lie in memory ([`threading.md`](blas/threading.md)).
+  number of threads, nor where the operands lie in memory ([`threading.md`](../math/kernels/blas/threading.md)).
 - **Errors, never panics.** Argument errors and `error.OutOfMemory` return to the caller.
   Nothing allocates behind the caller's back or retries on failure.
 - **Allocator conventions.** A routine that needs scratch beyond a small stack buffer takes a
@@ -166,7 +166,7 @@ Conventions shared by every interface:
 - **Quick returns.** Empty problems return before any kernel call; kernels assume `n >= 1`.
   Level 3 does not forward one-column problems to `gemv`.
 - **Argument order.** Every routine takes `(allocator, io, T, ...)`, or `(io, T, ...)` without
-  an allocator (level 1, `gemvHalf`), as [`threading.md`](blas/threading.md) specifies; the routines
+  an allocator (level 1, `gemvHalf`), as [`threading.md`](../math/kernels/blas/threading.md) specifies; the routines
   that thread run their workers on it. `rotg`, `zrotg` and `rotmg` compute from scalars, never
   thread, and take `(T, ...)` and return `void`; `cabs1` takes `(T, z)` and returns
   `|re| + |im|`.
@@ -256,7 +256,7 @@ optional pointers that stay `null` where nothing applies. Slots use the C callin
 the kernel ABI of the reference (`daxpy_k(n, dummy, dummy, alpha, x, incx, y, incy, dummy,
 dummy)`), so a converted kernel installs as is.
 
-`Vtable.zig` imports nothing outside `src/linalg/blas/`, since the per-core objects compile it
+`Vtable.zig` imports nothing outside `src/math/kernels/blas/`, since the per-core objects compile it
 on their own; its test lives in `__root__.zig`.
 
 ### Initialization
@@ -304,7 +304,7 @@ on their own; its test lives in `__root__.zig`.
 
 The portable kernels are Zig algorithms with the reference's documented semantics, not copies of
 its C. What they compute is the contract every core keeps
-([`readme.md`](blas/readme.md#one-contract-on-every-core)):
+([`readme.md`](../math/kernels/blas/readme.md#one-contract-on-every-core)):
 
 - `sdot` and `dsdot` multiply and sum in `f64`; the portable `dot` sums sequentially, not in
   `generic/dot.c`'s unrolled order.
@@ -374,7 +374,7 @@ round a portable kernel differently; reproducibility is per build and core.
 Rstd never changes the caller's floating-point environment (MXCSR, FPCR, FPSCR, `VSCR`) and
 assumes IEEE default modes. Its worker threads adopt the caller's control state (`blas/FpState.zig`:
 the x87 control word, MXCSR, FPCR, FPSCR, `frm`, FCSR, FPC, FSR; not `VSCR`), so a threaded call
-rounds as its serial path does under any modes ([`threading.md`](blas/threading.md#guardrails)).
+rounds as its serial path does under any modes ([`threading.md`](../math/kernels/blas/threading.md#guardrails)).
 Denormals are honored everywhere: where a vector unit flushes `f32` denormals
 (ARMv7 NEON, pre-VSX AltiVec, whose `VSCR[NJ]` Linux sets: v6.12
 `arch/powerpc/kernel/process.c`, `start_thread`), `util.vectorIeee` is false, and no kernel puts `f32` in its lanes.
@@ -389,7 +389,7 @@ Denormals are honored everywhere: where a vector unit flushes `f32` denormals
   `llvm/lib/Target/ARM/ARMTargetTransformInfo.h:118`, `isFPVectorizationPotentiallyUnsafe`, true
   but on Darwin and MVE; checked by `Transforms/Vectorize/SLPVectorizer.cpp:9214` and `LoopVectorize.cpp:10042`).
 
-[`comparisons.md`](blas/comparisons.md) (10) records how this was found and measured.
+[`comparisons.md`](../math/kernels/blas/comparisons.md) (10) records how this was found and measured.
 
 ### Per-core kernel objects
 
@@ -460,7 +460,7 @@ cpu.Arch(family): vtableFromCoreType(core)
   `Slot`; a rule without a vtable field (`sdsdot_k`) is not converted, nor is one whose slot no
   core would take it for (the retired converter's `roles.zig` `skip`, below).
 - **Isolation.** The objects compile `_kernel.zig` alone, so everything they reach imports
-  nothing outside `src/linalg/blas/`: `Vtable.zig`, `types.zig`, `util.zig`, `fma.zig`,
+  nothing outside `src/math/kernels/blas/`: `Vtable.zig`, `types.zig`, `util.zig`, `fma.zig`,
   `vector.zig`, `cpu/coretypes.zig`, the registries and the kernels. `kernels/__root__.zig`
   repeats `cpu.GetCpuArch`'s choice of registry for that reason; the two are kept in step.
 
@@ -483,7 +483,7 @@ with `-DDYNAMIC_ARCH`, so the call names one core's kernel (`camax_k_LA264`) rat
 dispatch trampoline, and `arch.nakedLines` rewrites that to `blaskern_camax_la264`, which the
 same per-core object exports.
 
-[`blas1/c_kernels.md`](blas/blas1/c_kernels.md) specifies the C-driver ports: the parts, what the
+[`blas1/c_kernels.md`](../math/kernels/blas/blas1/c_kernels.md) specifies the C-driver ports: the parts, what the
 generator converts, the driver rules (order, contraction, mixed types, block ABI) and how to add
 a routine.
 
@@ -530,7 +530,7 @@ riscv64 uses them; `installAll` puts them in the native tests' table too.
 Without a vector unit for the type (SPARC, ARMv7's `f64`, pre-VSX POWER, MIPS without MSA, the
 x87) LLVM splits the vectors into scalar operations. The reductions keep their eight independent
 sums, against the portable loop's one, and the extremes compare and select where `@max` would
-call libm's `fmax` per element (`vector/util.zig`'s `hasMinMax`, MSA included); [`comparisons.md`](blas/comparisons.md)
+call libm's `fmax` per element (`vector/util.zig`'s `hasMinMax`, MSA included); [`comparisons.md`](../math/kernels/blas/comparisons.md)
 (1) has the measurements. On MSA, `@abs` clears sign bits through a mask LLVM cannot fold back
 into `fmax_a` ([#197](https://github.com/randyos-org/rstd/issues/197)).
 
@@ -585,7 +585,7 @@ only repeat the portable kernels.
   BLAS does (OpenBLAS's `zher_k.c`, `zhpr_k.c` and the rank-2 drivers do not). `ger` calls the
   kernel once per run of nonzero `y`, which is one call when `y` has no zero, and copies a
   strided `x` once for all the runs. The skip is decided above the kernels, so every core
-  gives it; [`comparisons.md`](blas/comparisons.md) (5) has why it stays. At unit stride and small
+  gives it; [`comparisons.md`](../math/kernels/blas/comparisons.md) (5) has why it stays. At unit stride and small
   `n` (`syr`, `spr`, `syr2` below 100; `spr2`, `zsyr` below 50: `interface/syr.c:174`,
   `spr.c:172`, `syr2.c:175`, `spr2.c:173`, `zsyr.c:175`) OpenBLAS's interfaces run the driver's
   columns themselves; rstd's driver takes a unit-stride vector as it is, so it is that path,
@@ -600,12 +600,12 @@ only repeat the portable kernels.
   `STACK_ALLOC` does, on the stack up to `interface.stack_bytes` (2048, 32-aligned, the
   reference's `MAX_STACK_ALLOC`: `Makefile.system:576`, `common_stackalloc.h:58`), else from
   the allocator, 4096-aligned (the kernels round to 4096-byte boundaries in it, `kernel/generic/symv_k.c:51`).
-  [`blas2/buffers.md`](blas/blas2/buffers.md) lists what every kernel does with it.
+  [`blas2/buffers.md`](../math/kernels/blas/blas2/buffers.md) lists what every kernel does with it.
 - **Threading.** `gemv`, `ger`, the rank updates and transposed `gbmv` split `y` or `A`'s
   columns into serial kernel calls. The symmetric, triangular, banded and packed products and
   untransposed `gbmv` split their columns into chunks fixed by the size, each into a partial
   vector of its own, folded in chunk order; the triangular ones port the `*_thread.c` kernels
-  ([`threading.md`](blas/threading.md#levels-1-and-2-fixed-chunks-dynamic-claiming-ordered-combine)).
+  ([`threading.md`](../math/kernels/blas/threading.md#levels-1-and-2-fixed-chunks-dynamic-claiming-ordered-combine)).
 
 ### Level 3
 
@@ -721,7 +721,7 @@ complex, for every float type, through the same code.
   `gemm3m_level3.c` does (halves, not rounded to the unroll). Threads take parts of `C` on whole
   panels, each a serial problem, so the bits are the serial ones. Opt-in, as upstream: one part
   of each element comes from a difference of products and is only normwise stable
-  ([`comparisons.md`](blas/comparisons.md), 7); never routed to Accelerate, which has no 3M. Upstream
+  ([`comparisons.md`](../math/kernels/blas/comparisons.md), 7); never routed to Accelerate, which has no 3M. Upstream
   exports only `gemm3m`, and only on x86, x86_64, ia64 and MIPS (`interface/Makefile`); here all
   three serve every target.
 - **Small matrices.** `gemm` takes OpenBLAS's `SMALL_MATRIX_OPT` path (`blas3/gemm/small.zig`)
@@ -749,10 +749,10 @@ complex, for every float type, through the same code.
   ([bfloat16 and half precision](#bfloat16-and-half-precision)). `half.gemm` takes it after its
   quick returns, as `gemm` does.
 - **Not ported.** `level3_thread.c`: level 3 threads by BLIS's ways instead
-  ([`threading.md`](blas/threading.md)).
+  ([`threading.md`](../math/kernels/blas/threading.md)).
 
-[`blas3/gemm/notes.md`](blas/blas3/gemm/notes.md) has the tile measurements and code generation notes
-behind these choices; [`comparisons.md`](blas/comparisons.md) (7, 9, 10) the open performance and
+[`blas3/gemm/notes.md`](../math/kernels/blas/blas3/gemm/notes.md) has the tile measurements and code generation notes
+behind these choices; [`comparisons.md`](../math/kernels/blas/comparisons.md) (7, 9, 10) the open performance and
 robustness questions (fusing `beta`, `trsm`'s inverted diagonal, prefetch).
 
 ### bfloat16 and half precision
@@ -791,7 +791,7 @@ The `sbgemm` small-matrix slots stay null but on Cooper Lake, whose kernels keep
 their own 1024-deep slices (the level-3 small path above); the AVX-512 BF16, AMX, NEON, SVE and
 MMA kernels are T29 and T31.
 
-Their numerical behavior is in [`readme.md`](blas/readme.md#bfloat16-and-half-precision).
+Their numerical behavior is in [`readme.md`](../math/kernels/blas/readme.md#bfloat16-and-half-precision).
 
 ### Extensions
 
@@ -835,7 +835,7 @@ upstream converts no assembly for these slots, only C and intrinsics (NEON, RVV,
 
 ### LAPACK
 
-`src/linalg/lapack/` (`rstd.linalg.lapack`) holds LAPACK routines over this BLAS, with its
+`src/math/kernels/lapack/` (`rstd.linalg.lapack`) holds LAPACK routines over this BLAS, with its
 conventions: `(allocator, io, T, ...)`, column-major, the letter enums, `xerbla`-named argument
 errors in the reference's order. OpenBLAS's own LAPACK (`lapack/`, `interface/lapack/`) is the
 source where it has a routine; past it, faer's, as the anthology decision (Settled
@@ -863,11 +863,11 @@ allows.
   `trtri` past 150 (complex from 64), `potri` from 180 (complex 200, `DOUBLE` 150). Upstream
   runs its `_parallel.c` algorithm when it has more than one thread; here the size alone
   picks it, so one worker past the threshold runs it too, and the drivers' workers keep the
-  bits ([`threading.md`](blas/threading.md)). No result depends on the worker count.
+  bits ([`threading.md`](../math/kernels/blas/threading.md)). No result depends on the worker count.
 - **`potrf` threaded** (`potrf_U_parallel.c`, `potrf_L_parallel.c`): blocks of half `n` rounded
   up to `unroll_n`, at most `GEMM_Q` (`:92`), each factored recursively until `4 * unroll_n`
   is left for the single form; the panel's `trsm` and the update's `herk` take the workers.
-  Two departures, both measured (T193, [#546](https://github.com/randyos-org/rstd/issues/546); [`threading.md`](blas/threading.md#lapack)): each of those calls takes one worker per `team_grain` (`interface.zig`'s `crew`), where upstream gives each its whole count, and a block whose first `trsm` and `herk` would each take one worker at `block_grain` goes to the single form, where upstream does so only on one thread. Sizes alone decide both, so the bits still never depend on the workers. The packing space is kept from one call to the next (`Kept.zig`), as upstream's one buffer per interface call.
+  Two departures, both measured (T193, [#546](https://github.com/randyos-org/rstd/issues/546); [`threading.md`](../math/kernels/blas/threading.md#lapack)): each of those calls takes one worker per `team_grain` (`interface.zig`'s `crew`), where upstream gives each its whole count, and a block whose first `trsm` and `herk` would each take one worker at `block_grain` goes to the single form, where upstream does so only on one thread. Sizes alone decide both, so the bits still never depend on the workers. The packing space is kept from one call to the next (`Kept.zig`), as upstream's one buffer per interface call.
 - **`potri`** (`cholesky.zig`, `interface/lapack/potri.c`): `trtri` (non-unit), then `lauum`,
   both single or both parallel by `potri`'s rule. A zero on the factor's diagonal is
   `error.Singular` before `A` is touched, as `xPOTRI` has it through `xTRTRI`; upstream skips
@@ -1082,7 +1082,7 @@ allows.
   against extended registers). `xLAMRG` is ported for `stebr.zig` (`auxiliary.zig`), where
   faer merges inline. `xSTEBR`'s own `xLAED9_BR` keeps `xLAED3`'s `sqrt(-W)`.
 - **Implementation notes.** `sytrf`'s one body (`indefinite.zig`) runs the upper triangle as the lower algorithm on the matrix read backwards, which mirrors the reference's upper loops, its pivot ties and its `gemv` sums; its `i?amax` takes the first NaN, else the first largest `|re| + |im|`, and its level-2 loops keep the reference BLAS's order. `geqp3` (`qr_pivot.zig`) scales `A` by its largest column norm and leaves a zero matrix as is, where faer scales it by an infinite reciprocal; its norms are rstd's `nrm2`, whose unscaled sum at an extended type reads a matrix near underflow as zero. The complex `lahqr`'s exceptional shift is faer's, the eigenvalue of a 2 x 2 from the trailing subdiagonal, where `zlahqr.f` takes `0.75 |h(i, i-1)| + h(i, i)`. Complex division is Smith's (`ops.div`, `util.cdiv`) wherever the reference takes `ZLADIV` or `DLADIV`.
-- **Sources.** [`sources.md`](lapack/sources.md) lists, per routine, the candidates (OpenBLAS,
+- **Sources.** [`sources.md`](../math/kernels/lapack/sources.md) lists, per routine, the candidates (OpenBLAS,
   ReLAPACK, faer, libflame, AOCL-libFLAME), which implement it, the choice and its evidence.
 
 ### Planned: the public `rstd.linalg` layer
@@ -1400,7 +1400,7 @@ randy-matrix: padded `@Vector` columns, float elements, `+ - *`, `@transpose`):
     fallback `StaticMat` and `linalg.vector.mulAdd` follow it alone (`fma.mulAdd`), the BLAS
     where an instruction also fuses (`fma.fuseFor`), and the per-core objects set it in place
     of `blas_fuse_fma`. `fma.zig` defines it (`zigcfg` re-exports it, as the per-core objects'
-    module is `src/linalg/blas/`), with the fact the compiler lacks (Loongson's fused
+    module is `src/math/kernels/blas/`), with the fact the compiler lacks (Loongson's fused
     `madd.fmt`) and the copy of the fork's `fusedMulAddBits` for stock Zig.
 16. **Same bits:** the fallback repeats Sema's order, `M v` as `Σ_k col_k * splat(v[k])` in
     column order and `v M` as dots in element order, each product after the first fused into the
@@ -1522,7 +1522,7 @@ routine and matches the reference; `apple_accel.zig` binds it and routes to it.
   <https://developer.apple.com/documentation/accelerate/blassetthreading(_:)>). One thread cost `gemm` 1.15x at 2000 (our timing for 72b2efc; no results file kept).
   Rstd's workers thread it instead: above a routine's threshold a routed call splits into parts
   of its output fixed by the problem size, one single-threaded Accelerate call each
-  ([`threading.md`](blas/threading.md#vendor-backends) has which routines and why). The split's
+  ([`threading.md`](../math/kernels/blas/threading.md#vendor-backends) has which routines and why). The split's
   speed against one Accelerate call is untimed (T05).
 - **Loading and the off switch.** `blas.init` loads it (`apple_accel.start`), since `setenv` is
   not thread-safe ("need not be thread-safe", POSIX.1-2024,
@@ -1703,8 +1703,8 @@ Initialization also caches the CPU count in `cpu_count` (1 without threads).
 | `GET_OPENBLAS_CORETYPE` | `get_openblas_coretype` | POWER only (`dynamic_power.c:352`): set to anything, prints the core to stderr |
 | `OPENBLAS_BLOCK_FACTOR` | `block_factor` | scales a computed gemm `p` (clamped to 10 to 200 percent, `parameter.c:521-522`) |
 | `OPENBLAS_L2_SIZE` | `l2_size_override` | replaces the detected L2 size (KiB) in the blocking rules |
-| `OPENBLAS_NUM_THREADS`, else `OPENBLAS_DEFAULT_NUM_THREADS` | `num_threads` | LA464's blocking set; the thread ceiling of [`threading.md`](blas/threading.md) |
-| `GOTO_NUM_THREADS` | `goto_num_threads` | the fallback ceiling of [`threading.md`](blas/threading.md) |
+| `OPENBLAS_NUM_THREADS`, else `OPENBLAS_DEFAULT_NUM_THREADS` | `num_threads` | LA464's blocking set; the thread ceiling of [`threading.md`](../math/kernels/blas/threading.md) |
+| `GOTO_NUM_THREADS` | `goto_num_threads` | the fallback ceiling of [`threading.md`](../math/kernels/blas/threading.md) |
 | `LD_HWCAP_MASK` | `ld_hwcap_mask` | s390x only: ANDed with `AT_HWCAP` before detection (`cpuid_zarch.h:35`) |
 | `RSTD_BLAS_ACCELERATE` (rstd's own) | `accelerate` | macOS: 0 keeps the routines off Accelerate ([above](#apple-accelerate)) |
 
@@ -1788,7 +1788,7 @@ assembly, unchanged in substance:
 
 The per-core tests found bugs in some of OpenBLAS's own assembly, still present on master at
 v0.3.34-794. The converter fixed each before converting it: a `Patch` in its `arch/<arch>.zig` was an exact find and replace on the upstream text that had to match `count` times, with a comment saying what was wrong. The converted files carry the fixed code. The [issues labeled `upstream: openblas`](https://github.com/randyos-org/rstd/issues?q=is%3Aissue+label%3A%22upstream%3A+openblas%22) hold the issue text for each. No
-core takes the extremes' and `nrm2`'s kernels anymore ([`readme.md`](blas/readme.md#one-contract-on-every-core)),
+core takes the extremes' and `nrm2`'s kernels anymore ([`readme.md`](../math/kernels/blas/readme.md#one-contract-on-every-core)),
 fixed or not, nor x86_64's peeling `zdot_atom.S`, so they are no longer converted (below). Their
 patches stay in the same files as `retired`, the record of those fixes: every run checks that
 they still match upstream, none applies them, and a full run stops on a live patch that applied
@@ -1926,7 +1926,7 @@ Patches that work around Zig or QEMU rather than OpenBLAS, each removable once t
 #### Platforms not converted
 
 Alpha, IA-64, C-SKY, E2K, POWER BG/P and RISC-V C910V have no converted kernels; the reasons are
-in [`readme.md`](blas/readme.md#not-supported-by-zig). `Arch.unsupported` lists sources the toolchain
+in [`readme.md`](../math/kernels/blas/readme.md#not-supported-by-zig). `Arch.unsupported` lists sources the toolchain
 cannot assemble.
 
 #### Kernels not converted, and `unused/`
@@ -1991,7 +1991,7 @@ which OpenBLAS source each core uses, and what rstd serves in its place.
 | `_test/blas3/check.zig` | the level-3 harness each routine's tests call |
 | `_test/from_openblas/` | OpenBLAS's own suites, ported |
 
-Outside `src/linalg/blas/`:
+Outside `src/math/kernels/blas/`:
 
 | Path | Role |
 | --- | --- |
@@ -2032,7 +2032,7 @@ zfls host could meet it, else the reference's choice kept and documented.
 
 ### Threading
 
-[`threading.md`](blas/threading.md) specifies threading, and its plan is implemented: every routine
+[`threading.md`](../math/kernels/blas/threading.md) specifies threading, and its plan is implemented: every routine
 takes an `io: Io`; levels 1 and 2 split work into chunks fixed by the problem size and combine
 partial results in chunk order, so results do not depend on the worker count; level 3 follows
 BLIS's `jc x ic` ways over a shared packed `B` on `Io.Group.concurrent` (`blas3/threaded.zig`);
@@ -2050,7 +2050,7 @@ Questions decided once, with the reason, so they are not reopened without new ev
   memory. On the x86_64 cores whose converted reductions peel elements until an operand is
   aligned, every such slot takes the `@Vector` kernel, `dot` included: it loads unaligned, and
   its several partial sums bound the error more tightly than one running sum
-  ([`readme.md`](blas/readme.md), "No address dependence").
+  ([`readme.md`](../math/kernels/blas/readme.md), "No address dependence").
 - **Column-major only** (2026-10-29). Rstd has no row-major entry points, and nothing upstream
   reaches only from CBLAS's row-major path survives: the Hermitian `Uplo` letters `v`/`m` go
   from `hpmv`, `her`, `hpr`, `her2` and `hpr2`.
@@ -2077,7 +2077,7 @@ Questions decided once, with the reason, so they are not reopened without new ev
   Matrix Multiplication", IPDPS 2014, 1049-1059, <https://doi.org/10.1109/IPDPS.2014.110>). Where
   OpenBLAS and BLIS both make a choice, rstd defers to it: workers spin, as both do (inside a
   call without bound: BLIS's `frame/thread/bli_thrcomm.c:264`, OpenBLAS's `driver/level3/level3_thread.c:408`;
-  rstd's spin is bounded, then sleeps, [`threading.md`](blas/threading.md)), and BLIS's two barriers guard one `B` buffer rather than the prototype's double buffer.
+  rstd's spin is bounded, then sleeps, [`threading.md`](../math/kernels/blas/threading.md)), and BLIS's two barriers guard one `B` buffer rather than the prototype's double buffer.
 - **Filling upstream gaps** (2026-10-29). Where OpenBLAS and BLIS agree for a concrete reason
   (numerics, hardware, a measured trade-off), rstd defers to them. Where they leave a combination
   out only for simplicity, because their kernels cannot serve it, and a Zig `@Vector` kernel can,
@@ -2138,7 +2138,7 @@ Questions decided once, with the reason, so they are not reopened without new ev
   Eigen (MPL 2.0, which would keep any port under MPL) is not a source: it appears only in
   benchmarks, built from upstream as a reference binary, never ported (user, 2026-10-30).
   The candidates and the choice for each routine and kernel family are in
-  [`../lapack/sources.md`](lapack/sources.md) (T113).
+  [`../lapack/sources.md`](../math/kernels/lapack/sources.md) (T113).
 - **Bit guarantees are the CPU's** (2026-10-29). The BLAS's promises (the same bits for any
   thread count, one contract on every core, the first-NaN rule) hold on the CPU. Under SPIR-V
   the driver sets its instructions' precision and may fuse `a*b + c`, so Vulkan's precision
@@ -2154,17 +2154,17 @@ Questions decided once, with the reason, so they are not reopened without new ev
   [`shaders/lib/readme.md`](../rgl/shaders/lib/readme.md); only the builtins lower natively,
   and the matrix instructions wait on Zig's SPIR-V assembler ([#198](https://github.com/randyos-org/rstd/issues/198)).
 - **Workers adopt the caller's floating-point control state** (2026-10-29). Threads do not
-  inherit it (x86 Windows starts them at 53-bit x87 precision where a MinGW main thread has 64-bit, sources in [`threading.md`](blas/threading.md);
+  inherit it (x86 Windows starts them at 53-bit x87 precision where a MinGW main thread has 64-bit, sources in [`threading.md`](../math/kernels/blas/threading.md);
   MXCSR and FPCR differ too if the caller changed rounding or flush to zero), so each task
   starts by applying the state captured on the caller's thread. Rstd still never changes the
   caller's own environment; its workers copy it, and threaded results match serial ones for any
-  caller ([`threading.md`](blas/threading.md)).
+  caller ([`threading.md`](../math/kernels/blas/threading.md)).
 - **Rank updates keep the reference's zero skip** (2026-10-29). `ger` passes over a column whose
   `y(j)` is zero, `syr`, `her` and their packed forms one whose `x(j)` is, the rank-2 forms one
   where both are, as Reference-LAPACK 3.12.1 and master do, so a NaN or infinity in the other
   vector never meets that zero. OpenBLAS and BLIS disagree with each other and give no reason, so
   the reference decides; revisit when it drops the skip, as its PR #1323 did for the triangular
-  routines (<https://github.com/Reference-LAPACK/lapack/pull/1323>, merged 2026-07-13) ([`comparisons.md`](blas/comparisons.md) (5)).
+  routines (<https://github.com/Reference-LAPACK/lapack/pull/1323>, merged 2026-07-13) ([`comparisons.md`](../math/kernels/blas/comparisons.md) (5)).
 - **Level-2 products fold fixed partial vectors** (2026-10-29). `symv`, `hemv`, `sbmv`, `hbmv`,
   `spmv`, `hpmv`, `trmv`, `tbmv`, `tpmv` and untransposed `gbmv` sum each element of `y` over
   several columns' kernel calls. Above their thresholds the columns split into chunks fixed by
@@ -2172,7 +2172,7 @@ Questions decided once, with the reason, so they are not reopened without new ev
   the partials are added to `y` in chunk order, as OpenBLAS's `symv_thread.c` sums per-thread
   buffers with `AXPYU_K`. The bit rule then holds by construction on every core, at the cost of
   changing these routines' results from the one-pass serial order for sizes past one chunk,
-  which a one-worker call shares; below one chunk they run as before ([`threading.md`](blas/threading.md)).
+  which a one-worker call shares; below one chunk they run as before ([`threading.md`](../math/kernels/blas/threading.md)).
 - **LAPACK failures are errors** (2026-10-29). A matrix that is not positive definite is
   `error.NotPositiveDefinite` (its failing minor is not reported since Z13, issue #314), so a
   caller cannot go on with half a factor by forgetting a check; a NaN pivot fails, as in the
@@ -2190,7 +2190,7 @@ Questions decided once, with the reason, so they are not reopened without new ev
   futures, chosen by the comptime `threading.dispatch_futures`; every other `Io` keeps `Group`.
   `Uring`'s futures have their own bug, so it stays unsupported with worker threads. Once
   `ssh-repro-group-aarch64-macos` passes on a new toolchain, the switch goes back to `Group` and
-  the futures path is deleted ([`threading.md`](blas/threading.md)).
+  the futures path is deleted ([`threading.md`](../math/kernels/blas/threading.md)).
 
 ## Alternatives considered
 
@@ -2203,7 +2203,7 @@ Questions decided once, with the reason, so they are not reopened without new ev
 | A mutex around initialization | Brings threading support into freestanding builds; a three-state handshake suffices |
 | The reference's `gotoblas_X` fallback chains | They follow no rule and put SSSE3 code on CPUs without it; the ISA subset rule cannot |
 | Fall back to the generic core for an unknown `OPENBLAS_CORETYPE` | Detection gives a faster correct core (reasoned, not measured: generic runs the portable kernels; OpenBLAS's x86_64 picks by ISA there, `driver/others/dynamic.c:1178`); the name is reported |
-| Each core's converted kernel in every slot, with quirks listed | Results then mean different things per core (`sdot` precision, NaN in the extremes, `nrm2`); [`comparisons.md`](blas/comparisons.md) (X1) |
+| Each core's converted kernel in every slot, with quirks listed | Results then mean different things per core (`sdot` precision, NaN in the extremes, `nrm2`); [`comparisons.md`](../math/kernels/blas/comparisons.md) (X1) |
 | Reproducing the reference's accumulation order in the portable kernels | Not required for correctness; kept only where a Zig kernel replaces converted code of the same core |
 | Converting the gemm assembly | The Zig tile runs at the measured peak on AVX2 and within a few percent on Apple cores (`notes.md`, `results-m6.md`); one source serves every core |
 | Setting FTZ or Java mode to make vector lanes IEEE | Changes the caller's environment, per thread; scalar code is used where lanes flush |
@@ -2238,7 +2238,7 @@ Not propagation, on purpose, as the reference has it (`_test/blas1/edge.zig`, `_
 
 The ported suites (`_test/from_openblas/`) leave out what does not translate: `xerbla` and the bad-letter exits (rstd takes enums; only the letters a routine rejects stand in), checks that scalars come back unchanged, the snapshot and summary options, CBLAS's row-major layout and shifted argument numbers, `utest/test_fork.c` and `test_post_fork*.c`, and the `ARMV8` dot cases that preload a register. The heavy sweeps run their `.dat` tables natively and the smaller tables on the rigs (`reduced`); one more test runs every suite on each linked core.
 
-Test names follow the path (`linalg.blas._test.blas1.edge.test...`), which the rigs' filters
+Test names follow the path (`math.kernels.blas._test.blas1.edge.test...`), which the rigs' filters
 use.
 
 ### Every core
@@ -2266,7 +2266,7 @@ they run natively too.
 - **Exactness.** Bits are compared only where a Zig kernel models converted code of the same
   core: the x87 sums, the x86_64 `dot` vector blocks (`skylakexModel`), the half-precision
   `gemv`. The ported C drivers were also compared bit-for-bit against OpenBLAS's C, compiled with
-  a stub `common.h` ([`blas1/c_kernels.md`](blas/blas1/c_kernels.md)).
+  a stub `common.h` ([`blas1/c_kernels.md`](../math/kernels/blas/blas1/c_kernels.md)).
 
 ### Poisoning and guards
 
@@ -2338,7 +2338,7 @@ The freestanding and UEFI machines (`build/qemu/machines.zig`):
 | --- | --- | --- |
 | `aarch64` | `cortex-a72` | |
 | `aarch64-sve` | `max` | SVE2, SME2, BF16: every arm64 core but Apple's; tier 3 (#619) |
-| `aarch64-smp`, `x86_64-smp` | as `aarch64`, `x86_64`; four cores | multithreaded kernels: the threaded tests on their cores (`test/qemu/smp.zig`, [`threading.md`](blas/threading.md) Verification) |
+| `aarch64-smp`, `x86_64-smp` | as `aarch64`, `x86_64`; four cores | multithreaded kernels: the threaded tests on their cores (`test/qemu/smp.zig`, [`threading.md`](../math/kernels/blas/threading.md) Verification) |
 | `arm`, `arm-softfp` | `cortex-a15` | `eabihf`, and `eabi` for the kernels' `sf` variant on the VFP the CPU has |
 | `riscv64` | `rv64,v=true,vlen=512` | the VLEN of the widest linked core (x280; `zvl512b` in `Makefile.riscv64:6`) |
 | `riscv64-vlen128`, `riscv64-vlen256` | `rv64,v=true,vlen=128`, `256` | `zvl128b`'s and `zvl256b`'s objects on the VLEN they are named for, the VLEN-agnostic `axpy` at both |
@@ -2441,22 +2441,22 @@ Rig mechanics:
 
 ## Implementation plan
 
-1. **Threading.** Landed: levels 1, 2 and 3 thread ([`threading.md`](blas/threading.md)).
+1. **Threading.** Landed: levels 1, 2 and 3 thread ([`threading.md`](../math/kernels/blas/threading.md)).
 2. **Zig-idiomatic interface** (Z7 to Z18, [#308](https://github.com/randyos-org/rstd/issues/308) to [#319](https://github.com/randyos-org/rstd/issues/319)). Slices, exact error sets with plain names, and documented
    panics ([above](#planned-a-zig-idiomatic-interface)), with the codebase-wide pass.
 3. **Remaining level 3.** Landed: 3M, the small-matrix path, and bfloat16 and half-precision
    level 3 (`blas3/half.zig`); Cooper Lake's `sbgemm` small-matrix kernels, in the portable bits.
 4. **Extensions.** Landed ([below](#extensions)), `bgemm` with the half gemms.
 5. **Per-core tuning.** Act on [`results-m6.md`](../../tools/blasbench/results/results-m6.md)'s and
-   [`comparisons.md`](blas/comparisons.md)'s recommendations, and convert assembly where `@Vector`
+   [`comparisons.md`](../math/kernels/blas/comparisons.md)'s recommendations, and convert assembly where `@Vector`
    cannot reach: arm64 SVE, POWER10 MMA, AMX and AVX-512 BF16 for `sbgemm`, and Skylake-X only
-   if measured below 85% of its kernel ([`blas3/gemm/notes.md`](blas/blas3/gemm/notes.md)).
+   if measured below 85% of its kernel ([`blas3/gemm/notes.md`](../math/kernels/blas/blas3/gemm/notes.md)).
 
 ## Open issues
 
 - Upstream, toolchain and emulator problems, with their workarounds, are in
   [the upstream issues](https://github.com/randyos-org/rstd/labels?q=upstream); open numerical and performance questions in
-  [`comparisons.md`](blas/comparisons.md).
+  [`comparisons.md`](../math/kernels/blas/comparisons.md).
 - The mips `cpucfg` corrections and the sparc `sllx` rewrite are unverified on hardware; ARMv7
   NEON and AltiVec flushing was seen on the rigs, not on hardware.
 - Cores the rigs cannot run (Bulldozer, Piledriver and Steamroller microkernels on a host

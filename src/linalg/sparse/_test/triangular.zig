@@ -2,9 +2,9 @@
 
 const std = @import("std");
 const matrix = @import("../../matrix.zig");
-const types = @import("../../blas/types.zig");
-const ops = @import("../../lapack/ops.zig");
-const check = @import("../../blas/_test/check.zig");
+const types = @import("../../../math/kernels/blas/types.zig");
+const ops = @import("../../../math/kernels/lapack/ops.zig");
+const check = @import("../../../math/kernels/blas/_test/check.zig");
 const sparse = @import("../__root__.zig");
 const util = @import("util.zig");
 

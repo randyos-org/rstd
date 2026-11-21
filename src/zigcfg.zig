@@ -1,6 +1,6 @@
 const sysinfo = @import("builtin");
 const std = @import("std");
-const fma = @import("linalg/blas/fma.zig");
+const fma = @import("math/kernels/blas/fma.zig");
 
 // const io = @import("io.zig");
 

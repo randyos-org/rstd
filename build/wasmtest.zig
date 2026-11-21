@@ -10,21 +10,21 @@ const machines = @import("qemu/machines.zig");
 
 /// The rigs' selection, plus the files WASI can also run.
 const default_filters: []const []const u8 = machines.default_filters ++ &[_][]const u8{
-    "linalg.blas.abi.",
-    "linalg.blas.threading.",
+    "math.kernels.blas.abi.",
+    "math.kernels.blas.threading.",
 };
 
 /// Halves of the selection, one CI leg each (`-Dwasm-test-part`): a whole
 /// module once ran past the runner (issue #577).
 const Part = enum { blas, lapack };
 
-const lapack_filters: []const []const u8 = &.{"linalg.lapack."};
+const lapack_filters: []const []const u8 = &.{"math.kernels.lapack."};
 
 /// `default_filters` without LAPACK's.
 fn blasFilters(b: *Build) std.mem.Allocator.Error![]const []const u8 {
     var list: std.ArrayList([]const u8) = .empty;
     for (default_filters) |f| {
-        if (!std.mem.startsWith(u8, f, "linalg.lapack.")) try list.append(b.allocator, f);
+        if (!std.mem.startsWith(u8, f, "math.kernels.lapack.")) try list.append(b.allocator, f);
     }
     return list.items;
 }

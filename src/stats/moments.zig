@@ -2,8 +2,8 @@
 //! the BLAS where it has the sum.
 
 const std = @import("std");
-const blas = @import("../linalg/blas/__root__.zig");
-const blas_types = @import("../linalg/blas/types.zig");
+const blas = @import("../math/kernels/blas/__root__.zig");
+const blas_types = @import("../math/kernels/blas/types.zig");
 const util = @import("util.zig");
 
 const Io = std.Io;

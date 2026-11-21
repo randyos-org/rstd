@@ -1,7 +1,7 @@
 //! `Triplets(T)`, the builder: `append` entries in any order, then `toCsc`.
 
 const std = @import("std");
-const ops = @import("../lapack/ops.zig");
+const ops = @import("../../math/kernels/lapack/ops.zig");
 const util = @import("util.zig");
 const csc = @import("csc.zig");
 

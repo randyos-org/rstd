@@ -2,7 +2,7 @@
 //! `error.NotImplemented` until their issue lands (N2).
 
 const std = @import("std");
-const types = @import("../blas/types.zig");
+const types = @import("../../math/kernels/blas/types.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;

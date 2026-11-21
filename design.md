@@ -18,7 +18,7 @@ views"):
 - Error sets are exact and named, with plain error names. Operands are slices, not pointers and
   lengths. Storage is column-major.
 - Results are bit-identical for any thread count, as the BLAS's are
-  ([`threading.md`](src/linalg/blas/threading.md)).
+  ([`threading.md`](src/math/kernels/blas/threading.md)).
 - Zig-native: no dependencies but Apple's Accelerate on macOS, which ships with the OS.
 
 Until a body lands, it returns `error.NotImplemented`, which is in its error set until then, and

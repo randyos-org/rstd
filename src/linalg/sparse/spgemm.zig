@@ -5,7 +5,7 @@
 //! them; the numeric pass sums into `C`'s own slots, `k` ascending.
 
 const std = @import("std");
-const ops = @import("../lapack/ops.zig");
+const ops = @import("../../math/kernels/lapack/ops.zig");
 const util = @import("util.zig");
 const csc = @import("csc.zig");
 

@@ -297,7 +297,7 @@ Hammarling (Numerical Algorithms Group Ltd.), Richard Hanson (Sandia National
 Labs), with Univ. of Tennessee, Univ. of California Berkeley, Univ. of
 Colorado Denver and NAG Ltd.; the CBLAS testers by Keita Teranishi,
 D.P. Manley (Digital Equipment Corporation) and T. H. Do (SGI/CRAY Research).
-rstd's ports of them, in src/linalg/blas/_test/from_openblas/, name their
+rstd's ports of them, in src/math/kernels/blas/_test/from_openblas/, name their
 sources and list their differences in their doc comments.
 
 The license, as OpenBLAS's test/LICENSE and ctest/LICENSE quote it from
@@ -321,7 +321,7 @@ routine to provide support.
 ---
 
 BLIS (https://github.com/flame/blis; the threaded level-3 design that
-src/linalg/blas/blas3/threaded.zig and threading.zig follow)
+src/math/kernels/blas/blas3/threaded.zig and threading.zig follow)
 
 Copyright (C) 2012 - 2022, The University of Texas at Austin
 Copyright (C) 2018 - 2025, Southern Methodist University
