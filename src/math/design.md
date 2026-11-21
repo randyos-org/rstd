@@ -539,6 +539,128 @@ In the move the transforms take the normalization as a trailing argument in plac
 - **No options on the plain function** (user, 2026-11-20): nobody passes `.{}` just to say "the defaults". The options struct belongs to the `*With` sibling only. `fft`'s `Options` (`.norm`) and `stats.quantile`'s `QuantileOptions` (`.method`) move from the plain functions to new `*With` siblings in their moves ([#611](https://github.com/randyos-org/rstd/issues/611), [#613](https://github.com/randyos-org/rstd/issues/613)); today's `meanWith`, `varianceWith` and `stdDevWith` take a struct in place of their `Summation` argument ([#605](https://github.com/randyos-org/rstd/issues/605)). Build-time settings a root declares once (`rstd_linalg_options`) are not call options and stay.
 - **No switch on a kernel option:** a high-level function that would have to switch on the summation mode or a method itself is a sign the algorithm belongs in a kernel ([#597](https://github.com/randyos-org/rstd/issues/597)): variance's deviation pass became a `kernels.stats` reduction ([#605](https://github.com/randyos-org/rstd/issues/605)).
 
+## High-level functions
+
+What users call: plain functions with the best defaults, and `*With` siblings taking an options struct where a knob is worth exposing ([The high-level API](#the-high-level-api)). Existing functions are given by their literal signatures, the shared arguments bare as in the Kernel API (`allocator`, `io`; `a: anytype` takes a `Mat`, `View`, `ConstView`, `StaticMat` or slice of the element type); functions that will exist are named; capabilities not yet designed are bullets, spec to be decided. Each module moves under `rstd.math` in its issue ([#611](https://github.com/randyos-org/rstd/issues/611) to [#615](https://github.com/randyos-org/rstd/issues/615)).
+
+### `rstd.math.linalg`
+
+MATLAB's names and argument order where MATLAB has the routine; NumPy's where it does not. Today's `dense` helpers named `*With` (`detWith`, `mulWith`, `sumWith` and the rest) take an execution path, not options; they are internal, and [#615](https://github.com/randyos-org/rstd/issues/615) renames them so `*With` means only the options siblings.
+
+#### Types
+
+| Type | What | v0.1.0 |
+| --- | --- | --- |
+| `Mat(T)` | an owned column-major matrix: `init`, `zeros`, `deinit`, `at`, `col`, `sub`, `view`, `constView` | yes |
+| `View(T)`, `ConstView(T)` | a strided window on a matrix, writable or not | yes |
+| `StaticMat(R, C, T)`, `Vec(N, T)` | compile-time shapes, on Zig's `@Matrix` where the compiler has it (`_matrix/`) | yes |
+| `Array(T)`, `StaticArray(dims, T)`, `ArrayView(T)`, `ConstArrayView(T)` | N-d arrays, column-major: `init`, `deinit`, `view`, `slice`, `reshape`, `permute`, `broadcastTo`, `asMatrix`, `count` | stub: types and storage only |
+| `Lu(T)`, `Qr(T)`, `Svd(T)`, `Eig(T)`, `Hess(T)`, `Schur(T)`, `Rref(T)` | factorizations' results, each with `deinit` (`Lu` with `l` and `u`) | yes |
+| `QrMode`, `SvdMode`, `MatrixNorm`, `VectorNorm` | economy or full factors; which norm | yes |
+| `Options` | build-time `rstd_linalg_options` (`inline_limit`: up to which size the inline kernels run) | yes |
+
+#### Functions
+
+| Signature | Computes | v0.1.0 |
+| --- | --- | --- |
+| `dot(io, x: anytype, y: anytype) VectorError!ElementOf(@TypeOf(x))` | `xᴴy` | yes |
+| `norm(io, x: anytype) VectorError!Real(ElementOf(@TypeOf(x)))` | `‖x‖₂` | yes |
+| `vectorNorm(io, x: anytype, which: VectorNorm) VectorNormError!Real(ElementOf(@TypeOf(x)))` | `‖x‖ₚ`, MATLAB's `vecnorm` | yes |
+| `sum(io, x: anytype) VectorError!ElementOf(@TypeOf(x))` | `Σ xᵢ` | yes |
+| `max(io, x: anytype) VectorError!ElementOf(@TypeOf(x))`, `min(io, x: anytype) VectorError!ElementOf(@TypeOf(x))` | the largest, the smallest | yes |
+| `axpy(io, a: anytype, x: anytype, y: anytype) VectorError!void`, `scale(a: anytype, x: anytype) void` | `y ← ax + y`; `x ← ax` | yes |
+| `mul(allocator, io, a: anytype, b: anytype) MulError!Mat(ElementOf(@TypeOf(a)))`, `mulInto(allocator, io, out: anytype, a: anytype, b: anytype) MulError!void` | `AB` | yes |
+| `transpose(allocator, io, a: anytype) (Allocator.Error \|\| Io.Cancelable)!Mat(ElementOf(@TypeOf(a)))`, `ctranspose(...)`, `transposeInto(io, out: anytype, a: anytype) TransposeError!void`, `ctransposeInto(...)` | `Aᵀ`, `Aᴴ` | yes |
+| `add(allocator, a: anytype, b: anytype) ElementwiseError!Mat(ElementOf(@TypeOf(a)))`, `sub`, `times`, `rdivide`, and their `*Into(out: anytype, a: anytype, b: anytype) ElementwiseIntoError!void` | elementwise `+`, `−`, `.*`, `./` (MATLAB's names) | yes |
+| `map(allocator, a: anytype, f: anytype) Allocator.Error!Mat(ElementOf(@TypeOf(a)))`, `mapInto(out: anytype, a: anytype, f: anytype) ElementwiseIntoError!void` | `f` of each element | yes |
+| `prod(a: anytype) ElementOf(@TypeOf(a))` | `Π aᵢⱼ` | yes |
+| `realPart(allocator, a: anytype) Allocator.Error!Mat(Real(ElementOf(@TypeOf(a))))`, `imagPart(...)`, `conj(allocator, a: anytype) Allocator.Error!Mat(ElementOf(@TypeOf(a)))` | `real`, `imag`, `conj` | yes |
+| `det(allocator, io, a: anytype) DetError!ElementOf(@TypeOf(a))` | `det(A)` | yes |
+| `inv(allocator, io, a: anytype) InvError!Mat(ElementOf(@TypeOf(a)))`, `invInto(allocator, io, out: anytype, a: anytype) InvIntoError!void` | `A⁻¹` | yes |
+| `solve(allocator, io, a: anytype, b: anytype) SolveError!Mat(ElementOf(@TypeOf(a)))`, `solveInto(allocator, io, out: anytype, a: anytype, b: anytype) SolveError!void` | `A \ B`: square by its structure (triangular, Cholesky, LU), else least squares | yes |
+| `lu(allocator, io, a: anytype) (Allocator.Error \|\| Io.Cancelable)!Lu(ElementOf(@TypeOf(a)))` | `PA = LU` | yes |
+| `chol(allocator, io, a: anytype) CholError!Mat(ElementOf(@TypeOf(a)))` | `A = RᴴR` | yes |
+| `qr(allocator, io, a: anytype, mode: QrMode) (Allocator.Error \|\| Io.Cancelable)!Qr(ElementOf(@TypeOf(a)))` | `A = QR` | yes |
+| `svd(allocator, io, a: anytype, mode: SvdMode) SvdError!Svd(ElementOf(@TypeOf(a)))` | `A = UΣVᴴ` | yes |
+| `eig(allocator, io, a: anytype, want_vectors: bool) EigError!Eig(ElementOf(@TypeOf(a)))` | eigenvalues, and vectors; Hermitian `A` by the symmetric path | yes |
+| `hess(allocator, io, a: anytype) HessError!Hess(ElementOf(@TypeOf(a)))` | `A = QHQᴴ` | yes |
+| `schur(allocator, io, a: anytype) SchurError!Schur(ElementOf(@TypeOf(a)))`, `schurComplex(...)` | real or complex Schur form | yes |
+| `matrixNorm(allocator, io, a: anytype, which: MatrixNorm) MatrixNormError!Real(ElementOf(@TypeOf(a)))` | `norm(A, p)` | yes |
+| `cond(allocator, io, a: anytype) SvdError!Real(ElementOf(@TypeOf(a)))`, `rcond(allocator, io, a: anytype) RcondError!Real(ElementOf(@TypeOf(a)))` | the 2-norm condition number; its one-norm reciprocal estimate | yes |
+| `rank(allocator, io, a: anytype, tol: ?Real(ElementOf(@TypeOf(a)))) SvdError!usize` | numerical rank | yes |
+| `pinv(allocator, io, a: anytype, tol: ?Real(ElementOf(@TypeOf(a)))) SvdError!Mat(ElementOf(@TypeOf(a)))` | the pseudoinverse | yes |
+| `orth(allocator, io, a: anytype, tol: ?Real(...)) SvdError!Mat(ElementOf(@TypeOf(a)))`, `nullSpace(...)` | bases of the range and the null space (MATLAB's `orth`, `null`) | yes |
+| `expm(allocator, io, a: anytype) ExpmError!Mat(ElementOf(@TypeOf(a)))`, `logm`, `sqrtm` | matrix exponential, logarithm, square root | yes |
+| `powm(allocator, io, a: anytype, p: f64) PowmError!Mat(ElementOf(@TypeOf(a)))` | `A^p` | yes |
+| `funm(allocator, io, a: anytype, f: Derivatives(...)) FunmError!Mat(...)`, `cosm`, `sinm`, `atanm` | a matrix function by Schur-Parlett | yes |
+| `identity(allocator, T, rows: usize, cols: usize) Allocator.Error!Mat(T)`, `ones(...)` | `eye`, `ones` | yes |
+| `tril(allocator, T, a: ConstView(T), k: isize) Allocator.Error!Mat(T)`, `triu(...)`, `diagMatrix(allocator, T, v: []const T, k: isize) Allocator.Error!Mat(T)`, `diagonal(allocator, T, a: ConstView(T), k: isize) Allocator.Error![]T`, `kron(allocator, T, a: ConstView(T), b: ConstView(T)) Allocator.Error!Mat(T)` | `tril`, `triu`, `diag` both ways, `kron` | yes |
+| `rref(allocator, T, a: ConstView(T), tol: ?Real(T)) Allocator.Error!Rref(T)` | reduced row echelon form | yes |
+| `roots(allocator, io, T, c: []const T) RootsError![]Complex(T)`, `poly(allocator, T, r: []const T) Allocator.Error![]T`, `charPoly(allocator, io, T, a: ConstView(T)) CharPolyError![]T` | polynomial roots, the polynomial of given roots, the characteristic polynomial | yes |
+| `magic(allocator, T, n: usize) Allocator.Error!Mat(T)`, `hilbert`, `invHilbert`; `uniform(allocator, T, rows: usize, cols: usize, rnd: std.Random) Allocator.Error!Mat(T)`, `normal`, `fillUniform(T, v: View(T), rnd: std.Random) void`, `fillNormal` | MATLAB's gallery and random matrices | yes |
+| `trace`, `logDet`, `cross`, `outer` | `trace`, `log(det)` without overflow, `cross`, `xyᴴ` | named; #615 |
+| `sumWith`, `dotWith`, `normWith` | the reductions with `.{ .summation = ... }` | named; #615 |
+| `eigGeneralized`, `schurGeneralized`, `svdGeneralized` | `eig(A, B)`, `qz`, `gsvd` over the backlog's `ggev`, `gges`, `ggsvd3` | named; backlog (#623) |
+| `polyfit`, `polyval` | least-squares fit; evaluation over `kernels.dsp.evaluatePolynomial` | named; backlog (#627) |
+
+- N-d arrays beyond storage: indexing, broadcasting, reductions along a dimension. Spec to be decided.
+- A sparse matrix type for users over `CompressedColumns`, with `mul`, `solve` and the iterative solvers behind one call. Spec to be decided.
+- Partial eigenvalues and singular values of large and sparse matrices (MATLAB's `eigs`, `svds`). Spec to be decided.
+- Which routines take a `*With` sibling, and its options, beyond the reductions. Spec to be decided; algorithm choices stay out (#554).
+
+### `rstd.math.fft`
+
+Today's `fft` module is the plans (`Plan`, `RealPlan` and the stubs), which move to `kernels.fft`; this layer is new ([#611](https://github.com/randyos-org/rstd/issues/611)).
+
+| Signature | Computes | v0.1.0 |
+| --- | --- | --- |
+| `fft`, `ifft` | complex transform of a vector and its inverse, allocating the result (NumPy's `fft.fft`, MATLAB's `fft`) | named; #611 |
+| `rfft`, `irfft` | real input to half spectrum and back | named; #611 |
+| `fftWith`, `ifftWith`, `rfftWith`, `irfftWith` | the same with `FftOptions` (`.normalization`) | named; #611 |
+| `binFrequencies`, `realBinFrequencies`, `centerZeroFrequency`, `uncenterZeroFrequency` | `fftfreq`, `rfftfreq`, `fftshift`, `ifftshift` | named; backlog (#625) |
+| `dct`, `idct`, `dst`, `idst`, `mdct`, `imdct` | the trigonometric transforms, over the stubs | named; backlog (#625) |
+
+- Whether the plain functions plan each call or keep a plan per length (a cache, or a plan the caller holds) for speed. Spec to be decided.
+- 2-D and N-d transforms (`fft2`, `fftn`) over `kernels.fft.MultiDimPlan`. Spec to be decided (#625).
+
+### `rstd.math.signal`
+
+| Signature | Computes | v0.1.0 |
+| --- | --- | --- |
+| `window(T, out: []T, kind: Window, symmetry: Symmetry) WindowError!void` | a window, from `kernels.dsp` | yes (#612) |
+| `Stft(T)`: `init(allocator, window: []const T, hop: usize, nfft: usize) InitError!Self`, `deinit(self: *Self, allocator) void`, `bins(self: Self) usize`, `frames(self: Self, len: usize) usize`, `scratchLen(self: Self) usize`, `forward(self: *const Self, io, out: []Complex(T), in: []const T, scratch: []T) Error!void`, `inverse(self: *const Self, io, out: []T, in: []const Complex(T), frame_count: usize, scratch: []T) Error!void` | the short-time Fourier transform and its inverse (overlap-add) | yes |
+| `Convolver(T)`: `init(allocator, filter: []const T, block: usize) InitError!Self`, `deinit(self: *Self, allocator) void`, `reset(self: *Self) void`, `process(self: *Self, out: []T, in: []const T) Error!void` | streaming convolution with a long filter, uniformly partitioned | yes |
+| `convolve`, `correlate` | whole-signal convolution and correlation, allocating, by direct sums or FFT products by size (`kernels.dsp.convolve` with `ConvolutionMode`) | named; backlog (#627) |
+| `filter` | IIR filtering by second-order sections (SciPy's `sosfilt`, over `kernels.dsp.biquad`) | named; backlog (#627) |
+| `spectrogram` | power spectra of an `Stft` in decibels | named; backlog (#627) |
+| `resample` | rational resampling (SciPy's `resample_poly`) | named; backlog (#627) |
+
+- Filter design (Butterworth, Chebyshev, FIR windows: SciPy's `butter`, `firwin`). Spec to be decided.
+
+### `rstd.math.stats`
+
+| Signature | Computes | v0.1.0 |
+| --- | --- | --- |
+| `mean(io, R: type, xs: anytype) MomentError!R` | the mean, of any integer, float or complex elements, as `R` | yes |
+| `meanWith(io, R: type, xs: anytype, options: MomentOptions) MomentError!R` | the mean with a `Summation` | yes; struct by #605 |
+| `variance(io, R: type, xs: anytype, normalize: Normalize) MomentError!R`, `varianceWith(io, R: type, xs: anytype, normalize: Normalize, options: MomentOptions) MomentError!R` | the corrected two-pass variance (#605) | yes; #605 |
+| `stdDev(io, R: type, xs: anytype, normalize: Normalize) MomentError!R`, `stdDevWith(...)` | its square root | yes; #605 |
+| `RunningMoments(F)`: `push(self: *Self, x: F) void`, `mean(self: Self) error{EmptyInput}!F`, `variance(self: Self, normalize: Normalize) error{EmptyInput}!F` | a running mean and variance | yes (#613) |
+| `median(allocator, R: type, xs: anytype) MedianError!R` | the median; NaN if any | yes |
+| `quantile(allocator, R: type, xs: anytype, p: []const R) QuantileError![]R`, `quantileInto(allocator, R: type, out: []R, xs: anytype, p: []const R) QuantileIntoError!void` | quantiles at `p`, NumPy's `linear` | yes; options move to `quantileWith` (#613) |
+| `quantileWith(allocator, R: type, xs: anytype, p: []const R, options: QuantileOptions) QuantileError![]R` | quantiles by any of NumPy's nine methods | #613 |
+| `histogram(allocator, F: type, xs: anytype, bins: Bins(F)) HistogramError!Histogram(F)`, `histogramInto(F: type, counts: []u64, xs: anytype, edges: []const F) HistogramIntoError!void` | counts into bins | yes |
+| `cov(allocator, io, x: anytype) CovError!Mat(...)`, `corrcoef(allocator, io, x: anytype) CovError!Mat(...)` | covariance and correlation of a matrix's columns (MATLAB's `cov`, `corrcoef`) | yes |
+| `skewness`, `kurtosis`, `medianAbsDeviation`, `zscore` | over `kernels.stats` | named; backlog (#628) |
+| `uniform`, `normal` | random samples into a slice, over `kernels.stats.RandomStream` | named; backlog (#628) |
+
+- Weighted statistics, and statistics along a dimension of a matrix or N-d array. Spec to be decided.
+- Distributions (probability densities, cumulative and inverse distribution functions: SciPy's `stats.norm` and the like). Spec to be decided.
+
+### Scalar functions
+
+`floor`, `ceil`, `round`, `rationalApprox`, `Fraction` and `x87_f64`, as in the Kernel API's last table; the scalar functions users call directly.
+
 ## Shared infrastructure
 
 Today inside `blas`; it moves up to `rstd.math.kernels` when a second domain uses it:
