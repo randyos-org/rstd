@@ -36,9 +36,9 @@ after it. Rig names are `zig build` steps: `qemu-test-<rig>` unless named in ful
 | `aarch64-macos` 11.0+ | 2 | zfls | `ssh-test-aarch64-macos` (M6, macOS 27.2), CI's native legs (`macos-15`), `rstd-check-macho`, `rstd-check-zig017` |
 | `x86-windows-gnu` | 3 | | `rstd-test-x87` (`pentium3` code on the Zen 3 host, Debug and ReleaseSafe) |
 | `x86-freestanding-none` | 3 | | `i386`, `i386-max`, `i386-safe`, `i386-max-safe` |
-| `arm-linux` | 3 | | `linux-arm`; runs with tier 2 in the MVP sweep, for the arm cores under an OS |
-| `riscv64-freestanding-none`, `riscv64-linux` | 3 | | `riscv64`, `riscv64-vlen128`, `riscv64-vlen256`, `linux-riscv64` |
-| `powerpc64le-freestanding-none`, `powerpc64le-linux` | 3 | | `powerpc64le`, `powerpc64le-power10`, `linux-powerpc64le` |
+| `arm-linux` | 3 | | CI's `arm-linux` leg (qemu-user); locally `linux-arm`, for the arm cores under an OS |
+| `riscv64-freestanding-none`, `riscv64-linux` | 3 | | `riscv64`, `riscv64-vlen128`, `riscv64-vlen256`; CI's `riscv64-linux` leg (qemu-user); locally `linux-riscv64` |
+| `powerpc64le-freestanding-none`, `powerpc64le-linux` | 3 | | `powerpc64le`, `powerpc64le-power10`; CI's `powerpc64le-linux` and `powerpc64le-linux-power10` legs (qemu-user, [#655](https://github.com/randyos-org/rstd/issues/655)); locally `linux-powerpc64le` |
 | `powerpc64-freestanding-none` | 3 | | `powerpc64` (big-endian, POWER10) |
 | `powerpc-freestanding-none` (hard float) | 3 | | `powerpc` (G4), `powerpc-pseries`, `powerpc-power9` |
 | `mips64el`, `mips64`, `mipsel`, `mips` (freestanding) | 3 | | `mips64r2el`, `mips64r2`, `mips64r6el`, `mips64r6`, `mips32r2el`, `mips32r2`, `mips32r5el`, `mips32r5` |
@@ -132,7 +132,7 @@ and every POWER core is tier 3.
 | x86 | `prescott`, `yonah`, `atom`, `core2`, `penryn`, `dunnington`, `nehalem`, `opteron_sse3`, `barcelona`, `nano`, `bobcat` | `i386-max` |
 | x86 | `athlon` (3DNow!) | unsettled: whether TCG `max` shows 3DNow! is unchecked; the Zen 3 host has none |
 | powerpc64, powerpc64le | `power3`, `power4`, `power5`, `power6`, `ppc970`, `cell`, `power8`, `power9` | `powerpc64` (every 64-bit core), `powerpc64le`, `linux-powerpc64le` |
-| powerpc64, powerpc64le | `power10` | `powerpc64`, `powerpc64le-power10`, `linux-powerpc64le-power10` |
+| powerpc64, powerpc64le | `power10` | `powerpc64`, `powerpc64le-power10`, CI's `powerpc64le-linux-power10` leg (qemu-user), `linux-powerpc64le-power10` (local) |
 | powerpc | `power3`, `power4`, `power5`, `power6`, `ppc970`, `cell` | `powerpc-pseries` (32-bit code on POWER10) |
 | powerpc | `power8`, `power9` | `powerpc-power9` (32-bit code on POWER9) |
 | powerpc | `ppcg4` | `powerpc` (G4) |
