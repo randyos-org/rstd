@@ -27,10 +27,7 @@ pub fn addQemuTests(b: *Build, optimize: Optimize, rstd_filters: []const []const
     const filters = b.option([]const []const u8, "qemu-test-filter", "Only run tests whose name contains this (repeatable)") orelse rstd_filters;
     const only_parts = b.option([]const []const u8, "qemu-test-part", "Only build and run this part of a rig that splits its tests into images, e.g. blas3-kernel-complex (repeatable)") orelse &.{};
     for (only_parts) |o| if (!hasPart(o)) std.debug.panic("-Dqemu-test-part: no rig has a part named {s}", .{o});
-    // declared whether or not a Linux rig's kernel is fetched yet
-    _ = nixHere(b);
-    // a one-time fetch of about 55 MB per kernel
-    const linux_vm = vmOption(b, "linux-vm", "the Linux rigs", "their kernels");
+    const linux_vm = vmOption(b, "linux-vm", "the Linux rigs", "their kernels from Nix when run");
     // the rigs run on the Mac when rstd is the project being built; a
     // dependent runs them here unless it names a host
     const host_off = b.option(bool, "test-host-off", "Run the rigs' QEMU here rather than on -Dtest-host") orelse false;
@@ -76,7 +73,7 @@ pub fn addQemuTests(b: *Build, optimize: Optimize, rstd_filters: []const []const
                 part.name = b.fmt("{s}-{s}", .{ m.name, p.name });
                 const run = switch (m.boot) {
                     .kernel => |k| try addKernelRun(b, part, k, target, m.optimize orelse optimize, p.filters, test_host, rig_check),
-                    .linux => |l| if (linux_vm) try addLinuxRun(b, part, l, target, m.optimize orelse optimize, p.filters, test_host, rig_check) orelse continue else continue,
+                    .linux => |l| if (linux_vm) try addLinuxRun(b, part, l, target, m.optimize orelse optimize, p.filters, test_host, rig_check) else continue,
                 };
                 step.dependOn(&run.step);
                 all.dependOn(&run.step);
@@ -85,7 +82,7 @@ pub fn addQemuTests(b: *Build, optimize: Optimize, rstd_filters: []const []const
         }
         const run = switch (m.boot) {
             .kernel => |k| try addKernelRun(b, m, k, target, m.optimize orelse optimize, filters, test_host, rig_check),
-            .linux => |l| if (linux_vm) try addLinuxRun(b, m, l, target, m.optimize orelse optimize, filters, test_host, rig_check) orelse continue else continue,
+            .linux => |l| if (linux_vm) try addLinuxRun(b, m, l, target, m.optimize orelse optimize, filters, test_host, rig_check) else continue,
         };
         const step = b.step(b.fmt("qemu-test-{s}", .{m.name}), b.fmt("Run rstd's tests under qemu-system on {s} (live log: {s})", .{ m.name, liveLog(b, m) }));
         step.dependOn(&run.step);
@@ -228,17 +225,6 @@ fn kvm(b: *Build) bool {
     return on;
 }
 
-var nix_here_on: ?struct { owner: *Build, on: bool } = null;
-
-/// `-Dqemu-nix-here`: the Linux rigs' Nix packages (glibc under
-/// `-Drstd-tsan`) from this machine's Nix, without `-Dtest-host` (CI).
-fn nixHere(b: *Build) bool {
-    if (nix_here_on) |k| if (k.owner == b) return k.on;
-    const on = b.option(bool, "qemu-nix-here", "The Linux rigs take their Nix packages (glibc with -Drstd-tsan) from this machine's Nix (CI)") orelse false;
-    nix_here_on = .{ .owner = b, .on = on };
-    return on;
-}
-
 var fail_fast: ?struct { owner: *Build, on: bool } = null;
 
 /// `-Dfail-fast`: end a rig at its first failing test rather than run the rest.
@@ -266,14 +252,14 @@ pub fn addConsole(b: *Build, run: *Build.Step.Run, m: Machine, host: ?TestHost) 
     run.addArgs(&.{ "-chardev", b.fmt("stdio,id=con,mux=on,signal=off{s}", .{log}), "-serial", "chardev:con", "-monitor", "chardev:con" });
 }
 
-/// QEMU booting a Debian kernel with an initramfs of `test/linux/init.zig`
-/// and rstd's hosted tests, which see real auxv, sysfs, procfs and threads;
-/// null until the kernel's package is fetched.
-fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedTarget, optimize: Optimize, filters: []const []const u8, host: ?TestHost, rig_check: *Build.Step) !?*Build.Step.Run {
-    const kernel = b.dependencyLazy(l.dep, .{}) catch return null;
-    // ThreadSanitizer wants glibc, and its loader, from Nix (`tools/nix/blas.sh`):
-    // `-Dtest-host`'s, or with `-Dqemu-nix-here` this machine's
-    const nix: ?[]const u8 = if (!buildroot.tsan or (host == null and !nixHere(b))) null else switch (target.result.cpu.arch) {
+/// QEMU booting nixpkgs' kernel with an initramfs of `test/linux/init.zig`
+/// and rstd's hosted tests, which see real auxv, sysfs, procfs and threads.
+/// The kernel, and glibc under ThreadSanitizer, come from `-Dtest-host`'s
+/// Nix, or without one this machine's (issue #656).
+fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedTarget, optimize: Optimize, filters: []const []const u8, host: ?TestHost, rig_check: *Build.Step) !*Build.Step.Run {
+    const nix_host: ?[]const u8 = if (host) |h| h.alias else null;
+    // ThreadSanitizer wants glibc, and its loader, from Nix (`tools/nix/blas.sh`)
+    const nix: ?[]const u8 = if (!buildroot.tsan) null else switch (target.result.cpu.arch) {
         .x86_64 => "x86_64-linux",
         .aarch64 => "aarch64-linux",
         else => null,
@@ -293,13 +279,13 @@ fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedT
         .optimize = optimize,
     }) });
     const pack: Initramfs = .init(b, "initramfs.cpio", init_exe, test_exe);
-    if (nix) |system| pack.run.addPrefixedFileArg("+", (try tools.nixBlas(b, if (host) |h| h.alias else null, system, false)).captureStdOut(.{}));
+    if (nix) |system| pack.run.addPrefixedFileArg("+", (try tools.nixBlas(b, nix_host, system, false)).captureStdOut(.{}));
     rig_check.dependOn(&pack.run.step);
 
     const run = qemuCommand(b, m, host);
     addConsole(b, run, m, host);
     run.addArg("-kernel");
-    fileArg(run, m, host, kernel.path(l.kernel));
+    fileArg(run, m, host, try tools.nixKernel(b, nix_host, l.nix));
     run.addArg("-initrd");
     fileArg(run, m, host, pack.cpio);
     run.addArgs(&.{ "-append", l.commandLine(b) });
