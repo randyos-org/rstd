@@ -410,9 +410,9 @@ pub fn Rule(comptime Core: type) type {
         /// slot only where a converted module `skips` its assembly.
         routed: ?[]const Core,
         /// The `routed` slots; also those they `displace` and those no
-        /// converted module fills (`hasSlot`), mostly C upstream, for the
-        /// portable loop: all of them off Apple, whose Accelerate is to
-        /// serve the rest, and there the `unaccelerated` ones.
+        /// converted module fills (`hasSlot`), mostly C upstream, in place
+        /// of the portable loop; on Apple's systems the fallback when
+        /// routing to Accelerate is off (#590).
         unfilled,
         /// `unfilled` on `cores` only: those with a vector unit where others
         /// have none (riscv64). The rest take none of these kernels.
@@ -442,7 +442,7 @@ pub fn takes(comptime Core: type, comptime rule: Rule(Core), comptime converted:
 /// `Rule.unfilled`'s choice for `slot` on `core`.
 fn unfilled(comptime Core: type, comptime converted: anytype, comptime core: Core, comptime slot: Slot) bool {
     if (vector.routed(slot)) return true;
-    if (accelerated(slot)) return false;
+    // on Apple's systems too: Accelerate serves, these are the fallback (#590)
     if (displaces(core, slot)) return true;
     inline for (converted) |m| {
         if (@hasDecl(m, "hasSlot") and m.hasSlot(core, slot)) return false;
