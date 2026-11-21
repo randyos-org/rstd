@@ -19,7 +19,7 @@ const registry = @This();
 
 const Slot = util.Slot;
 
-/// The build variant (`tools/blas_asm/arch/<arch>.zig`) the target's calling
+/// The build variant (a converted file's `keys`) the target's calling
 /// convention needs (`abi.zig`). The compiled target's, so `has`, which the
 /// build script asks about the target it is building for, does not depend on it.
 pub const variant: []const u8 = abi.variantName(&sysinfo.target);
@@ -131,9 +131,8 @@ pub const Entry = struct {
     }
 };
 
-/// A kernel upstream builds that the generator does not convert, and the
-/// cores it builds it for: a row of an `asm/__root__.zig`'s `skipped`
-/// (`tools/blas_asm/roles.zig`'s `skip`).
+/// A kernel upstream builds that rstd does not convert, and the cores it
+/// builds it for: a row of an `asm/__root__.zig`'s `skipped`.
 pub const Skipped = struct { slot: Slot, cores: []const @EnumLiteral() };
 
 /// Exports `f` as `core`'s kernel for `slot`, under `util.kernelSymbol`.
@@ -170,10 +169,9 @@ pub fn installSlots(vt: *Vtable, comptime core: anytype, comptime slots: []const
 pub const Written = enum { assembly, vector, scalar };
 
 /// A hand-written kernel module a routine's `<arch>/kernel.zig` composes
-/// beside its generated indexes: on `cores`, `module.entry(slot)` fills
+/// beside its converted indexes: on `cores`, `module.entry(slot)` fills
 /// `slots`; with `arch`, only in that OpenBLAS architecture's build
-/// (`kernel/<arch>`). `tools/blas_asm/survey.zig` reads a `ports` table as
-/// text, so keep its fields literal.
+/// (`kernel/<arch>`).
 pub fn Port(comptime Core: type) type {
     return struct {
         module: type,
@@ -275,7 +273,7 @@ pub fn Kernels(comptime Core: type, comptime index: type) type {
         /// `e`'s function for `core` on this target, if it has one and the
         /// `@Vector` kernels do not take its slot (`displaces`).
         fn kernel(comptime e: Entry, comptime core: Core) ?type {
-            if (comptime vector.routed(e.slot)) @compileError(@tagName(e.slot) ++ " is routed, yet converted; tools/blas_asm/roles.zig's skip and vector.routed disagree");
+            if (comptime vector.routed(e.slot)) @compileError(@tagName(e.slot) ++ " is routed, yet converted; move its entry to the index's skipped, or drop it from vector.routed");
             if (comptime displaces(core, e.slot)) return null;
             return e.kernel(@tagName(core), variant);
         }
@@ -326,7 +324,7 @@ pub fn Kernels(comptime Core: type, comptime index: type) type {
                 if (comptime kernel(e, core)) |K| {
                     exportKernel(&K.entry, e.slot, core);
                 } else if (comptime e.serves(@tagName(core)) and !hasSlot(core, e.slot) and !displaces(core, e.slot)) {
-                    @compileError("no '" ++ variant ++ "' build of " ++ @tagName(e.slot) ++ " for " ++ @tagName(core) ++ "; tools/blas_asm/arch and abi.zig disagree");
+                    @compileError("no '" ++ variant ++ "' build of " ++ @tagName(e.slot) ++ " for " ++ @tagName(core) ++ "; the converted files' keys and abi.zig disagree");
                 }
             }
         }
@@ -345,8 +343,7 @@ pub fn Kernels(comptime Core: type, comptime index: type) type {
 /// Where the `@Vector` kernels take slots from the converted ones beyond `vector.routed`
 /// (`displaces`): every slot of theirs but `keep` on arm64's `vortex` and
 /// `vortexm4`, where they mostly match or beat the converted kernels
-/// (`tools/blasbench/results/results-m6.md`; `sum`: `results-sum.md`). `tools/blas_asm/survey.zig` reads it
-/// as text.
+/// (`tools/blasbench/results/results-m6.md`; `sum`: `results-sum.md`).
 pub const displacing: struct { cores: []const coretypes.Arm64CoreType, keep: []const Slot } = .{
     .cores = &.{ .vortex, .vortexm4 },
     .keep = &.{ .srot_k, .drot_k, .csrot_k, .zdrot_k },
@@ -365,7 +362,6 @@ fn accelerated(comptime slot: Slot) bool {
 /// The cores whose vectors flush `f32` (`util.vectorIeeeOn` on their specs,
 /// as a test checks): ARMv7's NEON ones. Their objects build no `s` or `c`
 /// kernels (`vector.kernels`), so those take no such slot there.
-/// `tools/blas_asm/survey.zig` reads it as text.
 pub const flushing: struct { cores: []const coretypes.ArmCoreType } = .{
     .cores = &.{ .cortexa9, .cortexa15 },
 };
@@ -407,8 +403,7 @@ pub fn fills(comptime slot: Slot) bool {
     return false;
 }
 
-/// Where a registry puts the `@Vector` kernels (`vector.zig`), its `vector_rule`, which
-/// `tools/blas_asm/survey.zig` reads as text.
+/// Where a registry puts the `@Vector` kernels (`vector.zig`), its `vector_rule`.
 pub fn Rule(comptime Core: type) type {
     return union(enum) {
         /// The `routed` slots, on `cores` or every core when null; a `peels`

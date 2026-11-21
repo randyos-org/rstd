@@ -23,7 +23,7 @@ once however many runs.
 | rstd design doc | `design.md`, a draft then on branch `wip/blas-docs` | 2026-10-22, since rebased onto `review` |
 | rstd arm64 `@Vector` kernels | `vector.zig`, then on branch `wip/arm64-vector` | `4407e5a`, landed on `review` as `eecfe67` |
 | BLIS | <https://github.com/flame/blis> | tag `2.1`, `caf0db6be1202d9c83c79b51e75eceb96aa8b556`, 2026-06-25 |
-| OpenBLAS | the checkout `tools/blas_asm` converts | `v0.3.34-794-gdbf2c24c9` |
+| OpenBLAS | the checkout the kernels were converted from | `v0.3.34-794-gdbf2c24c9` |
 | Reference BLAS (Reference-LAPACK) | <https://github.com/Reference-LAPACK/lapack> | last release v3.12.1 (2025-01-08); `master` as of 2026-10-22 |
 | Exception-handling proposal | Demmel, Dongarra, Gates, Henry, Langou, Li, Luszczek, Pereira, Riedy, Rubio-Gonzalez, "Proposed Consistent Exception Handling for the BLAS and LAPACK", <https://arxiv.org/abs/2207.09281> (2022) | v1 |
 | Intel oneMKL CNR | <https://www.intel.com/content/www/us/en/docs/onemkl/developer-guide-linux/2025-2/reproducibility-conditions.html>; `MKL_CBWR`: <https://www.intel.com/content/www/us/en/docs/onemkl/developer-guide-linux/2025-2/set-env-var-for-cond-numerical-reproducibility.html> | 2025.2 docs |

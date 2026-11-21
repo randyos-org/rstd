@@ -30,7 +30,7 @@ Rules and lessons for agents. The RandyOS repo's `CLAUDE.md` applies too when rs
 ## Design rules
 
 - `rstd.linalg` is an anthology (user, 2026-10-30): for each routine, the best open-source method (OpenBLAS, BLIS, ReLAPACK, faer, Reference-LAPACK and so on), ported as an algorithm into Zig, not line for line. A Zig-native, column-major BLAS: no CBLAS or Fortran names, no `xerbla`, no row-major layer.
-- Port faithfully: each ported function's doc comment names its source file; thresholds and parameters come from the reference, cited, never magic numbers. Write complete code: implementation, tests, docs and generator input; no stubs left behind unless the issue allows it.
+- Port faithfully: each ported function's doc comment names its source file; thresholds and parameters come from the reference, cited, never magic numbers. Write complete code: implementation, tests and docs; no stubs left behind unless the issue allows it.
 - Reproducibility beats speed: for a given core, results are bit-identical for any worker count, `Io` and scheduling. Reductions combine in a fixed, size-determined order. A vendor backend (Accelerate) is verified reproducible or runs single-threaded.
 - OpenBLAS is the battle-tested baseline: replacing or dropping one of its kernels needs a real defect, benchmarks on the affected cores and the user's OK. Patch the converted assembly first.
 - Licenses: MIT is fine. BSD-3 (OpenBLAS, BLIS, PocketFFT) and pffft's UCAR license go in with a `LICENSE` section in the same commit as the first ported code, plus a provenance line in each ported file; a ported header naming a holder `LICENSE` lacks adds it in that commit. Anything else: stop and ask.
@@ -41,13 +41,13 @@ Rules and lessons for agents. The RandyOS repo's `CLAUDE.md` applies too when rs
 ## Zig style
 
 - `const sysinfo = @import("builtin");`, never `builtin`. Every `@import` is a `const` near the top of the file (except per-arch switches, generated role tables and test code).
-- A switch mapping tags to values has one prong per distinct value (`.power6, .power8 => 128,`). Fix generated code in its generator (`tools/blas_asm`), never by hand.
+- A switch mapping tags to values has one prong per distinct value (`.power6, .power8 => 128,`). The converted kernels, `Vtable.zig` and the role tables are maintained by hand: nothing is regenerated from OpenBLAS any more, and upstream fixes are ported by hand (user, 2026-11-20, #618).
 - Files ideally under 500 lines and never over 1000 (user, 2026-11-20), one per logical unit (a table, a routine, a concern), a folder for a unit too complex for one file; never merge distinct units to cut the file count, only fold thin glue into its home; code moved out of a big file gets its own file (user, 2026-11-07). One module list and `inline for` over it, never a handwritten chain; string identifiers parse into an enum and an exhaustive `switch`; code shared by routines goes in `util.zig`, never copied.
 - Allocator first; `try`, never `catch @panic("OOM")`; a fn-pointer type's error set names the real set (`std.mem.Allocator.Error`).
 - `src/_os/` keeps its underscore: platform-specific code that the public wrappers (`io.zig` and the like) point to, not an API of its own (user, 2026-11-07).
 - Test-only files go in `_test/` folders; moving one renames its tests, so update the rig filters in `build/qemu/machines.zig`.
 - Keep `buildutils.OptimizeMode`. Comments are sparse and terse, no em dashes (semicolons instead), American English. Don't remove comments or commented-out lines you didn't write.
-- Data derived from an outside source says where from (file, commit) and that it is regenerated, not hand-edited. No Python in the repo: helper scripts stay in scratch and are rewritten when needed.
+- Data derived from an outside source says where from (file, commit); data a tool still regenerates says so, and is fixed in that tool. No Python in the repo: helper scripts stay in scratch and are rewritten when needed.
 - Markdown: one line per paragraph or bullet (the editor wraps); lint clean with `npx --no-install markdownlint-cli2 <files>`. Don't add dictionary words; list new ones in your report.
 
 ## Toolchain traps

@@ -11,7 +11,7 @@ reference in [`comparisons.md`](blas/comparisons.md).
 
 How linear algebra fits with FFT, signal processing and statistics, as one kernel layer under one high-level API (`rstd.math`), is in [`math/design.md`](../math/design.md).
 
-Upstream references are to the OpenBLAS checkout that `tools/blas_asm` converts, v0.3.34-794
+Upstream references are to the OpenBLAS checkout the kernels were converted from, v0.3.34-794
 (commit dbf2c24c9), unless a file names another. Paths are relative to `src/linalg/blas/` unless
 they start with `build/`, `tools/`, `test/` or `src/`. The toolchain is Zig 0.18.0-dev.751.
 
@@ -458,7 +458,7 @@ cpu.Arch(family): vtableFromCoreType(core)
 - **Install.** `registry.install` points each slot at `@extern` of the symbol. A core with no
   object in the build is served by another (`served`, below). Every kernel is keyed by its
   `Slot`; a rule without a vtable field (`sdsdot_k`) is not converted, nor is one whose slot no
-  core would take it for (`tools/blas_asm/roles.zig`'s `skip`, below).
+  core would take it for (the retired converter's `roles.zig` `skip`, below).
 - **Isolation.** The objects compile `_kernel.zig` alone, so everything they reach imports
   nothing outside `src/linalg/blas/`: `Vtable.zig`, `types.zig`, `util.zig`, `fma.zig`,
   `vector.zig`, `cpu/coretypes.zig`, the registries and the kernels. `kernels/__root__.zig`
@@ -500,7 +500,7 @@ per-core objects; like the tiles, they never make a core need an object of its o
 - **Routed slots** (`vector.routed`): the extremes, `nrm2`, `sdot`, `dsdot` (`sdot`'s sum unrounded,
   so a threaded `sdot`'s chunks are its own kernel's, T101), and on x86_64 the reductions
   whose upstream assembly peels elements until an operand is aligned (`vector.peels`). No core
-  takes a converted kernel there, so `tools/blas_asm` does not convert one (`roles.zig`'s `skip`,
+  takes a converted kernel there, so none was converted (the converter's `roles.zig` `skip`,
   below; `registry.Kernels` stops the build if a routed slot is converted), and an
   architecture's registry puts the `@Vector` kernels in where its vector unit is IEEE, else the
   portable ones serve. Where x86_64 routes a peeling slot by core, the generated index lists
@@ -540,7 +540,7 @@ before; their converted kernels stay, unmeasured:
 | Cores | Slots with no converted kernel |
 | --- | --- |
 | all but `tsv110` | `sdot` |
-| all | `cdotu`, `cdotc`, `zdotu`, `zdotc` (on `armv8`, `cortexa53`, `cortexa55`, `cortexa57`, `cortexa72`, `cortexa73`, `cortexa76` and `cortexx1` upstream non-PGI builds take `zdot.S`, but a slot a make conditional leaves two sources for is not converted, `tools/blas_asm/gen.zig:589`) |
+| all | `cdotu`, `cdotc`, `zdotu`, `zdotc` (on `armv8`, `cortexa53`, `cortexa55`, `cortexa57`, `cortexa72`, `cortexa73`, `cortexa76` and `cortexx1` upstream non-PGI builds take `zdot.S`, but a slot a make conditional leaves two sources for was not converted, by the retired converter's `gen.zig:589`) |
 | `thunderx` | `ddot` |
 | `thunderx2t99`, `thunderx3t110` | `ddot`, `?nrm2`, `?asum`, `?copy`, `i?amax` |
 | `neoversen1`, `ampere1`, `vortex`, `vortexm4` | `ddot`, `?asum`, `?copy`, `i?amax`, `sgemv_n`, `ssum`, `dsum`, `zsum` |
@@ -1718,9 +1718,7 @@ octal as with `strtoul` (`0o` is octal). Diagnostics print as `OpenBLAS: ...` th
 
 ### Kernel provenance
 
-Every per-core kernel is derived from OpenBLAS sources by `tools/blas_asm`, or ported by hand
-from the C where noted. Generated files say which tool wrote them and must be regenerated, never
-edited.
+Every per-core kernel was converted from OpenBLAS sources by `tools/blas_asm`, or ported by hand from the C where noted. The converter is retired ([#618](https://github.com/randyos-org/rstd/issues/618), user, 2026-11-20): rstd has diverged from OpenBLAS far enough that nothing is regenerated, so the converted files, `Vtable.zig` and the role tables are maintained by hand, and upstream fixes and additions are ported by hand. Its tools, as they were (the last commit with them is `48e710fa`):
 
 | Tool | Reads | Writes |
 | --- | --- | --- |
@@ -1733,15 +1731,12 @@ edited.
 | `roles.zig` | the `kernel/Makefile.L*` rules | (library) each role's make variable and flags |
 | `arch/<arch>.zig` | | (data) per-architecture defines, variants and patches |
 
-Each tool runs as `OPENBLAS=<checkout> zig run tools/blas_asm/<tool>.zig [-- <names>...]`;
-`BLAS_OUT` redirects the output.
-
 #### Kernel selection
 
 Which source a core uses follows `kernel/Makefile`: the core's `KERNEL.<core>` (and what it
 includes), then the architecture's `KERNEL`, then `Makefile.L1` and its siblings. A plain
 assignment in `KERNEL` overrides the core's choice; only an `ifndef` leaves it.
-`openblas.zig` evaluates this, deciding `ifdef`/`ifndef` on the variable itself and listing
+`openblas.zig` evaluated this, deciding `ifdef`/`ifndef` on the variable itself and listing
 both sides of any other conditional as alternatives. Consequences of upstream's own selection,
 reproduced as they are:
 
@@ -1754,7 +1749,7 @@ reproduced as they are:
 
 #### Conversion of the assembly
 
-`gen.zig` turns each `.S` into one naked function per kernel, whose body is the source's
+`gen.zig` turned each `.S` into one naked function per kernel, whose body is the source's
 assembly, unchanged in substance:
 
 - **Preprocessing.** `zig cc -E` runs once per core and variant with the reference's defines
@@ -1766,20 +1761,20 @@ assembly, unchanged in substance:
   (`Variant.without`): POWER's 32-bit-only `ppc440`, `ppc440fp2` and `ppcg4` have no `64` or
   `64be` build.
 - **Merged texts.** Cores whose expansions are identical share one file; texts that differ in
-  under about a tenth of their lines (`similar`, our threshold: `tools/blas_asm/gen.zig:382`) share one too, with the differing lines under
+  under about a tenth of their lines (`similar`, the converter's threshold, its `gen.zig:382`) share one too, with the differing lines under
   `parts`, chosen at comptime.
 - **Rewrites.** Directives that declare the function or its section go (Zig places it); tabs
   become spaces; named labels become numeric local labels, so none reach the symbol table; x86
   `.align N`, bytes on ELF and COFF but `2^N` on Mach-O (LLVM 21.1.0: `MCAsmInfo.h`'s
   `AlignmentIsInBytes = true`, `MCAsmInfoDarwin.cpp` sets it false), becomes `.balign` (`align_bytes`);
-  `uk.zig` does the same for the microkernels. A variant may rewrite every statement
+  `uk.zig` did the same for the microkernels. A variant may rewrite every statement
   (`Variant.rewrite`; the sparc `64` variant's `sll` becomes `sllx`).
 - **Output.** Each file holds `keys` (core, variant and a merged file's parts) and the naked
   `Body`; `registry.Entry`'s `serves` and `kernel` read the keys. File names are the role, the source's suffix, the first core
   where one source splits, and the variant: `daxpy_atom_sysv.zig`,
   `daxpy_sse2_barcelona_win.zig`. The routine's `asm/__root__.zig` lists every file by slot;
   `registry.Kernels` turns it into a module for `kernels/<arch>.zig`.
-- **Long files.** No converted kernel is a file over 500 lines (`sections.max_lines`). One that would be is a folder of that name: `__root__.zig` with the `keys` and `Body`, and its text in `text<nn>.zig` sections that the root joins, cut only at a label or macro outside any macro, so each is a run of whole labeled blocks, as few and as even as the limit allows. A long file of microkernels is a folder with a file per form (the source preprocessed with `CONJ`, `XCONJ`, both or neither: `plain.zig`, `c.zig`, `x.zig`, `cx.zig`) and a `__root__.zig` that names every function. The indexes import either form, and a rerun removes the other.
+- **Long files.** No converted kernel is a file over 500 lines (`sections.max_lines`). One that would be is a folder of that name: `__root__.zig` with the `keys` and `Body`, and its text in `text<nn>.zig` sections that the root joins, cut only at a label or macro outside any macro, so each is a run of whole labeled blocks, as few and as even as the limit allows. A long file of microkernels is a folder with a file per form (the source preprocessed with `CONJ`, `XCONJ`, both or neither: `plain.zig`, `c.zig`, `x.zig`, `cx.zig`) and a `__root__.zig` that names every function. The indexes import either form.
 - **arm64's x18.** One build serves every OS, and x18 is the platform register on Windows (the
   TEB) and Apple (reserved; "Don't use this register"). Sources: Microsoft, "Overview of ARM64 ABI
   conventions", <https://learn.microsoft.com/en-us/cpp/build/arm64-windows-abi-conventions>;
@@ -1787,15 +1782,12 @@ assembly, unchanged in substance:
   <https://developer.apple.com/documentation/xcode/writing-arm64-code-for-apple-platforms>.
   Upstream stopped using it as scratch in 0.3.18, for Apple M1 (`Changelog.txt:1298`); `gemv_n.S`, `gemv_t.S`, `zgemv_n.S` and `zgemv_t.S` still save and
   restore it with the callee-saved registers, writing back the value they found, which is
-  harmless. `arch/arm64.zig`'s `check` stops the generator on any other use.
+  harmless. `arch/arm64.zig`'s `check` stopped the converter on any other use; a hand edit keeps x18 so.
 
 #### Fixes to upstream sources
 
 The per-core tests found bugs in some of OpenBLAS's own assembly, still present on master at
-v0.3.34-794. The generator fixes each before converting it: a `Patch` in
-`tools/blas_asm/arch/<arch>.zig` is an exact find and replace on the upstream text that must
-match `count` times, or the generator stops, with a comment saying what was wrong. The generated
-files carry the fixed code. The [issues labeled `upstream: openblas`](https://github.com/randyos-org/rstd/issues?q=is%3Aissue+label%3A%22upstream%3A+openblas%22) hold the issue text for each. No
+v0.3.34-794. The converter fixed each before converting it: a `Patch` in its `arch/<arch>.zig` was an exact find and replace on the upstream text that had to match `count` times, with a comment saying what was wrong. The converted files carry the fixed code. The [issues labeled `upstream: openblas`](https://github.com/randyos-org/rstd/issues?q=is%3Aissue+label%3A%22upstream%3A+openblas%22) hold the issue text for each. No
 core takes the extremes' and `nrm2`'s kernels anymore ([`readme.md`](blas/readme.md#one-contract-on-every-core)),
 fixed or not, nor x86_64's peeling `zdot_atom.S`, so they are no longer converted (below). Their
 patches stay in the same files as `retired`, the record of those fixes: every run checks that
@@ -2014,7 +2006,6 @@ Outside `src/linalg/blas/`:
 | `src/_test_qemu.zig` | test root of the OS-free rigs and the WASI tests |
 | `test/qemu/` | boot code, linker scripts and runner of the freestanding and UEFI rigs |
 | `test/linux/init.zig` | PID 1 of the Linux rigs |
-| `tools/blas_asm/` | the converters |
 | `tools/blasbench/` | the benchmarks: kernels, rstd against the libraries and reference binaries, the flyoff ([`readme.md`](../../tools/blasbench/readme.md)) |
 | `tools/rig/test_host.zig`, `tools/nix/` | running the rigs' QEMU on another machine |
 | `tools/ssh_test.zig`, `tools/rig/qemu_watch.zig` | the SSH test runner; the rigs' watchdog |

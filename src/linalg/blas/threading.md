@@ -5,7 +5,7 @@ work is divided, how results stay reproducible, and how the design degrades on t
 without threads. The plan is implemented (`threading.zig`, `blas3/threaded.zig`, the level 1
 and 2 interfaces): every level 3 routine but `gemmt` threads, and levels 1 and 2 thread where
 the split keeps the bits ([Levels 1 and 2](#levels-1-and-2-fixed-chunks-dynamic-claiming-ordered-combine)).
-Upstream references are to the OpenBLAS checkout that `tools/blas_asm` converts
+Upstream references are to the OpenBLAS checkout the kernels were converted from
 (v0.3.34-794), BLIS references to its tag 2.1, std references to Zig's `lib/std` at
 0.18.0-dev.751. The library's overall structure is in [`design.md`](../design.md); how this rule
 compares with MKL, BLIS and OpenBLAS is in [`comparisons.md`](comparisons.md) (8).

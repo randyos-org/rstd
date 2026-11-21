@@ -25,8 +25,8 @@ pub const Half = @import("vector/half.zig").Half;
 
 /// Whether `slot`'s converted kernels give way to the portable or these on
 /// every core, for one contract (`readme.md`, "One contract"): `nrm2`, the
-/// extremes, `sdot` and `dsdot`, and the `peels` slots. `tools/blas_asm`
-/// leaves their assembly out (`roles.zig`'s `skip`, kept in step).
+/// extremes, `sdot` and `dsdot`, and the `peels` slots. Their assembly is
+/// not converted (the indexes' `skipped`, kept in step).
 pub fn routed(comptime slot: Slot) bool {
     return switch (slot) {
         // the extremes, `nrm2`, `sdot` and `dsdot`
