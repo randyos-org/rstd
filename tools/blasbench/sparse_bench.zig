@@ -1,5 +1,5 @@
 //! The `sparse` section (T151; only when named, any host): CSC `A x` and
-//! `Aᵀ y` (`rstd.linalg.sparse`) against dense `gemv` on the same matrix,
+//! `Aᵀ y` (`rstd.math.kernels.sparse`) against dense `gemv` on the same matrix,
 //! `f64`, one worker, over fill (1% to 60%), size (100 to 3000, 10 000 with
 //! `--max-n=10000`: its dense matrix is 800 MB) and pattern (random,
 //! banded): the crossover for a dense-or-sparse switch; and `Aᵀ y` in four
@@ -14,7 +14,7 @@ const libs = @import("libs.zig");
 const sg = @import("sparse_gather.zig");
 
 const blas = rstd.linalg.blas;
-const Csc = rstd.linalg.sparse.Csc(f64);
+const CompressedColumns = rstd.math.kernels.sparse.CompressedColumns(f64);
 const fail = libs.fail;
 
 const timing: bench.Timing = .{ .min_ns = 20 * std.time.ns_per_ms, .batches = 7 };
@@ -58,7 +58,7 @@ fn race(io: Io, gpa: std.mem.Allocator, pat: Pattern, n: usize, fill: f64) !void
         a[i + j * n] = if (on) rand.float(f64) * 2 - 1 else 0;
         if (on) nnz += 1;
     };
-    var s = try Csc.alloc(gpa, @intCast(n), @intCast(n), nnz);
+    var s = try CompressedColumns.alloc(gpa, @intCast(n), @intCast(n), nnz);
     defer s.deinit(gpa);
     var k: u32 = 0;
     for (0..n) |j| {
@@ -102,7 +102,7 @@ const n_calls = if (sg.has_gather) 6 else 5;
 const Call = struct {
     gpa: std.mem.Allocator,
     a: []const f64,
-    s: Csc,
+    s: CompressedColumns,
     n: usize,
     x: []f64,
     y: []f64,

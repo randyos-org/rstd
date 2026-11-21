@@ -8,24 +8,24 @@ const std = @import("std");
 const sysinfo = @import("builtin");
 const rstd = @import("rstd");
 
-const Csc = rstd.linalg.sparse.Csc(f64);
+const CompressedColumns = rstd.math.kernels.sparse.CompressedColumns(f64);
 const V = @Vector(4, f64);
 
 /// Whether this build has the gather variant.
 pub const has_gather = sysinfo.cpu.arch == .x86_64 and std.Target.x86.featureSetHas(sysinfo.cpu.features, .avx2);
 
 /// `y_j := A(:, j) · x`, in four sums of every fourth nonzero.
-pub fn dots4(a: Csc, x: []const f64, y: []f64) void {
+pub fn dots4(a: CompressedColumns, x: []const f64, y: []f64) void {
     dots(false, a, x, y);
 }
 
 /// `dots4` with `x`'s four values a `vgatherdpd`.
-pub fn dotsGather(a: Csc, x: []const f64, y: []f64) void {
+pub fn dotsGather(a: CompressedColumns, x: []const f64, y: []f64) void {
     if (comptime !has_gather) unreachable;
     dots(true, a, x, y);
 }
 
-fn dots(comptime gathered: bool, a: Csc, x: []const f64, y: []f64) void {
+fn dots(comptime gathered: bool, a: CompressedColumns, x: []const f64, y: []f64) void {
     for (0..a.cols) |j| {
         const k1: usize = a.col_start[j + 1];
         var k: usize = a.col_start[j];

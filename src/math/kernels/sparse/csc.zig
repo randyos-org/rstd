@@ -1,11 +1,11 @@
-//! `Csc(T)`: compressed sparse columns, row indices ascending within each
-//! column, at most one entry per position; explicit zeros may be stored.
-//! Every routine takes a `Csc` that holds this, as the constructors make it.
+//! `CompressedColumns(T)`: compressed sparse columns, row indices ascending
+//! within each column, at most one entry per position; explicit zeros may be
+//! stored. Every routine takes one that holds this, as the constructors make
+//! it.
 
 const std = @import("std");
-const matrix = @import("../matrix.zig");
-const types = @import("../../math/kernels/blas/types.zig");
-const ops = @import("../../math/kernels/lapack/ops.zig");
+const types = @import("../blas/types.zig");
+const ops = @import("../lapack/ops.zig");
 const util = @import("util.zig");
 const vector = @import("vector.zig");
 const csr = @import("csr.zig");
@@ -20,6 +20,8 @@ const Uplo = types.Uplo;
 const Diag = types.Diag;
 
 pub const Error = error{ OutOfMemory, TooLarge };
+pub const FromDenseError = error{ OutOfMemory, TooLarge, DimensionMismatch };
+pub const ToDenseError = error{DimensionMismatch};
 pub const SubError = error{ OutOfMemory, DimensionMismatch };
 pub const SelectError = error{ OutOfMemory, IndexOutOfRange, TooLarge };
 pub const MulError = error{ DimensionMismatch, Canceled, OutOfMemory };
@@ -29,7 +31,7 @@ pub const TriSolveError = error{ DimensionMismatch, InvalidUplo, InvalidTrans, S
 
 /// `value[k]` at row `row[k]`, for `k` in column `j`'s
 /// `col_start[j] .. col_start[j + 1]`.
-pub fn Csc(comptime T: type) type {
+pub fn CompressedColumns(comptime T: type) type {
     return struct {
         rows: u32,
         cols: u32,
@@ -61,27 +63,27 @@ pub fn Csc(comptime T: type) type {
         }
 
         /// Column `j`, `rows` long, sharing the matrix's arrays.
-        pub fn col(self: Self, j: usize) vector.Vector(T) {
+        pub fn col(self: Self, j: usize) vector.SparseVector(T) {
             const s = self.col_start[j];
             const e = self.col_start[j + 1];
             return .{ .len = self.rows, .index = self.row[s..e], .value = self.value[s..e] };
         }
 
-        /// A dense `ConstView`, entries of magnitude at most `drop_below`
-        /// left out (exact zeros too, unless `drop_below` is negative).
-        pub fn fromDense(allocator: Allocator, a: matrix.ConstView(T), drop_below: types.Float(T)) Error!Self {
-            const rows = try util.narrow(a.rows);
-            const cols = try util.narrow(a.cols);
+        /// The column-major `rows x cols` matrix in `a`, leading dimension
+        /// `lda`, entries of magnitude at most `drop_below` left out (exact
+        /// zeros too, unless `drop_below` is negative).
+        pub fn fromDense(allocator: Allocator, a: []const T, lda: usize, rows: u32, cols: u32, drop_below: types.Float(T)) FromDenseError!Self {
+            if (!util.denseFits(a.len, lda, rows, cols)) return error.DimensionMismatch;
             var nnz: usize = 0;
-            for (0..a.cols) |j| {
-                for (a.col(j)) |v| nnz += @intFromBool(kept(v, drop_below));
+            for (0..cols) |j| {
+                for (util.denseCol(a, lda, j, rows)) |v| nnz += @intFromBool(kept(v, drop_below));
             }
             _ = try util.narrow(nnz);
             const s = try alloc(allocator, rows, cols, nnz);
             var k: u32 = 0;
-            for (0..a.cols) |j| {
+            for (0..cols) |j| {
                 s.col_start[j] = k;
-                for (a.col(j), 0..) |v, i| {
+                for (util.denseCol(a, lda, j, rows), 0..) |v, i| {
                     if (!kept(v, drop_below)) continue;
                     s.row[k] = @intCast(i);
                     s.value[k] = v;
@@ -96,12 +98,15 @@ pub fn Csc(comptime T: type) type {
             return !(ops.abs(T, v) <= drop_below);
         }
 
-        pub fn toDense(self: Self, allocator: Allocator) Allocator.Error!matrix.Mat(T) {
-            const m: matrix.Mat(T) = try .zeros(allocator, self.rows, self.cols);
+        /// `A` into the column-major `a`, leading dimension `lda`: every
+        /// entry of its `rows x cols` block written, zeros included.
+        pub fn toDense(self: Self, a: []T, lda: usize) ToDenseError!void {
+            if (!util.denseFits(a.len, lda, self.rows, self.cols)) return error.DimensionMismatch;
             for (0..self.cols) |j| {
-                for (self.col_start[j]..self.col_start[j + 1]) |k| m.data[self.row[k] + j * @as(usize, self.rows)] = self.value[k];
+                const out = util.denseCol(a, lda, j, self.rows);
+                @memset(out, ops.zero(T));
+                for (self.col_start[j]..self.col_start[j + 1]) |k| out[self.row[k]] = self.value[k];
             }
-            return m;
         }
 
         /// `A := alpha A`, every stored entry, the pattern kept.
@@ -156,7 +161,7 @@ pub fn Csc(comptime T: type) type {
             return s;
         }
 
-        /// `Aᵀ`, a copy: the CSC of `Aᵀ` is the CSR of `A` (`toCsr`).
+        /// `Aᵀ`, a copy: the CSC of `Aᵀ` is the CSR of `A` (`toCompressedRows`).
         pub fn transpose(self: Self, allocator: Allocator) Allocator.Error!Self {
             return self.transposed(allocator, false);
         }
@@ -191,13 +196,13 @@ pub fn Csc(comptime T: type) type {
         }
 
         /// The CSR of `Aᵀ`: the same arrays, no copy.
-        pub fn asCsrOfTranspose(self: Self) csr.Csr(T) {
+        pub fn asRowsOfTranspose(self: Self) csr.CompressedRows(T) {
             return .{ .rows = self.cols, .cols = self.rows, .row_start = self.col_start, .col = self.row, .value = self.value };
         }
 
         /// The CSR of `A`, a copy.
-        pub fn toCsr(self: Self, allocator: Allocator) Allocator.Error!csr.Csr(T) {
-            return (try self.transpose(allocator)).asCsrOfTranspose();
+        pub fn toCompressedRows(self: Self, allocator: Allocator) Allocator.Error!csr.CompressedRows(T) {
+            return (try self.transpose(allocator)).asRowsOfTranspose();
         }
 
         /// `y := alpha op(A) x + beta y`, `op` and `x`'s conjugate per
@@ -208,9 +213,11 @@ pub fn Csc(comptime T: type) type {
             return mul.mulVec(T, self, allocator, io, trans, alpha, x, beta, y);
         }
 
-        /// `A B`, dense, threaded by `B`'s columns.
-        pub fn mulDense(self: Self, allocator: Allocator, io: Io, b: matrix.ConstView(T)) MulError!matrix.Mat(T) {
-            return mul.mulDense(T, self, allocator, io, b);
+        /// `C := A B`: `B` the column-major `self.cols x cols` block of `b`
+        /// (leading dimension `ldb`), `C` the `self.rows x cols` one of `c`
+        /// (`ldc`); threaded by `B`'s columns.
+        pub fn mulDense(self: Self, allocator: Allocator, io: Io, b: []const T, ldb: usize, cols: usize, c: []T, ldc: usize) MulError!void {
+            return mul.mulDense(T, self, allocator, io, b, ldb, cols, c, ldc);
         }
 
         /// The pattern of `A B`, values zero: Gustavson's symbolic pass.
@@ -232,7 +239,7 @@ pub fn Csc(comptime T: type) type {
         /// `x := op(A)⁻¹ x`, `A` triangular per `uplo` (`u` or `l`), `op`
         /// per `trans` (`n`, `t`, `r` or `c`); entries off that triangle are
         /// never read, nor the diagonal when `diag` is `u`.
-        pub fn solveTri(self: Self, uplo: Uplo, trans: Trans, diag: Diag, x: []T) TriSolveError!void {
+        pub fn solveTriangular(self: Self, uplo: Uplo, trans: Trans, diag: Diag, x: []T) TriSolveError!void {
             return triangular.solve(T, self, uplo, trans, diag, x);
         }
 

@@ -1,7 +1,7 @@
 pub const vector = @import("vector.zig");
 pub const matrix = @import("matrix.zig");
 pub const array = @import("array.zig");
-pub const sparse = @import("sparse/__root__.zig");
+pub const sparse = @import("../math/kernels/sparse/__root__.zig");
 pub const blas = @import("../math/kernels/blas/__root__.zig");
 pub const lapack = @import("../math/kernels/lapack/__root__.zig");
 pub const gallery = @import("gallery.zig");

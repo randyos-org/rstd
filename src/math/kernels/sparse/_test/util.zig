@@ -2,10 +2,10 @@
 //! dense references in plain loops.
 
 const std = @import("std");
-const matrix = @import("../../matrix.zig");
-const types = @import("../../../math/kernels/blas/types.zig");
-const ops = @import("../../../math/kernels/lapack/ops.zig");
-const check = @import("../../../math/kernels/blas/_test/check.zig");
+const matrix = @import("../../../../linalg/matrix.zig");
+const types = @import("../../blas/types.zig");
+const ops = @import("../../lapack/ops.zig");
+const check = @import("../../blas/_test/check.zig");
 const sparse = @import("../__root__.zig");
 
 const Allocator = std.mem.Allocator;
@@ -17,7 +17,7 @@ pub const all_types = check.sd_types;
 /// A matrix as CSC and dense.
 pub fn Pair(comptime T: type) type {
     return struct {
-        s: sparse.Csc(T),
+        s: sparse.CompressedColumns(T),
         d: matrix.Mat(T),
 
         pub fn deinit(p: *@This(), al: Allocator) void {
@@ -28,7 +28,7 @@ pub fn Pair(comptime T: type) type {
 }
 
 /// `rows` by `cols`, about `per_mille` of 1000 positions set, in random
-/// order with repeats, each repeat summed as `toCsc` sums it.
+/// order with repeats, each repeat summed as `toCompressedColumns` sums it.
 pub fn random(comptime T: type, al: Allocator, rows: usize, cols: usize, per_mille: u32, seed: u64) !Pair(T) {
     var prng: std.Random.DefaultPrng = .init(seed);
     const r = prng.random();
@@ -46,12 +46,12 @@ pub fn random(comptime T: type, al: Allocator, rows: usize, cols: usize, per_mil
         const at = &d.data[i + j * rows];
         at.* = ops.add(T, at.*, v[0]);
     }
-    return .{ .s = try t.toCsc(al), .d = d };
+    return .{ .s = try t.toCompressedColumns(al), .d = d };
 }
 
 /// Whether `a` holds the CSC invariants: column starts rising to `nnz`,
 /// rows ascending and in range in each column.
-pub fn valid(comptime T: type, a: sparse.Csc(T)) bool {
+pub fn valid(comptime T: type, a: sparse.CompressedColumns(T)) bool {
     if (a.col_start.len != @as(usize, a.cols) + 1 or a.col_start[0] != 0 or a.col_start[a.cols] != a.nonzeros() or a.row.len != a.value.len) return false;
     for (0..a.cols) |j| {
         if (a.col_start[j] > a.col_start[j + 1]) return false;
@@ -61,10 +61,18 @@ pub fn valid(comptime T: type, a: sparse.Csc(T)) bool {
     return true;
 }
 
+/// `a` as a fresh dense matrix, through `toDense`.
+pub fn dense(comptime T: type, al: Allocator, a: sparse.CompressedColumns(T)) !matrix.Mat(T) {
+    const m: matrix.Mat(T) = try .init(al, a.rows, a.cols);
+    errdefer m.deinit(al);
+    try a.toDense(m.data, @max(a.rows, 1));
+    return m;
+}
+
 /// `got`'s dense form against `want`, exactly.
-pub fn expectDense(comptime T: type, al: Allocator, want: matrix.Mat(T), got: sparse.Csc(T)) !void {
+pub fn expectDense(comptime T: type, al: Allocator, want: matrix.Mat(T), got: sparse.CompressedColumns(T)) !void {
     try std.testing.expect(valid(T, got));
-    const g = try got.toDense(al);
+    const g = try dense(T, al, got);
     defer g.deinit(al);
     try std.testing.expectEqual(want.rows, g.rows);
     try std.testing.expectEqual(want.cols, g.cols);

@@ -1,10 +1,10 @@
-//! `solveTri` against dense products: `op(A) x` solved back to `x`.
+//! `solveTriangular` against dense products: `op(A) x` solved back to `x`.
 
 const std = @import("std");
-const matrix = @import("../../matrix.zig");
-const types = @import("../../../math/kernels/blas/types.zig");
-const ops = @import("../../../math/kernels/lapack/ops.zig");
-const check = @import("../../../math/kernels/blas/_test/check.zig");
+const matrix = @import("../../../../linalg/matrix.zig");
+const types = @import("../../blas/types.zig");
+const ops = @import("../../lapack/ops.zig");
+const check = @import("../../blas/_test/check.zig");
 const sparse = @import("../__root__.zig");
 const util = @import("util.zig");
 
@@ -34,7 +34,7 @@ fn diagonallyHeavy(comptime T: type, al: std.mem.Allocator, n: usize, seed: u64)
         p.d.data[i + i * n] = ops.add(T, p.d.data[i + i * n], d);
     }
     p.s.deinit(al);
-    p.s = try t.toCsc(al);
+    p.s = try t.toCompressedColumns(al);
     return p;
 }
 
@@ -49,7 +49,7 @@ fn triangle(comptime T: type, al: std.mem.Allocator, a: matrix.Mat(T), uplo: Upl
     return t;
 }
 
-test "solveTri: lower and upper, every trans, unit or not" {
+test "solveTriangular: lower and upper, every trans, unit or not" {
     const al = testing.allocator;
     inline for (util.all_types) |T| {
         for ([_]usize{ 1, 2, 9, 40 }, 0..) |n, k| {
@@ -66,7 +66,7 @@ test "solveTri: lower and upper, every trans, unit or not" {
                     // b := op(tri) x0, then solved in place
                     @memcpy(x, x0);
                     util.mulVec(T, tri, t, ops.one(T), x0, ops.zero(T), x);
-                    try p.s.solveTri(uplo, t, diag, x);
+                    try p.s.solveTriangular(uplo, t, diag, x);
                     check.expectCloseSlices(T, x0[0..n], x[0..n], util.tol(T, n, 4)) catch |e| {
                         check.say("{s} n {d} uplo {s} diag {s} trans {s}\n", .{ @typeName(T), n, @tagName(uplo), @tagName(diag), @tagName(t) });
                         return e;
@@ -78,7 +78,7 @@ test "solveTri: lower and upper, every trans, unit or not" {
     }
 }
 
-test "solveTri: singular, argument and dimension checks" {
+test "solveTriangular: singular, argument and dimension checks" {
     const al = testing.allocator;
     var t = try sparse.Triplets(f64).init(3, 3);
     defer t.deinit(al);
@@ -86,30 +86,30 @@ test "solveTri: singular, argument and dimension checks" {
     try t.append(al, 1, 0, 1);
     try t.append(al, 2, 2, 0);
     try t.append(al, 0, 2, 7);
-    var a = try t.toCsc(al);
+    var a = try t.toCompressedColumns(al);
     defer a.deinit(al);
     var x = [_]f64{ 4, 5, 6 };
     // (1, 1) missing, (2, 2) a stored zero: x untouched
-    try testing.expectError(error.Singular, a.solveTri(.l, .n, .n, &x));
-    try testing.expectError(error.Singular, a.solveTri(.u, .t, .n, &x));
+    try testing.expectError(error.Singular, a.solveTriangular(.l, .n, .n, &x));
+    try testing.expectError(error.Singular, a.solveTriangular(.u, .t, .n, &x));
     try testing.expectEqualSlices(f64, &.{ 4, 5, 6 }, &x);
     // a unit diagonal reads neither
-    try a.solveTri(.l, .n, .u, &x);
+    try a.solveTriangular(.l, .n, .u, &x);
     try testing.expectEqualSlices(f64, &.{ 4, 1, 6 }, &x);
-    try a.solveTri(.u, .n, .u, &x);
+    try a.solveTriangular(.u, .n, .u, &x);
     try testing.expectEqualSlices(f64, &.{ -38, 1, 6 }, &x);
-    try testing.expectError(error.InvalidUplo, a.solveTri(.m, .n, .u, &x));
-    try testing.expectError(error.InvalidTrans, a.solveTri(.l, .o, .u, &x));
-    try testing.expectError(error.DimensionMismatch, a.solveTri(.l, .n, .u, x[0..2]));
+    try testing.expectError(error.InvalidUplo, a.solveTriangular(.m, .n, .u, &x));
+    try testing.expectError(error.InvalidTrans, a.solveTriangular(.l, .o, .u, &x));
+    try testing.expectError(error.DimensionMismatch, a.solveTriangular(.l, .n, .u, x[0..2]));
     var r = try sparse.Triplets(f64).init(3, 2);
     defer r.deinit(al);
-    var b = try r.toCsc(al);
+    var b = try r.toCompressedColumns(al);
     defer b.deinit(al);
-    try testing.expectError(error.DimensionMismatch, b.solveTri(.l, .n, .u, &x));
+    try testing.expectError(error.DimensionMismatch, b.solveTriangular(.l, .n, .u, &x));
     var z = try sparse.Triplets(types.Complex32).init(0, 0);
     defer z.deinit(al);
-    var e = try z.toCsc(al);
+    var e = try z.toCompressedColumns(al);
     defer e.deinit(al);
     var none: [0]types.Complex32 = .{};
-    try e.solveTri(.u, .c, .n, &none);
+    try e.solveTriangular(.u, .c, .n, &none);
 }

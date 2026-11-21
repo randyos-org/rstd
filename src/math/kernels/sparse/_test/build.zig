@@ -2,10 +2,10 @@
 //! columns as sparse vectors, extraction, transposes and the CSR twin.
 
 const std = @import("std");
-const matrix = @import("../../matrix.zig");
-const types = @import("../../../math/kernels/blas/types.zig");
-const ops = @import("../../../math/kernels/lapack/ops.zig");
-const check = @import("../../../math/kernels/blas/_test/check.zig");
+const matrix = @import("../../../../linalg/matrix.zig");
+const types = @import("../../blas/types.zig");
+const ops = @import("../../lapack/ops.zig");
+const check = @import("../../blas/_test/check.zig");
 const sparse = @import("../__root__.zig");
 const util = @import("util.zig");
 
@@ -24,7 +24,7 @@ test "Triplets: duplicates sum in insertion order, rows ascend" {
     try t.append(al, 0, 1, -1e16);
     try t.append(al, 2, 2, 3);
     try t.append(al, 2, 2, -3);
-    var a = try t.toCsc(al);
+    var a = try t.toCompressedColumns(al);
     defer a.deinit(al);
     try testing.expect(util.valid(f64, a));
     try testing.expectEqualSlices(u32, &.{ 0, 1, 4, 5 }, a.col_start);
@@ -47,11 +47,11 @@ test "Triplets: index checks and empty shapes" {
     inline for (.{ .{ 0, 0 }, .{ 0, 3 }, .{ 3, 0 }, .{ 2, 2 } }) |s| {
         var e = try sparse.Triplets(types.Complex64).init(s[0], s[1]);
         defer e.deinit(al);
-        var a = try e.toCsc(al);
+        var a = try e.toCompressedColumns(al);
         defer a.deinit(al);
         try testing.expect(util.valid(types.Complex64, a));
         try testing.expectEqual(@as(usize, 0), a.nonzeros());
-        const d = try a.toDense(al);
+        const d = try util.dense(types.Complex64, al, a);
         defer d.deinit(al);
         try testing.expectEqual(@as(usize, s[0] * s[1]), d.data.len);
     }
@@ -76,29 +76,33 @@ test "fromDense drops magnitudes at most drop_below; toDense restores" {
         var data: [8]T = undefined;
         for (&data, vals) |*d, v| d.* = check.val(T, v[0], if (comptime types.isComplex(T)) v[1] else 0);
         // 3 by 2 at ld 4: row 3 is not the matrix
-        const view = try matrix.ConstView(T).init(&data, 3, 2, 4);
-        var a = try sparse.Csc(T).fromDense(al, view, 0);
+        const S = sparse.CompressedColumns(T);
+        var a = try S.fromDense(al, &data, 4, 3, 2, 0);
         defer a.deinit(al);
         try testing.expect(util.valid(T, a));
         try testing.expectEqualSlices(u32, &.{ 0, 2, 5 }, a.col_start);
         try testing.expectEqualSlices(u32, &.{ 1, 2, 0, 1, 2 }, a.row);
-        const d = try a.toDense(al);
-        defer d.deinit(al);
-        for (0..3) |i| for (0..2) |j| try testing.expectEqual(view.at(i, j), d.at(i, j));
+        // toDense writes the block only: row 3 keeps its sentinel
+        var out: [8]T = @splat(check.val(T, 9, 0));
+        try a.toDense(&out, 4);
+        for (0..2) |j| {
+            for (0..3) |i| try testing.expectEqual(data[i + 4 * j], out[i + 4 * j]);
+            try testing.expectEqual(check.val(T, 9, 0), out[3 + 4 * j]);
+        }
+        try testing.expectError(error.DimensionMismatch, a.toDense(out[0..6], 4));
+        try testing.expectError(error.DimensionMismatch, a.toDense(&out, 2));
         // |0.1| and real 0.2 at most 0.25, |0.2 + 0.2i| past it
-        var b = try sparse.Csc(T).fromDense(al, view, @as(F, 0.25));
+        var b = try S.fromDense(al, &data, 4, 3, 2, @as(F, 0.25));
         defer b.deinit(al);
         try testing.expectEqualSlices(u32, if (comptime types.isComplex(T)) &.{ 1, 2, 0, 1 } else &.{ 1, 2, 0 }, b.row);
         // a negative drop_below keeps every entry, zeros too
-        var c = try sparse.Csc(T).fromDense(al, view, -1);
+        var c = try S.fromDense(al, &data, 4, 3, 2, -1);
         defer c.deinit(al);
         try testing.expectEqual(@as(usize, 6), c.nonzeros());
+        try testing.expectError(error.DimensionMismatch, S.fromDense(al, data[0..6], 4, 3, 2, 0));
+        try testing.expectError(error.DimensionMismatch, S.fromDense(al, &data, 2, 3, 2, 0));
     }
-    if (comptime @bitSizeOf(usize) > 32) {
-        const big: matrix.ConstView(f64) = .{ .data = &.{}, .rows = @as(usize, std.math.maxInt(u32)) + 1, .cols = 0, .ld = @as(usize, std.math.maxInt(u32)) + 1 };
-        try testing.expectError(error.TooLarge, sparse.Csc(f64).fromDense(al, big, 0));
-    }
-    var e = try sparse.Csc(f32).fromDense(al, .{ .data = &.{}, .rows = 0, .cols = 4, .ld = 1 }, 0);
+    var e = try sparse.CompressedColumns(f32).fromDense(al, &.{}, 1, 0, 4, 0);
     defer e.deinit(al);
     try testing.expect(util.valid(f32, e));
 }
@@ -191,7 +195,7 @@ test "transpose, ctranspose and the CSR twin" {
         try util.expectDense(T, al, want_t, t);
         try util.expectDense(T, al, want_h, h);
         // the CSR of A: row i as a sparse vector is A's row
-        var r = try p.s.toCsr(al);
+        var r = try p.s.toCompressedRows(al);
         defer r.deinit(al);
         try testing.expectEqual(@as(usize, 9), r.rows);
         for (0..9) |i| {
@@ -204,13 +208,13 @@ test "transpose, ctranspose and the CSR twin" {
                 } else try testing.expect(ops.isZero(T, p.d.at(i, j)));
             }
         }
-        var back = try r.toCsc(al);
+        var back = try r.toCompressedColumns(al);
         defer back.deinit(al);
         try util.expectDense(T, al, p.d, back);
         // a CSC of A is a CSR of Aᵀ, the same arrays
-        const v = p.s.asCsrOfTranspose();
+        const v = p.s.asRowsOfTranspose();
         try testing.expectEqual(p.s.row.ptr, v.col.ptr);
         try testing.expectEqual(p.s.cols, v.rows);
-        try testing.expectEqual(p.s.row.ptr, v.asCscOfTranspose().row.ptr);
+        try testing.expectEqual(p.s.row.ptr, v.asColumnsOfTranspose().row.ptr);
     }
 }

@@ -1,7 +1,8 @@
-//! `Triplets(T)`, the builder: `append` entries in any order, then `toCsc`.
+//! `Triplets(T)`, the builder: `append` entries in any order, then
+//! `toCompressedColumns`.
 
 const std = @import("std");
-const ops = @import("../../math/kernels/lapack/ops.zig");
+const ops = @import("../lapack/ops.zig");
 const util = @import("util.zig");
 const csc = @import("csc.zig");
 
@@ -42,7 +43,7 @@ pub fn Triplets(comptime T: type) type {
         /// The CSC, duplicates summed in insertion order, a sum of zero
         /// kept: stable counting sorts by row, then by column, then the
         /// adjacent duplicates summed.
-        pub fn toCsc(self: Self, allocator: Allocator) csc.Error!csc.Csc(T) {
+        pub fn toCompressedColumns(self: Self, allocator: Allocator) csc.Error!csc.CompressedColumns(T) {
             const n = self.x.items.len;
             _ = try util.narrow(n);
             const ri = self.i.items;
@@ -66,7 +67,7 @@ pub fn Triplets(comptime T: type) type {
             // `order` is column-major, rows ascending, duplicates adjacent
             var nnz: usize = 0;
             for (order, 0..) |k, q| nnz += @intFromBool(q == 0 or !same(self, k, order[q - 1]));
-            const a: csc.Csc(T) = try .alloc(allocator, self.rows, self.cols, nnz);
+            const a: csc.CompressedColumns(T) = try .alloc(allocator, self.rows, self.cols, nnz);
             @memset(a.col_start, 0);
             var at: usize = 0;
             for (order, 0..) |k, q| {

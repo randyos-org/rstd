@@ -1,12 +1,13 @@
 //! A sparse vector against a dense one: `axpy` scatters, `dot` gathers.
 
-const ops = @import("../../math/kernels/lapack/ops.zig");
+const ops = @import("../lapack/ops.zig");
 
 pub const VectorError = error{DimensionMismatch};
 
 /// `value[k]` at `index[k]` of a `len`-element vector, indices ascending
-/// and below `len`: a `Csc`'s column (`Csc.col`), or the caller's arrays.
-pub fn Vector(comptime T: type) type {
+/// and below `len`: a column (`CompressedColumns.col`), a row
+/// (`CompressedRows.row`), or the caller's arrays.
+pub fn SparseVector(comptime T: type) type {
     return struct {
         len: usize,
         index: []const u32,
