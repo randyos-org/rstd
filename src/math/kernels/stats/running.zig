@@ -1,15 +1,13 @@
 //! Streaming mean and variance.
 
-const moments = @import("moments.zig");
-const util = @import("util.zig");
-
-const Normalize = moments.Normalize;
-const checkFloat = util.checkFloat;
+/// The variance's divisor: `n - 1` (MATLAB's default) or `n`. A sample of
+/// one has variance 0 either way, as MATLAB's `var`.
+pub const Normalize = enum { sample, population };
 
 /// Streaming mean and variance (Welford's update). Its bits differ from
-/// `mean`'s and `variance`'s.
-pub fn Running(comptime F: type) type {
-    comptime checkFloat(F);
+/// `rstd.math.stats`' `mean` and `variance`.
+pub fn RunningMoments(comptime F: type) type {
+    if (@typeInfo(F) != .float) @compileError("rstd.math.kernels.stats: " ++ @typeName(F) ++ " is not a float type");
     return struct {
         count: u64 = 0,
         avg: F = 0,

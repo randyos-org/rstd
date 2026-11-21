@@ -61,9 +61,9 @@ For sparse matrices, SuiteSparse's orderings (AMD, COLAMD) are BSD-3, but its fa
 
 ## Design
 
-### Statistics: `rstd.stats`
+### Statistics: `rstd.math.stats`
 
-[`src/stats/`](src/stats/__root__.zig), over slices. The forms along a dimension are planned with N-d
+[`src/math/stats/`](src/math/stats/__root__.zig), over slices, on the kernels of [`src/math/kernels/stats/`](src/math/kernels/stats/__root__.zig) (`deviationSums`, `RunningMoments`, `histogramInto`; #613). The forms along a dimension are planned with N-d
 arrays; `cov` and `corrcoef` with the public layer's `ConstView` and `Mat`.
 
 ```zig
@@ -73,15 +73,16 @@ pub fn variance(io, xs, normalize: Normalize) error{ EmptyInput, Canceled }!F
 pub fn stdDev(io, xs, normalize: Normalize) error{ EmptyInput, Canceled }!F
 // meanWith, varianceWith, stdDevWith: the same, with options: MomentOptions last
 pub const MomentOptions = struct { summation: Summation = .plain }; // blas.Summation
-pub fn Running(comptime F: type) type; // streaming mean and variance (Welford's update)
+pub fn RunningMoments(comptime F: type) type; // streaming mean and variance (Welford's update)
 pub fn median(allocator, xs) error{ EmptyInput, OutOfMemory }!F // selects on a copy
 pub const QuantileMethod = enum {
     inverted_cdf, averaged_inverted_cdf, closest_observation, interpolated_inverted_cdf,
     hazen, weibull, linear, median_unbiased, normal_unbiased,
 };
 pub const QuantileOptions = struct { method: QuantileMethod = .linear };
-pub fn quantile(allocator, xs, p: []const F, options) error{ ... }![]F
-pub fn quantileInto(allocator, out: []F, xs, p: []const F, options) error{ ... }!void
+pub fn quantile(allocator, xs, p: []const F) error{ ... }![]F
+pub fn quantileInto(allocator, out: []F, xs, p: []const F) error{ ... }!void
+// quantileWith, quantileIntoWith: the same, with options: QuantileOptions last
 pub fn Bins(comptime F: type) type; // union(enum) { count: usize, edges: []const F }
 pub fn histogram(allocator, xs, bins: Bins(F)) error{ ... }!Histogram(F) // counts, edges
 pub fn histogramInto(counts: []u64, xs, edges: []const F) error{ ... }!void // adds to counts
@@ -95,15 +96,15 @@ pub fn corrcoef(allocator, io, x: ConstView(F)) error{ ... }!Mat(F)
   sorted values: for `[1, 2, 3, 4]` at 0.25, `linear` (type 7; NumPy, R, Excel's `.INC`) gives
   1.75, `hazen` (type 5; MATLAB) 1.5, `weibull` (type 6; SPSS, Excel's `.EXC`) 1.25. The gap
   shrinks below one spacing as `n` grows. The default is `.linear`, the modern common choice; a
-  caller matching MATLAB passes `.{ .method = .hazen }`.
+  caller matching MATLAB calls `quantileWith` with `.{ .method = .hazen }`.
 - **NaN** propagates, as in MATLAB. Planned: an option to omit NaNs.
 - **Variance** is the corrected two-pass formula (Chan, Golub and LeVeque), `(Σd² − |Σd|²/n) / (n − 1)` for `d = x − mean`: the mean through the BLAS `sum`, then `kernels.stats.deviationSums` takes `Σd` and `Σd²` in one pass, in every `Summation` mode (#605); integers and mixed types sum in order here. A
-  sample of one has variance 0 either way, as MATLAB's `var`. `Running` is the streaming form;
+  sample of one has variance 0 either way, as MATLAB's `var`. `RunningMoments` is the streaming form;
   its bits differ from `variance`'s. `cov` is `syrk` over the centered columns.
 - **Histogram:** the last bin includes its right edge, as MATLAB's `histcounts` and NumPy do.
   Values outside the edges, and NaNs, are not counted. Errors include `EdgesNotSorted`,
   `ZeroBins` and `SliceTooShort`.
-- **Status:** `Running` is real; the rest are stubs.
+- **Status:** `RunningMoments` is real; the rest are stubs.
 - num.zig's `stats/describe.zig` and `stats/correlate.zig` informed this.
 
 ### Sorting and sets: `rstd.sort`
@@ -307,7 +308,7 @@ pub fn gmres(allocator, io, comptime T, a, b, x, options, restart: usize) SolveE
 
 By the user, 2026-10-31:
 
-- `rstd.stats`, `rstd.sort` and `rstd.fft` are top-level modules (the FFT moved under `rstd.math` in #611); N-d arrays and sparse matrices
+- `rstd.stats`, `rstd.sort` and `rstd.fft` are top-level modules (stats and the FFT moved under `rstd.math` in #613 and #611); N-d arrays and sparse matrices
   go in `rstd.linalg`.
 - Broadcasting needs equal ranks; MATLAB's implicit expansion is the fallback if padding is ever
   added.

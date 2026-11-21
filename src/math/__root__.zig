@@ -6,6 +6,7 @@ const scalar = @import("scalar.zig");
 pub const kernels = @import("kernels/__root__.zig");
 pub const fft = @import("fft.zig");
 pub const signal = @import("signal/__root__.zig");
+pub const stats = @import("stats/__root__.zig");
 
 pub const x87_f64 = scalar.x87_f64;
 pub const floor = scalar.floor;
@@ -18,4 +19,5 @@ test {
     _ = scalar;
     _ = fft;
     _ = signal;
+    _ = stats;
 }

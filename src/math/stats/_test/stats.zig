@@ -1,4 +1,4 @@
-//! Tests of `rstd.stats` on slices: the moments, `Running`, the median and quantiles, and histograms.
+//! Tests of `rstd.math.stats` on slices: the moments, `RunningMoments`, the median and quantiles, and histograms.
 
 const std = @import("std");
 const stats = @import("../__root__.zig");
@@ -7,11 +7,13 @@ const meanWith = stats.meanWith;
 const variance = stats.variance;
 const stdDev = stats.stdDev;
 const stdDevWith = stats.stdDevWith;
-const Running = stats.Running;
+const RunningMoments = stats.RunningMoments;
 const median = stats.median;
 const QuantileMethod = stats.QuantileMethod;
 const quantile = stats.quantile;
 const quantileInto = stats.quantileInto;
+const quantileIntoWith = stats.quantileIntoWith;
+const quantileWith = stats.quantileWith;
 const histogram = stats.histogram;
 const histogramInto = stats.histogramInto;
 
@@ -45,15 +47,15 @@ test "moments: compensated sums, the types the BLAS lacks, NaN" {
     try testing.expect(std.math.isNan(try variance(io, f64, nan[1..2], .sample)));
 }
 
-test "Running" {
-    var r: Running(f64) = .{};
+test "RunningMoments" {
+    var r: RunningMoments(f64) = .{};
     try testing.expectError(error.EmptyInput, r.mean());
     for (sample) |x| r.push(x);
     try testing.expectApproxEqRel(5, try r.mean(), 1e-15);
     try testing.expectApproxEqRel(4, try r.variance(.population), 1e-14);
     try testing.expectApproxEqRel(32.0 / 7.0, try r.variance(.sample), 1e-14);
 
-    var one: Running(f32) = .{};
+    var one: RunningMoments(f32) = .{};
     one.push(3);
     try testing.expectEqual(0, try one.variance(.sample));
 }
@@ -70,17 +72,20 @@ test "quantile methods" {
     const xs = [_]f64{ 4, 2, 1, 3 };
     const p = [_]f64{0.25};
     var out: [1]f64 = undefined;
-    try quantileInto(testing.allocator, f64, &out, &xs, &p, .{});
+    try quantileInto(testing.allocator, f64, &out, &xs, &p);
     try testing.expectApproxEqAbs(1.75, out[0], 1e-15);
-    try quantileInto(testing.allocator, f64, &out, &xs, &p, .{ .method = .hazen });
+    try quantileIntoWith(testing.allocator, f64, &out, &xs, &p, .{ .method = .hazen });
     try testing.expectApproxEqAbs(1.5, out[0], 1e-15);
-    try quantileInto(testing.allocator, f64, &out, &xs, &p, .{ .method = .weibull });
+    try quantileIntoWith(testing.allocator, f64, &out, &xs, &p, .{ .method = .weibull });
     try testing.expectApproxEqAbs(1.25, out[0], 1e-15);
-    try testing.expectError(error.ProbabilityOutOfRange, quantileInto(testing.allocator, f64, &out, &xs, &.{1.5}, .{}));
+    try testing.expectError(error.ProbabilityOutOfRange, quantileInto(testing.allocator, f64, &out, &xs, &.{1.5}));
 
-    const owned = try quantile(testing.allocator, f64, &xs, &.{ 0, 0.5, 1 }, .{});
+    const owned = try quantile(testing.allocator, f64, &xs, &.{ 0, 0.5, 1 });
     defer testing.allocator.free(owned);
     try testing.expectEqualSlices(f64, &.{ 1, 2.5, 4 }, owned);
+    const hazen = try quantileWith(testing.allocator, f64, &xs, &p, .{ .method = .hazen });
+    defer testing.allocator.free(hazen);
+    try testing.expectApproxEqAbs(1.5, hazen[0], 1e-15);
 }
 
 test "quantile: all nine methods on [1, 2, 3, 4], NumPy's values" {
@@ -99,12 +104,12 @@ test "quantile: all nine methods on [1, 2, 3, 4], NumPy's values" {
     };
     for (std.enums.values(QuantileMethod), want) |m, w| {
         var out: [2]f64 = undefined;
-        try quantileInto(al, f64, &out, &xs, &.{ 0.25, 0.5 }, .{ .method = m });
+        try quantileIntoWith(al, f64, &out, &xs, &.{ 0.25, 0.5 }, .{ .method = m });
         try testing.expectApproxEqAbs(w[0], out[0], 1e-15);
         try testing.expectApproxEqAbs(w[1], out[1], 1e-15);
     }
     var out: [1]f64 = undefined;
-    try quantileInto(al, f64, &out, &[_]f64{ 1, std.math.nan(f64) }, &.{0.5}, .{});
+    try quantileInto(al, f64, &out, &[_]f64{ 1, std.math.nan(f64) }, &.{0.5});
     try testing.expect(std.math.isNan(out[0]));
     try testing.expectEqual(5, try median(al, f16, &[_]f16{ 9, 5, 1 }));
 }
@@ -144,7 +149,7 @@ test "type-agnostic: integers and Complex in, the caller's result type out" {
     try testing.expectEqual(2, try stdDev(io, f32, &ints, .population));
     try testing.expectEqual(4.5, try median(al, f64, &ints));
     var q: [1]f64 = undefined;
-    try quantileInto(al, f64, &q, &[_]u8{ 1, 2, 3, 4 }, &.{0.25}, .{});
+    try quantileInto(al, f64, &q, &[_]u8{ 1, 2, 3, 4 }, &.{0.25});
     try testing.expectEqual(1.75, q[0]);
     var h = try histogram(al, f64, &[_]i64{ 0, 1, 1, 2 }, .{ .count = 2 });
     defer h.deinit(al);
