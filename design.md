@@ -71,6 +71,8 @@ pub const Normalize = enum { sample, population }; // n - 1 (MATLAB's default) o
 pub fn mean(io, xs: []const F) error{ EmptyInput, Canceled }!F
 pub fn variance(io, xs, normalize: Normalize) error{ EmptyInput, Canceled }!F
 pub fn stdDev(io, xs, normalize: Normalize) error{ EmptyInput, Canceled }!F
+// meanWith, varianceWith, stdDevWith: the same, with options: MomentOptions last
+pub const MomentOptions = struct { summation: Summation = .plain }; // blas.Summation
 pub fn Running(comptime F: type) type; // streaming mean and variance (Welford's update)
 pub fn median(allocator, xs) error{ EmptyInput, OutOfMemory }!F // selects on a copy
 pub const QuantileMethod = enum {
@@ -95,7 +97,7 @@ pub fn corrcoef(allocator, io, x: ConstView(F)) error{ ... }!Mat(F)
   shrinks below one spacing as `n` grows. The default is `.linear`, the modern common choice; a
   caller matching MATLAB passes `.{ .method = .hazen }`.
 - **NaN** propagates, as in MATLAB. Planned: an option to omit NaNs.
-- **Variance** takes two passes (mean, then squared deviations) through the BLAS `sum`, and a
+- **Variance** is the corrected two-pass formula (Chan, Golub and LeVeque), `(Σd² − |Σd|²/n) / (n − 1)` for `d = x − mean`: the mean through the BLAS `sum`, then `kernels.stats.deviationSums` takes `Σd` and `Σd²` in one pass, in every `Summation` mode (#605); integers and mixed types sum in order here. A
   sample of one has variance 0 either way, as MATLAB's `var`. `Running` is the streaming form;
   its bits differ from `variance`'s. `cov` is `syrk` over the centered columns.
 - **Histogram:** the last bin includes its right edge, as MATLAB's `histcounts` and NumPy do.

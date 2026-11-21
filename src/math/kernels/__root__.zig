@@ -6,6 +6,7 @@ pub const lapack = @import("lapack/__root__.zig");
 pub const elementwise = @import("elementwise/__root__.zig");
 pub const sparse = @import("sparse/__root__.zig");
 pub const fft = @import("fft/__root__.zig");
+pub const stats = @import("stats/__root__.zig");
 
 test {
     _ = blas;
@@ -13,4 +14,5 @@ test {
     _ = elementwise;
     _ = sparse;
     _ = fft;
+    _ = stats;
 }
