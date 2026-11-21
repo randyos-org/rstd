@@ -547,7 +547,7 @@ What users call: plain functions with the best defaults, and `*With` siblings ta
 
 MATLAB's names and argument order where MATLAB has the routine; NumPy's where it does not. Today's `dense` helpers named `*With` (`detWith`, `mulWith`, `sumWith` and the rest) take an execution path, not options; they are internal, and [#615](https://github.com/randyos-org/rstd/issues/615) renames them so `*With` means only the options siblings.
 
-#### Types
+#### The `linalg` types
 
 | Type | What | v0.1.0 |
 | --- | --- | --- |
@@ -559,7 +559,7 @@ MATLAB's names and argument order where MATLAB has the routine; NumPy's where it
 | `QrMode`, `SvdMode`, `MatrixNorm`, `VectorNorm` | economy or full factors; which norm | yes |
 | `Options` | build-time `rstd_linalg_options` (`inline_limit`: up to which size the inline kernels run) | yes |
 
-#### Functions
+#### The `linalg` functions
 
 | Signature | Computes | v0.1.0 |
 | --- | --- | --- |
