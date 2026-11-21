@@ -198,12 +198,12 @@ pub fn realForwardAxes(allocator, io, out, in: ConstArrayView(T), axes, normaliz
   Parseval's identity, and every size from 1 to a few hundred (primes take Bluestein's path).
 - **Status:** `Plan` is PocketFFT's `cfftp` and `fftblue` (`plan.zig`, `cfftp/`, `bluestein.zig`), `RealPlan` its `rfftp` and `fftblue`'s real path (`real_plan.zig`, `rfftp/`); a batch runs through `io`, as many transforms at once as the scratch holds (`batch.zig`, on the BLAS's `threading.forEach`). f32 at pffft's sizes takes pffft's kernels (`pffft/`, N10), with the unordered forms. The rest are stubs, and `init` already rejects `n = 0`.
 
-### Planned: signal processing, `rstd.signal`
+### Signal processing: `rstd.math.signal`
 
-Built on `rstd.math.kernels.fft`, for audio first:
+In `src/math/signal/`, built on `rstd.math.kernels.fft`, for audio first:
 
 - **Window functions:** Hann, Hamming, Blackman, Kaiser, and the Princen-Bradley windows the
-  `ModifiedCosineTransform` needs (sine, KBD); symmetric or periodic (MATLAB's `'symmetric'`, `'periodic'`). Done (`src/signal/window.zig`): MATLAB's definitions, SciPy's for the sine and KBD windows, which are even-length and symmetric only.
+  `ModifiedCosineTransform` needs (sine, KBD); symmetric or periodic (MATLAB's `'symmetric'`, `'periodic'`). Done (`src/math/kernels/dsp/window.zig`, `rstd.math.kernels.dsp`, re-exported by `rstd.math.signal`; #612): MATLAB's definitions, SciPy's for the sine and KBD windows, which are even-length and symmetric only.
 - **STFT** and its inverse by weighted overlap-add, over `RealPlan`; hop, window and FFT size
   free.
 - **Partitioned convolution:** uniformly partitioned overlap-save (`signal.Convolver`) over the unordered forms, for long
@@ -347,8 +347,8 @@ By the user, 2026-10-31:
   function no access to its result type. So `stats.mean(io, R, xs)` takes the result type `R`,
   and the element type comes from `xs`; for floats today's calls keep their form. The matlab
   port gets the same (linalg's M6).
-- Signal processing gets its own module, `rstd.signal`: window functions, the STFT and
-  partitioned convolution (Planned: signal processing, above).
+- Signal processing gets its own module, `rstd.signal` (since #612 `rstd.math.signal`): window functions, the STFT and
+  partitioned convolution (Signal processing, above).
 - Front ends are type-agnostic, as the BLAS's: any element type, dispatched on it, integers and
   `Complex` included where the operation means something to them.
 - Complex values sort in MATLAB's order (by magnitude, then angle), and everything that orders

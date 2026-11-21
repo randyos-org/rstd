@@ -5,7 +5,7 @@
 //! frame; the plan, the window and the scratch are made up front.
 
 const std = @import("std");
-const fft = @import("../math/kernels/fft/__root__.zig");
+const fft = @import("../kernels/fft/__root__.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -125,7 +125,7 @@ pub fn Stft(comptime T: type) type {
 // ---- tests ----
 
 const testing = std.testing;
-const window_ = @import("window.zig");
+const dsp = @import("../kernels/dsp/__root__.zig");
 
 test "Stft: each frame's spectrum is the windowed frame's, and the inverse gives the signal back" {
     const al = testing.allocator;
@@ -133,7 +133,7 @@ test "Stft: each frame's spectrum is the windowed frame's, and the inverse gives
     var x: [n]f64 = undefined;
     for (&x, 0..) |*v, i| v.* = @sin(0.37 * @as(f64, @floatFromInt(i))) + 0.25 * @cos(0.011 * @as(f64, @floatFromInt(i * i)));
     var win: [64]f64 = undefined;
-    try window_.window(f64, &win, .hann, .periodic);
+    try dsp.window(f64, &win, .hann, .periodic);
     for ([_][2]usize{ .{ 16, 64 }, .{ 32, 128 }, .{ 48, 64 } }) |hn| {
         var s = try Stft(f64).init(al, &win, hn[0], hn[1]);
         defer s.deinit(al);

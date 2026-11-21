@@ -6,7 +6,7 @@
 //! block. f32 at pffft's sizes (`2 block = 32 2^a 3^b 5^c`).
 
 const std = @import("std");
-const fft = @import("../math/kernels/fft/__root__.zig");
+const fft = @import("../kernels/fft/__root__.zig");
 
 const Allocator = std.mem.Allocator;
 

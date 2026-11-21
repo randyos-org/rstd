@@ -485,7 +485,7 @@ Since [#611](https://github.com/randyos-org/rstd/issues/611) the transforms take
 
 | Signature | Computes | Accelerate | MKL | Source | v0.1.0 |
 | --- | --- | --- | --- | --- | --- |
-| `window(T, out: []T, kind: Window, symmetry: Symmetry) WindowError!void` | a window of `out.len` points | `vDSP_hann_window`, `vDSP_hamm_window`, `vDSP_blkman_window` | none | MATLAB `hann`, `hamming`, `blackman`, `kaiser` | yes (#612) |
+| `window(T, out: []T, kind: Window, symmetry: Symmetry) WindowError!void` | a window of `out.len` points | `vDSP_hann_window`, `vDSP_hamm_window`, `vDSP_blkman_window` | none | MATLAB `hann`, `hamming`, `blackman`, `kaiser` | yes |
 | `addScalar(io, T, alpha: T, x: ConstStrided(T), y: Strided(T)) Error!void` | `x + α` | `vDSP_vsadd` | none | `@Vector` | backlog |
 | `divideByScalar(io, T, alpha: T, x: ConstStrided(T), y: Strided(T)) Error!void` | `x / α` | `vDSP_vsdiv` | none | `@Vector` | backlog |
 | `multiplyAdd(io, T, a: ConstStrided(T), b: ConstStrided(T), c: ConstStrided(T), d: Strided(T)) Error!void` | `a·b + c`, fused where the core has an instruction | `vDSP_vma` | `v?Fma` | `@mulAdd` | backlog |
@@ -627,7 +627,7 @@ The plans (`Plan`, `RealPlan` and the stubs) are in `kernels.fft`; this layer, n
 
 | Signature | Computes | v0.1.0 |
 | --- | --- | --- |
-| `window(T, out: []T, kind: Window, symmetry: Symmetry) WindowError!void` | a window, from `kernels.dsp` | yes (#612) |
+| `window(T, out: []T, kind: Window, symmetry: Symmetry) WindowError!void` | a window, from `kernels.dsp` | yes |
 | `Stft(T)`: `init(allocator, window: []const T, hop: usize, nfft: usize) InitError!Self`, `deinit(self: *Self, allocator) void`, `bins(self: Self) usize`, `frames(self: Self, len: usize) usize`, `scratchLen(self: Self) usize`, `forward(self: *const Self, io, out: []Complex(T), in: []const T, scratch: []T) Error!void`, `inverse(self: *const Self, io, out: []T, in: []const Complex(T), frame_count: usize, scratch: []T) Error!void` | the short-time Fourier transform and its inverse (overlap-add) | yes |
 | `Convolver(T)`: `init(allocator, filter: []const T, block: usize) InitError!Self`, `deinit(self: *Self, allocator) void`, `reset(self: *Self) void`, `process(self: *Self, out: []T, in: []const T) Error!void` | streaming convolution with a long filter, uniformly partitioned | yes |
 | `convolve`, `correlate` | whole-signal convolution and correlation, allocating, by direct sums or FFT products by size (`kernels.dsp.convolve` with `ConvolutionMode`) | named; backlog (#627) |
