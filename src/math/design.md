@@ -5,7 +5,7 @@ How rstd's math is organized: one low-level kernel layer, modeled on Intel's MKL
 ## Goals
 
 - **The API is settled by v0.1.0.** Later work is tuning, benchmarking and smaller changes, not a new shape.
-- **The best algorithm for each routine, collected natively.** rstd is an anthology of the best open-source methods (OpenBLAS, BLIS, ReLAPACK, faer, PocketFFT and so on), and its algorithms are the seed of a later port to the user's language Cesium. A clean, correct, well-sourced implementation matters more than the last few percent of speed.
+- **The best algorithm for each routine, collected natively.** Rstd is an anthology of the best open-source methods (OpenBLAS, BLIS, ReLAPACK, faer, PocketFFT and so on), and its algorithms are the seed of a later port to the user's language Cesium. A clean, correct, well-sourced implementation matters more than the last few percent of speed.
 - **Users never tune.** The plain functions give the best answer: accurate, deterministic, fast. Knobs exist for those who want them, one step away, never in the main signatures.
 - **One library, every domain.** Linear algebra, FFT, signal processing and statistics share one kernel layer and its infrastructure, as MKL's and Accelerate's domains do, rather than each growing its own.
 
@@ -60,7 +60,7 @@ Every routine and type of `rstd.math.kernels`, with its literal signature ([#607
 
 **Errors.** Each routine returns an exact error set named for it (`PotrfError`) or its level (`blas2.Error`): bad input (`SliceTooShort`, `CountMismatch`, `LeadingDimensionTooSmall`) is an error, `error.OutOfMemory` where it allocates, `error.Canceled` where it threads; it panics only for a broken invariant.
 
-**Columns.** "Accelerate" and "MKL" name the vendor routine a wrapper maps to; "(routed)" marks the calls rstd sends to Accelerate today, the rest are mapped when that backend comes ([#617](https://github.com/randyos-org/rstd/issues/617) for MKL). "Source" names what rstd's implementation is ported from, or will be. "v0.1.0": "yes" exists; "stub" has its API and returns `error.NotImplemented`; an issue number is planned for v0.1.0; "backlog" is named here so the API has room for it, each domain's backlog in one issue: `lapack` [#623](https://github.com/randyos-org/rstd/issues/623), `sparse` [#624](https://github.com/randyos-org/rstd/issues/624), `fft` [#625](https://github.com/randyos-org/rstd/issues/625), `elementwise` [#626](https://github.com/randyos-org/rstd/issues/626), `dsp` [#627](https://github.com/randyos-org/rstd/issues/627), `stats` [#628](https://github.com/randyos-org/rstd/issues/628).
+**Columns.** "Accelerate" and "MKL" name the vendor routine a wrapper maps to; "(routed)" marks the calls rstd sends to Accelerate today, the rest are mapped when that backend comes ([#617](https://github.com/randyos-org/rstd/issues/617) for MKL). "Source" names what rstd's implementation is ported from, or will be. "v0.1.0": "yes" exists; "stub" has its API and returns `error.NotImplemented`; an issue number is planned for v0.1.0; "backlog" is named here, so the API has room for it, each domain's backlog in one issue: `lapack` [#623](https://github.com/randyos-org/rstd/issues/623), `sparse` [#624](https://github.com/randyos-org/rstd/issues/624), `fft` [#625](https://github.com/randyos-org/rstd/issues/625), `elementwise` [#626](https://github.com/randyos-org/rstd/issues/626), `dsp` [#627](https://github.com/randyos-org/rstd/issues/627), `stats` [#628](https://github.com/randyos-org/rstd/issues/628).
 
 **References for what is new:** NumPy and SciPy (names, modes, defaults), MATLAB (argument order), Julia's `LinearAlgebra`, `Statistics`, `StatsBase`, `DSP.jl` and `SpecialFunctions.jl` (algorithms, MIT), Fortran's intrinsics, Accelerate's vDSP and vForce, MKL's VM and VS, faer (sparse solvers, MIT), and muhammad-fiaz's num.zig ([github.com/muhammad-fiaz/num.zig](https://github.com/muhammad-fiaz/num.zig), MIT: a starting point for some backlog routines, its algorithms unoptimized).
 
@@ -106,7 +106,7 @@ Each type the kernel layer defines or takes, after the moves; the high-level opt
 | `Triplets(T)` | `struct { rows: u32, cols: u32, i: ArrayList(u32), j: ArrayList(u32), x: ArrayList(T) }`: assembly | same | `kernels.sparse` | yes |
 | `SparseVector(T)` | `struct { len: usize, index: []const u32, value: []const T }`: a sparse column or row | `Vector` | `kernels.sparse` | yes |
 | `LinearOperator(T)` | `struct { ctx: *const anyopaque, apply: *const fn (ctx: *const anyopaque, io: Io, x: []const T, y: []T) Io.Cancelable!void }`: `y ← Ax` (SciPy's `LinearOperator`) | `Operator` | `kernels.sparse` | yes |
-| `SolveReport` | `struct { iterations: usize, residual: f64 }`: an iterative solve's | `Stats` | `kernels.sparse` | yes |
+| `SolveReport` | `struct { iterations: usize, residual: f64 }`: the result of an iterative solve | `Stats` | `kernels.sparse` | yes |
 | `SparseCholesky(T)`, `SparseLdlt(T)`, `SparseLu(T)`, `SparseQr(T)` | `struct { perm: []u32, parent: []u32, l: CompressedColumns(T) }` (fill-reducing order, elimination tree, factor); `SparseLdlt` adds `d: []T`; `SparseLu`: `struct { row_perm: []u32, col_perm: []u32, l: CompressedColumns(T), u: CompressedColumns(T) }`; `SparseQr`: `struct { col_perm: []u32, v: CompressedColumns(T), tau: []T, r: CompressedColumns(T) }`. Analyzed once from the pattern, refactored per values | none | `kernels.sparse` | backlog (#624) |
 | `JacobiPreconditioner(T)`, `IncompleteLu(T)` | `struct { inv_diag: []T }`; `struct { lu: CompressedRows(T) }`: each with `operator(self) LinearOperator(T)` | none | `kernels.sparse` | backlog (#624) |
 | `Direction` | `enum { forward, backward }` | same | `kernels.fft` | yes |
@@ -146,12 +146,12 @@ The BLAS levels 1 to 3 and rstd's extensions, as `src/math/kernels/blas/` has th
 | `axpy(io, T, alpha: T, x: ConstStrided(T), y: Strided(T)) PairError!void` | `y ← αx + y` | `cblas_?axpy` (routed) | `cblas_?axpy` |
 | `axpyc(io, T, alpha: T, x: ConstStrided(T), y: Strided(T)) PairError!void` | `y ← α·conj(x) + y` | none | none |
 | `axpby(io, T, alpha: T, x: ConstStrided(T), beta: T, y: Strided(T)) LengthError!void` | `y ← αx + βy` | `catlas_?axpby` (routed) | `cblas_?axpby` |
-| `dot(io, T, x: ConstStrided(T), y: ConstStrided(T)) PairError!T` | `Σ xᵢyᵢ` | `cblas_?dot`, `cblas_?dotu_sub` (routed) | `cblas_?dot`, `cblas_?dotu_sub` |
+| `dot(io, T, x: ConstStrided(T), y: ConstStrided(T)) PairError!T` | `Σ xᵢ·yᵢ` | `cblas_?dot`, `cblas_?dotu_sub` (routed) | `cblas_?dot`, `cblas_?dotu_sub` |
 | `dotc(io, T, x: ConstStrided(T), y: ConstStrided(T)) PairError!T` | `Σ conj(xᵢ)yᵢ` | `cblas_?dotc_sub` (routed) | `cblas_?dotc_sub` |
 | `dotWith(io, T, x: ConstStrided(T), y: ConstStrided(T), s: Summation) PairError!T` | `dot`, summed as `s` says | none | none |
 | `dotcWith(io, T, x: ConstStrided(T), y: ConstStrided(T), s: Summation) PairError!T` | `dotc`, summed as `s` says | none | none |
-| `dsdot(io, x: ConstStrided(f32), y: ConstStrided(f32)) PairError!f64` | `Σ xᵢyᵢ` of `f32`, in `f64` | `cblas_dsdot` (routed) | `cblas_dsdot` |
-| `sdsdot(io, alpha: f32, x: ConstStrided(f32), y: ConstStrided(f32)) PairError!f32` | `α + Σ xᵢyᵢ` in `f64`, rounded to `f32` | `cblas_sdsdot` (routed) | `cblas_sdsdot` |
+| `dsdot(io, x: ConstStrided(f32), y: ConstStrided(f32)) PairError!f64` | `Σ xᵢ·yᵢ` of `f32`, in `f64` | `cblas_dsdot` (routed) | `cblas_dsdot` |
+| `sdsdot(io, alpha: f32, x: ConstStrided(f32), y: ConstStrided(f32)) PairError!f32` | `α + Σ xᵢ·yᵢ` in `f64`, rounded to `f32` | `cblas_sdsdot` (routed) | `cblas_sdsdot` |
 | `nrm2(io, T, x: ConstStrided(T)) Float(T)` | `‖x‖₂`, without overflow or underflow | `cblas_?nrm2` (routed) | `cblas_?nrm2` |
 | `asum(io, T, x: ConstStrided(T)) Io.Cancelable!Float(T)` | `Σ (\|re xᵢ\| + \|im xᵢ\|)` | `cblas_?asum` (routed) | `cblas_?asum` |
 | `sum(io, T, x: ConstStrided(T)) Io.Cancelable!Float(T)` | `Σ xᵢ` (complex: `Σ (re xᵢ + im xᵢ)`, OpenBLAS's `?sum`) | none | none |
@@ -165,7 +165,7 @@ The BLAS levels 1 to 3 and rstd's extensions, as `src/math/kernels/blas/` has th
 | `zrotg(T, a: *T, b: T, c: *Float(T), s: *T) void` | `rotg` for complex | `cblas_?rotg` (not routed) | `cblas_?rotg` |
 | `rotmg(T, d1: *T, d2: *T, x1: *T, y1: T, param: *[5]T) void` | the modified Givens rotation zeroing `y1` | `cblas_?rotmg` (not routed) | `cblas_?rotmg` |
 | `cabs1(T, z: T) Float(T)` | `\|re z\| + \|im z\|` | none | none |
-| `sbdot(io, x: ConstStrided(BFloat16), y: ConstStrided(BFloat16)) LengthError!f32` | `Σ xᵢyᵢ` of bfloat16, in `f32` | none | none |
+| `sbdot(io, x: ConstStrided(BFloat16), y: ConstStrided(BFloat16)) LengthError!f32` | `Σ xᵢ·yᵢ` of bfloat16, in `f32` | none | none |
 | `bscal(io, alpha: BFloat16, x: Strided(BFloat16)) void` | `x ← αx`, bfloat16 | none | none |
 | `sbtobf16(io, F, in: ConstStrided(F), out: Strided(BFloat16)) LengthError!void` | `f32` or `f64` to bfloat16, rounded to nearest even | none | none |
 | `bf16to(io, F, in: ConstStrided(BFloat16), out: Strided(F)) LengthError!void` | bfloat16 to `f32` or `f64` | none | none |
@@ -177,8 +177,8 @@ The BLAS levels 1 to 3 and rstd's extensions, as `src/math/kernels/blas/` has th
 | `gemv(allocator, io, T, trans: Trans, alpha: T, a: []const T, lda: usize, x: ConstStrided(T), beta: T, y: Strided(T)) Error!void` | `y ← α·op(A)x + βy` | `cblas_?gemv` (routed) | `cblas_?gemv` |
 | `gemvHalf(io, comptime kind: HalfPrecision, trans: Trans, alpha: kind.Out(), a: []const kind.In(), lda: usize, x: ConstStrided(kind.In()), beta: kind.Out(), y: Strided(kind.Out())) HalfError!void` | `gemv` with `f16` or bfloat16 `A` and `x` (`kind`) | none | none |
 | `gbmv(allocator, io, T, trans: Trans, kl: usize, ku: usize, alpha: T, a: []const T, lda: usize, x: ConstStrided(T), beta: T, y: Strided(T)) Error!void` | `gemv` for band `A` (`kl`, `ku`) | `cblas_?gbmv` (routed) | `cblas_?gbmv` |
-| `ger(allocator, io, T, alpha: T, x: ConstStrided(T), y: ConstStrided(T), a: []T, lda: usize) Error!void` | `A ← αxyᵀ + A` | `cblas_?ger`, `cblas_?geru` (routed) | `cblas_?ger`, `cblas_?geru` |
-| `gerc(allocator, io, T, alpha: T, x: ConstStrided(T), y: ConstStrided(T), a: []T, lda: usize) Error!void` | `A ← αxyᴴ + A` | `cblas_?gerc` (routed) | `cblas_?gerc` |
+| `ger(allocator, io, T, alpha: T, x: ConstStrided(T), y: ConstStrided(T), a: []T, lda: usize) Error!void` | `A ← α·x·yᵀ + A` | `cblas_?ger`, `cblas_?geru` (routed) | `cblas_?ger`, `cblas_?geru` |
+| `gerc(allocator, io, T, alpha: T, x: ConstStrided(T), y: ConstStrided(T), a: []T, lda: usize) Error!void` | `A ← α·x·yᴴ + A` | `cblas_?gerc` (routed) | `cblas_?gerc` |
 | `symv(allocator, io, T, uplo: Uplo, alpha: T, a: []const T, lda: usize, x: ConstStrided(T), beta: T, y: Strided(T)) Error!void` | `y ← αAx + βy`, symmetric `A` | `cblas_?symv`, real (routed) | `cblas_?symv`, real |
 | `hemv(allocator, io, T, uplo: Uplo, alpha: T, a: []const T, lda: usize, x: ConstStrided(T), beta: T, y: Strided(T)) Error!void` | `y ← αAx + βy`, Hermitian `A` | `cblas_?hemv` (routed) | `cblas_?hemv` |
 | `sbmv(allocator, io, T, uplo: Uplo, k: usize, alpha: T, a: []const T, lda: usize, x: ConstStrided(T), beta: T, y: Strided(T)) Error!void` | `symv` for symmetric band `A` | `cblas_?sbmv`, real (routed) | `cblas_?sbmv` |
@@ -191,12 +191,12 @@ The BLAS levels 1 to 3 and rstd's extensions, as `src/math/kernels/blas/` has th
 | `tbsv(allocator, io, T, uplo: Uplo, trans: Trans, diag: Diag, k: usize, a: []const T, lda: usize, x: Strided(T)) Error!void` | `trsv` for triangular band `A` | `cblas_?tbsv` (routed) | `cblas_?tbsv` |
 | `tpmv(allocator, io, T, uplo: Uplo, trans: Trans, diag: Diag, ap: []const T, x: Strided(T)) Error!void` | `trmv` for packed `A` | `cblas_?tpmv` (routed) | `cblas_?tpmv` |
 | `tpsv(allocator, io, T, uplo: Uplo, trans: Trans, diag: Diag, ap: []const T, x: Strided(T)) Error!void` | `trsv` for packed `A` | `cblas_?tpsv` (routed) | `cblas_?tpsv` |
-| `syr(allocator, io, T, uplo: Uplo, alpha: T, x: ConstStrided(T), a: []T, lda: usize) Error!void` | `A ← αxxᵀ + A`, symmetric | `cblas_?syr`, real (routed) | `cblas_?syr` |
-| `her(allocator, io, T, uplo: Uplo, alpha: Float(T), x: ConstStrided(T), a: []T, lda: usize) Error!void` | `A ← αxxᴴ + A`, Hermitian, real `α` | `cblas_?her` (routed) | `cblas_?her` |
+| `syr(allocator, io, T, uplo: Uplo, alpha: T, x: ConstStrided(T), a: []T, lda: usize) Error!void` | `A ← α·x·xᵀ + A`, symmetric | `cblas_?syr`, real (routed) | `cblas_?syr` |
+| `her(allocator, io, T, uplo: Uplo, alpha: Float(T), x: ConstStrided(T), a: []T, lda: usize) Error!void` | `A ← α·x·xᴴ + A`, Hermitian, real `α` | `cblas_?her` (routed) | `cblas_?her` |
 | `spr(allocator, io, T, uplo: Uplo, alpha: T, x: ConstStrided(T), ap: []T) Error!void` | `syr` for packed `A` | `cblas_?spr`, real (routed) | `cblas_?spr` |
 | `hpr(allocator, io, T, uplo: Uplo, alpha: Float(T), x: ConstStrided(T), ap: []T) Error!void` | `her` for packed `A` | `cblas_?hpr` (routed) | `cblas_?hpr` |
-| `syr2(allocator, io, T, uplo: Uplo, alpha: T, x: ConstStrided(T), y: ConstStrided(T), a: []T, lda: usize) Error!void` | `A ← αxyᵀ + αyxᵀ + A` | `cblas_?syr2`, real (routed) | `cblas_?syr2` |
-| `her2(allocator, io, T, uplo: Uplo, alpha: T, x: ConstStrided(T), y: ConstStrided(T), a: []T, lda: usize) Error!void` | `A ← αxyᴴ + conj(α)yxᴴ + A` | `cblas_?her2` (routed) | `cblas_?her2` |
+| `syr2(allocator, io, T, uplo: Uplo, alpha: T, x: ConstStrided(T), y: ConstStrided(T), a: []T, lda: usize) Error!void` | `A ← α·x·yᵀ + α·y·xᵀ + A` | `cblas_?syr2`, real (routed) | `cblas_?syr2` |
+| `her2(allocator, io, T, uplo: Uplo, alpha: T, x: ConstStrided(T), y: ConstStrided(T), a: []T, lda: usize) Error!void` | `A ← α·x·yᴴ + conj(α)yxᴴ + A` | `cblas_?her2` (routed) | `cblas_?her2` |
 | `spr2(allocator, io, T, uplo: Uplo, alpha: T, x: ConstStrided(T), y: ConstStrided(T), ap: []T) Error!void` | `syr2` for packed `A` | `cblas_?spr2`, real (routed) | `cblas_?spr2` |
 | `hpr2(allocator, io, T, uplo: Uplo, alpha: T, x: ConstStrided(T), y: ConstStrided(T), ap: []T) Error!void` | `her2` for packed `A` | `cblas_?hpr2` (routed) | `cblas_?hpr2` |
 
@@ -271,7 +271,7 @@ As `src/math/kernels/lapack/` has it today. Accelerate (macOS 13.3's `$NEWLAPACK
 
 | Signature | Computes | LAPACK name (Accelerate, MKL) | rstd's source |
 | --- | --- | --- | --- |
-| `sytrf(allocator, io, T, uplo: Uplo, n: usize, a: []T, lda: usize, ipiv: []Pivot) SytrfError!?usize` | `A = UDUᵀ` or `LDLᵀ`, Bunch-Kaufman; the first zero pivot, if any | `?sytrf` | Reference-LAPACK `dsytrf.f` |
+| `sytrf(allocator, io, T, uplo: Uplo, n: usize, a: []T, lda: usize, ipiv: []Pivot) SytrfError!?usize` | `A = U·D·Uᵀ` or `L·D·Lᵀ`, Bunch-Kaufman; the first zero pivot, if any | `?sytrf` | Reference-LAPACK `dsytrf.f` |
 | `hetrf(allocator, io, T, uplo: Uplo, n: usize, a: []T, lda: usize, ipiv: []Pivot) SytrfError!?usize` | `sytrf` for Hermitian `A` | `?hetrf` | Reference-LAPACK `zhetrf.f` |
 | `sytrfRook(allocator, io, T, uplo: Uplo, n: usize, a: []T, lda: usize, ipiv: []Pivot) SytrfError!?usize` | `sytrf` with rook pivoting | `?sytrf_rook` | Reference-LAPACK `dsytrf_rook.f` |
 | `hetrfRook(allocator, io, T, uplo: Uplo, n: usize, a: []T, lda: usize, ipiv: []Pivot) SytrfError!?usize` | `hetrf` with rook pivoting | `?hetrf_rook` | Reference-LAPACK `zhetrf_rook.f` |
@@ -298,8 +298,8 @@ As `src/math/kernels/lapack/` has it today. Accelerate (macOS 13.3's `$NEWLAPACK
 
 | Signature | Computes | LAPACK name (Accelerate, MKL) | rstd's source |
 | --- | --- | --- | --- |
-| `gels(allocator, io, T, trans: Trans, m: usize, n: usize, nrhs: usize, a: []T, lda: usize, b: []T, ldb: usize) GelsError!void` | least squares or minimum norm, full rank, by QR or LQ | `?gels` | faer v0.24.4 `qr/no_pivoting/solve.rs` |
-| `gelsy(allocator, io, T, m: usize, n: usize, nrhs: usize, a: []T, lda: usize, b: []T, ldb: usize, jpvt: []usize, rcond: Float(T)) GelsyError!usize` | least squares, any rank, pivoted QR; returns the rank | `?gelsy` | Reference-LAPACK `dgelsy.f` over faer's pivoted QR |
+| `gels(allocator, io, T, trans: Trans, m: usize, n: usize, nrhs: usize, a: []T, lda: usize, b: []T, ldb: usize) GelsError!void` | the least-squares or minimum-norm solution, full rank, by QR or LQ | `?gels` | faer v0.24.4 `qr/no_pivoting/solve.rs` |
+| `gelsy(allocator, io, T, m: usize, n: usize, nrhs: usize, a: []T, lda: usize, b: []T, ldb: usize, jpvt: []usize, rcond: Float(T)) GelsyError!usize` | the least-squares solution, any rank, by pivoted QR; returns the rank | `?gelsy` | Reference-LAPACK `dgelsy.f` over faer's pivoted QR |
 
 #### Symmetric eigenproblems
 
@@ -316,12 +316,12 @@ As `src/math/kernels/lapack/` has it today. Accelerate (macOS 13.3's `$NEWLAPACK
 | --- | --- | --- | --- |
 | `geev(allocator, io, T, jobvl: VectorJob, jobvr: VectorJob, n: usize, a: []T, lda: usize, w: Eigenvalues(T), vl: []T, ldvl: usize, vr: []T, ldvr: usize, unconverged: ?*usize) GeevError!void` | eigenvalues, and left or right vectors, of general `A` | `?geev` | faer v0.24.4's Schur form, behind `dgeev.f`'s arguments |
 | `hseqr(io, T, job: SchurJob, compz: SchurVectors, n: usize, lo: usize, hi: usize, h: []T, ldh: usize, w: Eigenvalues(T), z: []T, ldz: usize, unconverged: ?*usize) HseqrError!void` | Schur form of a Hessenberg matrix | `?hseqr` | faer v0.24.4's QR iterations |
-| `gees(allocator, io, T, jobvs: VectorJob, select: ?EigenvalueSelector(T), n: usize, a: []T, lda: usize, w: Eigenvalues(T), vs: []T, ldvs: usize, unconverged: ?*usize) GeesError!usize` | Schur form `A = ZTZᴴ`, sorted by `select`; returns the count selected | `?gees` | Reference-LAPACK `dgees.f` |
+| `gees(allocator, io, T, jobvs: VectorJob, select: ?EigenvalueSelector(T), n: usize, a: []T, lda: usize, w: Eigenvalues(T), vs: []T, ldvs: usize, unconverged: ?*usize) GeesError!usize` | Schur form `A = Z·T·Zᴴ`, sorted by `select`; returns the count selected | `?gees` | Reference-LAPACK `dgees.f` |
 | `trevc3(allocator, io, T, side: EigenvectorSide, howmny: EigenvectorSelection, select: ?[]bool, n: usize, t: []T, ldt: usize, vl: []T, ldvl: usize, vr: []T, ldvr: usize, mm: usize) Trevc3Error!usize` | eigenvectors of a Schur form | `?trevc3` | Reference-LAPACK `dtrevc3.f` |
 | `trevc(allocator, io, T, side: EigenvectorSide, howmny: EigenvectorSelection, select: ?[]bool, n: usize, t: []T, ldt: usize, vl: []T, ldvl: usize, vr: []T, ldvr: usize, mm: usize) Trevc3Error!usize` | `trevc3` | `?trevc` | Reference-LAPACK `dtrevc3.f` |
 | `gebal(io, T, job: Balancing, n: usize, a: []T, lda: usize, scale: []Float(T)) GebalError!BalancedRange` | balances `A`; returns the block `lo..hi` | `?gebal` | Reference-LAPACK `dgebal.f` |
 | `gebak(io, T, job: Balancing, side: Side, n: usize, lo: usize, hi: usize, scale: []const Float(T), m: usize, v: []T, ldv: usize) GebakError!void` | undoes `gebal` on eigenvectors | `?gebak` | Reference-LAPACK `dgebak.f` |
-| `gehrd(allocator, io, T, n: usize, lo: usize, hi: usize, a: []T, lda: usize, tau: []T) GehrdError!void` | `A = QHQᴴ`, Hessenberg | `?gehrd` | faer v0.24.4 `evd/hessenberg.rs` |
+| `gehrd(allocator, io, T, n: usize, lo: usize, hi: usize, a: []T, lda: usize, tau: []T) GehrdError!void` | `A = Q·H·Qᴴ`, Hessenberg | `?gehrd` | faer v0.24.4 `evd/hessenberg.rs` |
 | `orghr(allocator, io, T, n: usize, lo: usize, hi: usize, a: []T, lda: usize, tau: []const T) OrghrError!void` | forms `Q` from `gehrd` | `?orghr` | faer v0.24.4 |
 | `unghr(allocator, io, T, n: usize, lo: usize, hi: usize, a: []T, lda: usize, tau: []const T) OrghrError!void` | `orghr` for complex | `?unghr` | faer v0.24.4 |
 | `trexc(io, T, compq: ReorderVectors, n: usize, t: []T, ldt: usize, q: []T, ldq: usize, ifst: *usize, ilst: *usize) TrexcError!void` | moves one block of a Schur form | `?trexc` | Reference-LAPACK `dtrexc.f` |
@@ -333,8 +333,8 @@ As `src/math/kernels/lapack/` has it today. Accelerate (macOS 13.3's `$NEWLAPACK
 
 | Signature | Computes | LAPACK name (Accelerate, MKL) | rstd's source |
 | --- | --- | --- | --- |
-| `gesvd(allocator, io, T, jobu: SingularVectorJob, jobvt: SingularVectorJob, m: usize, n: usize, a: []T, lda: usize, s: []Float(T), u: []T, ldu: usize, vt: []T, ldvt: usize, unconverged: ?*usize) GesvdError!void` | `A = UΣVᴴ`, by QR iteration's arguments | `?gesvd` | faer v0.24.4's SVD (bidiagonal divide and conquer, Reference-LAPACK's `bdsqr` as its QR iteration), behind `dgesvd.f`'s arguments, jobs and scaling |
-| `gesdd(allocator, io, T, jobz: SingularVectorJob, m: usize, n: usize, a: []T, lda: usize, s: []Float(T), u: []T, ldu: usize, vt: []T, ldvt: usize) GesddError!void` | `gesvd`, divide and conquer's arguments | `?gesdd` | faer v0.24.4's SVD, behind `dgesdd.f`'s arguments, jobs and scaling |
+| `gesvd(allocator, io, T, jobu: SingularVectorJob, jobvt: SingularVectorJob, m: usize, n: usize, a: []T, lda: usize, s: []Float(T), u: []T, ldu: usize, vt: []T, ldvt: usize, unconverged: ?*usize) GesvdError!void` | `A = U·Σ·Vᴴ`, by QR iteration's arguments | `?gesvd` | faer v0.24.4's SVD (bidiagonal divide and conquer, Reference-LAPACK's `bdsqr` as its QR iteration), behind `dgesvd.f`'s arguments, jobs and scaling |
+| `gesdd(allocator, io, T, jobz: SingularVectorJob, m: usize, n: usize, a: []T, lda: usize, s: []Float(T), u: []T, ldu: usize, vt: []T, ldvt: usize) GesddError!void` | `gesvd` with the divide-and-conquer driver's arguments | `?gesdd` | faer v0.24.4's SVD, behind `dgesdd.f`'s arguments, jobs and scaling |
 
 #### Auxiliary
 
@@ -354,7 +354,7 @@ Each in Reference-LAPACK 3.12.0 (`lapack-netlib/SRC/`, as OpenBLAS ships it; mod
 | `posv(allocator, io, T, uplo: Uplo, n: usize, nrhs: usize, a: []T, lda: usize, b: []T, ldb: usize) PosvError!void` | `potrf`, then `potrs` | `?posv` |
 | `pbtrs(allocator, io, T, uplo: Uplo, n: usize, kd: usize, nrhs: usize, ab: []const T, ldab: usize, b: []T, ldb: usize) PbtrsError!void` | solves from `pbtrf`'s factor | `?pbtrs` |
 | `pptrf(allocator, io, T, uplo: Uplo, n: usize, ap: []T) PptrfError!void` | `potrf` for packed `A` | `?pptrf` |
-| `pstrf(allocator, io, T, uplo: Uplo, n: usize, a: []T, lda: usize, piv: []usize, tol: Float(T)) PstrfError!usize` | `PᵀAP = UᴴU`, complete pivoting; returns the rank | `?pstrf` |
+| `pstrf(allocator, io, T, uplo: Uplo, n: usize, a: []T, lda: usize, piv: []usize, tol: Float(T)) PstrfError!usize` | `Pᵀ·A·P = UᴴU`, complete pivoting; returns the rank | `?pstrf` |
 | `pocon(allocator, io, T, uplo: Uplo, n: usize, a: []const T, lda: usize, anorm: Float(T)) PoconError!Float(T)` | reciprocal condition number from `potrf`'s factor | `?pocon` |
 | `gbtrs(allocator, io, T, trans: Trans, n: usize, kl: usize, ku: usize, nrhs: usize, ab: []const T, ldab: usize, ipiv: []const usize, b: []T, ldb: usize) GbtrsError!void` | solves from `gbtrf`'s factor | `?gbtrs` |
 | `gbsv(allocator, io, T, n: usize, kl: usize, ku: usize, nrhs: usize, ab: []T, ldab: usize, ipiv: []usize, b: []T, ldb: usize) GbsvError!void` | `gbtrf`, then `gbtrs` | `?gbsv` |
@@ -363,9 +363,9 @@ Each in Reference-LAPACK 3.12.0 (`lapack-netlib/SRC/`, as OpenBLAS ships it; mod
 | `sytrs(allocator, io, T, uplo: Uplo, n: usize, nrhs: usize, a: []const T, lda: usize, ipiv: []const Pivot, b: []T, ldb: usize) SytrsError!void` | solves from `sytrf`'s factor | `?sytrs`, `?hetrs` |
 | `sysv(allocator, io, T, uplo: Uplo, n: usize, nrhs: usize, a: []T, lda: usize, ipiv: []Pivot, b: []T, ldb: usize) SysvError!void` | `sytrf`, then `sytrs` | `?sysv`, `?hesv` |
 | `sytri(allocator, io, T, uplo: Uplo, n: usize, a: []T, lda: usize, ipiv: []const Pivot) SytriError!void` | `A⁻¹` from `sytrf`'s factor | `?sytri`, `?hetri` |
-| `gelsd(allocator, io, T, m: usize, n: usize, nrhs: usize, a: []T, lda: usize, b: []T, ldb: usize, s: []Float(T), rcond: Float(T)) GelsdError!usize` | least squares, any rank, by SVD (divide and conquer); returns the rank | `?gelsd` |
+| `gelsd(allocator, io, T, m: usize, n: usize, nrhs: usize, a: []T, lda: usize, b: []T, ldb: usize, s: []Float(T), rcond: Float(T)) GelsdError!usize` | the least-squares solution, any rank, by SVD (divide and conquer); returns the rank | `?gelsd` |
 | `gelss(allocator, io, T, m: usize, n: usize, nrhs: usize, a: []T, lda: usize, b: []T, ldb: usize, s: []Float(T), rcond: Float(T)) GelssError!usize` | `gelsd` by QR iteration | `?gelss` |
-| `gglse(allocator, io, T, m: usize, n: usize, p: usize, a: []T, lda: usize, b: []T, ldb: usize, c: []T, d: []T, x: []T) GglseError!void` | least squares with equality constraints `Bx = d` | `?gglse` |
+| `gglse(allocator, io, T, m: usize, n: usize, p: usize, a: []T, lda: usize, b: []T, ldb: usize, c: []T, d: []T, x: []T) GglseError!void` | the least-squares solution with equality constraints `Bx = d` | `?gglse` |
 | `ggglm(allocator, io, T, n: usize, m: usize, p: usize, a: []T, lda: usize, b: []T, ldb: usize, d: []T, x: []T, y: []T) GgglmError!void` | general Gauss-Markov linear model | `?ggglm` |
 | `syevr(allocator, io, T, jobz: VectorJob, range: SpectrumRange(Float(T)), uplo: Uplo, n: usize, a: []T, lda: usize, abstol: Float(T), w: []Float(T), z: []T, ldz: usize, isuppz: []usize) SyevrError!usize` | selected eigenvalues and vectors, relatively robust representations; returns the count | `?syevr`, `?heevr` |
 | `syevx(allocator, io, T, jobz: VectorJob, range: SpectrumRange(Float(T)), uplo: Uplo, n: usize, a: []T, lda: usize, abstol: Float(T), w: []Float(T), z: []T, ldz: usize, ifail: []usize) SyevxError!usize` | `syevr` by bisection and inverse iteration | `?syevx`, `?heevx` |
@@ -402,10 +402,10 @@ Today the routines are methods of the formats, and stay so. The iterative solver
 | `gmres(allocator, io, T, a: LinearOperator(T), preconditioner: ?LinearOperator(T), tol: Float(T), max_iterations: usize, restart: usize, b: []const T, x: []T) SolveError!SolveReport` | restarted GMRES | `SparseGMRES` | RCI ISS `dfgmres` | rstd | yes; as `cg` (#610) |
 | `CompressedColumns(T)`: `add(self: Self, allocator, alpha: T, b: Self, beta: T) AddError!Self` | `αA + βB` | none | `mkl_sparse_?_add` | SciPy `csr_plus_csr`; rstd's `spgemm` merge | backlog |
 | `SparseCholesky(T)`: `analyze(allocator, a: CompressedColumns(T), uplo: Uplo) AnalyzeError!Self`, `factor(self: *Self, allocator, io, a: CompressedColumns(T)) FactorError!void`, `solve(self: Self, io, b: []T) SolveError!void`, `deinit(self: *Self, allocator) void` | sparse `A = LLᴴ`: AMD ordering and elimination tree, then values, then solves | `SparseFactor(SparseFactorizationCholesky)` | PARDISO (`mtype` 2, 4) | faer v0.24.4 `sparse/linalg/cholesky.rs`, `amd.rs` (MIT) | backlog |
-| `SparseLdlt(T)`: as `SparseCholesky(T)` | sparse `A = LDLᴴ` | `SparseFactorizationLDLT` | PARDISO (`mtype` -2) | faer v0.24.4 (MIT) | backlog |
+| `SparseLdlt(T)`: as `SparseCholesky(T)` | sparse `A = L·D·Lᴴ` | `SparseFactorizationLDLT` | PARDISO (`mtype` -2) | faer v0.24.4 (MIT) | backlog |
 | `SparseLu(T)`: as `SparseCholesky(T)`, `analyze` without `uplo` | sparse `PAQ = LU` | none | PARDISO (`mtype` 11, 13) | faer v0.24.4 `sparse/linalg/lu.rs` (MIT) | backlog |
 | `SparseQr(T)`: as `SparseLu(T)`, `solve` minimizing `‖Ax − b‖₂` | sparse `AP = QR` | `SparseFactorizationQR` | `mkl_sparse_?_qr` | faer v0.24.4 `sparse/linalg/qr.rs` (MIT) | backlog |
-| `lsmr(allocator, io, T, a: LinearOperator(T), at: LinearOperator(T), damp: Float(T), atol: Float(T), btol: Float(T), max_iterations: usize, b: []const T, x: []T) SolveError!SolveReport` | least squares by LSMR | `SparseLSMR` | none | SciPy `sparse/linalg/_isolve/lsmr.py` (BSD-3) | backlog |
+| `lsmr(allocator, io, T, a: LinearOperator(T), at: LinearOperator(T), damp: Float(T), atol: Float(T), btol: Float(T), max_iterations: usize, b: []const T, x: []T) SolveError!SolveReport` | the least-squares solution by LSMR | `SparseLSMR` | none | SciPy `sparse/linalg/_isolve/lsmr.py` (BSD-3) | backlog |
 | `JacobiPreconditioner(T)`: `init(allocator, a: CompressedColumns(T)) JacobiError!Self`, `operator(self: *const Self) LinearOperator(T)`, `deinit(self: *Self, allocator) void` | diagonal preconditioner | `SparsePreconditionerDiagonal` | none | Saad, *Iterative Methods for Sparse Linear Systems*, 10.2 | backlog |
 | `IncompleteLu(T)`: as `JacobiPreconditioner(T)` | incomplete LU without fill | none | `dcsrilu0` | Saad, algorithm 10.4 | backlog |
 
@@ -425,7 +425,7 @@ In the move the transforms take the normalization as a trailing argument in plac
 | `StaticRealPlan(n, T)`: `scratchLen(_: Self) usize`, `forward(self: Self, io, out: []Complex(T), in: []const T, scratch: []T, layouts: BatchLayouts, normalization: Normalization) TransformIntoError!void`, `backward(self: Self, io, out: []T, in: []const Complex(T), scratch: []T, layouts: BatchLayouts, normalization: Normalization) TransformIntoError!void` | `RealPlan` with `n` at compile time | none | none | PocketFFT, unrolled | stub (#625) |
 | `TrigTransformPlan(T)`: `init(allocator, n: usize, kind: TrigTransformKind) InitError!Self`, `deinit(self: *Self, allocator) void`, `scratchLen(self: Self) usize`, `transform(self: *const Self, io, data: []T, scratch: []T, layout: BatchLayout, normalization: Normalization) TransformError!void` | DCT and DST types I to IV | `vDSP_DCT_CreateSetup` (II, III, IV) | trigonometric transforms (`d_init_trig_transform`) | PocketFFT C++ `pocketfft_hdronly.hpp` `T_dcst4`, `T_dct1` (BSD-3) | stub (#625) |
 | `ModifiedCosineTransform(T)`: `init(allocator, n: usize) InitError!Self`, `deinit(self: *Self, allocator) void`, `scratchLen(self: Self) usize`, `forward(self: *const Self, out: []T, in: []const T, scratch: []T) FrameError!void`, `backward(self: *const Self, out: []T, in: []const T, scratch: []T) FrameError!void` | modified DCT of `n` samples to `n/2` and back, by a DCT-IV | none | none | Princen-Bradley via `TrigTransformPlan(.dct4)` | stub (#625) |
-| `MultiDimPlan(T)`: `init(allocator, shape: []const usize) InitError!Self`, `deinit(self: *Self, allocator) void`, `scratchLen(self: Self) usize`, `transform(self: *const Self, io, data: []Complex(T), scratch: []Complex(T), direction: Direction, normalization: Normalization) TransformError!void` | complex transform over every axis, column-major | `vDSP_fft2d_zip` (powers of two) | DFTI, multi-dimensional | PocketFFT C++ `c2c` over axes (BSD-3) | backlog |
+| `MultiDimPlan(T)`: `init(allocator, shape: []const usize) InitError!Self`, `deinit(self: *Self, allocator) void`, `scratchLen(self: Self) usize`, `transform(self: *const Self, io, data: []Complex(T), scratch: []Complex(T), direction: Direction, normalization: Normalization) TransformError!void` | complex transform over every axis, column-major | `vDSP_fft2d_zip` (powers of two) | DFTI, multidimensional | PocketFFT C++ `c2c` over axes (BSD-3) | backlog |
 | `binFrequencies(T, n: usize, d: T, out: []T) LengthError!void`, `realBinFrequencies(T, n: usize, d: T, out: []T) LengthError!void` | the frequencies of the bins | none | none | NumPy `numpy.fft.fftfreq`, `rfftfreq` | backlog |
 | `centerZeroFrequency(T, x: []T) void`, `uncenterZeroFrequency(T, x: []T) void` | moves the zero frequency to the middle and back | none | none | NumPy `numpy.fft.fftshift` | backlog |
 
@@ -535,8 +535,8 @@ In the move the transforms take the normalization as a trailing argument in plac
 ## The high-level API
 
 - **A plain function with the best defaults and no options:** `stats.variance(io, xs, normalize)`, `fft` transforms, `Matrix` operations.
-- **A `*With` sibling for advanced users, with an options struct:** `stats.varianceWith(io, xs, normalize, .{ .summation = .compensated })`. Each field defaults to what the plain function uses, so a caller names only what they change; a field takes the kernel layer's own type (`blas.Summation`) and passes it through unchanged, so a user reaches the knobs without calling the kernel layer themselves.
-- **No options on the plain function** (user, 2026-11-20): nobody passes `.{}` just to say "the defaults". The options struct belongs to the `*With` sibling only. `fft`'s `Options` (`.norm`) and `stats.quantile`'s `QuantileOptions` (`.method`) move from the plain functions to new `*With` siblings in their moves ([#611](https://github.com/randyos-org/rstd/issues/611), [#613](https://github.com/randyos-org/rstd/issues/613)); today's `meanWith`, `varianceWith` and `stdDevWith` take a struct in place of their `Summation` argument ([#605](https://github.com/randyos-org/rstd/issues/605)). Build-time settings a root declares once (`rstd_linalg_options`) are not call options and stay.
+- **For advanced users, a sibling ending in `With`, taking a struct of options:** `stats.varianceWith(io, xs, normalize, .{ .summation = .compensated })`. Each field defaults to what the plain function uses, so a caller names only what they change; a field takes the kernel layer's own type (`blas.Summation`) and passes it through unchanged, so a user reaches the knobs without calling the kernel layer themselves.
+- **No options on the plain function** (user, 2026-11-20): nobody passes `.{}` just to ask for the default behavior. That struct belongs only to the sibling ending in `With`. `fft`'s `Options` (`.norm`) and `stats.quantile`'s `QuantileOptions` (`.method`) move from the plain functions to new `*With` siblings in their moves ([#611](https://github.com/randyos-org/rstd/issues/611), [#613](https://github.com/randyos-org/rstd/issues/613)); today's `meanWith`, `varianceWith` and `stdDevWith` take a struct in place of their `Summation` argument ([#605](https://github.com/randyos-org/rstd/issues/605)). Build-time settings a root declares once (`rstd_linalg_options`) are not call options and stay.
 - **No switch on a kernel option:** a high-level function that would have to switch on the summation mode or a method itself is a sign the algorithm belongs in a kernel ([#597](https://github.com/randyos-org/rstd/issues/597)): variance's deviation pass became a `kernels.stats` reduction ([#605](https://github.com/randyos-org/rstd/issues/605)).
 
 ## High-level functions
@@ -581,9 +581,9 @@ MATLAB's names and argument order where MATLAB has the routine; NumPy's where it
 | `lu(allocator, io, a: anytype) (Allocator.Error \|\| Io.Cancelable)!Lu(ElementOf(@TypeOf(a)))` | `PA = LU` | yes |
 | `chol(allocator, io, a: anytype) CholError!Mat(ElementOf(@TypeOf(a)))` | `A = RᴴR` | yes |
 | `qr(allocator, io, a: anytype, mode: QrMode) (Allocator.Error \|\| Io.Cancelable)!Qr(ElementOf(@TypeOf(a)))` | `A = QR` | yes |
-| `svd(allocator, io, a: anytype, mode: SvdMode) SvdError!Svd(ElementOf(@TypeOf(a)))` | `A = UΣVᴴ` | yes |
+| `svd(allocator, io, a: anytype, mode: SvdMode) SvdError!Svd(ElementOf(@TypeOf(a)))` | `A = U·Σ·Vᴴ` | yes |
 | `eig(allocator, io, a: anytype, want_vectors: bool) EigError!Eig(ElementOf(@TypeOf(a)))` | eigenvalues, and vectors; Hermitian `A` by the symmetric path | yes |
-| `hess(allocator, io, a: anytype) HessError!Hess(ElementOf(@TypeOf(a)))` | `A = QHQᴴ` | yes |
+| `hess(allocator, io, a: anytype) HessError!Hess(ElementOf(@TypeOf(a)))` | `A = Q·H·Qᴴ` | yes |
 | `schur(allocator, io, a: anytype) SchurError!Schur(ElementOf(@TypeOf(a)))`, `schurComplex(...)` | real or complex Schur form | yes |
 | `matrixNorm(allocator, io, a: anytype, which: MatrixNorm) MatrixNormError!Real(ElementOf(@TypeOf(a)))` | `norm(A, p)` | yes |
 | `cond(allocator, io, a: anytype) SvdError!Real(ElementOf(@TypeOf(a)))`, `rcond(allocator, io, a: anytype) RcondError!Real(ElementOf(@TypeOf(a)))` | the 2-norm condition number; its one-norm reciprocal estimate | yes |
@@ -632,7 +632,7 @@ Today's `fft` module is the plans (`Plan`, `RealPlan` and the stubs), which move
 | `Convolver(T)`: `init(allocator, filter: []const T, block: usize) InitError!Self`, `deinit(self: *Self, allocator) void`, `reset(self: *Self) void`, `process(self: *Self, out: []T, in: []const T) Error!void` | streaming convolution with a long filter, uniformly partitioned | yes |
 | `convolve`, `correlate` | whole-signal convolution and correlation, allocating, by direct sums or FFT products by size (`kernels.dsp.convolve` with `ConvolutionMode`) | named; backlog (#627) |
 | `filter` | IIR filtering by second-order sections (SciPy's `sosfilt`, over `kernels.dsp.biquad`) | named; backlog (#627) |
-| `spectrogram` | power spectra of an `Stft` in decibels | named; backlog (#627) |
+| `spectrogram` | power spectra of a short-time Fourier transform, in decibels | named; backlog (#627) |
 | `resample` | rational resampling (SciPy's `resample_poly`) | named; backlog (#627) |
 
 - Filter design (Butterworth, Chebyshev, FIR windows: SciPy's `butter`, `firwin`). Spec to be decided.
@@ -672,7 +672,7 @@ Today inside `blas`; it moves up to `rstd.math.kernels` when a second domain use
 
 ## Backends
 
-- **rstd's own kernels, everywhere.** RandyOS's targets (bare-metal x86_64 and aarch64, UEFI, 32-bit Arm, the PowerPC 750) and Linux have no vendor library, and the kernels are the port's source.
+- **Rstd's own kernels, everywhere.** RandyOS's targets (bare-metal x86_64 and aarch64, UEFI, 32-bit Arm, the PowerPC 750) and Linux have no vendor library, and the kernels are the port's source.
 - **Accelerate, the default on macOS:** part of the OS, and the only full access to Apple's matrix hardware. Routed in `blas/apple_accel.zig` today; vDSP and vForce are not bound yet.
 - **MKL and Arm Performance Libraries: backlog** ([#617](https://github.com/randyos-org/rstd/issues/617)). Each is one more entry in the wrappers that already switch between rstd's kernels and Accelerate, loaded at run time (`dll.zig`), never shipped.
 - **A vendor backend keeps the reproducibility rule:** verified to give the same bits for any worker count, or run single-threaded.
