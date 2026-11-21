@@ -1,0 +1,367 @@
+//! Section 11 of 12 of the text of `zgemv_r`, which `__root__.zig` joins, from OpenBLAS `kernel/power/zgemv_n.S` (`v0.3.34-794-gdbf2c24c9`); converted by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+pub const text =
+    \\ .align 4
+    \\ 20035:
+    \\ andi. 0, 3, 1
+    \\ ble 20036f
+    \\ lfd 0, 0 * 8(19)
+    \\ lfd 1, 1 * 8(19)
+    \\ .if \bp0
+    \\ add 19, 19, 5
+    \\ .endif
+    \\ .if \bp1
+    \\ add 19, 19, 7
+    \\ .endif
+    \\ lfd 24, 0 * 8(14)
+    \\ lfd 25, 1 * 8(14)
+    \\ lfd 26, 0 * 8(15)
+    \\ lfd 27, 1 * 8(15)
+    \\ fmadd 0, 16, 24, 0
+    \\ fmadd 1, 17, 24, 1
+    \\ fmadd 0, 17, 25, 0
+    \\ fnmsub 1, 16, 25, 1
+    \\ fmadd 0, 18, 26, 0
+    \\ fmadd 1, 19, 26, 1
+    \\ fmadd 0, 19, 27, 0
+    \\ fnmsub 1, 18, 27, 1
+    \\ stfd 0, 0 * 8(20)
+    \\ stfd 1, 1 * 8(20)
+    \\ .if \bp0
+    \\ add 20, 20, 5
+    \\ .endif
+    \\ .if \bp1
+    \\ add 20, 20, 7
+    \\ .endif
+    \\ .align 4
+    \\ 20036:
+    \\ andi. 12, 4, 1
+    \\ ble 20043f
+    \\ .align 4
+    \\ 20037:
+    \\ .if \bp0
+    \\ lfd 14, 208(1)
+    \\ lfd 15, 216(1)
+    \\ lfd 24, 0 * 8(8)
+    \\ lfd 25, 1 * 8(8)
+    \\ add 8, 8, 9
+    \\ .endif
+    \\ .if \bp1
+    \\ lfd 14, 256(1)
+    \\ lfd 15, 264(1)
+    \\ lfd 24, 0 * 8(10)
+    \\ lfd 25, 1 * 8(10)
+    \\ add 10, 10, 5
+    \\ .endif
+    \\ fmul 16, 14, 24
+    \\ fmul 17, 15, 24
+    \\ fnmsub 16, 15, 25, 16
+    \\ fmadd 17, 14, 25, 17
+    \\ .if \bp0
+    \\ mr 14, 6
+    \\ add 6, 14, 7
+    \\ mr 19, 10
+    \\ mr 20, 10
+    \\ srawi. 0, 3, 3
+    \\ .endif
+    \\ .if \bp1
+    \\ mr 14, 8
+    \\ add 8, 14, 9
+    \\ mr 19, 6
+    \\ mr 20, 6
+    \\ sradi. 0, 3, 3
+    \\ .endif
+    \\ mtspr 9, 0
+    \\ ble 20040f
+    \\ .align 4
+    \\ lfd 0, 0 * 8(19)
+    \\ lfd 1, 1 * 8(19)
+    \\ .if \bp0
+    \\ add 19, 19, 5
+    \\ .endif
+    \\ .if \bp1
+    \\ add 19, 19, 7
+    \\ .endif
+    \\ lfd 2, 0 * 8(19)
+    \\ lfd 3, 1 * 8(19)
+    \\ .if \bp0
+    \\ add 19, 19, 5
+    \\ .endif
+    \\ .if \bp1
+    \\ add 19, 19, 7
+    \\ .endif
+    \\ lfd 24, 0 * 8(14)
+    \\ lfd 26, 2 * 8(14)
+    \\ lfd 28, 4 * 8(14)
+    \\ lfd 30, 6 * 8(14)
+    \\ lfd 4, 0 * 8(19)
+    \\ lfd 5, 1 * 8(19)
+    \\ .if \bp0
+    \\ add 19, 19, 5
+    \\ .endif
+    \\ .if \bp1
+    \\ add 19, 19, 7
+    \\ .endif
+    \\ lfd 6, 0 * 8(19)
+    \\ lfd 7, 1 * 8(19)
+    \\ .if \bp0
+    \\ add 19, 19, 5
+    \\ .endif
+    \\ .if \bp1
+    \\ add 19, 19, 7
+    \\ .endif
+    \\ lfd 25, 1 * 8(14)
+    \\ lfd 27, 3 * 8(14)
+    \\ lfd 29, 5 * 8(14)
+    \\ lfd 31, 7 * 8(14)
+    \\ lfd 8, 0 * 8(19)
+    \\ lfd 9, 1 * 8(19)
+    \\ .if \bp0
+    \\ add 19, 19, 5
+    \\ .endif
+    \\ .if \bp1
+    \\ add 19, 19, 7
+    \\ .endif
+    \\ lfd 10, 0 * 8(19)
+    \\ lfd 11, 1 * 8(19)
+    \\ .if \bp0
+    \\ add 19, 19, 5
+    \\ .endif
+    \\ .if \bp1
+    \\ add 19, 19, 7
+    \\ .endif
+    \\ lfd 12, 0 * 8(19)
+    \\ lfd 13, 1 * 8(19)
+    \\ .if \bp0
+    \\ add 19, 19, 5
+    \\ .endif
+    \\ .if \bp1
+    \\ add 19, 19, 7
+    \\ .endif
+    \\ lfd 14, 0 * 8(19)
+    \\ lfd 15, 1 * 8(19)
+    \\ .if \bp0
+    \\ add 19, 19, 5
+    \\ .endif
+    \\ .if \bp1
+    \\ add 19, 19, 7
+    \\ .endif
+    \\ bdz 20039f
+    \\ .align 4
+    \\ 20038:
+    \\ fmadd 0, 16, 24, 0
+    \\ fmadd 1, 17, 24, 1
+    \\ fmadd 2, 16, 26, 2
+    \\ fmadd 3, 17, 26, 3
+    \\ fmadd 4, 16, 28, 4
+    \\ fmadd 5, 17, 28, 5
+    \\ fmadd 6, 16, 30, 6
+    \\ fmadd 7, 17, 30, 7
+    \\ lfd 24, 8 * 8(14)
+    \\ lfd 26, 10 * 8(14)
+    \\ lfd 28, 12 * 8(14)
+    \\ lfd 30, 14 * 8(14)
+    \\ fmadd 0, 17, 25, 0
+    \\ fnmsub 1, 16, 25, 1
+    \\ fmadd 2, 17, 27, 2
+    \\ fnmsub 3, 16, 27, 3
+    \\ stfd 0, 0 * 8(20)
+    \\ nop
+    \\ stfd 1, 1 * 8(20)
+    \\ .if \bp0
+    \\ add 20, 20, 5
+    \\ .endif
+    \\ .if \bp1
+    \\ add 20, 20, 7
+    \\ .endif
+    \\ lfd 0, 0 * 8(19)
+    \\ nop
+    \\ lfd 1, 1 * 8(19)
+    \\ .if \bp0
+    \\ add 19, 19, 5
+    \\ .endif
+    \\ .if \bp1
+    \\ add 19, 19, 7
+    \\ .endif
+    \\ stfd 2, 0 * 8(20)
+    \\ nop
+    \\ stfd 3, 1 * 8(20)
+    \\ .if \bp0
+    \\ add 20, 20, 5
+    \\ .endif
+    \\ .if \bp1
+    \\ add 20, 20, 7
+    \\ .endif
+    \\ lfd 2, 0 * 8(19)
+    \\ nop
+    \\ lfd 3, 1 * 8(19)
+    \\ .if \bp0
+    \\ add 19, 19, 5
+    \\ .endif
+    \\ .if \bp1
+    \\ add 19, 19, 7
+    \\ .endif
+    \\ fmadd 4, 17, 29, 4
+    \\ fnmsub 5, 16, 29, 5
+    \\ fmadd 6, 17, 31, 6
+    \\ fnmsub 7, 16, 31, 7
+    \\ lfd 25, 9 * 8(14)
+    \\ lfd 27, 11 * 8(14)
+    \\ lfd 29, 13 * 8(14)
+    \\ lfd 31, 15 * 8(14)
+    \\ addi 14, 14, 16 * 8
+    \\ nop
+    \\ .if \bp8
+    \\ dcbt 21, 14
+    \\ .endif
+    \\ .if \bp9
+    \\ dcbt 8, 21, 14
+    \\ .endif
+    \\ .if \bp6
+    \\ dcbtst 21, 14
+    \\ .endif
+    \\ nop
+    \\ stfd 4, 0 * 8(20)
+    \\ nop
+    \\ stfd 5, 1 * 8(20)
+    \\ .if \bp0
+    \\ add 20, 20, 5
+    \\ .endif
+    \\ .if \bp1
+    \\ add 20, 20, 7
+    \\ .endif
+    \\ lfd 4, 0 * 8(19)
+    \\ nop
+    \\ lfd 5, 1 * 8(19)
+    \\ .if \bp0
+    \\ add 19, 19, 5
+    \\ .endif
+    \\ .if \bp1
+    \\ add 19, 19, 7
+    \\ .endif
+    \\ stfd 6, 0 * 8(20)
+    \\ nop
+    \\ stfd 7, 1 * 8(20)
+    \\ .if \bp0
+    \\ add 20, 20, 5
+    \\ .endif
+    \\ .if \bp1
+    \\ add 20, 20, 7
+    \\ .endif
+    \\ lfd 6, 0 * 8(19)
+    \\ nop
+    \\ lfd 7, 1 * 8(19)
+    \\ .if \bp0
+    \\ add 19, 19, 5
+    \\ .endif
+    \\ .if \bp1
+    \\ add 19, 19, 7
+    \\ .endif
+    \\ fmadd 8, 16, 24, 8
+    \\ fmadd 9, 17, 24, 9
+    \\ fmadd 10, 16, 26, 10
+    \\ fmadd 11, 17, 26, 11
+    \\ fmadd 12, 16, 28, 12
+    \\ fmadd 13, 17, 28, 13
+    \\ fmadd 14, 16, 30, 14
+    \\ fmadd 15, 17, 30, 15
+    \\ lfd 24, 0 * 8(14)
+    \\ lfd 26, 2 * 8(14)
+    \\ lfd 28, 4 * 8(14)
+    \\ lfd 30, 6 * 8(14)
+    \\ fmadd 8, 17, 25, 8
+    \\ fnmsub 9, 16, 25, 9
+    \\ fmadd 10, 17, 27, 10
+    \\ fnmsub 11, 16, 27, 11
+    \\ stfd 8, 0 * 8(20)
+    \\ nop
+    \\ stfd 9, 1 * 8(20)
+    \\ .if \bp0
+    \\ add 20, 20, 5
+    \\ .endif
+    \\ .if \bp1
+    \\ add 20, 20, 7
+    \\ .endif
+    \\ lfd 8, 0 * 8(19)
+    \\ nop
+    \\ lfd 9, 1 * 8(19)
+    \\ .if \bp0
+    \\ add 19, 19, 5
+    \\ .endif
+    \\ .if \bp1
+    \\ add 19, 19, 7
+    \\ .endif
+    \\ stfd 10, 0 * 8(20)
+    \\ nop
+    \\ stfd 11, 1 * 8(20)
+    \\ .if \bp0
+    \\ add 20, 20, 5
+    \\ .endif
+    \\ .if \bp1
+    \\ add 20, 20, 7
+    \\ .endif
+    \\ lfd 10, 0 * 8(19)
+    \\ nop
+    \\ lfd 11, 1 * 8(19)
+    \\ .if \bp0
+    \\ add 19, 19, 5
+    \\ .endif
+    \\ .if \bp1
+    \\ add 19, 19, 7
+    \\ .endif
+    \\ fmadd 12, 17, 29, 12
+    \\ fnmsub 13, 16, 29, 13
+    \\ fmadd 14, 17, 31, 14
+    \\ fnmsub 15, 16, 31, 15
+    \\ lfd 25, 1 * 8(14)
+    \\ lfd 27, 3 * 8(14)
+    \\ lfd 29, 5 * 8(14)
+    \\ lfd 31, 7 * 8(14)
+    \\ stfd 12, 0 * 8(20)
+    \\ nop
+    \\ stfd 13, 1 * 8(20)
+    \\ .if \bp0
+    \\ add 20, 20, 5
+    \\ .endif
+    \\ .if \bp1
+    \\ add 20, 20, 7
+    \\ .endif
+    \\ stfd 14, 0 * 8(20)
+    \\ nop
+    \\ stfd 15, 1 * 8(20)
+    \\ .if \bp0
+    \\ add 20, 20, 5
+    \\ .endif
+    \\ .if \bp1
+    \\ add 20, 20, 7
+    \\ .endif
+    \\ lfd 12, 0 * 8(19)
+    \\ nop
+    \\ lfd 13, 1 * 8(19)
+    \\ .if \bp0
+    \\ add 19, 19, 5
+    \\ .endif
+    \\ .if \bp1
+    \\ add 19, 19, 7
+    \\ .endif
+    \\ lfd 14, 0 * 8(19)
+    \\ nop
+    \\ lfd 15, 1 * 8(19)
+    \\ .if \bp0
+    \\ add 19, 19, 5
+    \\ .endif
+    \\ .if \bp1
+    \\ add 19, 19, 7
+    \\ .endif
+    \\ .if \bp8
+    \\ dcbt 22, 19
+    \\ .endif
+    \\ .if \bp9
+    \\ dcbt 8, 22, 19
+    \\ .endif
+    \\ .if \bp6
+    \\ dcbtst 22, 19
+    \\ .endif
+    \\ bdnz 20038b
+    \\
+;

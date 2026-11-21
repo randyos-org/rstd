@@ -1,7 +1,7 @@
 //! Pixel primitives on an `RgbaImage`, used by the software backend.
 
 const RgbaImage = @import("image.zig").RgbaImage;
-const color = @import("color.zig");
+const color = @import("color/__root__.zig");
 const RGBA = color.RGBA;
 const geometry = @import("geometry.zig");
 const Point = geometry.Point;
@@ -35,9 +35,8 @@ fn insideRound(p: PointF32, p0: PointF32, p1: PointF32, r: f32) bool {
     // Clamp point to the inner rectangle (the rounded-corner centers box).
     const cx = @max(p0.x + r, @min(p.x, p1.x - r));
     const cy = @max(p0.y + r, @min(p.y, p1.y - r));
-    const dx = p.x - cx;
-    const dy = p.y - cy;
-    return dx * dx + dy * dy <= r * r;
+    const d = p.sub(.{ .x = cx, .y = cy });
+    return d.dot(d) <= r * r;
 }
 
 pub fn blendPixel(img: *RgbaImage, p: Point, c: RGBA) void {

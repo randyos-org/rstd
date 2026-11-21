@@ -14,6 +14,9 @@ pub fn main(init: std.process.Init.Minimal) void {
     mount("sysfs", "/sys", "sysfs");
     mount("devtmpfs", "/dev", "devtmpfs");
     mount("tmpfs", "/tmp", "tmpfs");
+    // ThreadSanitizer maps shadow beside every mapping: its ENOMEM at 8G and
+    // 12G alike reads as the default 65530 maps running out (issue #412)
+    write("/proc/sys/vm/max_map_count", "1048576\n");
 
     // Through a pipe, not the console: on a terminal the test runner redraws
     // one progress line, which the serial log barely shows; on a pipe it
@@ -66,6 +69,13 @@ fn mount(special: [*:0]const u8, dir: [*:0]const u8, fstype: [*:0]const u8) void
         say(std.mem.span(dir));
         say("\n");
     }
+}
+
+fn write(path: [*:0]const u8, s: []const u8) void {
+    const fd = linux.open(path, .{ .ACCMODE = .WRONLY }, 0);
+    if (linux.errno(fd) != .SUCCESS) return say("linuxtest: cannot write a sysctl\n");
+    _ = linux.write(@intCast(fd), s.ptr, s.len);
+    _ = linux.close(@intCast(fd));
 }
 
 fn say(s: []const u8) void {

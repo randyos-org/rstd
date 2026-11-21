@@ -1,0 +1,62 @@
+//! `s390x`'s gemm blocking parameters, from OpenBLAS `v0.3.34-794-gdbf2c24c9`'s `param.h`; converted by `tools/blas_asm` (retired: issue #618) and maintained by hand. How to read it: `__root__.zig`.
+
+const coretypes = @import("../../../cpu/coretypes.zig");
+const params = @import("../params.zig");
+const Table = params.Table;
+
+/// `BUFFER_SIZE` of a core with no table of its own.
+pub const s390x_buffer_size: i64 = 128 << 20;
+
+pub fn s390x(core: coretypes.S390xCoreType) ?Table {
+    return switch (core) {
+        .zarch_generic => .{
+            .s = .{ .unroll_m = 2, .unroll_n = 2, .p = .{ .fixed = 128 }, .q = .{ .fixed = 240 }, .r = .{ .fixed = 12288 } },
+            .d = .{ .unroll_m = 2, .unroll_n = 2, .p = .{ .fixed = 128 }, .q = .{ .fixed = 120 }, .r = .{ .fixed = 8192 } },
+            .q = .{ .unroll_m = 2, .unroll_n = 2 },
+            .c = .{ .unroll_m = 2, .unroll_n = 2, .p = .{ .fixed = 96 }, .q = .{ .fixed = 120 }, .r = .{ .fixed = 4096 } },
+            .z = .{ .unroll_m = 2, .unroll_n = 2, .p = .{ .fixed = 64 }, .q = .{ .fixed = 120 }, .r = .{ .fixed = 4096 } },
+            .x = .{ .unroll_m = 2, .unroll_n = 2 },
+            .sh = .{ .unroll_m = 8, .unroll_n = 8, .unroll_mn = 32, .align_k = 1, .p = .{ .fixed = 128 }, .q = .{ .fixed = 12288 }, .r = .{ .fixed = 240 } },
+            .b = .{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .sb = .{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .align_ = 16383,
+            .symv_p = 16,
+            .buffer_size = 128 << 20,
+        },
+        .z13 => .{
+            .s = .{ .unroll_m = 8, .unroll_n = 4, .p = .{ .fixed = 456 }, .q = .{ .fixed = 488 }, .r = .{ .fixed = 8192 } },
+            .d = .{ .unroll_m = 8, .unroll_n = 4, .p = .{ .fixed = 320 }, .q = .{ .fixed = 384 }, .r = .{ .fixed = 4096 } },
+            .q = .{ .unroll_m = 2, .unroll_n = 2 },
+            .c = .{ .unroll_m = 4, .unroll_n = 4, .p = .{ .fixed = 480 }, .q = .{ .fixed = 128 }, .r = .{ .fixed = 4096 } },
+            .z = .{ .unroll_m = 4, .unroll_n = 4, .p = .{ .fixed = 224 }, .q = .{ .fixed = 352 }, .r = .{ .fixed = 2048 } },
+            .x = .{ .unroll_m = 2, .unroll_n = 2 },
+            .sh = .{ .unroll_m = 8, .unroll_n = 8, .unroll_mn = 32, .align_k = 1, .p = .{ .fixed = 128 }, .q = .{ .fixed = 12288 }, .r = .{ .fixed = 240 } },
+            .b = .{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .sb = .{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .align_ = 16383,
+            .symv_p = 16,
+            .buffer_size = 128 << 20,
+        },
+        .z14 => .{
+            .s = .{ .unroll_m = 16, .unroll_n = 4, .p = .{ .fixed = 480 }, .q = .{ .fixed = 512 }, .r = .{ .fixed = 8192 } },
+            .d = .{ .unroll_m = 8, .unroll_n = 4, .p = .{ .fixed = 320 }, .q = .{ .fixed = 384 }, .r = .{ .fixed = 4096 } },
+            .q = .{ .unroll_m = 2, .unroll_n = 2 },
+            .c = .{ .unroll_m = 4, .unroll_n = 4, .p = .{ .fixed = 480 }, .q = .{ .fixed = 128 }, .r = .{ .fixed = 4096 } },
+            .z = .{ .unroll_m = 4, .unroll_n = 4, .p = .{ .fixed = 224 }, .q = .{ .fixed = 352 }, .r = .{ .fixed = 2048 } },
+            .x = .{ .unroll_m = 2, .unroll_n = 2 },
+            .sh = .{ .unroll_m = 8, .unroll_n = 8, .unroll_mn = 32, .align_k = 1, .p = .{ .fixed = 128 }, .q = .{ .fixed = 12288 }, .r = .{ .fixed = 240 } },
+            .b = .{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .sb = .{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .align_ = 16383,
+            .symv_p = 16,
+            .buffer_size = 128 << 20,
+        },
+    };
+}
+
+/// `DTB_DEFAULT_ENTRIES`; null where `getarch.c` has no entry for the core.
+pub fn s390x_dtb(core: coretypes.S390xCoreType) ?i32 {
+    return switch (core) {
+        .zarch_generic, .z13, .z14 => 64,
+    };
+}

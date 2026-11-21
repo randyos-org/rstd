@@ -1,0 +1,34 @@
+//! Which block kernel each core's C driver uses, read from the `#if` chain at the top of `kernel/zarch/<p>axpy.c` (OpenBLAS `v0.3.34-794-gdbf2c24c9`); converted by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+const uk = @import("../../../../uk_block.zig");
+
+pub const Entry = uk.Entry;
+
+pub const entries = [_]Entry{
+    .{ .slot = .saxpy_k, .cores = &.{
+        .z14,
+    }, .mask = 64, .block = .assembly, .kernel = "saxpy_kernel_64", .module = @import("saxpy.zig") },
+    .{ .slot = .daxpy_k, .cores = &.{
+        .z13,
+        .z14,
+    }, .mask = 32, .block = .assembly, .kernel = "daxpy_kernel_32", .module = @import("daxpy.zig") },
+    .{ .slot = .caxpy_k, .cores = &.{
+        .z14,
+    }, .mask = 16, .block = .assembly, .kernel = "caxpy_kernel_16", .module = @import("caxpy.zig") },
+    .{ .slot = .caxpyc_k, .cores = &.{
+        .z14,
+    }, .mask = 16, .block = .assembly, .kernel = "caxpyc_kernel_16", .module = @import("caxpy.zig") },
+    .{ .slot = .zaxpy_k, .cores = &.{
+        .z13,
+        .z14,
+    }, .mask = 8, .block = .assembly, .kernel = "zaxpy_kernel_8", .module = @import("zaxpy.zig") },
+    .{ .slot = .zaxpyc_k, .cores = &.{
+        .z13,
+        .z14,
+    }, .mask = 8, .block = .assembly, .kernel = "zaxpyc_kernel_8", .module = @import("zaxpy.zig") },
+};
+
+/// The entry for `slot` on `core`, if its driver is C.
+pub fn find(comptime slot: uk.Slot, comptime core: anytype) ?Entry {
+    return uk.find(&entries, slot, core);
+}

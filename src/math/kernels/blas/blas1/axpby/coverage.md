@@ -1,0 +1,212 @@
+# `axpby` kernel coverage
+
+Surveyed from OpenBLAS `kernel/` (`v0.3.34-794-gdbf2c24c9`) and rstd's kernel indexes by `tools/blas_asm` (retired: [#618](https://github.com/randyos-org/rstd/issues/618)); maintained by hand. How to read it: [`coverage.md`](../../coverage.md).
+
+## x86_64
+
+| core           | saxpby                      | daxpby                      | caxpby                       | zaxpby                       |
+| -------------- | --------------------------- | --------------------------- | ---------------------------- | ---------------------------- |
+| ATOM           | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| BARCELONA      | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| BOBCAT         | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| BULLDOZER      | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| COOPERLAKE     | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| CORE2          | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| DUNNINGTON     | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| EXCAVATOR      | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| generic        | `../arm/axpby.c` → n/a      | `../arm/axpby.c` → n/a      | `../arm/zaxpby.c` → n/a      | `../arm/zaxpby.c` → n/a      |
+| HASWELL        | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| NANO           | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| NEHALEM        | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| OPTERON        | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| OPTERON_SSE3   | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| PENRYN         | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| PILEDRIVER     | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| PRESCOTT       | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| SANDYBRIDGE    | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| SAPPHIRERAPIDS | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| SKYLAKEX       | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| STEAMROLLER    | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| ZEN            | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+
+## x86
+
+| core         | saxpby                      | daxpby                      | caxpby                       | zaxpby                       |
+| ------------ | --------------------------- | --------------------------- | ---------------------------- | ---------------------------- |
+| ATHLON       | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| ATOM         | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| BANIAS       | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| BARCELONA    | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| BOBCAT       | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| BULLDOZER    | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| COPPERMINE   | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| CORE2        | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| DUNNINGTON   | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| generic      | `../arm/axpby.c` → n/a      | `../arm/axpby.c` → n/a      | `../arm/zaxpby.c` → n/a      | `../arm/zaxpby.c` → n/a      |
+| HASWELL      | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| KATMAI       | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| NANO         | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| NEHALEM      | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| NORTHWOOD    | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| OPTERON      | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| OPTERON_SSE3 | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| P5           | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| P6           | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| PENRYN       | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| PILEDRIVER   | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| PRESCOTT     | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| SANDYBRIDGE  | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| VIAC3        | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| YONAH        | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| ZEN          | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+
+## arm64
+
+| core          | saxpby                      | daxpby                      | caxpby                       | zaxpby                       |
+| ------------- | --------------------------- | --------------------------- | ---------------------------- | ---------------------------- |
+| A64FX         | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| AMPERE1       | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| ARMV8         | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| ARMV8SVE      | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| ARMV9SME      | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| CORTEXA510    | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| CORTEXA53     | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| CORTEXA55     | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| CORTEXA57     | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| CORTEXA710    | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| CORTEXA72     | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| CORTEXA73     | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| CORTEXA76     | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| CORTEXX1      | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| CORTEXX2      | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| EMAG8180      | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| FALKOR        | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| FT2000        | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| generic       | `../arm/axpby.c` → n/a      | `../arm/axpby.c` → n/a      | `../arm/zaxpby.c` → n/a      | `../arm/zaxpby.c` → n/a      |
+| NEOVERSEN1    | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| NEOVERSEN2    | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| NEOVERSEV1    | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| NEOVERSEV2    | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| THUNDERX      | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| THUNDERX2T99  | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| THUNDERX3T110 | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| TSV110        | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| VORTEX        | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| VORTEXM4      | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+
+## arm
+
+| core      | saxpby                      | daxpby                      | caxpby                       | zaxpby                       |
+| --------- | --------------------------- | --------------------------- | ---------------------------- | ---------------------------- |
+| ARMV5     | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| ARMV6     | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| ARMV7     | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| CORTEXA15 | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| CORTEXA9  | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+
+## power
+
+| core      | saxpby                      | daxpby                      | caxpby                       | zaxpby                       |
+| --------- | --------------------------- | --------------------------- | ---------------------------- | ---------------------------- |
+| CELL      | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| POWER10   | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| POWER3    | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| POWER4    | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| POWER5    | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| POWER6    | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| POWER8    | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| POWER9    | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| PPC440    | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| PPC440FP2 | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| PPC970    | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| PPCG4     | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+
+## mips64
+
+| core           | saxpby                      | daxpby                      | caxpby                       | zaxpby                       |
+| -------------- | --------------------------- | --------------------------- | ---------------------------- | ---------------------------- |
+| generic        | `../arm/axpby.c` → n/a      | `../arm/axpby.c` → n/a      | `../arm/zaxpby.c` → n/a      | `../arm/zaxpby.c` → n/a      |
+| I6400          | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| I6500          | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| LOONGSON3R3    | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| LOONGSON3R4    | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| MIPS64_GENERIC | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| P6600          | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+
+## mips
+
+| core      | saxpby                      | daxpby                      | caxpby                       | zaxpby                       |
+| --------- | --------------------------- | --------------------------- | ---------------------------- | ---------------------------- |
+| generic   | `../arm/axpby.c` → n/a      | `../arm/axpby.c` → n/a      | `../arm/zaxpby.c` → n/a      | `../arm/zaxpby.c` → n/a      |
+| MIPS1004K | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| MIPS24K   | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| P5600     | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+
+## riscv64
+
+| core            | saxpby                                      | daxpby                                      | caxpby                                       | zaxpby                                       |
+| --------------- | ------------------------------------------- | ------------------------------------------- | -------------------------------------------- | -------------------------------------------- |
+| C910V           | `axpby_vector.c` +intrinsics → **portable** | `axpby_vector.c` +intrinsics → **portable** | `zaxpby_vector.c` +intrinsics → **portable** | `zaxpby_vector.c` +intrinsics → **portable** |
+| RISCV64_GENERIC | `../riscv64/axpby.c` → portable             | `../riscv64/axpby.c` → portable             | `../riscv64/zaxpby.c` → portable             | `../riscv64/zaxpby.c` → portable             |
+| RISCV64_ZVL128B | `axpby_rvv.c` +intrinsics → C+vec           | `axpby_rvv.c` +intrinsics → C+vec           | `zaxpby_rvv.c` +intrinsics → C+vec           | `zaxpby_rvv.c` +intrinsics → C+vec           |
+| RISCV64_ZVL256B | `axpby_vector_v2.c` +intrinsics → C+vec     | `axpby_vector_v2.c` +intrinsics → C+vec     | `../arm/zaxpby.c` → portable                 | `../arm/zaxpby.c` → portable                 |
+| U74             | `../riscv64/axpby.c` → portable             | `../riscv64/axpby.c` → portable             | `../riscv64/zaxpby.c` → portable             | `../riscv64/zaxpby.c` → portable             |
+| x280            | `axpby_rvv.c` +intrinsics → C+vec           | `axpby_rvv.c` +intrinsics → C+vec           | `zaxpby_rvv.c` +intrinsics → C+vec           | `zaxpby_rvv.c` +intrinsics → C+vec           |
+
+## loongarch64
+
+| core         | saxpby                      | daxpby                      | caxpby                       | zaxpby                       |
+| ------------ | --------------------------- | --------------------------- | ---------------------------- | ---------------------------- |
+| generic      | `../arm/axpby.c` → n/a      | `../arm/axpby.c` → n/a      | `../arm/zaxpby.c` → n/a      | `../arm/zaxpby.c` → n/a      |
+| LA264        | `axpby_lsx.S` → asm         | `axpby_lsx.S` → asm         | `caxpby_lsx.S` → asm         | `caxpby_lsx.S` → asm         |
+| LA464        | `axpby_lasx.S` → asm        | `axpby_lasx.S` → asm        | `caxpby_lasx.S` → asm        | `caxpby_lasx.S` → asm        |
+| LA64_GENERIC | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+
+## zarch
+
+| core          | saxpby                      | daxpby                      | caxpby                       | zaxpby                       |
+| ------------- | --------------------------- | --------------------------- | ---------------------------- | ---------------------------- |
+| Z13           | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| Z14           | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| ZARCH_GENERIC | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+
+## sparc
+
+| core    | saxpby                      | daxpby                      | caxpby                       | zaxpby                       |
+| ------- | --------------------------- | --------------------------- | ---------------------------- | ---------------------------- |
+| sparc   | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+| sparcv7 | `../arm/axpby.c` → portable | `../arm/axpby.c` → portable | `../arm/zaxpby.c` → portable | `../arm/zaxpby.c` → portable |
+
+## alpha
+
+rstd has no target here.
+
+| core  | saxpby                 | daxpby                 | caxpby                  | zaxpby                  |
+| ----- | ---------------------- | ---------------------- | ----------------------- | ----------------------- |
+| (all) | `../arm/axpby.c` → n/a | `../arm/axpby.c` → n/a | `../arm/zaxpby.c` → n/a | `../arm/zaxpby.c` → n/a |
+
+## ia64
+
+rstd has no target here.
+
+| core  | saxpby                 | daxpby                 | caxpby                  | zaxpby                  |
+| ----- | ---------------------- | ---------------------- | ----------------------- | ----------------------- |
+| (all) | `../arm/axpby.c` → n/a | `../arm/axpby.c` → n/a | `../arm/zaxpby.c` → n/a | `../arm/zaxpby.c` → n/a |
+
+## wasm
+
+| core            | saxpby                          | daxpby                          | caxpby                           | zaxpby                           |
+| --------------- | ------------------------------- | ------------------------------- | -------------------------------- | -------------------------------- |
+| WASM128_GENERIC | `../riscv64/axpby.c` → portable | `../riscv64/axpby.c` → portable | `../riscv64/zaxpby.c` → portable | `../riscv64/zaxpby.c` → portable |
+
+## Gaps
+
+The roles a core runs portable where upstream is tuned. By architecture: riscv64 4.
+
+| architecture | core  | roles                          |
+| ------------ | ----- | ------------------------------ |
+| riscv64      | C910V | saxpby, daxpby, caxpby, zaxpby |
+
+## Totals
+
+(core, role) pairs by what rstd serves: `portable` 442, `n/a` 32, `C+vec` 10, `asm` 8. 4 gaps.

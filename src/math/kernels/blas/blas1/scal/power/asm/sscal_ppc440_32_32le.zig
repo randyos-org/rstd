@@ -1,0 +1,154 @@
+//! `sscal` for ppc440, ppcg4 (32); ppc440, ppcg4 (32le), from OpenBLAS `kernel/power/scal_ppc440.S` (`v0.3.34-794-gdbf2c24c9`); converted by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+/// Each function's core and variant, and its parts (`__bk`'s arguments).
+pub const keys = .{
+    .{ .core = .ppc440, .variant = "32", .parts = "0" },
+    .{ .core = .ppcg4, .variant = "32", .parts = "1" },
+    .{ .core = .ppc440, .variant = "32le", .parts = "0" },
+    .{ .core = .ppcg4, .variant = "32le", .parts = "1" },
+};
+
+/// The functions' one text, a macro whose parameters select the parts.
+const text =
+    \\ .macro __bk bp0
+    \\ .align 6
+    \\ addi 1, 1, -8
+    \\ li 0, 0
+    \\ stw 0, 0(1)
+    \\ lfs 0, 0(1)
+    \\ addi 1, 1, 8
+    \\ slwi 7, 7, 2
+    \\ li 5, 3 * 16 * 4
+    \\ cmpwi 0, 3, 0
+    \\ blelr- 0
+    \\ sub 6, 6, 7
+    \\ fcmpu 0, 0, 1
+    \\ bne- 0, 20003f
+    \\ lwz 11, (((0) * 4) + 8)(1)
+    \\ cmpwi 0, 11, 1
+    \\ beq- 0, 20003f
+    \\ srawi. 0, 3, 4
+    \\ mtspr 9, 0
+    \\ beq- 0, 20001f
+    \\ .align 4
+    \\ 20000:
+    \\ .if \bp0
+    \\ dcbtst 6, 5
+    \\ .endif
+    \\ stfsux 0, 6, 7
+    \\ stfsux 0, 6, 7
+    \\ stfsux 0, 6, 7
+    \\ stfsux 0, 6, 7
+    \\ stfsux 0, 6, 7
+    \\ stfsux 0, 6, 7
+    \\ stfsux 0, 6, 7
+    \\ stfsux 0, 6, 7
+    \\ .if \bp0
+    \\ dcbtst 6, 5
+    \\ .endif
+    \\ stfsux 0, 6, 7
+    \\ stfsux 0, 6, 7
+    \\ stfsux 0, 6, 7
+    \\ stfsux 0, 6, 7
+    \\ stfsux 0, 6, 7
+    \\ stfsux 0, 6, 7
+    \\ stfsux 0, 6, 7
+    \\ stfsux 0, 6, 7
+    \\ bdnz 20000b
+    \\ .align 4
+    \\ 20001:
+    \\ andi. 0, 3, 15
+    \\ mtspr 9, 0
+    \\ beqlr+
+    \\ .align 4
+    \\ 20002:
+    \\ stfsux 0, 6, 7
+    \\ bdnz 20002b
+    \\ blr
+    \\ .align 4
+    \\ 20003:
+    \\ mr 4, 6
+    \\ srawi. 0, 3, 3
+    \\ mtspr 9, 0
+    \\ beq+ 20006f
+    \\ lfsux 2, 6, 7
+    \\ lfsux 3, 6, 7
+    \\ lfsux 4, 6, 7
+    \\ lfsux 5, 6, 7
+    \\ bdz 20005f
+    \\ .align 4
+    \\ 20004:
+    \\ lfsux 6, 6, 7
+    \\ fmuls 2, 1, 2
+    \\ lfsux 7, 6, 7
+    \\ fmuls 3, 1, 3
+    \\ lfsux 8, 6, 7
+    \\ fmuls 4, 1, 4
+    \\ lfsux 9, 6, 7
+    \\ fmuls 5, 1, 5
+    \\ .if \bp0
+    \\ dcbtst 6, 5
+    \\ .endif
+    \\ stfsux 2, 4, 7
+    \\ stfsux 3, 4, 7
+    \\ stfsux 4, 4, 7
+    \\ stfsux 5, 4, 7
+    \\ lfsux 2, 6, 7
+    \\ fmuls 6, 1, 6
+    \\ lfsux 3, 6, 7
+    \\ fmuls 7, 1, 7
+    \\ lfsux 4, 6, 7
+    \\ fmuls 8, 1, 8
+    \\ lfsux 5, 6, 7
+    \\ fmuls 9, 1, 9
+    \\ stfsux 6, 4, 7
+    \\ stfsux 7, 4, 7
+    \\ stfsux 8, 4, 7
+    \\ stfsux 9, 4, 7
+    \\ bdnz 20004b
+    \\ .align 4
+    \\ 20005:
+    \\ lfsux 6, 6, 7
+    \\ fmuls 2, 1, 2
+    \\ lfsux 7, 6, 7
+    \\ fmuls 3, 1, 3
+    \\ lfsux 8, 6, 7
+    \\ fmuls 4, 1, 4
+    \\ lfsux 9, 6, 7
+    \\ fmuls 5, 1, 5
+    \\ stfsux 2, 4, 7
+    \\ fmuls 6, 1, 6
+    \\ stfsux 3, 4, 7
+    \\ fmuls 7, 1, 7
+    \\ stfsux 4, 4, 7
+    \\ fmuls 8, 1, 8
+    \\ stfsux 5, 4, 7
+    \\ fmuls 9, 1, 9
+    \\ stfsux 6, 4, 7
+    \\ stfsux 7, 4, 7
+    \\ stfsux 8, 4, 7
+    \\ stfsux 9, 4, 7
+    \\ .align 4
+    \\ 20006:
+    \\ andi. 0, 3, 7
+    \\ mtspr 9, 0
+    \\ beqlr+
+    \\ .align 4
+    \\ 20007:
+    \\ lfsux 2, 6, 7
+    \\ fmuls 2, 1, 2
+    \\ stfsux 2, 4, 7
+    \\ bdnz 20007b
+    \\ blr
+    \\ .align 4
+    \\ .endm
+    \\
+;
+
+pub fn Body(comptime args: []const u8) type {
+    return struct {
+        pub fn entry() callconv(.naked) void {
+            asm volatile (text ++ (" __bk " ++ args ++ "\n .purgem __bk\n"));
+        }
+    };
+}

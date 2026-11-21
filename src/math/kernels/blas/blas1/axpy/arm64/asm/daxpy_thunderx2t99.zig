@@ -1,0 +1,167 @@
+//! `daxpy` for ampere1, armv8sve, armv9sme, cortexa510, cortexa710, cortexx2, neoversen1, neoversen2, neoversev2, thunderx2t99, thunderx3t110, vortex, vortexm4, from OpenBLAS `kernel/arm64/daxpy_thunderx2t99.S` (`v0.3.34-794-gdbf2c24c9`); converted by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+/// Each function's core and variant.
+pub const keys = .{
+    .{ .core = .ampere1, .variant = "" },
+    .{ .core = .armv8sve, .variant = "" },
+    .{ .core = .armv9sme, .variant = "" },
+    .{ .core = .cortexa510, .variant = "" },
+    .{ .core = .cortexa710, .variant = "" },
+    .{ .core = .cortexx2, .variant = "" },
+    .{ .core = .neoversen1, .variant = "" },
+    .{ .core = .neoversen2, .variant = "" },
+    .{ .core = .neoversev2, .variant = "" },
+    .{ .core = .thunderx2t99, .variant = "" },
+    .{ .core = .thunderx3t110, .variant = "" },
+    .{ .core = .vortex, .variant = "" },
+    .{ .core = .vortexm4, .variant = "" },
+};
+
+pub const Body = struct {
+    pub fn entry() callconv(.naked) void {
+        asm volatile (
+            \\ .macro PROLOGUE
+            \\ .p2align 2
+            \\ .endm
+            \\ .macro KERNEL_F1
+            \\ ldr d1, [x3], #8
+            \\ ldr d2, [x5]
+            \\ fmadd d2, d1, d0, d2
+            \\ str d2, [x5], #8
+            \\ .endm
+            \\ .macro KERNEL_F16
+            \\ ldp q4, q5, [x3]
+            \\ ldp q16, q17, [x5]
+            \\ ldp q6, q7, [x3, #32]
+            \\ ldp q18, q19, [x5, #32]
+            \\ fmla v16.2d, v4.2d, v0.d[0]
+            \\ fmla v17.2d, v5.2d, v0.d[0]
+            \\ PRFM PLDL1KEEP, [x3, #896]
+            \\ PRFM PLDL1KEEP, [x5, #896]
+            \\ stp q16, q17, [x5]
+            \\ ldp q20, q21, [x3, #64]
+            \\ ldp q24, q25, [x5, #64]
+            \\ fmla v18.2d, v6.2d, v0.d[0]
+            \\ fmla v19.2d, v7.2d, v0.d[0]
+            \\ PRFM PLDL1KEEP, [x3, #896+64]
+            \\ PRFM PLDL1KEEP, [x5, #896+64]
+            \\ stp q18, q19, [x5, #32]
+            \\ ldp q22, q23, [x3, #96]
+            \\ ldp q26, q27, [x5, #96]
+            \\ fmla v24.2d, v20.2d, v0.d[0]
+            \\ fmla v25.2d, v21.2d, v0.d[0]
+            \\ stp q24, q25, [x5, #64]
+            \\ fmla v26.2d, v22.2d, v0.d[0]
+            \\ fmla v27.2d, v23.2d, v0.d[0]
+            \\ stp q26, q27, [x5, #96]
+            \\ add x5, x5, #128
+            \\ add x3, x3, #128
+            \\ .endm
+            \\ .macro KERNEL_F16_L1CACHE
+            \\ ldp q4, q5, [x3]
+            \\ ldp q16, q17, [x5]
+            \\ ldp q6, q7, [x3, #32]
+            \\ ldp q18, q19, [x5, #32]
+            \\ fmla v16.2d, v4.2d, v0.d[0]
+            \\ fmla v17.2d, v5.2d, v0.d[0]
+            \\ stp q16, q17, [x5]
+            \\ ldp q20, q21, [x3, #64]
+            \\ ldp q24, q25, [x5, #64]
+            \\ fmla v18.2d, v6.2d, v0.d[0]
+            \\ fmla v19.2d, v7.2d, v0.d[0]
+            \\ stp q18, q19, [x5, #32]
+            \\ ldp q22, q23, [x3, #96]
+            \\ ldp q26, q27, [x5, #96]
+            \\ fmla v24.2d, v20.2d, v0.d[0]
+            \\ fmla v25.2d, v21.2d, v0.d[0]
+            \\ stp q24, q25, [x5, #64]
+            \\ fmla v26.2d, v22.2d, v0.d[0]
+            \\ fmla v27.2d, v23.2d, v0.d[0]
+            \\ stp q26, q27, [x5, #96]
+            \\ add x5, x5, #128
+            \\ add x3, x3, #128
+            \\ .endm
+            \\ .macro KERNEL_F32
+            \\ KERNEL_F16
+            \\ KERNEL_F16
+            \\ .endm
+            \\ .macro KERNEL_F32_L1CACHE
+            \\ KERNEL_F16_L1CACHE
+            \\ KERNEL_F16_L1CACHE
+            \\ .endm
+            \\ .macro INIT_S
+            \\ lsl x4, x4, #3
+            \\ lsl x6, x6, #3
+            \\ .endm
+            \\ .macro KERNEL_S1
+            \\ ld1 {v1.d}[0], [x3], x4
+            \\ ldr d2, [x5]
+            \\ fmadd d2, d1, d0, d2
+            \\ st1 {v2.d}[0], [x5], x6
+            \\ .endm
+            \\ PROLOGUE
+            \\ cmp x0, xzr
+            \\ ble 20009f
+            \\ cmp x4, #1
+            \\ bne 20005f
+            \\ cmp x6, #1
+            \\ bne 20005f
+            \\ 20000:
+            \\ asr x1, x0, #5
+            \\ cmp x1, xzr
+            \\ beq 20003f
+            \\ cmp x0, #2048
+            \\ ble 20002f
+            \\ .align 5
+            \\ 20001:
+            \\ KERNEL_F32
+            \\ subs x1, x1, #1
+            \\ bne 20001b
+            \\ b 20003f
+            \\ .align 5
+            \\ 20002:
+            \\ KERNEL_F32_L1CACHE
+            \\ subs x1, x1, #1
+            \\ bne 20002b
+            \\ 20003:
+            \\ ands x1, x0, #31
+            \\ ble 20009f
+            \\ 20004:
+            \\ KERNEL_F1
+            \\ subs x1, x1, #1
+            \\ bne 20004b
+            \\ b 20009f
+            \\ 20005:
+            \\ INIT_S
+            \\ asr x1, x0, #2
+            \\ cmp x1, xzr
+            \\ ble 20007f
+            \\ 20006:
+            \\ KERNEL_S1
+            \\ KERNEL_S1
+            \\ KERNEL_S1
+            \\ KERNEL_S1
+            \\ subs x1, x1, #1
+            \\ bne 20006b
+            \\ 20007:
+            \\ ands x1, x0, #3
+            \\ ble 20009f
+            \\ 20008:
+            \\ KERNEL_S1
+            \\ subs x1, x1, #1
+            \\ bne 20008b
+            \\ 20009:
+            \\ mov w0, wzr
+            \\ ret
+            \\ .purgem PROLOGUE
+            \\ .purgem KERNEL_F1
+            \\ .purgem KERNEL_F16
+            \\ .purgem KERNEL_F16_L1CACHE
+            \\ .purgem KERNEL_F32
+            \\ .purgem KERNEL_F32_L1CACHE
+            \\ .purgem INIT_S
+            \\ .purgem KERNEL_S1
+            \\
+        );
+    }
+};

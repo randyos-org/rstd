@@ -18,7 +18,7 @@ views"):
 - Error sets are exact and named, with plain error names. Operands are slices, not pointers and
   lengths. Storage is column-major.
 - Results are bit-identical for any thread count, as the BLAS's are
-  ([`threading.md`](src/linalg/blas/threading.md)).
+  ([`threading.md`](src/math/kernels/blas/threading.md)).
 - Zig-native: no dependencies but Apple's Accelerate on macOS, which ships with the OS.
 
 Until a body lands, it returns `error.NotImplemented`, which is in its error set until then, and
@@ -63,7 +63,7 @@ For sparse matrices, SuiteSparse's orderings (AMD, COLAMD) are BSD-3, but its fa
 
 ### Statistics: `rstd.stats`
 
-[`src/stats.zig`](src/stats.zig), over slices. The forms along a dimension are planned with N-d
+[`src/stats/`](src/stats/__root__.zig), over slices. The forms along a dimension are planned with N-d
 arrays; `cov` and `corrcoef` with the public layer's `ConstView` and `Mat`.
 
 ```zig
@@ -188,24 +188,24 @@ pub fn realForwardAxes(allocator, io, out, in: ConstArrayView(T), axes, options)
 - **Frames:** the unordered forms and the `Mdct` take no `io` or layout, one frame at a time. The
   `Mdct` leaves windowing to the caller; its scaling makes windowed overlap-add with a
   Princen-Bradley window (sine, KBD) reconstruct the input (TDAC).
-- **Element types:** every float type through the portable code, f16 to f128. Planned: f32 SIMD
-  first (audio), then f64 (numerics).
+- **Element types:** every float type through the portable code, f16 to f128; f32 at pffft's sizes through its SIMD (below). Planned: f64 SIMD (numerics).
+- **pffft (f32):** `Plan(f32)` takes pffft's complex kernels at `n = 16 2^a 3^b 5^c`, `RealPlan(f32)` its real ones at `n = 32 2^a 3^b 5^c`, both up to `2^26`; other sizes and types stay on PocketFFT. Every target runs pffft's 4-lane algorithm: its SSE header on x86, its NEON header on arm and aarch64, its 4xScalar mode elsewhere (the PowerPC 750), so the unordered layout is the same everywhere. Its multiply-adds fuse where pffft's do: SSE with FMA3, aarch64 NEON, arm NEON with VFPv4. The unordered forms exist only there: `UnsupportedType` for any type but f32 (until f64 SIMD), `UnsupportedSize` for other sizes, never a panic. Matched bit for bit with pffft's C on x86_64; the port reads callers' slices unaligned, where pffft asserts 16-byte alignment.
 - **Bits:** the plan depends on `n`, the type and the core only, never on timing. The SIMD
   kernels change the operation order, so bits may differ between cores, as with the BLAS.
   `StaticPlan` dispatches by size alone, so it gives `Plan`'s bits.
 - **Tests:** a direct DFT in a wider type (as the BLAS's `Wide` reference), round trips,
   Parseval's identity, and every size from 1 to a few hundred (primes take Bluestein's path).
-- **Status:** stubs; `init` already rejects `n = 0`.
+- **Status:** `Plan` is PocketFFT's `cfftp` and `fftblue` (`plan.zig`, `cfftp/`, `bluestein.zig`), `RealPlan` its `rfftp` and `fftblue`'s real path (`real_plan.zig`, `rfftp/`); a batch runs through `io`, as many transforms at once as the scratch holds (`batch.zig`, on the BLAS's `threading.forEach`). f32 at pffft's sizes takes pffft's kernels (`pffft/`, N10), with the unordered forms. The rest are stubs, and `init` already rejects `n = 0`.
 
 ### Planned: signal processing, `rstd.signal`
 
 Built on `rstd.fft`, for audio first:
 
 - **Window functions:** Hann, Hamming, Blackman, Kaiser, and the Princen-Bradley windows the
-  `Mdct` needs (sine, KBD); symmetric or periodic (MATLAB's `'symmetric'`, `'periodic'`).
+  `Mdct` needs (sine, KBD); symmetric or periodic (MATLAB's `'symmetric'`, `'periodic'`). Done (`src/signal/window.zig`): MATLAB's definitions, SciPy's for the sine and KBD windows, which are even-length and symmetric only.
 - **STFT** and its inverse by weighted overlap-add, over `RealPlan`; hop, window and FFT size
   free.
-- **Partitioned convolution:** uniform-partitioned overlap-add over the unordered forms, for long
+- **Partitioned convolution:** uniformly partitioned overlap-save (`signal.Convolver`) over the unordered forms, for long
   filters (reverb) in real time: fixed latency, no allocation per block.
 
 ### Planned: N-d arrays
@@ -262,26 +262,31 @@ pub fn sumDim(allocator, io, v, dim: u8) error{ ... }!Array(T) // and prod, max,
   chunks combined in order elsewhere.
 - num.zig's `core/shape.zig`, `core/iterator.zig`, `ops/broadcast.zig` and `manip/` informed this.
 
-### Planned: sparse matrices
+### Sparse matrices
 
-In `rstd.linalg.sparse`, with 0-based indices.
+In `rstd.linalg.sparse`, with 0-based indices. The kernels landed in T150 ([#84](https://github.com/randyos-org/rstd/issues/84)); the iterative solvers are stubs (N2), and [`src/linalg/sparse/`](src/linalg/sparse/__root__.zig) is the reference.
 
 ```zig
 pub fn Csc(comptime T: type) type; // rows, cols: u32, col_start: []u32, row: []u32, value: []T
 pub fn Csr(comptime T: type) type; // the row-major twin: a Csc of A is a Csr of Aᵀ, same arrays
-pub fn Triplets(comptime T: type) type; // builder: append(allocator, i, j, x), then toCsc
-fn toCsc(allocator, t) error{OutOfMemory}!Csc(T) // sums duplicates in insertion order
-fn fromDense(allocator, a: ConstView(T), drop_below: F) error{OutOfMemory}!Csc(T)
-fn toDense(allocator, a) error{OutOfMemory}!Mat(T)
-fn mulVec(io, a, trans: Trans, alpha: T, x: []const T, beta: T, y: []T) error{ ... }!void
-fn mulDense(allocator, io, a, b: ConstView(T)) error{ ... }!Mat(T)
+pub fn Triplets(comptime T: type) type; // init(rows, cols), append(allocator, i, j, x), toCsc
+pub fn Vector(comptime T: type) type; // one column or row: axpy, dot, dotc into dense slices
+
+// Csc(T)'s methods
+fn fromDense(allocator, a: ConstView(T), drop_below: Float(T)) Error!Csc(T)
+fn toDense(a, allocator) error{OutOfMemory}!Mat(T)
+fn mulVec(a, allocator, io, trans: Trans, alpha: T, x: []const T, beta: T, y: []T) MulError!void
+fn mulDense(a, allocator, io, b: ConstView(T)) MulError!Mat(T)
+fn spgemm(a, allocator, b) SpgemmError!Csc(T) // also spgemmSymbolic, then spgemmNumeric
+fn solveTri(a, uplo: Uplo, trans: Trans, diag: Diag, x: []T) TriSolveError!void
+fn scal, sub, selectCols, transpose, ctranspose, toCsr, asCsrOfTranspose, col, nonzeros
 
 // iterative solvers, matrix-free: anything with apply
 pub fn Operator(comptime T: type) type; // context plus apply(io, x: []const T, y: []T)
 pub fn Options(comptime T: type) type; // tol (relative residual), max_iterations, preconditioner
 pub const Stats = struct { iterations: usize, residual: f64 };
-pub fn cg(allocator, io, a: Operator(T), b: []const T, x: []T, options) error{ ... }!Stats
-pub fn gmres(allocator, io, a, b, x, options, restart: usize) error{ ... }!Stats
+pub fn cg(allocator, io, comptime T, a: Operator(T), b: []const T, x: []T, options) SolveError!Stats
+pub fn gmres(allocator, io, comptime T, a, b, x, options, restart: usize) SolveError!Stats
 ```
 
 - **Indices:** `u32` throughout (shape, column starts, rows), so under 2³² rows, columns and
@@ -290,7 +295,9 @@ pub fn gmres(allocator, io, a, b, x, options, restart: usize) error{ ... }!Stats
   costs 12 bytes, not 16, and `A x` is bandwidth-bound.
 - **CSC comes first**, as in MATLAB and SuiteSparse. A threaded `A x` on CSC combines per-chunk
   partial vectors in chunk order (the BLAS's ordered combine); on CSR each row's sum stays whole.
-- **Errors** beyond `OutOfMemory` and `Canceled`: `DimensionMismatch`, `NoConvergence`,
+- **Errors:** exact sets per operation (`csc.zig`); beyond `OutOfMemory` and `Canceled`,
+  `DimensionMismatch`, `TooLarge`, `IndexOutOfRange`, `PatternMismatch` (a numeric `spgemm`
+  into another product's pattern), `Singular`, and the solvers' `NoConvergence` and
   `NotPositiveDefinite` (CG's breakdown).
 - num.zig's `core/sparse.zig` and `linalg/sparse_solve.zig` (CG, restarted GMRES, no
   preconditioner) informed this.

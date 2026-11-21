@@ -22,8 +22,9 @@ pub fn addBenches(b: *Build, mac: []const u8, target: rstdbuild.ResolvedTarget, 
         .eigen = b.option([]const u8, "eigen-lib", "The bench's Eigen shim (tools/blasbench/nix) for bench-native, as a path where the bench runs"),
         .aocl_libflame = b.option([]const u8, "aocl-libflame-lib", "AOCL-libFLAME for bench-native, as a path where the bench runs"),
     };
-    try addSshBench(b, mac, target, tool, libs);
-    try addNativeBench(b, libs);
+    const openblas = b.option([]const u8, "openblas", "OpenBLAS checkout: vortex's gemm `.S` for ssh-bench-aarch64-macos, Haswell's and Zen's level-1 kernels for bench-native");
+    try addSshBench(b, mac, target, tool, libs, openblas);
+    try addNativeBench(b, libs, openblas);
     addBenchCheck(b);
 }
 
@@ -68,8 +69,8 @@ fn addBenchCheck(b: *Build) void {
 }
 
 /// `tools/blasbench/blas_bench.zig` for `target`, always ReleaseFast, with
-/// OpenBLAS's vortex gemm `.S` assembled from the `openblas` checkout when
-/// given (arm64 only).
+/// OpenBLAS's references from the `openblas` checkout when given: vortex's
+/// gemm `.S` on arm64, Haswell's and Zen's level-1 kernels on x86_64.
 fn benchExe(b: *Build, target: rstdbuild.ResolvedTarget, openblas: ?[]const u8) !*rstdbuild.CompileStep {
     const optimize: Optimize = .fast;
     const rstd = try buildroot.addRstdModule(b, null, target, optimize, .all, .{});
@@ -81,9 +82,15 @@ fn benchExe(b: *Build, target: rstdbuild.ResolvedTarget, openblas: ?[]const u8) 
     });
     mod.addImport("rstd", rstd);
     const options = b.addOptions();
-    options.addOption(bool, "ob_asm", openblas != null);
+    const arch = target.result.cpu.arch;
+    options.addOption(bool, "ob_asm", openblas != null and arch == .aarch64);
+    options.addOption(bool, "ob_x86", openblas != null and arch == .x86_64);
     mod.addOptions("bench_options", options);
-    if (openblas) |checkout| try addVortexAsm(b, mod, checkout);
+    if (openblas) |checkout| switch (arch) {
+        .aarch64 => try addVortexAsm(b, mod, checkout),
+        .x86_64 => try addX86Level1(b, mod, checkout, target.result.os.tag),
+        else => {},
+    };
     return b.addExecutable(.{ .name = "blas_bench", .root_module = mod });
 }
 
@@ -95,9 +102,8 @@ const mac_libs = "/tmp/rstd-blas/aarch64-darwin/";
 /// given. The libraries are `BenchLibs`, OpenBLAS by default nixpkgs'
 /// (`tools/nix/blas.sh`), and Accelerate (`-Daccelerate`). Arguments after
 /// `--` go to the bench.
-fn addSshBench(b: *Build, mac: []const u8, target: rstdbuild.ResolvedTarget, tool: *rstdbuild.CompileStep, libs: BenchLibs) !void {
+fn addSshBench(b: *Build, mac: []const u8, target: rstdbuild.ResolvedTarget, tool: *rstdbuild.CompileStep, libs: BenchLibs, openblas: ?[]const u8) !void {
     const step = b.step("ssh-bench-aarch64-macos", b.fmt("Race rstd's BLAS against the libraries on the Mac at SSH alias {s}, and its kernels with -Dopenblas", .{mac}));
-    const openblas = b.option([]const u8, "openblas", "OpenBLAS checkout whose vortex gemm assembly ssh-bench-aarch64-macos races");
     const exe = try benchExe(b, target, openblas);
     const check = b.step("ssh-bench-aarch64-macos-build", "Build what ssh-bench-aarch64-macos runs, without running it");
     check.dependOn(&exe.step);
@@ -127,11 +133,12 @@ fn addSshBench(b: *Build, mac: []const u8, target: rstdbuild.ResolvedTarget, too
 }
 
 /// `bench-native`: `tools/blasbench/blas_bench.zig` here, on this machine's
-/// own CPU, against `-Dopenblas-lib` and `-Dblis-lib`. Arguments after `--`
+/// own CPU, against `-Dopenblas-lib` and `-Dblis-lib`. With `-Dopenblas`, its
+/// `l1` section races Haswell's or Zen's level-1 kernels too. Arguments after `--`
 /// go to the bench.
-fn addNativeBench(b: *Build, libs: BenchLibs) !void {
+fn addNativeBench(b: *Build, libs: BenchLibs, openblas_src: ?[]const u8) !void {
     const step = b.step("bench-native", "Race rstd's BLAS against -Dopenblas-lib and -Dblis-lib on this machine");
-    const exe = try benchExe(b, b.graph.host, null);
+    const exe = try benchExe(b, b.graph.host, openblas_src);
     b.step("bench-native-build", "Build what bench-native runs, without running it").dependOn(&exe.step);
     const openblas = libs.openblas orelse {
         step.dependOn(&b.addFail("bench-native needs -Dopenblas-lib=<OpenBLAS library>").step);
@@ -146,10 +153,10 @@ fn addNativeBench(b: *Build, libs: BenchLibs) !void {
     step.dependOn(&run.step);
 }
 
-/// OpenBLAS's vortex gemm kernels and copies from `checkout`, as
-/// `tools/blas_asm` has them, named `ob_<routine>`.
+/// OpenBLAS's vortex gemm kernels and copies, assembled from `checkout`'s
+/// sources, named `ob_<routine>`.
 fn addVortexAsm(b: *Build, mod: *rstdbuild.Module, checkout: []const u8) !void {
-    // `config.h` as `tools/blas_asm` writes it
+    // the `config.h` the sources include, as OpenBLAS's build writes it
     const inc = b.addWriteFiles();
     _ = inc.add("config.h", "#define ARCH_ARM64 1\n#define BINARY64 1\n");
     const kernel_dir = b.pathJoin(&.{ checkout, "kernel", "arm64" });
@@ -204,6 +211,138 @@ const vortex_defines = [_][]const u8{
     "-DHAVE_VFP",
     "-DHAVE_NEON",
     "-DARMV8",
+};
+
+/// OpenBLAS's level-1 kernels for HASWELL and ZEN from `checkout`, the
+/// files `kernel/x86_64/KERNEL.<core>`, then `KERNEL`, pick, each with the
+/// flags `kernel/Makefile.L1` gives it, named `_ob_<core>_<slot>`.
+fn addX86Level1(b: *Build, mod: *rstdbuild.Module, checkout: []const u8, os: std.Target.Os.Tag) !void {
+    const inc = b.addWriteFiles();
+    _ = inc.add("config.h", "#define ARCH_X86_64 1\n#define __64BIT__ 1\n");
+    const kernel_dir = b.pathJoin(&.{ checkout, "kernel", "x86_64" });
+    mod.addIncludePath(inc.getDirectory());
+    mod.addIncludePath(.{ .cwd_relative = checkout });
+    mod.addIncludePath(.{ .cwd_relative = kernel_dir });
+    const os_define = switch (os) {
+        .windows => "-DOS_WINNT",
+        .macos => "-DOS_DARWIN",
+        else => "-DOS_LINUX",
+    };
+    for ([_][]const u8{ "haswell", "zen" }) |core| {
+        for (x86_level1) |k| {
+            // Haswell's own `asum`s; Zen keeps `KERNEL`'s
+            const file = if (std.mem.eql(u8, core, "zen") and k.zen != null) k.zen.? else k.file;
+            const name = b.fmt("_ob_{s}_{s}", .{ core, k.slot });
+            const asm_name = if (os == .macos) b.fmt("_{s}", .{name}) else name;
+            const assembly = std.mem.endsWith(u8, file, ".S");
+            var flags: std.ArrayList([]const u8) = .empty;
+            try flags.appendSlice(b.allocator, &x86_defines);
+            try flags.appendSlice(b.allocator, &.{
+                os_define,
+                if (std.mem.eql(u8, core, "zen")) "-DZEN" else "-DHASWELL",
+                b.fmt("-DASMNAME={s}", .{asm_name}),
+                b.fmt("-DASMFNAME={s}_", .{asm_name}),
+                b.fmt("-DNAME={s}_", .{name}),
+                b.fmt("-DCNAME={s}", .{name}),
+            });
+            if (assembly) try flags.append(b.allocator, "-DASSEMBLER");
+            switch (k.slot[0]) {
+                'd' => try flags.append(b.allocator, "-DDOUBLE"),
+                'c' => try flags.append(b.allocator, "-DCOMPLEX"),
+                'z' => try flags.appendSlice(b.allocator, &.{ "-DDOUBLE", "-DCOMPLEX" }),
+                'i' => {
+                    try flags.appendSlice(b.allocator, &.{ "-DUSE_ABS", "-UUSE_MIN" });
+                    switch (k.slot[1]) {
+                        'd' => try flags.append(b.allocator, "-DDOUBLE"),
+                        'c' => try flags.append(b.allocator, "-DCOMPLEX"),
+                        'z' => try flags.appendSlice(b.allocator, &.{ "-DDOUBLE", "-DCOMPLEX" }),
+                        else => {},
+                    }
+                },
+                else => {},
+            }
+            mod.addCSourceFile(.{
+                .file = .{ .cwd_relative = b.pathJoin(&.{ kernel_dir, file }) },
+                .flags = flags.items,
+                .language = if (assembly) .assembly_with_preprocessor else .c,
+            });
+        }
+    }
+}
+
+/// `x86_level1`'s entries: the rstd slot, OpenBLAS's file for HASWELL, and
+/// ZEN's where it differs.
+const X86Kernel = struct { slot: []const u8, file: []const u8, zen: ?[]const u8 = null };
+
+/// The level-1 kernels `blas_bench`'s `l1` section races, from OpenBLAS
+/// dbf2c24c9 (v0.3.34-794)'s `kernel/x86_64/KERNEL.HASWELL`, `KERNEL.ZEN` and `KERNEL`;
+/// rederive them from those files rather than edit them by hand.
+const x86_level1 = [_]X86Kernel{
+    .{ .slot = "saxpy_k", .file = "saxpy.c" },
+    .{ .slot = "daxpy_k", .file = "daxpy.c" },
+    .{ .slot = "caxpy_k", .file = "caxpy.c" },
+    .{ .slot = "zaxpy_k", .file = "zaxpy.c" },
+    .{ .slot = "sdot_k", .file = "sdot.c" },
+    .{ .slot = "ddot_k", .file = "ddot.c" },
+    .{ .slot = "cdotu_k", .file = "cdot.c" },
+    .{ .slot = "zdotu_k", .file = "zdot.c" },
+    .{ .slot = "sscal_k", .file = "sscal.c" },
+    .{ .slot = "dscal_k", .file = "dscal.c" },
+    .{ .slot = "cscal_k", .file = "cscal.c" },
+    .{ .slot = "zscal_k", .file = "zscal.c" },
+    .{ .slot = "snrm2_k", .file = "nrm2_sse.S" },
+    .{ .slot = "dnrm2_k", .file = "nrm2.S" },
+    .{ .slot = "cnrm2_k", .file = "znrm2_sse.S" },
+    .{ .slot = "znrm2_k", .file = "znrm2.S" },
+    .{ .slot = "sasum_k", .file = "sasum.c", .zen = "asum_sse.S" },
+    .{ .slot = "dasum_k", .file = "dasum.c", .zen = "asum_sse2.S" },
+    .{ .slot = "casum_k", .file = "zasum_sse.S" },
+    .{ .slot = "zasum_k", .file = "zasum_sse2.S" },
+    .{ .slot = "ssum_k", .file = "../arm/sum.c" },
+    .{ .slot = "dsum_k", .file = "../arm/sum.c" },
+    .{ .slot = "csum_k", .file = "zsum_sse.S" },
+    .{ .slot = "zsum_k", .file = "zsum_sse2.S" },
+    .{ .slot = "isamax_k", .file = "iamax_sse.S" },
+    .{ .slot = "idamax_k", .file = "iamax_sse2.S" },
+    .{ .slot = "icamax_k", .file = "izamax_sse.S" },
+    .{ .slot = "izamax_k", .file = "izamax_sse2.S" },
+    .{ .slot = "scopy_k", .file = "copy_sse.S" },
+    .{ .slot = "dcopy_k", .file = "copy_sse2.S" },
+    .{ .slot = "ccopy_k", .file = "zcopy_sse.S" },
+    .{ .slot = "zcopy_k", .file = "zcopy_sse2.S" },
+    .{ .slot = "sswap_k", .file = "swap_sse.S" },
+    .{ .slot = "dswap_k", .file = "swap_sse2.S" },
+    .{ .slot = "cswap_k", .file = "zswap_sse.S" },
+    .{ .slot = "zswap_k", .file = "zswap_sse2.S" },
+    .{ .slot = "srot_k", .file = "srot.c" },
+    .{ .slot = "drot_k", .file = "drot.c" },
+    .{ .slot = "csrot_k", .file = "zrot_sse.S" },
+    .{ .slot = "zdrot_k", .file = "zrot_sse2.S" },
+};
+
+/// What OpenBLAS's build passes every x86_64 kernel for HASWELL and ZEN
+/// (`getarch.c`'s `ARCHCONFIG`), but the core's own name.
+const x86_defines = [_][]const u8{
+    "-w",
+    "-mavx2",
+    "-mfma",
+    "-DL1_DATA_SIZE=32768",
+    "-DL1_DATA_LINESIZE=64",
+    "-DL2_SIZE=262144",
+    "-DL2_LINESIZE=64",
+    "-DDTB_DEFAULT_ENTRIES=64",
+    "-DDTB_SIZE=4096",
+    "-DHAVE_CMOV",
+    "-DHAVE_MMX",
+    "-DHAVE_SSE",
+    "-DHAVE_SSE2",
+    "-DHAVE_SSE3",
+    "-DHAVE_SSSE3",
+    "-DHAVE_SSE4_1",
+    "-DHAVE_SSE4_2",
+    "-DHAVE_AVX",
+    "-DHAVE_AVX2",
+    "-DHAVE_FMA3",
 };
 
 /// The Linux VMs of `qemu-bench-linux-<arch>`, on the host's own CPU: never

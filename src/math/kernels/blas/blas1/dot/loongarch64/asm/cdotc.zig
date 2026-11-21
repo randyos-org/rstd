@@ -1,0 +1,248 @@
+//! `cdotc` for la64_generic, from OpenBLAS `kernel/loongarch64/zdot.S` (`v0.3.34-794-gdbf2c24c9`); converted by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+/// Each function's core and variant.
+pub const keys = .{
+    .{ .core = .la64_generic, .variant = "" },
+};
+
+pub const Body = struct {
+    pub fn entry() callconv(.naked) void {
+        asm volatile (
+            \\ .align 5
+            \\ movgr2fr.w $f22, $r0
+            \\ fmov.s $f8, $f22
+            \\ fmov.s $f23, $f8
+            \\ fmov.s $f9, $f23
+            \\ slli.d $r6, $r6, 3
+            \\ li.d $r18, 2 * 4
+            \\ slli.d $r8, $r8, 3
+            \\ bge $r0, $r4, 20010f
+            \\ srai.d $r17, $r4, 2
+            \\ bne $r6, $r18, 20005f
+            \\ bne $r8, $r18, 20005f
+            \\ bge $r0, $r17, 20002f
+            \\ fld.s $f10, $r5, 0 * 4
+            \\ fld.s $f11, $r5, 1 * 4
+            \\ fld.s $f14, $r7, 0 * 4
+            \\ addi.d $r17, $r17, -1
+            \\ fld.s $f15, $r7, 1 * 4
+            \\ bge $r0, $r17, 20001f
+            \\ .align 3
+            \\ 20000:
+            \\ fmadd.s $f22, $f14, $f10, $f22
+            \\ fld.s $f12, $r5, 2 * 4
+            \\ fmadd.s $f8, $f14, $f11, $f8
+            \\ fld.s $f13, $r5, 3 * 4
+            \\ fmadd.s $f23, $f15, $f10, $f23
+            \\ fld.s $f16, $r7, 2 * 4
+            \\ fmadd.s $f9, $f15, $f11, $f9
+            \\ fld.s $f17, $r7, 3 * 4
+            \\ fmadd.s $f22, $f16, $f12, $f22
+            \\ fld.s $f10, $r5, 4 * 4
+            \\ fmadd.s $f8, $f16, $f13, $f8
+            \\ fld.s $f11, $r5, 5 * 4
+            \\ fmadd.s $f23, $f17, $f12, $f23
+            \\ fld.s $f14, $r7, 4 * 4
+            \\ fmadd.s $f9, $f17, $f13, $f9
+            \\ fld.s $f15, $r7, 5 * 4
+            \\ fmadd.s $f22, $f14, $f10, $f22
+            \\ fld.s $f12, $r5, 6 * 4
+            \\ fmadd.s $f8, $f14, $f11, $f8
+            \\ fld.s $f13, $r5, 7 * 4
+            \\ fmadd.s $f23, $f15, $f10, $f23
+            \\ fld.s $f16, $r7, 6 * 4
+            \\ fmadd.s $f9, $f15, $f11, $f9
+            \\ fld.s $f17, $r7, 7 * 4
+            \\ fmadd.s $f22, $f16, $f12, $f22
+            \\ fld.s $f10, $r5, 8 * 4
+            \\ fmadd.s $f8, $f16, $f13, $f8
+            \\ fld.s $f11, $r5, 9 * 4
+            \\ fmadd.s $f23, $f17, $f12, $f23
+            \\ fld.s $f14, $r7, 8 * 4
+            \\ fmadd.s $f9, $f17, $f13, $f9
+            \\ fld.s $f15, $r7, 9 * 4
+            \\ addi.d $r17, $r17, -1
+            \\ addi.d $r5, $r5, 8 * 4
+            \\ addi.d $r7, $r7, 8 * 4
+            \\ blt $r0, $r17, 20000b
+            \\ .align 3
+            \\ 20001:
+            \\ fmadd.s $f22, $f14, $f10, $f22
+            \\ fld.s $f12, $r5, 2 * 4
+            \\ fmadd.s $f8, $f14, $f11, $f8
+            \\ fld.s $f13, $r5, 3 * 4
+            \\ fmadd.s $f23, $f15, $f10, $f23
+            \\ fld.s $f16, $r7, 2 * 4
+            \\ fmadd.s $f9, $f15, $f11, $f9
+            \\ fld.s $f17, $r7, 3 * 4
+            \\ fmadd.s $f22, $f16, $f12, $f22
+            \\ fld.s $f10, $r5, 4 * 4
+            \\ fmadd.s $f8, $f16, $f13, $f8
+            \\ fld.s $f11, $r5, 5 * 4
+            \\ fmadd.s $f23, $f17, $f12, $f23
+            \\ fld.s $f14, $r7, 4 * 4
+            \\ fmadd.s $f9, $f17, $f13, $f9
+            \\ fld.s $f15, $r7, 5 * 4
+            \\ fmadd.s $f22, $f14, $f10, $f22
+            \\ fld.s $f12, $r5, 6 * 4
+            \\ fmadd.s $f8, $f14, $f11, $f8
+            \\ fld.s $f13, $r5, 7 * 4
+            \\ fmadd.s $f23, $f15, $f10, $f23
+            \\ fld.s $f16, $r7, 6 * 4
+            \\ fmadd.s $f9, $f15, $f11, $f9
+            \\ fld.s $f17, $r7, 7 * 4
+            \\ fmadd.s $f22, $f16, $f12, $f22
+            \\ addi.d $r5, $r5, 8 * 4
+            \\ fmadd.s $f8, $f16, $f13, $f8
+            \\ addi.d $r7, $r7, 8 * 4
+            \\ fmadd.s $f23, $f17, $f12, $f23
+            \\ fmadd.s $f9, $f17, $f13, $f9
+            \\ .align 3
+            \\ 20002:
+            \\ andi $r17, $r4, 3
+            \\ bge $r0, $r17, 20010f
+            \\ fld.s $f10, $r5, 0 * 4
+            \\ fld.s $f11, $r5, 1 * 4
+            \\ fld.s $f14, $r7, 0 * 4
+            \\ addi.d $r17, $r17, -1
+            \\ fld.s $f15, $r7, 1 * 4
+            \\ bge $r0, $r17, 20004f
+            \\ .align 3
+            \\ 20003:
+            \\ fmadd.s $f22, $f14, $f10, $f22
+            \\ addi.d $r17, $r17, -1
+            \\ fmadd.s $f8, $f14, $f11, $f8
+            \\ fld.s $f14, $r7, 2 * 4
+            \\ fmadd.s $f23, $f15, $f10, $f23
+            \\ fld.s $f10, $r5, 2 * 4
+            \\ fmadd.s $f9, $f15, $f11, $f9
+            \\ fld.s $f11, $r5, 3 * 4
+            \\ fld.s $f15, $r7, 3 * 4
+            \\ addi.d $r5, $r5, 2 * 4
+            \\ addi.d $r7, $r7, 2 * 4
+            \\ blt $r0, $r17, 20003b
+            \\ .align 3
+            \\ 20004:
+            \\ fmadd.s $f22, $f14, $f10, $f22
+            \\ fmadd.s $f8, $f14, $f11, $f8
+            \\ fmadd.s $f23, $f15, $f10, $f23
+            \\ fmadd.s $f9, $f15, $f11, $f9
+            \\ b 20010f
+            \\ .align 3
+            \\ 20005:
+            \\ bge $r0, $r17, 20008f
+            \\ fld.s $f10, $r5, 0 * 4
+            \\ fld.s $f11, $r5, 1 * 4
+            \\ fld.s $f14, $r7, 0 * 4
+            \\ fld.s $f15, $r7, 1 * 4
+            \\ add.d $r5, $r5, $r6
+            \\ addi.d $r17, $r17, -1
+            \\ add.d $r7, $r7, $r8
+            \\ bge $r0, $r17, 20007f
+            \\ .align 3
+            \\ 20006:
+            \\ fmadd.s $f22, $f14, $f10, $f22
+            \\ fld.s $f12, $r5, 0 * 4
+            \\ fmadd.s $f8, $f14, $f11, $f8
+            \\ fld.s $f13, $r5, 1 * 4
+            \\ fmadd.s $f23, $f15, $f10, $f23
+            \\ fld.s $f16, $r7, 0 * 4
+            \\ fmadd.s $f9, $f15, $f11, $f9
+            \\ fld.s $f17, $r7, 1 * 4
+            \\ add.d $r5, $r5, $r6
+            \\ add.d $r7, $r7, $r8
+            \\ fmadd.s $f22, $f16, $f12, $f22
+            \\ fld.s $f10, $r5, 0 * 4
+            \\ fmadd.s $f8, $f16, $f13, $f8
+            \\ fld.s $f11, $r5, 1 * 4
+            \\ fmadd.s $f23, $f17, $f12, $f23
+            \\ fld.s $f14, $r7, 0 * 4
+            \\ fmadd.s $f9, $f17, $f13, $f9
+            \\ fld.s $f15, $r7, 1 * 4
+            \\ add.d $r5, $r5, $r6
+            \\ add.d $r7, $r7, $r8
+            \\ fmadd.s $f22, $f14, $f10, $f22
+            \\ fld.s $f12, $r5, 0 * 4
+            \\ fmadd.s $f8, $f14, $f11, $f8
+            \\ fld.s $f13, $r5, 1 * 4
+            \\ fmadd.s $f23, $f15, $f10, $f23
+            \\ fld.s $f16, $r7, 0 * 4
+            \\ fmadd.s $f9, $f15, $f11, $f9
+            \\ fld.s $f17, $r7, 1 * 4
+            \\ add.d $r5, $r5, $r6
+            \\ add.d $r7, $r7, $r8
+            \\ fmadd.s $f22, $f16, $f12, $f22
+            \\ fld.s $f10, $r5, 0 * 4
+            \\ fmadd.s $f8, $f16, $f13, $f8
+            \\ fld.s $f11, $r5, 1 * 4
+            \\ fmadd.s $f23, $f17, $f12, $f23
+            \\ fld.s $f14, $r7, 0 * 4
+            \\ fmadd.s $f9, $f17, $f13, $f9
+            \\ fld.s $f15, $r7, 1 * 4
+            \\ add.d $r5, $r5, $r6
+            \\ addi.d $r17, $r17, -1
+            \\ add.d $r7, $r7, $r8
+            \\ blt $r0, $r17, 20006b
+            \\ .align 3
+            \\ 20007:
+            \\ fmadd.s $f22, $f14, $f10, $f22
+            \\ fld.s $f12, $r5, 0 * 4
+            \\ fmadd.s $f8, $f14, $f11, $f8
+            \\ fld.s $f13, $r5, 1 * 4
+            \\ fmadd.s $f23, $f15, $f10, $f23
+            \\ fld.s $f16, $r7, 0 * 4
+            \\ fmadd.s $f9, $f15, $f11, $f9
+            \\ fld.s $f17, $r7, 1 * 4
+            \\ add.d $r5, $r5, $r6
+            \\ add.d $r7, $r7, $r8
+            \\ fmadd.s $f22, $f16, $f12, $f22
+            \\ fld.s $f10, $r5, 0 * 4
+            \\ fmadd.s $f8, $f16, $f13, $f8
+            \\ fld.s $f11, $r5, 1 * 4
+            \\ fmadd.s $f23, $f17, $f12, $f23
+            \\ fld.s $f14, $r7, 0 * 4
+            \\ fmadd.s $f9, $f17, $f13, $f9
+            \\ fld.s $f15, $r7, 1 * 4
+            \\ add.d $r5, $r5, $r6
+            \\ add.d $r7, $r7, $r8
+            \\ fmadd.s $f22, $f14, $f10, $f22
+            \\ fld.s $f12, $r5, 0 * 4
+            \\ fmadd.s $f8, $f14, $f11, $f8
+            \\ fld.s $f13, $r5, 1 * 4
+            \\ fmadd.s $f23, $f15, $f10, $f23
+            \\ fld.s $f16, $r7, 0 * 4
+            \\ fmadd.s $f9, $f15, $f11, $f9
+            \\ fld.s $f17, $r7, 1 * 4
+            \\ fmadd.s $f22, $f16, $f12, $f22
+            \\ add.d $r5, $r5, $r6
+            \\ fmadd.s $f8, $f16, $f13, $f8
+            \\ add.d $r7, $r7, $r8
+            \\ fmadd.s $f23, $f17, $f12, $f23
+            \\ fmadd.s $f9, $f17, $f13, $f9
+            \\ .align 3
+            \\ 20008:
+            \\ andi $r17, $r4, 3
+            \\ bge $r0, $r17, 20010f
+            \\ .align 3
+            \\ 20009:
+            \\ fld.s $f10, $r5, 0 * 4
+            \\ fld.s $f11, $r5, 1 * 4
+            \\ fld.s $f14, $r7, 0 * 4
+            \\ fld.s $f15, $r7, 1 * 4
+            \\ fmadd.s $f22, $f14, $f10, $f22
+            \\ fmadd.s $f8, $f14, $f11, $f8
+            \\ fmadd.s $f23, $f15, $f10, $f23
+            \\ fmadd.s $f9, $f15, $f11, $f9
+            \\ add.d $r5, $r5, $r6
+            \\ add.d $r7, $r7, $r8
+            \\ addi.d $r17, $r17, -1
+            \\ blt $r0, $r17, 20009b
+            \\ .align 3
+            \\ 20010:
+            \\ fadd.s $f0, $f22, $f9
+            \\ fsub.s $f1, $f23, $f8
+            \\ jirl $r0, $r1, 0x0
+            \\
+        );
+    }
+};

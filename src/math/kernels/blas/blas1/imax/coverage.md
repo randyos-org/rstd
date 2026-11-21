@@ -1,0 +1,208 @@
+# `imax` kernel coverage
+
+Surveyed from OpenBLAS `kernel/` (`v0.3.34-794-gdbf2c24c9`) and rstd's kernel indexes by `tools/blas_asm` (retired: [#618](https://github.com/randyos-org/rstd/issues/618)); maintained by hand. How to read it: [`coverage.md`](../../coverage.md).
+
+## x86_64
+
+| core           | ismax                 | idmax                 | iqmax                |
+| -------------- | --------------------- | --------------------- | -------------------- |
+| ATOM           | `iamax_sse.S` → vec   | `iamax_sse2.S` → vec  | `iamax.S` → portable |
+| BARCELONA      | `iamax_sse.S` → vec   | `iamax_sse2.S` → vec  | `iamax.S` → portable |
+| BOBCAT         | `iamax_sse.S` → vec   | `iamax_sse2.S` → vec  | `iamax.S` → portable |
+| BULLDOZER      | `iamax_sse.S` → vec   | `iamax_sse2.S` → vec  | `iamax.S` → portable |
+| COOPERLAKE     | `iamax_sse.S` → vec   | `iamax_sse2.S` → vec  | `iamax.S` → portable |
+| CORE2          | `iamax_sse.S` → vec   | `iamax_sse2.S` → vec  | `iamax.S` → portable |
+| DUNNINGTON     | `iamax_sse.S` → vec   | `iamax_sse2.S` → vec  | `iamax.S` → portable |
+| EXCAVATOR      | `iamax_sse.S` → vec   | `iamax_sse2.S` → vec  | `iamax.S` → portable |
+| generic        | `../arm/imax.c` → n/a | `../arm/imax.c` → n/a | `iamax.S` → n/a      |
+| HASWELL        | `iamax_sse.S` → vec   | `iamax_sse2.S` → vec  | `iamax.S` → portable |
+| NANO           | `iamax_sse.S` → vec   | `iamax_sse2.S` → vec  | `iamax.S` → portable |
+| NEHALEM        | `iamax_sse.S` → vec   | `iamax_sse2.S` → vec  | `iamax.S` → portable |
+| OPTERON        | `iamax_sse.S` → vec   | `iamax_sse2.S` → vec  | `iamax.S` → portable |
+| OPTERON_SSE3   | `iamax_sse.S` → vec   | `iamax_sse2.S` → vec  | `iamax.S` → portable |
+| PENRYN         | `iamax_sse.S` → vec   | `iamax_sse2.S` → vec  | `iamax.S` → portable |
+| PILEDRIVER     | `iamax_sse.S` → vec   | `iamax_sse2.S` → vec  | `iamax.S` → portable |
+| PRESCOTT       | `iamax_sse.S` → vec   | `iamax_sse2.S` → vec  | `iamax.S` → portable |
+| SANDYBRIDGE    | `iamax_sse.S` → vec   | `iamax_sse2.S` → vec  | `iamax.S` → portable |
+| SAPPHIRERAPIDS | `iamax_sse.S` → vec   | `iamax_sse2.S` → vec  | `iamax.S` → portable |
+| SKYLAKEX       | `iamax_sse.S` → vec   | `iamax_sse2.S` → vec  | `iamax.S` → portable |
+| STEAMROLLER    | `iamax_sse.S` → vec   | `iamax_sse2.S` → vec  | `iamax.S` → portable |
+| ZEN            | `iamax_sse.S` → vec   | `iamax_sse2.S` → vec  | `iamax.S` → portable |
+
+## x86
+
+| core         | ismax                 | idmax                 | iqmax                |
+| ------------ | --------------------- | --------------------- | -------------------- |
+| ATHLON       | `iamax.S` → vec       | `iamax.S` → vec       | `iamax.S` → portable |
+| ATOM         | `iamax.S` → vec       | `iamax.S` → vec       | `iamax.S` → portable |
+| BANIAS       | `iamax.S` → vec       | `iamax.S` → vec       | `iamax.S` → portable |
+| BARCELONA    | `iamax.S` → vec       | `iamax.S` → vec       | `iamax.S` → portable |
+| BOBCAT       | `iamax.S` → vec       | `iamax.S` → vec       | `iamax.S` → portable |
+| BULLDOZER    | `iamax.S` → vec       | `iamax.S` → vec       | `iamax.S` → portable |
+| COPPERMINE   | `iamax.S` → vec       | `iamax.S` → vec       | `iamax.S` → portable |
+| CORE2        | `iamax.S` → vec       | `iamax.S` → vec       | `iamax.S` → portable |
+| DUNNINGTON   | `iamax.S` → vec       | `iamax.S` → vec       | `iamax.S` → portable |
+| generic      | `../arm/imax.c` → n/a | `../arm/imax.c` → n/a | `iamax.S` → n/a      |
+| HASWELL      | `iamax.S` → vec       | `iamax.S` → vec       | `iamax.S` → portable |
+| KATMAI       | `iamax.S` → vec       | `iamax.S` → vec       | `iamax.S` → portable |
+| NANO         | `iamax.S` → vec       | `iamax.S` → vec       | `iamax.S` → portable |
+| NEHALEM      | `iamax.S` → vec       | `iamax.S` → vec       | `iamax.S` → portable |
+| NORTHWOOD    | `iamax.S` → vec       | `iamax.S` → vec       | `iamax.S` → portable |
+| OPTERON      | `iamax.S` → vec       | `iamax.S` → vec       | `iamax.S` → portable |
+| OPTERON_SSE3 | `iamax.S` → vec       | `iamax.S` → vec       | `iamax.S` → portable |
+| P5           | `iamax.S` → vec       | `iamax.S` → vec       | `iamax.S` → portable |
+| P6           | `iamax.S` → vec       | `iamax.S` → vec       | `iamax.S` → portable |
+| PENRYN       | `iamax.S` → vec       | `iamax.S` → vec       | `iamax.S` → portable |
+| PILEDRIVER   | `iamax.S` → vec       | `iamax.S` → vec       | `iamax.S` → portable |
+| PRESCOTT     | `iamax.S` → vec       | `iamax.S` → vec       | `iamax.S` → portable |
+| SANDYBRIDGE  | `iamax.S` → vec       | `iamax.S` → vec       | `iamax.S` → portable |
+| VIAC3        | `iamax.S` → vec       | `iamax.S` → vec       | `iamax.S` → portable |
+| YONAH        | `iamax.S` → vec       | `iamax.S` → vec       | `iamax.S` → portable |
+| ZEN          | `iamax.S` → vec       | `iamax.S` → vec       | `iamax.S` → portable |
+
+## arm64
+
+| core          | ismax                 | idmax                 | iqmax                |
+| ------------- | --------------------- | --------------------- | -------------------- |
+| A64FX         | `../arm/imax.c` → vec | `../arm/imax.c` → vec | `iamax.S` → portable |
+| AMPERE1       | `../arm/imax.c` → vec | `../arm/imax.c` → vec | `iamax.S` → portable |
+| ARMV8         | `../arm/imax.c` → vec | `../arm/imax.c` → vec | `iamax.S` → portable |
+| ARMV8SVE      | `../arm/imax.c` → vec | `../arm/imax.c` → vec | `iamax.S` → portable |
+| ARMV9SME      | `../arm/imax.c` → vec | `../arm/imax.c` → vec | `iamax.S` → portable |
+| CORTEXA510    | `../arm/imax.c` → vec | `../arm/imax.c` → vec | `iamax.S` → portable |
+| CORTEXA53     | `../arm/imax.c` → vec | `../arm/imax.c` → vec | `iamax.S` → portable |
+| CORTEXA55     | `../arm/imax.c` → vec | `../arm/imax.c` → vec | `iamax.S` → portable |
+| CORTEXA57     | `../arm/imax.c` → vec | `../arm/imax.c` → vec | `iamax.S` → portable |
+| CORTEXA710    | `../arm/imax.c` → vec | `../arm/imax.c` → vec | `iamax.S` → portable |
+| CORTEXA72     | `../arm/imax.c` → vec | `../arm/imax.c` → vec | `iamax.S` → portable |
+| CORTEXA73     | `../arm/imax.c` → vec | `../arm/imax.c` → vec | `iamax.S` → portable |
+| CORTEXA76     | `../arm/imax.c` → vec | `../arm/imax.c` → vec | `iamax.S` → portable |
+| CORTEXX1      | `../arm/imax.c` → vec | `../arm/imax.c` → vec | `iamax.S` → portable |
+| CORTEXX2      | `../arm/imax.c` → vec | `../arm/imax.c` → vec | `iamax.S` → portable |
+| EMAG8180      | `../arm/imax.c` → vec | `../arm/imax.c` → vec | `iamax.S` → portable |
+| FALKOR        | `../arm/imax.c` → vec | `../arm/imax.c` → vec | `iamax.S` → portable |
+| FT2000        | `../arm/imax.c` → vec | `../arm/imax.c` → vec | `iamax.S` → portable |
+| generic       | `../arm/imax.c` → n/a | `../arm/imax.c` → n/a | `iamax.S` → n/a      |
+| NEOVERSEN1    | `../arm/imax.c` → vec | `../arm/imax.c` → vec | `iamax.S` → portable |
+| NEOVERSEN2    | `../arm/imax.c` → vec | `../arm/imax.c` → vec | `iamax.S` → portable |
+| NEOVERSEV1    | `../arm/imax.c` → vec | `../arm/imax.c` → vec | `iamax.S` → portable |
+| NEOVERSEV2    | `../arm/imax.c` → vec | `../arm/imax.c` → vec | `iamax.S` → portable |
+| THUNDERX      | `../arm/imax.c` → vec | `../arm/imax.c` → vec | `iamax.S` → portable |
+| THUNDERX2T99  | `../arm/imax.c` → vec | `../arm/imax.c` → vec | `iamax.S` → portable |
+| THUNDERX3T110 | `../arm/imax.c` → vec | `../arm/imax.c` → vec | `iamax.S` → portable |
+| TSV110        | `../arm/imax.c` → vec | `../arm/imax.c` → vec | `iamax.S` → portable |
+| VORTEX        | `../arm/imax.c` → vec | `../arm/imax.c` → vec | `iamax.S` → portable |
+| VORTEXM4      | `../arm/imax.c` → vec | `../arm/imax.c` → vec | `iamax.S` → portable |
+
+## arm
+
+| core      | ismax                  | idmax                 | iqmax                          |
+| --------- | ---------------------- | --------------------- | ------------------------------ |
+| ARMV5     | `../arm/imax.c` → vec  | `../arm/imax.c` → vec | `iamax.S` (missing) → portable |
+| ARMV6     | `iamax_vfp.S` → vec    | `iamax_vfp.S` → vec   | `iamax.S` (missing) → portable |
+| ARMV7     | `iamax_vfp.S` → vec    | `iamax_vfp.S` → vec   | `iamax.S` (missing) → portable |
+| CORTEXA15 | `iamax_vfp.S` → routed | `iamax_vfp.S` → vec   | `iamax.S` (missing) → portable |
+| CORTEXA9  | `iamax_vfp.S` → routed | `iamax_vfp.S` → vec   | `iamax.S` (missing) → portable |
+
+## power
+
+| core      | ismax                               | idmax                               | iqmax               |
+| --------- | ----------------------------------- | ----------------------------------- | ------------------- |
+| CELL      | `imax.S` → vec                      | `imax.S` → vec                      | `imax.S` → portable |
+| POWER10   | `imax.S` → vec                      | `imax.S` → vec                      | `imax.S` → portable |
+| POWER3    | `imax.S` → vec                      | `imax.S` → vec                      | `imax.S` → portable |
+| POWER4    | `imax.S` → vec                      | `imax.S` → vec                      | `imax.S` → portable |
+| POWER5    | `imax.S` → vec                      | `imax.S` → vec                      | `imax.S` → portable |
+| POWER6    | `imax.S` → vec                      | `imax.S` → vec                      | `imax.S` → portable |
+| POWER8    | `imax.S` → vec                      | `imax.S` → vec                      | `imax.S` → portable |
+| POWER9    | `imax.S` → vec                      | `imax.S` → vec                      | `imax.S` → portable |
+| PPC440    | `imax_ppc440.S` → vec               | `imax_ppc440.S` → vec               | `imax.S` → portable |
+| PPC440FP2 | `imax_hummer.S` (unsupported) → vec | `imax_hummer.S` (unsupported) → vec | `imax.S` → portable |
+| PPC970    | `imax.S` → vec                      | `imax.S` → vec                      | `imax.S` → portable |
+| PPCG4     | `imax_ppc440.S` → vec               | `imax_ppc440.S` → vec               | `imax.S` → portable |
+
+## mips64
+
+| core           | ismax                 | idmax                 | iqmax               |
+| -------------- | --------------------- | --------------------- | ------------------- |
+| generic        | `../arm/imax.c` → n/a | `../arm/imax.c` → n/a | `imax.S` → n/a      |
+| I6400          | `../arm/imax.c` → vec | `../arm/imax.c` → vec | `imax.S` → portable |
+| I6500          | `../arm/imax.c` → vec | `../arm/imax.c` → vec | `imax.S` → portable |
+| LOONGSON3R3    | `imax.S` → vec        | `imax.S` → vec        | `imax.S` → portable |
+| LOONGSON3R4    | `imax.S` → vec        | `imax.S` → vec        | `imax.S` → portable |
+| MIPS64_GENERIC | `../arm/imax.c` → vec | `../arm/imax.c` → vec | `imax.S` → portable |
+| P6600          | `../arm/imax.c` → vec | `../arm/imax.c` → vec | `imax.S` → portable |
+
+## mips
+
+| core      | ismax                 | idmax                 | iqmax                          |
+| --------- | --------------------- | --------------------- | ------------------------------ |
+| generic   | `../arm/imax.c` → n/a | `../arm/imax.c` → n/a | `iamax.S` (missing) → n/a      |
+| MIPS1004K | `../arm/imax.c` → vec | `../arm/imax.c` → vec | `iamax.S` (missing) → portable |
+| MIPS24K   | `../arm/imax.c` → vec | `../arm/imax.c` → vec | `iamax.S` (missing) → portable |
+| P5600     | `../arm/imax.c` → vec | `../arm/imax.c` → vec | `iamax.S` (missing) → portable |
+
+## riscv64
+
+| core            | ismax                                | idmax                                | iqmax                          |
+| --------------- | ------------------------------------ | ------------------------------------ | ------------------------------ |
+| C910V           | `imax_vector.c` +intrinsics → routed | `imax_vector.c` +intrinsics → routed | `iamax.S` (missing) → portable |
+| RISCV64_GENERIC | `../riscv64/imax.c` → routed         | `../riscv64/imax.c` → routed         | `iamax.S` (missing) → portable |
+| RISCV64_ZVL128B | `imax_rvv.c` +intrinsics → vec       | `imax_rvv.c` +intrinsics → vec       | `iamax.S` (missing) → portable |
+| RISCV64_ZVL256B | `imax_vector.c` +intrinsics → vec    | `imax_vector.c` +intrinsics → vec    | `iamax.S` (missing) → portable |
+| U74             | `../riscv64/imax.c` → routed         | `../riscv64/imax.c` → routed         | `iamax.S` (missing) → portable |
+| x280            | `imax_rvv.c` +intrinsics → vec       | `imax_rvv.c` +intrinsics → vec       | `iamax.S` (missing) → portable |
+
+## loongarch64
+
+| core         | ismax                 | idmax                 | iqmax                |
+| ------------ | --------------------- | --------------------- | -------------------- |
+| generic      | `../arm/imax.c` → n/a | `../arm/imax.c` → n/a | `iamax.S` → n/a      |
+| LA264        | `imax_lsx.S` → vec    | `imax_lsx.S` → vec    | `iamax.S` → portable |
+| LA464        | `imax_lasx.S` → vec   | `imax_lasx.S` → vec   | `iamax.S` → portable |
+| LA64_GENERIC | `../arm/imax.c` → vec | `../arm/imax.c` → vec | `iamax.S` → portable |
+
+## zarch
+
+| core          | ismax                    | idmax                    | iqmax                          |
+| ------------- | ------------------------ | ------------------------ | ------------------------------ |
+| Z13           | `../arm/imax.c` → routed | `idmax.c` +asm → routed  | `iamax.S` (missing) → portable |
+| Z14           | `ismax.c` +asm → routed  | `idmax.c` +asm → routed  | `iamax.S` (missing) → portable |
+| ZARCH_GENERIC | `../arm/imax.c` → routed | `../arm/imax.c` → routed | `iamax.S` (missing) → portable |
+
+## sparc
+
+| core    | ismax          | idmax          | iqmax                |
+| ------- | -------------- | -------------- | -------------------- |
+| sparc   | `imax.S` → vec | `imax.S` → vec | `iamax.S` → portable |
+| sparcv7 | `imax.S` → vec | `imax.S` → vec | `iamax.S` → portable |
+
+## alpha
+
+rstd has no target here.
+
+| core  | ismax           | idmax           | iqmax           |
+| ----- | --------------- | --------------- | --------------- |
+| (all) | `iamax.S` → n/a | `iamax.S` → n/a | `iamax.S` → n/a |
+
+## ia64
+
+rstd has no target here.
+
+| core  | ismax           | idmax           | iqmax           |
+| ----- | --------------- | --------------- | --------------- |
+| (all) | `iamax.S` → n/a | `iamax.S` → n/a | `iamax.S` → n/a |
+
+## wasm
+
+| core            | ismax                        | idmax                        | iqmax                          |
+| --------------- | ---------------------------- | ---------------------------- | ------------------------------ |
+| WASM128_GENERIC | `../riscv64/imax.c` → routed | `../riscv64/imax.c` → routed | `iamax.S` (missing) → portable |
+
+## Gaps
+
+None: no core runs the portable kernels where upstream is tuned.
+
+## Totals
+
+(core, role) pairs by what rstd serves: `vec` 214, `portable` 115, `n/a` 24, `routed` 16. 0 gaps.

@@ -1,0 +1,139 @@
+//! `zcopy` for sparc, sparcv7 (32); sparc, sparcv7 (64), from OpenBLAS `kernel/sparc/zcopy.S` (`v0.3.34-794-gdbf2c24c9`); converted by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+/// Each function's core and variant, and its parts (`__bk`'s arguments).
+pub const keys = .{
+    .{ .core = .sparc, .variant = "32", .parts = "1, 0" },
+    .{ .core = .sparcv7, .variant = "32", .parts = "1, 0" },
+    .{ .core = .sparc, .variant = "64", .parts = "0, 1" },
+    .{ .core = .sparcv7, .variant = "64", .parts = "0, 1" },
+};
+
+/// The functions' one text, a macro whose parameters select the parts.
+const text =
+    \\ .macro __bk bp0, bp1
+    \\ .align 32
+    \\ .proc 07
+    \\ .if \bp0
+    \\ save %sp, -64, %sp
+    \\ sll %i2, 4, %i2
+    \\ sll %i4, 4, %i4
+    \\ .endif
+    \\ .if \bp1
+    \\ save %sp, -256, %sp
+    \\ sllx %i2, 4, %i2
+    \\ sllx %i4, 4, %i4
+    \\ .endif
+    \\ cmp %i2, 2 * 8
+    \\ bne 20004f
+    \\ nop
+    \\ cmp %i4, 2 * 8
+    \\ bne 20004f
+    \\ nop
+    \\ sra %i0, 2, %i5
+    \\ cmp %i5, 0
+    \\ ble,pn %icc, 20001f
+    \\ nop
+    \\ 20000:
+    \\ prefetch [%i1 + 32 * 8], 0
+    \\ prefetch [%i3 + 32 * 8], 0
+    \\ ldd [%i1 + 0 * 8], %f0
+    \\ ldd [%i1 + 1 * 8], %f2
+    \\ ldd [%i1 + 2 * 8], %f4
+    \\ ldd [%i1 + 3 * 8], %f6
+    \\ ldd [%i1 + 4 * 8], %f8
+    \\ ldd [%i1 + 5 * 8], %f10
+    \\ ldd [%i1 + 6 * 8], %f12
+    \\ ldd [%i1 + 7 * 8], %f14
+    \\ std %f0, [%i3 + 0 * 8]
+    \\ add %i5, -1, %i5
+    \\ std %f2, [%i3 + 1 * 8]
+    \\ cmp %i5, 0
+    \\ std %f4, [%i3 + 2 * 8]
+    \\ add %i1, 8 * 8, %i1
+    \\ std %f6, [%i3 + 3 * 8]
+    \\ std %f8, [%i3 + 4 * 8]
+    \\ std %f10, [%i3 + 5 * 8]
+    \\ std %f12, [%i3 + 6 * 8]
+    \\ std %f14, [%i3 + 7 * 8]
+    \\ bg,pt %icc, 20000b
+    \\ add %i3, 8 * 8, %i3
+    \\ 20001:
+    \\ and %i0, 3, %i5
+    \\ cmp %i5, 0
+    \\ ble,a,pn %icc, 20003f
+    \\ nop
+    \\ 20002:
+    \\ ldd [%i1 + 0 * 8], %f0
+    \\ ldd [%i1 + 1 * 8], %f2
+    \\ add %i5, -1, %i5
+    \\ cmp %i5, 0
+    \\ std %f0, [%i3 + 0 * 8]
+    \\ add %i1, 2 * 8, %i1
+    \\ std %f2, [%i3 + 1 * 8]
+    \\ bg,pt %icc, 20002b
+    \\ add %i3, 2 * 8, %i3
+    \\ 20003:
+    \\ return %i7 + 8
+    \\ clr %g0
+    \\ 20004:
+    \\ sra %i0, 2, %i5
+    \\ cmp %i5, 0
+    \\ ble,pn %icc, 20006f
+    \\ nop
+    \\ 20005:
+    \\ ldd [%i1 + 0 * 8], %f0
+    \\ ldd [%i1 + 1 * 8], %f2
+    \\ add %i1, %i2, %i1
+    \\ ldd [%i1 + 0 * 8], %f4
+    \\ ldd [%i1 + 1 * 8], %f6
+    \\ add %i1, %i2, %i1
+    \\ ldd [%i1 + 0 * 8], %f8
+    \\ ldd [%i1 + 1 * 8], %f10
+    \\ add %i1, %i2, %i1
+    \\ ldd [%i1 + 0 * 8], %f12
+    \\ ldd [%i1 + 1 * 8], %f14
+    \\ add %i1, %i2, %i1
+    \\ std %f0, [%i3 + 0 * 8]
+    \\ add %i5, -1, %i5
+    \\ std %f2, [%i3 + 1 * 8]
+    \\ add %i3, %i4, %i3
+    \\ cmp %i5, 0
+    \\ std %f4, [%i3 + 0 * 8]
+    \\ std %f6, [%i3 + 1 * 8]
+    \\ add %i3, %i4, %i3
+    \\ std %f8, [%i3 + 0 * 8]
+    \\ std %f10, [%i3 + 1 * 8]
+    \\ add %i3, %i4, %i3
+    \\ std %f12, [%i3 + 0 * 8]
+    \\ std %f14, [%i3 + 1 * 8]
+    \\ bg,pt %icc, 20005b
+    \\ add %i3, %i4, %i3
+    \\ 20006:
+    \\ and %i0, 3, %i5
+    \\ cmp %i5, 0
+    \\ ble,a,pn %icc, 20008f
+    \\ nop
+    \\ 20007:
+    \\ ldd [%i1 + 0 * 8], %f0
+    \\ ldd [%i1 + 1 * 8], %f2
+    \\ add %i5, -1, %i5
+    \\ cmp %i5, 0
+    \\ add %i1, %i2, %i1
+    \\ std %f0, [%i3 + 0 * 8]
+    \\ std %f2, [%i3 + 1 * 8]
+    \\ bg,pt %icc, 20007b
+    \\ add %i3, %i4, %i3
+    \\ 20008:
+    \\ return %i7 + 8
+    \\ clr %o0
+    \\ .endm
+    \\
+;
+
+pub fn Body(comptime args: []const u8) type {
+    return struct {
+        pub fn entry() callconv(.naked) void {
+            asm volatile (text ++ (" __bk " ++ args ++ "\n .purgem __bk\n"));
+        }
+    };
+}

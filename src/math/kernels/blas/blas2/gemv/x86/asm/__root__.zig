@@ -1,0 +1,20 @@
+//! Which converted file has which kernel, its cores in its `keys`; converted from OpenBLAS `v0.3.34-794-gdbf2c24c9` by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+const registry = @import("../../../../registry.zig");
+
+pub const Entry = registry.Entry;
+
+pub const entries = [_]Entry{
+    .{ .slot = .cgemv_n, .module = @import("cgemv_n.zig") },
+    .{ .slot = .cgemv_t, .module = @import("cgemv_t.zig") },
+    .{ .slot = .cgemv_r, .module = @import("cgemv_r.zig") },
+    .{ .slot = .cgemv_c, .module = @import("cgemv_c.zig") },
+    .{ .slot = .cgemv_o, .module = @import("cgemv_o.zig") },
+    .{ .slot = .cgemv_u, .module = @import("cgemv_u.zig") },
+    .{ .slot = .cgemv_s, .module = @import("cgemv_s.zig") },
+    .{ .slot = .cgemv_d, .module = @import("cgemv_d.zig") },
+    .{ .slot = .zgemv_n, .module = @import("zgemv_n.zig") },
+    .{ .slot = .zgemv_r, .module = @import("zgemv_r.zig") },
+    .{ .slot = .zgemv_o, .module = @import("zgemv_o.zig") },
+    .{ .slot = .zgemv_s, .module = @import("zgemv_s.zig") },
+};

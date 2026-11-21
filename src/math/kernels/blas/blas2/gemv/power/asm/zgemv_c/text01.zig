@@ -1,0 +1,293 @@
+//! Section 1 of 3 of the text of `zgemv_c`, which `__root__.zig` joins, from OpenBLAS `kernel/power/zgemv_t.S` (`v0.3.34-794-gdbf2c24c9`); converted by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+pub const text =
+    \\ .macro __bk bp0, bp1, bp2, bp3, bp4, bp5, bp6, bp7, bp8, bp9
+    \\ .align 6
+    \\ .if \bp0
+    \\ addi 1, 1, -224
+    \\ .endif
+    \\ .if \bp1
+    \\ addi 1, 1, -304
+    \\ .endif
+    \\ li 0, 0
+    \\ stfd 14, 0(1)
+    \\ stfd 15, 8(1)
+    \\ stfd 16, 16(1)
+    \\ stfd 17, 24(1)
+    \\ stfd 18, 32(1)
+    \\ stfd 19, 40(1)
+    \\ stfd 20, 48(1)
+    \\ stfd 21, 56(1)
+    \\ stfd 22, 64(1)
+    \\ stfd 23, 72(1)
+    \\ stfd 24, 80(1)
+    \\ stfd 25, 88(1)
+    \\ stfd 26, 96(1)
+    \\ stfd 27, 104(1)
+    \\ stfd 28, 112(1)
+    \\ stfd 29, 120(1)
+    \\ stfd 30, 128(1)
+    \\ stfd 31, 136(1)
+    \\ .if \bp0
+    \\ stw 14, 144(1)
+    \\ stw 15, 148(1)
+    \\ stw 16, 152(1)
+    \\ stw 17, 156(1)
+    \\ stw 18, 160(1)
+    \\ stw 19, 164(1)
+    \\ stw 20, 168(1)
+    \\ stw 21, 172(1)
+    \\ stw 22, 176(1)
+    \\ stw 23, 180(1)
+    \\ stw 24, 184(1)
+    \\ stw 25, 188(1)
+    \\ stw 0, 200(1)
+    \\ stw 0, 4 + 200(1)
+    \\ lwz 5, (((0) * 4) + 8) + 224(1)
+    \\ lwz 11, (((1) * 4) + 8) + 224(1)
+    \\ stfd 1, 208(1)
+    \\ stfd 2, 216(1)
+    \\ mullw 18, 7, 4
+    \\ .endif
+    \\ .if \bp1
+    \\ std 14, 144(1)
+    \\ std 15, 152(1)
+    \\ std 16, 160(1)
+    \\ std 17, 168(1)
+    \\ std 18, 176(1)
+    \\ std 19, 184(1)
+    \\ std 20, 192(1)
+    \\ std 21, 200(1)
+    \\ std 22, 208(1)
+    \\ std 23, 216(1)
+    \\ std 24, 224(1)
+    \\ std 25, 232(1)
+    \\ std 0, 256(1)
+    \\ ld 5, (((0) * 8) + 96) + 304(1)
+    \\ ld 6, (((1) * 8) + 96) + 304(1)
+    \\ ld 7, (((2) * 8) + 96) + 304(1)
+    \\ ld 11, (((3) * 8) + 96) + 304(1)
+    \\ stfd 1, 264(1)
+    \\ stfd 2, 272(1)
+    \\ mulld 18, 9, 4
+    \\ .endif
+    \\ li 12, 2048
+    \\ subf 18, 12, 18
+    \\ .if \bp0
+    \\ slwi 18, 18, 4
+    \\ slwi 7, 7, 4
+    \\ slwi 9, 9, 4
+    \\ slwi 5, 5, 4
+    \\ .endif
+    \\ .if \bp1
+    \\ sldi 18, 18, 4
+    \\ sldi 9, 9, 4
+    \\ sldi 5, 5, 4
+    \\ sldi 7, 7, 4
+    \\ .endif
+    \\ li 23, 0
+    \\ .if \bp2
+    \\ li 24, 56 * 8
+    \\ .endif
+    \\ .if \bp3
+    \\ li 24, 34 * 8
+    \\ .endif
+    \\ .if \bp4
+    \\ li 25, 16 * 8
+    \\ .endif
+    \\ .if \bp5
+    \\ li 24, 40 * 8
+    \\ .endif
+    \\ .if \bp6
+    \\ li 24, 24 * 8
+    \\ .endif
+    \\ .if \bp7
+    \\ li 25, 8 * 8
+    \\ .endif
+    \\ .if \bp0
+    \\ cmpwi 0, 3, 0
+    \\ .endif
+    \\ .if \bp1
+    \\ cmpdi 0, 3, 0
+    \\ .endif
+    \\ ble 20023f
+    \\ .if \bp0
+    \\ cmpwi 0, 4, 0
+    \\ .endif
+    \\ .if \bp1
+    \\ cmpdi 0, 4, 0
+    \\ .endif
+    \\ ble 20023f
+    \\ .align 4
+    \\ 20000:
+    \\ subf 14, 23, 3
+    \\ .if \bp0
+    \\ slwi 0, 23, 4
+    \\ .endif
+    \\ .if \bp1
+    \\ sldi 0, 23, 4
+    \\ .endif
+    \\ cmpi 0, 0, 14, 2048
+    \\ ble+ 20001f
+    \\ li 14, 2048
+    \\ 20001:
+    \\ .if \bp0
+    \\ add 12, 8, 0
+    \\ cmpwi 0, 9, 2 * 8
+    \\ .endif
+    \\ .if \bp1
+    \\ add 12, 10, 0
+    \\ cmpdi 0, 5, 2 * 8
+    \\ .endif
+    \\ beq 20005f
+    \\ mr 12, 11
+    \\ addi 16, 11, -8
+    \\ .if \bp0
+    \\ srawi. 0, 14, 2
+    \\ .endif
+    \\ .if \bp1
+    \\ sradi. 0, 14, 2
+    \\ .endif
+    \\ mtspr 9, 0
+    \\ ble 20003f
+    \\ .align 4
+    \\ 20002:
+    \\ .if \bp0
+    \\ lfd 0, 0 * 8(8)
+    \\ lfd 1, 1 * 8(8)
+    \\ add 8, 8, 9
+    \\ lfd 2, 0 * 8(8)
+    \\ lfd 3, 1 * 8(8)
+    \\ add 8, 8, 9
+    \\ lfd 4, 0 * 8(8)
+    \\ lfd 5, 1 * 8(8)
+    \\ add 8, 8, 9
+    \\ lfd 6, 0 * 8(8)
+    \\ lfd 7, 1 * 8(8)
+    \\ add 8, 8, 9
+    \\ .endif
+    \\ .if \bp1
+    \\ lfd 0, 0 * 8(10)
+    \\ lfd 1, 1 * 8(10)
+    \\ add 10, 10, 5
+    \\ lfd 2, 0 * 8(10)
+    \\ lfd 3, 1 * 8(10)
+    \\ add 10, 10, 5
+    \\ lfd 4, 0 * 8(10)
+    \\ lfd 5, 1 * 8(10)
+    \\ add 10, 10, 5
+    \\ lfd 6, 0 * 8(10)
+    \\ lfd 7, 1 * 8(10)
+    \\ add 10, 10, 5
+    \\ .endif
+    \\ stfd 0, 1 * 8(16)
+    \\ stfd 1, 2 * 8(16)
+    \\ stfd 2, 3 * 8(16)
+    \\ stfd 3, 4 * 8(16)
+    \\ stfd 4, 5 * 8(16)
+    \\ stfd 5, 6 * 8(16)
+    \\ stfd 6, 7 * 8(16)
+    \\ stfdu 7, 8 * 8(16)
+    \\ bdnz 20002b
+    \\ .align 4
+    \\ 20003:
+    \\ andi. 0, 14, 3
+    \\ mtspr 9, 0
+    \\ ble 20005f
+    \\ .align 4
+    \\ 20004:
+    \\ .if \bp0
+    \\ lfd 0, 0 * 8(8)
+    \\ lfd 1, 1 * 8(8)
+    \\ add 8, 8, 9
+    \\ .endif
+    \\ .if \bp1
+    \\ lfd 0, 0 * 8(10)
+    \\ lfd 1, 1 * 8(10)
+    \\ add 10, 10, 5
+    \\ .endif
+    \\ stfd 0, 1 * 8(16)
+    \\ stfdu 1, 2 * 8(16)
+    \\ bdnz 20004b
+    \\ .align 4
+    \\ 20005:
+    \\ .if \bp0
+    \\ mr 16, 10
+    \\ .endif
+    \\ .if \bp1
+    \\ mr 16, 6
+    \\ .endif
+    \\ addi 12, 12, -8
+    \\ .if \bp0
+    \\ srawi. 15, 4, 2
+    \\ .endif
+    \\ .if \bp1
+    \\ sradi. 15, 4, 2
+    \\ .endif
+    \\ ble 20014f
+    \\ .align 4
+    \\ 20006:
+    \\ .if \bp0
+    \\ mr 19, 6
+    \\ add 20, 6, 7
+    \\ add 21, 20, 7
+    \\ add 22, 21, 7
+    \\ add 6, 22, 7
+    \\ .endif
+    \\ .if \bp1
+    \\ mr 19, 8
+    \\ add 20, 8, 9
+    \\ add 21, 20, 9
+    \\ add 22, 21, 9
+    \\ add 8, 22, 9
+    \\ .endif
+    \\ mr 17, 12
+    \\ .if \bp0
+    \\ lfd 0, 200(1)
+    \\ .endif
+    \\ .if \bp1
+    \\ lfd 0, 256(1)
+    \\ .endif
+    \\ fmr 1, 0
+    \\ fmr 2, 0
+    \\ fmr 3, 0
+    \\ fmr 4, 0
+    \\ fmr 5, 0
+    \\ fmr 6, 0
+    \\ fmr 7, 0
+    \\ fmr 8, 0
+    \\ fmr 9, 0
+    \\ fmr 10, 0
+    \\ fmr 11, 0
+    \\ fmr 12, 0
+    \\ fmr 13, 0
+    \\ fmr 14, 0
+    \\ fmr 15, 0
+    \\ dcbtst 25, 16
+    \\ .if \bp0
+    \\ srawi. 0, 14, 3
+    \\ .endif
+    \\ .if \bp1
+    \\ sradi. 0, 14, 3
+    \\ .endif
+    \\ mtspr 9, 0
+    \\ ble 20009f
+    \\ lfd 16, 0 * 8(19)
+    \\ lfd 17, 1 * 8(19)
+    \\ lfd 18, 0 * 8(20)
+    \\ lfd 19, 1 * 8(20)
+    \\ lfd 20, 0 * 8(21)
+    \\ lfd 21, 1 * 8(21)
+    \\ lfd 22, 0 * 8(22)
+    \\ lfd 23, 1 * 8(22)
+    \\ lfd 24, 1 * 8(17)
+    \\ lfd 25, 2 * 8(17)
+    \\ lfd 26, 3 * 8(17)
+    \\ lfd 27, 4 * 8(17)
+    \\ lfd 28, 5 * 8(17)
+    \\ lfd 29, 6 * 8(17)
+    \\ lfd 30, 7 * 8(17)
+    \\ lfd 31, 8 * 8(17)
+    \\ bdz 20008f
+    \\
+;

@@ -1,0 +1,183 @@
+//! `dcopy` for loongson3r3, from OpenBLAS `kernel/mips64/copy.S` (`v0.3.34-794-gdbf2c24c9`); converted by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+/// Each function's core and variant.
+pub const keys = .{
+    .{ .core = .loongson3r3, .variant = "" },
+};
+
+pub const Body = struct {
+    pub fn entry() callconv(.naked) void {
+        asm volatile (
+            \\ .set mips64
+            \\ .align 5
+            \\ .set noreorder
+            \\ .set nomacro
+            \\ li $3, 8
+            \\ move $0, $0
+            \\ blez $4, 20009f
+            \\ dsll $6, $6, 3
+            \\ bne $6, $3, 20004f
+            \\ dsll $8, $8, 3
+            \\ bne $8, $3, 20004f
+            \\ dsra $2, $4, 3
+            \\ blez $2, 20002f
+            \\ daddiu $2, $2, -1
+            \\ ldc1 $f0, 0 * 8($5)
+            \\ ldc1 $f1, 1 * 8($5)
+            \\ ldc1 $f2, 2 * 8($5)
+            \\ ldc1 $f3, 3 * 8($5)
+            \\ ldc1 $f4, 4 * 8($5)
+            \\ ldc1 $f5, 5 * 8($5)
+            \\ ldc1 $f6, 6 * 8($5)
+            \\ ldc1 $f7, 7 * 8($5)
+            \\ blez $2, 20001f
+            \\ move $0, $0
+            \\ .align 3
+            \\ 20000:
+            \\ sdc1 $f0, 0 * 8($7)
+            \\ ldc1 $f0, 8 * 8($5)
+            \\ sdc1 $f1, 1 * 8($7)
+            \\ ldc1 $f1, 9 * 8($5)
+            \\ sdc1 $f2, 2 * 8($7)
+            \\ ldc1 $f2, 10 * 8($5)
+            \\ sdc1 $f3, 3 * 8($7)
+            \\ ldc1 $f3, 11 * 8($5)
+            \\ sdc1 $f4, 4 * 8($7)
+            \\ ldc1 $f4, 12 * 8($5)
+            \\ sdc1 $f5, 5 * 8($7)
+            \\ ldc1 $f5, 13 * 8($5)
+            \\ sdc1 $f6, 6 * 8($7)
+            \\ ldc1 $f6, 14 * 8($5)
+            \\ sdc1 $f7, 7 * 8($7)
+            \\ ldc1 $f7, 15 * 8($5)
+            \\ daddiu $2, $2, -1
+            \\ daddiu $5, $5, 8 * 8
+            \\ bgtz $2, 20000b
+            \\ daddiu $7, $7, 8 * 8
+            \\ .align 3
+            \\ 20001:
+            \\ sdc1 $f0, 0 * 8($7)
+            \\ sdc1 $f1, 1 * 8($7)
+            \\ sdc1 $f2, 2 * 8($7)
+            \\ sdc1 $f3, 3 * 8($7)
+            \\ sdc1 $f4, 4 * 8($7)
+            \\ sdc1 $f5, 5 * 8($7)
+            \\ sdc1 $f6, 6 * 8($7)
+            \\ sdc1 $f7, 7 * 8($7)
+            \\ daddiu $5, $5, 8 * 8
+            \\ daddiu $7, $7, 8 * 8
+            \\ .align 3
+            \\ 20002:
+            \\ andi $2, $4, 7
+            \\ blez $2, 20009f
+            \\ move $0, $0
+            \\ .align 3
+            \\ 20003:
+            \\ ldc1 $f0, 0 * 8($5)
+            \\ daddiu $5, $5, 8
+            \\ daddiu $2, $2, -1
+            \\ daddiu $7, $7, 8
+            \\ bgtz $2, 20003b
+            \\ sdc1 $f0, -1 * 8($7)
+            \\ j 20009f
+            \\ move $0, $0
+            \\ .align 3
+            \\ 20004:
+            \\ dsra $2, $4, 3
+            \\ blez $2, 20007f
+            \\ daddiu $2, $2, -1
+            \\ ldc1 $f0, 0 * 8($5)
+            \\ daddu $5, $5, $6
+            \\ ldc1 $f1, 0 * 8($5)
+            \\ daddu $5, $5, $6
+            \\ ldc1 $f2, 0 * 8($5)
+            \\ daddu $5, $5, $6
+            \\ ldc1 $f3, 0 * 8($5)
+            \\ daddu $5, $5, $6
+            \\ ldc1 $f4, 0 * 8($5)
+            \\ daddu $5, $5, $6
+            \\ ldc1 $f5, 0 * 8($5)
+            \\ daddu $5, $5, $6
+            \\ ldc1 $f6, 0 * 8($5)
+            \\ daddu $5, $5, $6
+            \\ ldc1 $f7, 0 * 8($5)
+            \\ daddu $5, $5, $6
+            \\ blez $2, 20006f
+            \\ move $0, $0
+            \\ .align 3
+            \\ 20005:
+            \\ sdc1 $f0, 0 * 8($7)
+            \\ daddu $7, $7, $8
+            \\ ldc1 $f0, 0 * 8($5)
+            \\ daddu $5, $5, $6
+            \\ sdc1 $f1, 0 * 8($7)
+            \\ daddu $7, $7, $8
+            \\ ldc1 $f1, 0 * 8($5)
+            \\ daddu $5, $5, $6
+            \\ sdc1 $f2, 0 * 8($7)
+            \\ daddu $7, $7, $8
+            \\ ldc1 $f2, 0 * 8($5)
+            \\ daddu $5, $5, $6
+            \\ sdc1 $f3, 0 * 8($7)
+            \\ daddu $7, $7, $8
+            \\ ldc1 $f3, 0 * 8($5)
+            \\ daddu $5, $5, $6
+            \\ sdc1 $f4, 0 * 8($7)
+            \\ daddu $7, $7, $8
+            \\ ldc1 $f4, 0 * 8($5)
+            \\ daddu $5, $5, $6
+            \\ sdc1 $f5, 0 * 8($7)
+            \\ daddu $7, $7, $8
+            \\ ldc1 $f5, 0 * 8($5)
+            \\ daddu $5, $5, $6
+            \\ sdc1 $f6, 0 * 8($7)
+            \\ daddu $7, $7, $8
+            \\ ldc1 $f6, 0 * 8($5)
+            \\ daddu $5, $5, $6
+            \\ sdc1 $f7, 0 * 8($7)
+            \\ daddu $7, $7, $8
+            \\ ldc1 $f7, 0 * 8($5)
+            \\ daddiu $2, $2, -1
+            \\ bgtz $2, 20005b
+            \\ daddu $5, $5, $6
+            \\ .align 3
+            \\ 20006:
+            \\ sdc1 $f0, 0 * 8($7)
+            \\ daddu $7, $7, $8
+            \\ sdc1 $f1, 0 * 8($7)
+            \\ daddu $7, $7, $8
+            \\ sdc1 $f2, 0 * 8($7)
+            \\ daddu $7, $7, $8
+            \\ sdc1 $f3, 0 * 8($7)
+            \\ daddu $7, $7, $8
+            \\ sdc1 $f4, 0 * 8($7)
+            \\ daddu $7, $7, $8
+            \\ sdc1 $f5, 0 * 8($7)
+            \\ daddu $7, $7, $8
+            \\ sdc1 $f6, 0 * 8($7)
+            \\ daddu $7, $7, $8
+            \\ sdc1 $f7, 0 * 8($7)
+            \\ daddu $7, $7, $8
+            \\ .align 3
+            \\ 20007:
+            \\ andi $2, $4, 7
+            \\ blez $2, 20009f
+            \\ move $0, $0
+            \\ .align 3
+            \\ 20008:
+            \\ ldc1 $f0, 0 * 8($5)
+            \\ daddu $5, $5, $6
+            \\ daddiu $2, $2, -1
+            \\ sdc1 $f0, 0 * 8($7)
+            \\ bgtz $2, 20008b
+            \\ daddu $7, $7, $8
+            \\ .align 3
+            \\ 20009:
+            \\ j $31
+            \\ move $0, $0
+            \\ .set macro
+            \\ .set reorder
+            \\
+        );
+    }
+};

@@ -1,0 +1,145 @@
+//! `ddot` for athlon, atom, banias, barcelona, bobcat, bulldozer, coppermine, core2, dunnington, haswell, katmai, nano, nehalem, northwood, opteron, opteron_sse3, p5, p6, penryn, piledriver, prescott, sandybridge, viac3, yonah, zen, from OpenBLAS `kernel/x86/dot.S` (`v0.3.34-794-gdbf2c24c9`); converted by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+/// Each function's core and variant.
+pub const keys = .{
+    .{ .core = .athlon, .variant = "" },
+    .{ .core = .atom, .variant = "" },
+    .{ .core = .banias, .variant = "" },
+    .{ .core = .barcelona, .variant = "" },
+    .{ .core = .bobcat, .variant = "" },
+    .{ .core = .bulldozer, .variant = "" },
+    .{ .core = .coppermine, .variant = "" },
+    .{ .core = .core2, .variant = "" },
+    .{ .core = .dunnington, .variant = "" },
+    .{ .core = .haswell, .variant = "" },
+    .{ .core = .katmai, .variant = "" },
+    .{ .core = .nano, .variant = "" },
+    .{ .core = .nehalem, .variant = "" },
+    .{ .core = .northwood, .variant = "" },
+    .{ .core = .opteron, .variant = "" },
+    .{ .core = .opteron_sse3, .variant = "" },
+    .{ .core = .p5, .variant = "" },
+    .{ .core = .p6, .variant = "" },
+    .{ .core = .penryn, .variant = "" },
+    .{ .core = .piledriver, .variant = "" },
+    .{ .core = .prescott, .variant = "" },
+    .{ .core = .sandybridge, .variant = "" },
+    .{ .core = .viac3, .variant = "" },
+    .{ .core = .yonah, .variant = "" },
+    .{ .core = .zen, .variant = "" },
+};
+
+pub const Body = struct {
+    pub fn entry() callconv(.naked) void {
+        asm volatile (
+            \\ .balign 16
+            \\ pushl %edi
+            \\ pushl %esi
+            \\ pushl %ebx
+            \\ movl 4 + 12 + 0(%esp), %ebx
+            \\ movl 8 + 12 + 0(%esp), %esi
+            \\ movl 12 + 12 + 0(%esp), %ecx
+            \\ movl 16 + 12 + 0(%esp), %edi
+            \\ movl 20 + 12 + 0(%esp), %edx
+            \\ leal (, %ecx, 8), %ecx
+            \\ leal (, %edx, 8), %edx
+            \\ fldz
+            \\ fldz
+            \\ fldz
+            \\ fldz
+            \\ cmpl $8, %ecx
+            \\ jne 20003f
+            \\ cmpl $8, %edx
+            \\ jne 20003f
+            \\ movl %ebx, %eax
+            \\ sarl $2, %eax
+            \\ jle 20001f
+            \\ .balign 8
+            \\ 20000:
+            \\ fldl 0 * 8(%esi)
+            \\ fmull 0 * 8(%edi)
+            \\ faddp %st,%st(1)
+            \\ fldl 1 * 8(%esi)
+            \\ fmull 1 * 8(%edi)
+            \\ faddp %st,%st(2)
+            \\ fldl 2 * 8(%esi)
+            \\ fmull 2 * 8(%edi)
+            \\ faddp %st,%st(3)
+            \\ fldl 3 * 8(%esi)
+            \\ fmull 3 * 8(%edi)
+            \\ faddp %st,%st(4)
+            \\ addl $4 * 8, %esi
+            \\ addl $4 * 8, %edi
+            \\ decl %eax
+            \\ jg 20000b
+            \\ .balign 8
+            \\ 20001:
+            \\ movl %ebx, %eax
+            \\ andl $3, %eax
+            \\ jle 20007f
+            \\ .balign 8
+            \\ 20002:
+            \\ fldl (%esi)
+            \\ addl $8, %esi
+            \\ fmull (%edi)
+            \\ addl $8, %edi
+            \\ faddp %st,%st(1)
+            \\ decl %eax
+            \\ jg 20002b
+            \\ jmp 20007f
+            \\ .balign 8
+            \\ 20003:
+            \\ movl %ebx, %eax
+            \\ sarl $2, %eax
+            \\ jle 20005f
+            \\ .balign 8
+            \\ 20004:
+            \\ fldl (%esi)
+            \\ addl %ecx, %esi
+            \\ fmull (%edi)
+            \\ addl %edx, %edi
+            \\ faddp %st,%st(1)
+            \\ fldl (%esi)
+            \\ addl %ecx, %esi
+            \\ fmull (%edi)
+            \\ addl %edx, %edi
+            \\ faddp %st,%st(2)
+            \\ fldl (%esi)
+            \\ addl %ecx, %esi
+            \\ fmull (%edi)
+            \\ addl %edx, %edi
+            \\ faddp %st,%st(3)
+            \\ fldl (%esi)
+            \\ addl %ecx, %esi
+            \\ fmull (%edi)
+            \\ addl %edx, %edi
+            \\ faddp %st,%st(4)
+            \\ decl %eax
+            \\ jg 20004b
+            \\ .balign 8
+            \\ 20005:
+            \\ movl %ebx, %eax
+            \\ andl $3, %eax
+            \\ jle 20007f
+            \\ .balign 8
+            \\ 20006:
+            \\ fldl (%esi)
+            \\ addl %ecx, %esi
+            \\ fmull (%edi)
+            \\ addl %edx, %edi
+            \\ faddp %st, %st(1)
+            \\ decl %eax
+            \\ jg 20006b
+            \\ .balign 8
+            \\ 20007:
+            \\ faddp %st,%st(2)
+            \\ faddp %st,%st(2)
+            \\ faddp %st,%st(1)
+            \\ popl %ebx
+            \\ popl %esi
+            \\ popl %edi
+            \\ ret
+            \\
+        );
+    }
+};

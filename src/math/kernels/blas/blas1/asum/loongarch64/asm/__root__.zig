@@ -1,0 +1,20 @@
+//! Which converted file has which kernel, its cores in its `keys`; converted from OpenBLAS `v0.3.34-794-gdbf2c24c9` by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+const registry = @import("../../../../registry.zig");
+
+pub const Entry = registry.Entry;
+
+pub const entries = [_]Entry{
+    .{ .slot = .sasum_k, .module = @import("sasum_lsx.zig") },
+    .{ .slot = .dasum_k, .module = @import("dasum_lsx.zig") },
+    .{ .slot = .casum_k, .module = @import("casum_lsx.zig") },
+    .{ .slot = .zasum_k, .module = @import("zasum_lsx.zig") },
+    .{ .slot = .sasum_k, .module = @import("sasum_lasx.zig") },
+    .{ .slot = .dasum_k, .module = @import("dasum_lasx.zig") },
+    .{ .slot = .casum_k, .module = @import("casum_lasx.zig") },
+    .{ .slot = .zasum_k, .module = @import("zasum_lasx.zig") },
+    .{ .slot = .sasum_k, .module = @import("sasum.zig") },
+    .{ .slot = .dasum_k, .module = @import("dasum.zig") },
+    .{ .slot = .casum_k, .module = @import("casum.zig") },
+    .{ .slot = .zasum_k, .module = @import("zasum.zig") },
+};

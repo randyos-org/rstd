@@ -1,0 +1,332 @@
+//! Least squares by QR, from faer v0.24.4
+//! (<https://codeberg.org/sarah-quinones/faer>, tag `faer-v0.24.4`, MIT):
+//! `faer/src/linalg/qr/no_pivoting/solve.rs`, behind Reference-LAPACK's
+//! `?GELS` (`dgels.f` and its forms). A wide `A` is factored as `Aᴴ = Q R`,
+//! `xGELQF`'s layout.
+
+const std = @import("std");
+const ops = @import("ops.zig");
+const blas_calls = @import("blas_calls.zig");
+const auxiliary = @import("auxiliary.zig");
+const hh = @import("householder.zig");
+const qr = @import("qr.zig");
+const util = @import("../blas/util.zig");
+const interface = @import("interface.zig");
+const tri = @import("triangular.zig");
+const types = @import("../blas/types.zig");
+
+const Allocator = std.mem.Allocator;
+const Io = std.Io;
+const Mat = ops.Mat;
+const Float = ops.Float;
+const isComplex = ops.isComplex;
+const Trans = types.Trans;
+
+/// What `gels` returns: a `trans` other than `n`, `t` or `c` (complex: `n`
+/// or `c`); a slice too short or a leading dimension too small; `Singular`
+/// when `A`'s triangular factor has a zero on its diagonal (`A` is rank
+/// deficient); and the allocator's and cancellation.
+pub const GelsError = interface.TransError || interface.ShapeError || interface.SingularError || Allocator.Error || Io.Cancelable;
+
+/// `?GELS`: for the `m x n` `A` of full rank, the least-squares solution of
+/// `op(A) X = B` where it is overdetermined, the minimum-norm one where
+/// underdetermined (`trans` `t` and `c` both `Aᴴ`). `B` is `max(m, n) x
+/// nrhs` and takes `X` in its first `n` rows (`m` for `Aᴴ`); for an
+/// overdetermined system the rows past them hold each column's residual,
+/// whose norm is the residual's. `A` takes `geqrf`'s factor (`m >= n`) or
+/// `gelqf`'s (`m < n`). `Singular` leaves `B` part solved, as the
+/// reference's `INFO > 0`.
+pub fn gels(allocator: Allocator, io: Io, comptime T: type, trans: Trans, m: usize, n: usize, nrhs: usize, a: []T, lda: usize, b: []T, ldb: usize) GelsError!void {
+    comptime ops.requireFloat(T, "gels");
+    try interface.takesAdjoint(T, trans);
+    try util.holds(a.len, m, n, lda);
+    try util.holds(b.len, @max(m, n), nrhs, ldb);
+    const bm: Mat(T) = .{ .ptr = b.ptr, .rows = @max(m, n), .cols = nrhs, .ld = ldb };
+    if (m == 0 or n == 0 or nrhs == 0) return bm.fill(ops.zero(T));
+    const am: Mat(T) = .{ .ptr = a.ptr, .rows = m, .cols = n, .ld = lda };
+    solve(allocator, io, T, trans != .n, am, bm) catch |e| return switch (e) {
+        error.Singular => error.Singular,
+        error.OutOfMemory => error.OutOfMemory,
+        error.Canceled => error.Canceled,
+    };
+}
+
+const SolveError = error{Singular} || ops.Error;
+
+/// `gels` after its checks; `adjoint` solves with `Aᴴ`.
+fn solve(al: Allocator, io: Io, comptime T: type, adjoint: bool, a: Mat(T), b: Mat(T)) SolveError!void {
+    const F = Float(T);
+    const m = a.rows;
+    const n = a.cols;
+    const nrhs = b.cols;
+    const smlnum = std.math.floatMin(F) / std.math.floatEps(F);
+    const anrm = auxiliary.normMax(T, a);
+    if (anrm == 0) return b.fill(ops.zero(T));
+    const to_a = auxiliary.scaleTo(F, anrm, smlnum);
+    if (to_a) |t| auxiliary.lascl(T, false, anrm, t, a);
+    const brow = if (adjoint) n else m;
+    const bb = b.sub(0, 0, brow, nrhs);
+    const bnrm = auxiliary.normMax(T, bb);
+    const to_b = auxiliary.scaleTo(F, bnrm, smlnum);
+    if (to_b) |t| auxiliary.lascl(T, false, bnrm, t, bb);
+    // `Aᴴ` (wide) or `A` (tall), factored `Q R`
+    const tall = m >= n;
+    const fm = if (tall) a else try ops.alloc(T, al, n, m);
+    defer if (!tall) ops.free(T, al, fm);
+    if (!tall) transposeInto(T, a, fm);
+    const k = fm.cols;
+    const h = try ops.alloc(T, al, qr.blockSize(fm.rows, k), k);
+    defer ops.free(T, al, h);
+    try qr.factorZeroed(al, io, T, fm, h);
+    if (!tall) transposeInto(T, fm, a);
+    const ct: Trans = if (comptime isComplex(T)) .c else .t;
+    // `A X = B` tall, or `Aᴴ X = B` wide: overdetermined, `R X = Qᴴ B`;
+    // the others underdetermined, `X = Q [R⁻ᴴ B; 0]`
+    const over = tall != adjoint;
+    const big = fm.rows;
+    if (over) {
+        try hh.applySequenceTransposed(al, io, T, fm, h, true, b.sub(0, 0, big, nrhs));
+        try trtrs(al, io, T, .n, fm, b);
+    } else {
+        try trtrs(al, io, T, ct, fm, b);
+        b.sub(k, 0, big - k, nrhs).fill(ops.zero(T));
+        try hh.applySequence(al, io, T, fm, h, false, b.sub(0, 0, big, nrhs));
+    }
+    const scllen = if (over) k else big;
+    const x = b.sub(0, 0, scllen, nrhs);
+    // scaled to the same end, the constants cancel: one step, as two may
+    // flush or overflow an entry (`dgels.f`, OpenBLAS `6b01b70dc`)
+    if (to_a != null and to_b != null and to_a.? == to_b.?) {
+        auxiliary.lascl(T, false, anrm, bnrm, x);
+    } else {
+        if (to_a) |t| auxiliary.lascl(T, false, anrm, t, x);
+        if (to_b) |t| auxiliary.lascl(T, false, t, bnrm, x);
+    }
+}
+
+/// `dst := srcᴴ`.
+fn transposeInto(comptime T: type, src: Mat(T), dst: Mat(T)) void {
+    for (0..src.cols) |j| for (0..src.rows) |i| {
+        dst.at(j, i).* = ops.conj(T, src.get(i, j));
+    };
+}
+
+/// `trtrs` on `R` (`r`'s upper `k x k`) with `B`'s first `k` rows.
+fn trtrs(al: Allocator, io: Io, comptime T: type, trans: Trans, r: Mat(T), b: Mat(T)) SolveError!void {
+    const k = r.cols;
+    if (tri.firstZero(T, k, r.ptr, r.ld) != null) return error.Singular;
+    tri.trtrs(al, io, T, .u, trans, .n, k, b.cols, r.sub(0, 0, k, k).slice(), r.ld, b.sub(0, 0, k, b.cols).slice(), b.ld) catch |e| return switch (e) {
+        error.Singular => error.Singular,
+        error.OutOfMemory => error.OutOfMemory,
+        error.Canceled => error.Canceled,
+        error.UnsupportedUplo, error.UnsupportedTranspose, error.SliceTooShort, error.LeadingDimensionTooSmall => unreachable,
+    };
+}
+
+// ---- tests -----------------------------------------------------------------------
+
+const testing = std.testing;
+const check = @import("../blas/_test/check.zig");
+const lcheck = @import("_test/check.zig");
+
+const test_types = .{ f32, f64, types.Complex32, types.Complex64 };
+
+/// `lcheck.thresh` on the residual ratios (`dqrt16.f`, `dqrt17.f`), `‖·‖`
+/// the max norm here, times 10 for `κ(A)` of a random matrix at aspect ratio
+/// up to 1 / 2 where an answer is compared directly.
+const thresh = lcheck.thresh;
+
+/// `x := op(A) y` (`n` or `c`).
+fn apply(comptime T: type, al: Allocator, adjoint: bool, a: Mat(T), y: Mat(T), x: Mat(T)) !void {
+    try blas_calls.gemm(al, check.io, T, if (adjoint) .c else .n, .n, ops.one(T), a, y, ops.zero(T), x);
+}
+
+test "faer gels: tall and wide, A and Aᴴ, least squares and minimum norm" {
+    const al = testing.allocator;
+    inline for (test_types) |T| {
+        const F = Float(T);
+        const eps = std.math.floatEps(F);
+        for ([_][2]usize{ .{ 1, 1 }, .{ 7, 3 }, .{ 3, 7 }, .{ 60, 25 }, .{ 25, 60 }, .{ 40, 40 }, .{ 130, 60 } }) |mn| for ([_]bool{ false, true }) |adj| {
+            const m = mn[0];
+            const n = mn[1];
+            const nrhs = 3;
+            // op(A) is rows x cols
+            const rows = if (adj) n else m;
+            const cols = if (adj) m else n;
+            const a0 = try ops.alloc(T, al, m, n);
+            defer ops.free(T, al, a0);
+            check.fill(T, a0.ptr[0 .. m * n], 31 * m + n);
+            const big = @max(m, n);
+            const x0 = try ops.alloc(T, al, cols, nrhs);
+            defer ops.free(T, al, x0);
+            const b0 = try ops.alloc(T, al, big, nrhs);
+            defer ops.free(T, al, b0);
+            b0.fill(ops.zero(T));
+            const rhs = b0.sub(0, 0, rows, nrhs);
+            var rnorm: [nrhs]F = @splat(0);
+            if (rows >= cols) {
+                // B = op(A) x0 + r0, r0 orthogonal to op(A)'s range: x0 is the answer
+                check.fill(T, x0.ptr[0 .. cols * nrhs], 5);
+                const opa = try ops.alloc(T, al, rows, cols);
+                defer ops.free(T, al, opa);
+                for (0..cols) |j| for (0..rows) |i| {
+                    opa.at(i, j).* = if (adj) ops.conj(T, a0.get(j, i)) else a0.get(i, j);
+                };
+                const tau = try al.alloc(T, cols);
+                defer al.free(tau);
+                const q = try ops.alloc(T, al, rows, rows);
+                defer ops.free(T, al, q);
+                q.sub(0, 0, rows, cols).copyFrom(opa);
+                try qr.factorLapack(al, check.io, T, q.sub(0, 0, rows, cols), tau.ptr);
+                try qr.generate(al, check.io, T, q, cols, tau.ptr);
+                // r0: random in Q's trailing columns
+                const w = try ops.alloc(T, al, rows - cols, nrhs);
+                defer ops.free(T, al, w);
+                check.fill(T, w.ptr[0 .. (rows - cols) * nrhs], 6);
+                try blas_calls.gemm(al, check.io, T, .n, .n, ops.one(T), q.sub(0, cols, rows, rows - cols), w, ops.zero(T), rhs);
+                for (0..nrhs) |j| rnorm[j] = blas_calls.nrm2(check.io, T, rows - cols, w.col(j), 1);
+                try blas_calls.gemm(al, check.io, T, .n, .n, ops.one(T), opa, x0, ops.one(T), rhs);
+            } else {
+                // x0 in op(A)ᴴ's range: the minimum-norm answer
+                const z = try ops.alloc(T, al, rows, nrhs);
+                defer ops.free(T, al, z);
+                check.fill(T, z.ptr[0 .. rows * nrhs], 7);
+                try apply(T, al, !adj, a0, z, x0);
+                try apply(T, al, adj, a0, x0, rhs);
+            }
+            const a = try ops.alloc(T, al, m, n);
+            defer ops.free(T, al, a);
+            a.copyFrom(a0);
+            const b = try ops.alloc(T, al, big, nrhs);
+            defer ops.free(T, al, b);
+            b.copyFrom(b0);
+            try gels(al, check.io, T, if (adj) .c else .n, m, n, nrhs, a.slice(), m, b.slice(), big);
+            const x = b.sub(0, 0, cols, nrhs);
+            const tol = 10 * thresh * @as(F, @floatFromInt(big)) * eps * @max(auxiliary.normMax(T, x0), 1);
+            for (0..nrhs) |j| for (0..cols) |i| {
+                const err = ops.abs(T, ops.sub(T, x.get(i, j), x0.get(i, j)));
+                if (!(err <= tol)) {
+                    check.say("gels {s} {d}x{d} adj {}: x({d},{d}) off by {e}, tol {e}\n", .{ @typeName(T), m, n, adj, i, j, err, tol });
+                    return error.TestUnexpectedResult;
+                }
+            };
+            // the residual's norm in the rows past the answer
+            if (rows > cols) for (0..nrhs) |j| {
+                const got = blas_calls.nrm2(check.io, T, rows - cols, b.col(j) + cols, 1);
+                try testing.expect(@abs(got - rnorm[j]) <= tol);
+            };
+        };
+    }
+}
+
+test "faer gels: an inconsistent tall system's residual is orthogonal to A (dqrt17)" {
+    const al = testing.allocator;
+    inline for (test_types) |T| {
+        const F = Float(T);
+        const m = 50;
+        const n = 20;
+        const nrhs = 2;
+        const a0 = try ops.alloc(T, al, m, n);
+        defer ops.free(T, al, a0);
+        check.fill(T, a0.ptr[0 .. m * n], 41);
+        const b0 = try ops.alloc(T, al, m, nrhs);
+        defer ops.free(T, al, b0);
+        check.fill(T, b0.ptr[0 .. m * nrhs], 42);
+        const a = try ops.alloc(T, al, m, n);
+        defer ops.free(T, al, a);
+        a.copyFrom(a0);
+        const b = try ops.alloc(T, al, m, nrhs);
+        defer ops.free(T, al, b);
+        b.copyFrom(b0);
+        try gels(al, check.io, T, .n, m, n, nrhs, a.slice(), m, b.slice(), m);
+        // r = B - A X; ‖Aᴴ r‖ / (max(m, n, nrhs) ‖A‖ ‖B‖ eps) < thresh
+        const r = b0;
+        try blas_calls.gemm(al, check.io, T, .n, .n, ops.neg(T, ops.one(T)), a0, b.sub(0, 0, n, nrhs), ops.one(T), r);
+        const g = try ops.alloc(T, al, n, nrhs);
+        defer ops.free(T, al, g);
+        try blas_calls.gemm(al, check.io, T, .c, .n, ops.one(T), a0, r, ops.zero(T), g);
+        const bscale = auxiliary.normMax(T, b.sub(0, 0, m, nrhs));
+        const ratio = auxiliary.normMax(T, g) / (@as(F, m) * auxiliary.normMax(T, a0) * @max(bscale, 1) * std.math.floatEps(F));
+        try testing.expect(ratio < thresh);
+    }
+}
+
+test "faer gels: rank deficient is Singular, a zero A zeroes B, empty zeroes B, tiny and huge scale" {
+    const al = testing.allocator;
+    inline for (.{ f64, types.Complex32 }) |T| {
+        const F = Float(T);
+        const m = 9;
+        const n = 5;
+        var a: [m * n]T = undefined;
+        var b: [m * 2]T = undefined;
+        check.fill(T, &a, 1);
+        check.fill(T, &b, 2);
+        @memset(a[2 * m .. 3 * m], ops.zero(T));
+        try testing.expectError(error.Singular, gels(al, check.io, T, .n, m, n, 2, &a, m, &b, m));
+        @memset(&a, ops.zero(T));
+        try gels(al, check.io, T, .n, m, n, 2, &a, m, &b, m);
+        for (b) |x| try testing.expect(ops.isZero(T, x));
+        // m = 0: B's max(m, n) rows zeroed
+        check.fill(T, &b, 3);
+        try gels(al, check.io, T, .n, 0, 3, 2, &a, 1, &b, 3);
+        for (b[0..6]) |x| try testing.expect(ops.isZero(T, x));
+        // scaled past SMLNUM and BIGNUM: the unscaled answer, scaled back
+        for ([_]F{ std.math.floatMin(F) * 16, std.math.floatMax(F) / 16 }) |sc| {
+            var a1: [m * n]T = undefined;
+            var b1: [m]T = undefined;
+            check.fill(T, &a1, 4);
+            check.fill(T, &b1, 5);
+            var a2 = a1;
+            var b2 = b1;
+            for (&a2) |*x| x.* = ops.mulReal(T, x.*, sc);
+            try gels(al, check.io, T, .n, m, n, 1, &a1, m, &b1, m);
+            try gels(al, check.io, T, .n, m, n, 1, &a2, m, &b2, m);
+            // relative to the answer's largest entry: 10 thresh eps
+            var big: F = 0;
+            for (b1[0..n]) |x| big = @max(big, ops.abs(T, x));
+            for (b1[0..n], b2[0..n]) |x, y| {
+                const want = ops.mulReal(T, x, 1 / sc);
+                try testing.expect(ops.abs(T, ops.sub(T, y, want)) <= 10 * thresh * std.math.floatEps(F) * (big / sc));
+            }
+        }
+        // NaN in A: it reaches X, nothing fails
+        check.fill(T, &a, 6);
+        check.fill(T, &b, 7);
+        a[4] = ops.scalar(T, std.math.nan(F));
+        try gels(al, check.io, T, .n, m, n, 2, &a, m, &b, m);
+        try testing.expect(std.math.isNan(ops.re(T, b[0])));
+    }
+}
+
+test "faer gels: A and B both past BIGNUM, a small column of X is not flushed" {
+    const al = testing.allocator;
+    inline for (test_types) |T| {
+        const F = Float(T);
+        const tm = std.math.floatTrueMin(F);
+        const bignum = std.math.floatEps(F) / std.math.floatMin(F);
+        // X = B / a: 2^12, and 2^16 tm where the scaled solve has 16 tm,
+        // which A's step back alone (2^-8) flushes
+        const av = bignum * 256;
+        const bv = av * 4096;
+        const tv = 16 * tm * bv;
+        var a = [_]T{ ops.scalar(T, av), ops.zero(T), ops.zero(T), ops.zero(T), ops.scalar(T, av), ops.zero(T) };
+        var b = [_]T{ ops.scalar(T, bv), ops.scalar(T, bv), ops.zero(T), ops.scalar(T, tv), ops.scalar(T, tv), ops.zero(T) };
+        try gels(al, check.io, T, .n, 3, 2, 2, &a, 3, &b, 3);
+        for ([_]usize{ 0, 1 }) |i| {
+            try testing.expect(ops.abs(T, ops.sub(T, b[i], ops.scalar(T, 4096))) <= 4096 * thresh * std.math.floatEps(F));
+            try testing.expect(ops.abs(T, ops.sub(T, b[3 + i], ops.scalar(T, 65536 * tm))) <= 256 * tm);
+        }
+    }
+}
+
+test "faer gels: bad arguments" {
+    const fa = testing.failing_allocator;
+    var a: [4]f64 = @splat(0);
+    var b: [4]f64 = @splat(0);
+    try testing.expectError(error.UnsupportedTranspose, gels(fa, check.io, f64, .r, 1, 1, 1, &a, 1, &b, 1));
+    try testing.expectError(error.UnsupportedTranspose, gels(fa, check.io, types.Complex64, .t, 1, 1, 1, @ptrCast(&a), 1, @ptrCast(&b), 1));
+    try testing.expectError(error.LeadingDimensionTooSmall, gels(fa, check.io, f64, .n, 2, 1, 1, &a, 1, &b, 2));
+    try testing.expectError(error.LeadingDimensionTooSmall, gels(fa, check.io, f64, .n, 1, 2, 1, &a, 1, &b, 1));
+    try testing.expectError(error.SliceTooShort, gels(fa, check.io, f64, .n, 2, 3, 1, &a, 2, &b, 3));
+    try testing.expectError(error.SliceTooShort, gels(fa, check.io, f64, .n, 2, 2, 3, &a, 2, &b, 2));
+}

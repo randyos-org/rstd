@@ -33,12 +33,6 @@
         //     .hash = "rc-0.0.0-rMftL9REAADo6nZWJwkxvJGHVKNNwXT-SxFQGdbiv5DW",
         //     .lazy = true,
         // },
-        .osx_kvm = .{
-            .url = "git+https://github.com/kholia/OSX-KVM#4c378a4b5e0b219783683012bec680325eb40719",
-            .hash = "N-V-__8AAKUnqQKGAifHk6tDAjx9sNpxjFjWRJi9cvVxV9x9",
-            // only with the macOS rigs (build/qemu/__root__.zig: when rstd is the root project, unless -Dmacos-vm-off)
-            .lazy = true,
-        },
         // Debian 13 netboot kernels for the Linux rigs (build/qemu/__root__.zig: when
         // rstd is the root project, unless -Dlinux-vm-off); a dated installer
         // build, so the archive stays put
@@ -92,5 +86,7 @@
         "build",
         "LICENSE",
         "src",
+        // rgui builds this through the dependency (addGenIconStep)
+        "tools/gen_icon.zig",
     },
 }

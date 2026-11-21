@@ -14,9 +14,9 @@ const ResolvedTarget = rstdbuild.ResolvedTarget;
 // Only `cpu/`'s light files (`corespec.zig`, `select.zig` and the `detect/<arch>.zig` detectors
 // it names): the registries or `cpu.Arch` would make this script's
 // compile depend on every kernel source.
-const corespec = @import("../src/linalg/blas/cpu/corespec.zig");
-const select = @import("../src/linalg/blas/cpu/select.zig");
-const abi = @import("../src/linalg/blas/abi.zig");
+const corespec = @import("../src/math/kernels/blas/cpu/corespec.zig");
+const select = @import("../src/math/kernels/blas/cpu/select.zig");
+const abi = @import("../src/math/kernels/blas/abi.zig");
 
 /// Cores with equal specs, served by one object.
 const Group = struct {
@@ -49,7 +49,7 @@ pub fn defaultCores(target: ResolvedTarget, optimize: rstdbuild.Optimize) rstdbu
 pub fn addBlasKernels(b: *Build, mod: *Module, target: ResolvedTarget, cores: rstdbuild.BlasCores, quad: ?bool) !void {
     if (!option_read) {
         option_read = true;
-        force_llvm = b.option(bool, "blas-llvm", "Force the BLAS kernel objects on (true) or off (false) LLVM; unset uses it only where the kernels need it");
+        force_llvm = b.option(bool, "blas-llvm", "Build the BLAS kernel objects with LLVM (default true); false uses the self-hosted backend, which the converted assembly does not build on");
         relapack = b.option(bool, "relapack", "LAPACK's potrf, getrf, trtri and lauum from ReLAPACK's recursive algorithms instead of OpenBLAS's, as OpenBLAS's BUILD_RELAPACK with RELAPACK_REPLACE") orelse false;
         quad_precision = b.option(bool, "quad-precision", "The BLAS's extended type (q and x routines) as f128 in software, as OpenBLAS's QUAD_PRECISION; turns x87 EXPRECISION off") orelse false;
     }
@@ -128,7 +128,7 @@ fn addForArch(
         const obj = b.addObject(.{
             .name = b.fmt("rstd-blaskernel-{s}", .{g.cores.items[0]}),
             .root_module = b.createModule(.{
-                .root_source_file = b.path("src/linalg/blas/_kernel.zig"),
+                .root_source_file = b.path("src/math/kernels/blas/_kernel.zig"),
                 .target = b.resolveTargetQuery(g.query),
                 // Kernels are always built for speed, whatever the consumer uses.
                 .optimize = .fast,
@@ -235,7 +235,7 @@ fn checkIsa(b: *Build, target: ResolvedTarget, query: std.Target.Query, core: an
     for (arch.allFeaturesList(), 0..) |f, i| {
         if (ex.isEnabled(@intCast(i))) try names.print(b.allocator, " {s}", .{f.name});
     }
-    std.process.fatal("the BLAS kernel object serving {s} on {s} uses{s}, which some {s} CPUs lack (`machine` in cpu/corespec.zig)", .{
+    std.process.fatal("the BLAS kernel object serving {s} on {s} uses{s}, which some {s} CPUs lack (`machine` in cpu/machine.zig)", .{
         @tagName(core), target.result.cpu.model.name, names.items, @tagName(core),
     });
 }

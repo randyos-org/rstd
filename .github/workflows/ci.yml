@@ -1,14 +1,19 @@
 name: CI
 
-# Modeled on zfls's ci.yml. Every pull request and every push to main runs the
-# unit tests on every platform that can run them here (the "test" job), with
-# Zig 0.17.1 and the latest Zig, and checks the build for zfls's targets
-# (rstd-check-zig017) and zig fmt with 0.17.1. Pushes to dev are not run: what reaches dev
-# is checked by its pull request, and dev as a whole by the pull request that
-# releases it (to main); start the workflow by hand on dev to check it in
-# between. A pull request that only changes the files listed in no-ci.txt
-# (documentation, editor settings) skips the checks; the "CI" job, the check
-# the rulesets require, passes then too.
+# Modeled on zfls's ci.yml. Every pull request into main and every push to
+# main runs the unit tests on every platform that can run them here (the
+# "test" job), with Zig 0.17.1 and the latest Zig, and checks the build for
+# zfls's targets (rstd-check-zig017) and zig fmt with 0.17.1. Pushes to dev
+# and pull requests into it are not run: dev is checked as a whole by the
+# pull request that releases it (to main), which each merge into dev
+# restarts; start the workflow by hand on a branch to check it alone
+# (`gh workflow run CI --ref <branch>`). A pull request that only changes the
+# files listed in no-ci.txt (documentation, editor settings) skips the
+# checks; the "CI" job, the check main's ruleset requires, passes then too. The tier 3 and 4 legs (test-tier34,
+# and rig-tier34's tier 3 rigs, named `<rig> rig`) are off for now, as work is on
+# tiers 1 and 2 only (user, 2026-11-20); a run started by hand takes those its
+# `tier34` input names: `none` (the default), `all`, or leg names separated by
+# commas (e.g. `arm-linux, i386 rig`).
 #
 # Versions: build.zig.zon holds the version the next release will have. When
 # a push to main passes and changes the package (see changes.sh), the commit
@@ -26,7 +31,12 @@ on:
     # (not dev: see the top)
     branches: [main]
   pull_request:
+    branches: [main]
   workflow_dispatch:
+    inputs:
+      tier34:
+        description: "Tier 3 and 4 legs: all, none, or names separated by commas"
+        default: none
 
 permissions:
   contents: read
@@ -34,9 +44,6 @@ permissions:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
-env:
-  ZIG_VERSION: 0.17.1
 
 defaults:
   run:
@@ -51,6 +58,10 @@ jobs:
       release: ${{ steps.ver.outputs.release }}
       sha: ${{ steps.ver.outputs.sha }}
       ci: ${{ steps.ver.outputs.ci }}
+      tier34: ${{ steps.tier34.outputs.legs }}
+      tier34-any: ${{ steps.tier34.outputs.any }}
+      rigs34: ${{ steps.tier34.outputs.rigs }}
+      rigs34-any: ${{ steps.tier34.outputs.rigs-any }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -125,12 +136,6 @@ jobs:
 
           release=false
           [ "$on_main" = true ] && [ "$releasable" = true ] && release=true
-          # Off until the v0.1.0 pull request: the CI setup merges into main
-          # without a tag or a dev bump. That pull request removes this.
-          if [ "$release" = true ]; then
-            echo "::notice::Releases are off until v0.1.0; v$version is not tagged."
-            release=false
-          fi
 
           if tagged "$version"; then
             next=$(next_patch "$version")
@@ -149,6 +154,75 @@ jobs:
             echo "sha=$sha"
           } >> "$GITHUB_OUTPUT"
           echo "version $version at $sha; release: $release" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # Every tier 3 and 4 leg; a run started by hand takes those its input
+      # names (see the top)
+      - name: Pick the tier 3 and 4 legs
+        id: tier34
+        env:
+          EVENT: ${{ github.event_name }}
+          WANT: ${{ inputs.tier34 }}
+        run: |
+          # qemu-user's own MIPS pick, 5KEf, drops every FCSR write (issue
+          # #275); the Loongson cores run on the 3A4000 rig
+          all=$(cat <<'JSON'
+          [
+            { "name": "x86-windows (x87)", "tier": 3, "runner": "windows-2025", "step": "rstd-test-x87" },
+            { "name": "x86-linux-musl", "tier": 4, "runner": "ubuntu-24.04", "args": "-Dtarget=x86-linux-musl" },
+            { "name": "arm-linux", "tier": 3, "runner": "ubuntu-24.04", "args": "-Dtarget=arm-linux-musleabihf -fqemu", "qemu": true },
+            { "name": "riscv64-linux", "tier": 3, "runner": "ubuntu-24.04", "args": "-Dtarget=riscv64-linux-musl -fqemu", "qemu": true },
+            { "name": "powerpc64le-linux", "tier": 3, "runner": "ubuntu-24.04", "args": "-Dtarget=powerpc64le-linux-musl -fqemu", "qemu": true },
+            { "name": "powerpc64-linux", "tier": 4, "runner": "ubuntu-24.04", "args": "-Dtarget=powerpc64-linux-musl -fqemu", "qemu": true },
+            { "name": "loongarch64-linux", "tier": 4, "runner": "ubuntu-24.04", "args": "-Dtarget=loongarch64-linux-musl -fqemu", "qemu": true },
+            { "name": "s390x-linux", "tier": 4, "runner": "ubuntu-24.04", "args": "-Dtarget=s390x-linux-musl -fqemu", "qemu": true },
+            { "name": "mips64el-linux", "tier": 4, "runner": "ubuntu-24.04", "args": "-Dtarget=mips64el-linux-muslabi64 -fqemu", "qemu": true, "qemu_cpu": "MIPS64R2-generic" },
+            { "name": "mipsel-linux", "tier": 4, "runner": "ubuntu-24.04", "args": "-Dtarget=mipsel-linux-musleabihf -fqemu", "qemu": true },
+            { "name": "wasm32-wasi simd128 blas", "tier": 3, "runner": "ubuntu-24.04", "step": "wasm-test-simd128", "args": "-Dwasm-test-part=blas", "swap": true, "node": "24" },
+            { "name": "wasm32-wasi simd128 lapack", "tier": 3, "runner": "ubuntu-24.04", "step": "wasm-test-simd128", "args": "-Dwasm-test-part=lapack", "swap": true, "node": "24" },
+            { "name": "wasm32-wasi portable blas", "tier": 3, "runner": "ubuntu-24.04", "step": "wasm-test-portable", "args": "-Dwasm-test-part=blas", "swap": true, "node": "24" },
+            { "name": "wasm32-wasi portable lapack", "tier": 3, "runner": "ubuntu-24.04", "step": "wasm-test-portable", "args": "-Dwasm-test-part=lapack", "swap": true, "node": "24" }
+          ]
+          JSON
+          )
+          # tier 1 and 2 only for now (user, 2026-11-20): none run unless a run
+          # started by hand names them
+          full=false
+          names='[]'
+          if [ "$EVENT" = workflow_dispatch ] && [ "$WANT" = all ]; then
+            full=true
+          elif [ "$EVENT" = workflow_dispatch ]; then
+            names=$(jq -cn --arg want "$WANT" '$want | split(",") | map(gsub("^ +| +$"; ""))')
+          fi
+          # the tier 3 QEMU rigs (build/qemu), legs named `<rig> rig` (rig-tier34);
+          # sparc64 stays out while its images outgrow OpenBIOS's window (T39)
+          # the bare-metal and UEFI SVE rigs run whole there, not in parts (#619)
+          rigs=$(jq -cn '[
+            "i386", "i386-max", "i386-safe", "i386-max-safe",
+            "riscv64", "riscv64-vlen128", "riscv64-vlen256",
+            "powerpc64le", "powerpc64le-power10", "powerpc64", "powerpc", "powerpc-pseries", "powerpc-power9",
+            "mips64r2el", "mips64r2", "mips64r6el", "mips64r6", "mips32r2el", "mips32r2", "mips32r5el", "mips32r5",
+            "loongarch64", "s390x",
+            "aarch64-sve", "aarch64-uefi-sve",
+            "linux-arm", "linux-riscv64", "linux-powerpc64le", "linux-powerpc64le-power10"
+          ] | map({ name: "\(.) rig", rig: . })')
+          pick() {
+            jq -c --argjson names "$names" --arg full "$full" '
+              if $full == "true" then .
+              else map(select(.name as $n | $names | any(. == $n))) end' <<< "$1"
+          }
+          legs=$(pick "$all")
+          rig_legs=$(pick "$rigs")
+          any=true
+          [ "$legs" = '[]' ] && any=false
+          rigs_any=true
+          [ "$rig_legs" = '[]' ] && rigs_any=false
+          {
+            echo "legs=$legs"
+            echo "any=$any"
+            echo "rigs=$(jq -c 'map(.rig)' <<< "$rig_legs")"
+            echo "rigs-any=$rigs_any"
+          } >> "$GITHUB_OUTPUT"
+          echo "tier 3 and 4 legs: $(jq -rs 'add | map(.name) | join(", ") | if . == "" then "none" else . end' <<< "$legs $rig_legs")" | tee -a "$GITHUB_STEP_SUMMARY"
 
   version-check:
     name: Version is unreleased
@@ -208,30 +282,44 @@ jobs:
       matrix:
         include:
           - name: zfls's targets
+            zig: 0.17.1
             run: zig build rstd-check-zig017 -Dtest-host-off
           - name: zig fmt
+            zig: 0.17.1
             run: zig fmt --check build build.zig build.zig.zon src tools test
+          # every core's kernels as Mach-O on the latest Zig; zfls's targets
+          # above build them on 0.17 (issue #358)
+          - name: Mach-O
+            zig: latest
+            run: zig build rstd-check-macho -Dtest-host-off
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.version.outputs.sha }}
           submodules: recursive
 
-      - uses: randyos-org/setup-zig@node24  # v2.2.1 on Node.js 24, until upstream releases it
+      - if: ${{ matrix.zig != 'latest' }}
+        uses: randyos-org/setup-zig@node24  # v2.2.1 on Node.js 24, until upstream releases it
         with:
-          version: ${{ env.ZIG_VERSION }}
+          version: ${{ matrix.zig }}
+
+      - if: ${{ matrix.zig == 'latest' }}
+        uses: randyos-org/zig-toolchain/setup@main
 
       # Downloads (lazy ones too) are retried: a dropped connection to a
-      # package host should not fail the run
+      # package host should not fail the run; 0.17 spells it `--fetch=all`,
+      # the latest `--fetch`
       - name: Fetch dependencies
         if: ${{ matrix.name != 'zig fmt' }}
+        env:
+          FETCH: ${{ matrix.zig == 'latest' && '--fetch' || '--fetch=all' }}
         run: |
           for wait in 15 30 60 120; do
-            zig build --fetch=all && exit 0
+            zig build "$FETCH" && exit 0
             echo "::warning::fetching dependencies failed; retrying in ${wait}s"
             sleep "$wait"
           done
-          zig build --fetch=all
+          zig build "$FETCH"
 
       - name: ${{ matrix.name }}
         run: ${{ matrix.run }}
@@ -241,7 +329,7 @@ jobs:
   # (randyos-org/zig-toolchain's build of zig-build). Natively where a hosted
   # runner has the OS and ISA; 32-bit x86 natively on x86_64; other Linux ISAs
   # under qemu-user (`-fqemu`, as Zig's own CI ran them); wasm under Node. The
-  # freestanding RandyOS targets need the QEMU rigs (build/qemu), not yet here.
+  # freestanding RandyOS targets run on the QEMU rigs, in the rig job below.
   test:
     name: Test (${{ matrix.platform.name }}, ${{ matrix.zig }})
     needs: version
@@ -258,6 +346,9 @@ jobs:
           - { name: x86_64-linux-gnu, tier: 2, runner: ubuntu-24.04 }
           - { name: x86_64-linux-musl, tier: 2, runner: ubuntu-24.04, args: -Dtarget=x86_64-linux-musl }
           - { name: aarch64-linux-gnu, tier: 2, runner: ubuntu-24.04-arm }
+          # ThreadSanitizer natively: the linux-aarch64 rig has no KVM here and
+          # passed the job's time limit under TCG (issue #539)
+          - { name: 'aarch64-linux-gnu, tsan', tier: 2, runner: ubuntu-24.04-arm, args: -Drstd-tsan }
           - { name: aarch64-linux-musl, tier: 2, runner: ubuntu-24.04-arm, args: -Dtarget=aarch64-linux-musl }
           - { name: aarch64-macos, tier: 2, runner: macos-15 }
           - { name: x86_64-macos, tier: 2, runner: macos-15-intel }
@@ -327,6 +418,14 @@ jobs:
           done
           zig build "$FETCH"
 
+      # the BLAS core rstd detects and runs here (issue #619); only informational
+      - name: BLAS core
+        continue-on-error: true
+        env:
+          ARGS: ${{ matrix.platform.args }}
+        # ARGS splits into words on purpose
+        run: zig build blas-core $ARGS -Dtest-host-off
+
       - name: Test
         env:
           STEP: ${{ matrix.platform.step || 'rstd-test' }}
@@ -334,37 +433,226 @@ jobs:
         # ARGS splits into words on purpose
         run: zig build "$STEP" $ARGS -Dtest-host-off --summary line
 
-  # Tier 3 and 4, beside tier 1 and 2. Their failures are reported but do not
-  # fail CI (support.md).
+  # Tier 3 and 4, beside tier 1 and 2, the legs the version job picks (see the
+  # top). Their failures are reported but do not fail CI (support.md).
   test-tier34:
     name: Test (${{ matrix.platform.name }}, ${{ matrix.zig }})
     needs: version
-    if: ${{ needs.version.outputs.ci == 'true' }}
+    if: ${{ needs.version.outputs.ci == 'true' && needs.version.outputs.tier34-any == 'true' }}
     runs-on: ${{ matrix.platform.runner }}
     continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
         zig: ['0.17.1', latest]
-        platform:
-          - { name: x86-windows (x87), tier: 3, runner: windows-2025, step: rstd-test-x87 }
-          - { name: x86-linux-musl, tier: 4, runner: ubuntu-24.04, args: -Dtarget=x86-linux-musl }
-          - { name: arm-linux, tier: 3, runner: ubuntu-24.04, args: -Dtarget=arm-linux-musleabihf -fqemu, qemu: true }
-          - { name: riscv64-linux, tier: 3, runner: ubuntu-24.04, args: -Dtarget=riscv64-linux-musl -fqemu, qemu: true }
-          - { name: powerpc64le-linux, tier: 3, runner: ubuntu-24.04, args: -Dtarget=powerpc64le-linux-musl -fqemu, qemu: true }
-          - { name: powerpc64-linux, tier: 4, runner: ubuntu-24.04, args: -Dtarget=powerpc64-linux-musl -fqemu, qemu: true }
-          - { name: loongarch64-linux, tier: 4, runner: ubuntu-24.04, args: -Dtarget=loongarch64-linux-musl -fqemu, qemu: true }
-          - { name: s390x-linux, tier: 4, runner: ubuntu-24.04, args: -Dtarget=s390x-linux-musl -fqemu, qemu: true }
-          # qemu-user's own pick, 5KEf, drops every FCSR write (issue #275); the
-          # Loongson cores run on the 3A4000 rig
-          - { name: mips64el-linux, tier: 4, runner: ubuntu-24.04, args: -Dtarget=mips64el-linux-muslabi64 -fqemu, qemu: true, qemu_cpu: MIPS64R2-generic }
-          - { name: mipsel-linux, tier: 4, runner: ubuntu-24.04, args: -Dtarget=mipsel-linux-musleabihf -fqemu, qemu: true }
-          - { name: wasm32-wasi, tier: 3, runner: ubuntu-24.04, step: wasm-test, swap: true, node: '24' }
+        platform: ${{ fromJSON(needs.version.outputs.tier34) }}
     steps: *test-steps
+
+  # rgl's shaders and shaderlib's probes compiled for spirv32-vulkan (tier 1,
+  # support.md), validated by spirv-val (issue #353) and run on Mesa's lavapipe,
+  # a CPU Vulkan device, against the CPU (tools/shader_run, #380); on the latest
+  # Zig, as RandyOS builds with it
+  shaders:
+    name: Shaders
+    needs: version
+    if: ${{ needs.version.outputs.ci == 'true' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.version.outputs.sha }}
+          submodules: recursive
+
+      - uses: randyos-org/zig-toolchain/setup@main
+
+      - name: spirv-tools and lavapipe
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq spirv-tools mesa-vulkan-drivers libvulkan1
+          spirv-val --version
+
+      - name: Fetch dependencies
+        run: |
+          for wait in 15 30 60 120; do
+            zig build --fetch && exit 0
+            echo "::warning::fetching dependencies failed; retrying in ${wait}s"
+            sleep "$wait"
+          done
+          zig build --fetch
+
+      - name: Validate
+        run: zig build shader-check -Dvulkan -Dtest-host-off --summary line
+
+      - name: Run
+        run: zig build shader-run -Dvulkan -Dtest-host-off --summary line
+
+  # The QEMU rigs of RandyOS's targets (support.md, tier 2; build/qemu), on the
+  # latest Zig only, as RandyOS builds with it: the x86_64 ones under KVM, which
+  # GitHub's Linux runners offer (issues #343, #344), and the aarch64 ones on its
+  # arm64 runners, under KVM where they offer it (#345, #346). QEMU and its firmware come
+  # from tools/nix's flake, as on the Macs' rigs; the 32-bit Arm and PowerPC 750
+  # ones under TCG (#347, #348), and the Linux rigs of zfls's targets (#356). The
+  # tier 3 rigs are rig-tier34's.
+  rig:
+    name: Rig (${{ matrix.rig }}${{ matrix.tsan && ', tsan' || '' }}${{ matrix.part && format(', {0}', matrix.part) || '' }})
+    needs: version
+    if: ${{ needs.version.outputs.ci == 'true' }}
+    runs-on: ${{ matrix.runner }}
+    # the steps' (shared with rig-tier34, where it is unset)
+    env:
+      TSAN: ${{ matrix.tsan && '-Drstd-tsan -Dqemu-nix-here' || '' }}
+      # one of a rig's parts (build/qemu/machines.zig), if set
+      PART: ${{ matrix.part }}
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { rig: x86_64, runner: ubuntu-24.04 }
+          - { rig: x86_64-smp, runner: ubuntu-24.04 }
+          - { rig: x86_64-uefi, runner: ubuntu-24.04 }
+          # arm64 runners: KVM where they expose it, else TCG; SVE under TCG `max`
+          - { rig: aarch64, runner: ubuntu-24.04-arm }
+          - { rig: aarch64-smp, runner: ubuntu-24.04-arm }
+          - { rig: aarch64-uefi, runner: ubuntu-24.04-arm }
+          # 32-bit Arm: TCG on any runner
+          - { rig: arm, runner: ubuntu-24.04 }
+          - { rig: arm-softfp, runner: ubuntu-24.04 }
+          # PowerPC 750 on OpenBIOS: TCG
+          - { rig: powerpc-750, runner: ubuntu-24.04 }
+          - { rig: powerpc-750-hf, runner: ubuntu-24.04 }
+          # zfls's Linux: KVM on x86_64, TCG on the arm64 runners
+          - { rig: linux-x86_64, runner: ubuntu-24.04 }
+          - { rig: linux-aarch64, runner: ubuntu-24.04-arm }
+          # in parts: 4.6 hours in one run (#569); the bare-metal and UEFI SVE rigs are
+          # tier 3 (#619)
+          - { rig: linux-aarch64-sve, runner: ubuntu-24.04-arm, part: blas1 }
+          - { rig: linux-aarch64-sve, runner: ubuntu-24.04-arm, part: blas2-edge }
+          - { rig: linux-aarch64-sve, runner: ubuntu-24.04-arm, part: blas2 }
+          - { rig: linux-aarch64-sve, runner: ubuntu-24.04-arm, part: blas3-tri }
+          - { rig: linux-aarch64-sve, runner: ubuntu-24.04-arm, part: blas3 }
+          - { rig: linux-aarch64-sve, runner: ubuntu-24.04-arm, part: lapack-lu }
+          - { rig: linux-aarch64-sve, runner: ubuntu-24.04-arm, part: rest }
+          # the glibc targets: ThreadSanitizer, glibc from the runner's Nix (#408)
+          # in parts: past the job limit in one run under TCG, out of memory under KVM (#412)
+          - { rig: linux-x86_64, runner: ubuntu-24.04, tsan: true, part: blas1-2 }
+          - { rig: linux-x86_64, runner: ubuntu-24.04, tsan: true, part: blas3 }
+          - { rig: linux-x86_64, runner: ubuntu-24.04, tsan: true, part: lapack }
+          - { rig: linux-x86_64, runner: ubuntu-24.04, tsan: true, part: rest }
+    steps: &rig-steps
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.version.outputs.sha }}
+          submodules: recursive
+
+      - uses: randyos-org/zig-toolchain/setup@main
+
+      - uses: cachix/install-nix-action@v31
+        with:
+          # the runner may import the QEMU cache below
+          extra_nix_config: trusted-users = root runner
+
+      # the PowerPC rigs' QEMU, patched (#223): no binary cache has it, so it is
+      # built once per pin and kept as exported store paths in the Actions cache
+      - name: QEMU cache
+        id: qemu-cache
+        if: ${{ contains(matrix.rig, 'powerpc') }}
+        uses: actions/cache@v6
+        with:
+          path: ~/qemu-ppc-cache
+          key: qemu-ppc-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('tools/nix/flake.nix', 'tools/nix/flake.lock', 'tools/nix/qemu-xststdcsp.patch') }}
+
+      # KVM for the runner's user: GitHub's documented udev rule. qemu_watch
+      # finds the firmware in share/qemu beside the binary on PATH.
+      - name: QEMU and KVM
+        env:
+          RIG: ${{ matrix.rig }}
+          CACHED: ${{ steps.qemu-cache.outputs.cache-hit }}
+        run: |
+          # arm64 runners have no /dev/kvm, where udevadm fails: TCG there
+          if [ -e /dev/kvm ]; then
+            echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+            sudo udevadm control --reload-rules
+            sudo udevadm trigger --name-match=kvm
+          fi
+          # -Dqemu-kvm only where the runner has KVM; the rigs without KVM arguments
+          # run under TCG either way
+          if [ -w /dev/kvm ]; then echo "KVM=-Dqemu-kvm" >> "$GITHUB_ENV"; else echo "::notice::no /dev/kvm on this runner: TCG"; fi
+          # the PowerPC rigs' emulators with xststdcsp fixed (#223), from the
+          # QEMU cache, or built here and kept there
+          if [[ "$RIG" == *powerpc* ]]; then
+            cache="$HOME/qemu-ppc-cache"
+            if [ "$CACHED" = true ]; then
+              # the patched build's outputs go in beside the stock QEMU, whose
+              # libraries they use; twice, as one output refers to the other
+              nix build ./tools/nix#qemu --no-link
+              for pass in 1 2; do
+                for nar in "$cache"/*.nar; do
+                  nix-store --import < "$nar" || [ "$pass" = 1 ] || echo "::warning::importing $nar failed: QEMU is built here"
+                done
+              done
+            fi
+            nix build ./tools/nix#qemu-ppc --out-link "$RUNNER_TEMP/qemu"
+            if [ "$CACHED" != true ]; then
+              # a miss: the patched build's own outputs kept (63 MB);
+              # cache.nixos.org has the rest
+              mkdir -p "$cache"
+              for path in $(nix path-info './tools/nix#qemu-ppc-patched^*'); do
+                nix-store --export "$path" > "$cache/$(basename "$path").nar"
+              done
+            fi
+          else
+            nix build ./tools/nix#qemu --out-link "$RUNNER_TEMP/qemu"
+          fi
+          echo "$RUNNER_TEMP/qemu/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/qemu/bin/qemu-system-x86_64" --version
+
+      - name: Fetch dependencies
+        run: |
+          for wait in 15 30 60 120; do
+            zig build --fetch && exit 0
+            echo "::warning::fetching dependencies failed; retrying in ${wait}s"
+            sleep "$wait"
+          done
+          zig build --fetch
+
+      - name: Rig
+        env:
+          RIG: ${{ matrix.rig }}
+        # KVM and TSAN split into words on purpose, and may be empty
+        run: zig build "qemu-test-$RIG" $KVM $TSAN ${PART:+"-Dqemu-test-part=$PART"} -Dfail-fast=true -Dtest-host-off --summary line
+
+      # every OS-free test built for UEFI, x86_64 and aarch64, beside the rig
+      - name: rstd-check-uefi
+        if: ${{ matrix.rig == 'x86_64-uefi' }}
+        run: zig build rstd-check-uefi -Dtest-host-off --summary line
+
+      # the rig's console, which the step's output may have cut short
+      - name: Live log
+        if: ${{ failure() }}
+        env:
+          RIG: ${{ matrix.rig }}
+        run: tail -c 300000 ".zig-cache/qemu-test-$RIG${PART:+-$PART}.log" || true
+
+  # The tier 3 rigs (support.md), picked as the tier 3 and 4 legs are (see the
+  # top; a leg is `<rig> rig`), on the rig job's steps; their failures only
+  # report, as test-tier34's do (issue #349)
+  rig-tier34:
+    name: Rig (${{ matrix.rig }})
+    needs: version
+    if: ${{ needs.version.outputs.ci == 'true' && needs.version.outputs.rigs34-any == 'true' }}
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        rig: ${{ fromJSON(needs.version.outputs.rigs34) }}
+    steps: *rig-steps
 
   ci-result:
     name: CI
-    needs: [version, version-check, check, test, test-tier34]
+    needs: [version, version-check, check, test, test-tier34, shaders, rig, rig-tier34]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     steps:
@@ -373,9 +661,9 @@ jobs:
           RESULTS: ${{ toJSON(needs) }}
         run: |
           echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"' | tee -a "$GITHUB_STEP_SUMMARY"
-          # test-tier34 only reports: continue-on-error passes its failed legs,
-          # but not one cancelled at the job time limit
-          bad=$(echo "$RESULTS" | jq -r '[to_entries[] | select(.key != "test-tier34") | select(.value.result == "failure" or .value.result == "cancelled") | .key] | join(", ")')
+          # test-tier34 and rig-tier34 only report: continue-on-error passes their
+          # failed legs, but not one cancelled at the job time limit
+          bad=$(echo "$RESULTS" | jq -r '[to_entries[] | select(.key != "test-tier34" and .key != "rig-tier34") | select(.value.result == "failure" or .value.result == "cancelled") | .key] | join(", ")')
           if [ -n "$bad" ]; then
             echo "::error::failed or cancelled: $bad"
             exit 1
@@ -383,10 +671,11 @@ jobs:
 
   release:
     name: Release v${{ needs.version.outputs.version }}
-    needs: [version, check, test, test-tier34]
+    needs: [version, check, test, test-tier34, shaders, rig, rig-tier34]
     if: >-
       ${{ !cancelled() && needs.version.outputs.release == 'true'
-      && needs.check.result == 'success' && needs.test.result == 'success' }}
+      && needs.check.result == 'success' && needs.test.result == 'success'
+      && needs.shaders.result == 'success' && needs.rig.result == 'success' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write

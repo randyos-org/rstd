@@ -5,8 +5,8 @@
 
 const std = @import("std");
 const sysinfo = @import("builtin");
-const fma = @import("blas/fma.zig");
-const types = @import("blas/types.zig");
+const fma = @import("../math/kernels/blas/fma.zig");
+const types = @import("../math/kernels/blas/types.zig");
 
 /// SPIR-V (rgl's shaders) has no f64, which `length`'s `hypot` fallback
 /// needs; shader inputs never near its extremes, so `length` skips it there.
@@ -165,7 +165,8 @@ pub inline fn zero(comptime V: type) V {
 /// order, each product after the first fused into the sum as `mulAdd` says;
 /// a complex real part adds `re re` then `im im`, its imaginary part `re im`
 /// then `-im re`. Under SPIR-V `OpDot`.
-pub inline fn dot(a: anytype, b: @TypeOf(a)) Elem(@TypeOf(a)) {
+/// A plain `fn`, as `length`.
+pub fn dot(a: anytype, b: @TypeOf(a)) Elem(@TypeOf(a)) {
     // builtins, not `Elem` and `Real` again: calls cost the caller's quota
     const T = @TypeOf(a[0]);
     if (on_spirv and comptime spirvVec(@TypeOf(a))) return spvDot(a, b);
@@ -181,7 +182,8 @@ pub inline fn dot(a: anytype, b: @TypeOf(a)) Elem(@TypeOf(a)) {
 }
 
 /// `dot(v, v)`'s real part, `Σ |v[i]|²`, as the real type.
-pub inline fn dot2(v: anytype) Real(Elem(@TypeOf(v))) {
+/// A plain `fn`, as `length`.
+pub fn dot2(v: anytype) Real(Elem(@TypeOf(v))) {
     if (on_spirv and comptime spirvVec(@TypeOf(v))) return spvDot(v, v);
     const E = Elem(@TypeOf(v));
     const complex = comptime isComplex(E);
@@ -191,7 +193,9 @@ pub inline fn dot2(v: anytype) Real(Elem(@TypeOf(v))) {
 /// The 2-norm (MATLAB's `norm`, GLSL's `length`). Tries `sqrt(dot2(v))`
 /// first and falls back to a `std.math.hypot` fold on overflow or underflow
 /// (except on SPIR-V, which can't use that fallback). Under SPIR-V `Length`.
-pub inline fn length(v: anytype) Real(Elem(@TypeOf(v))) {
+/// A plain `fn`: its comptime work is paid once per type, not against each
+/// caller's branch quota (T157, issue #352).
+pub fn length(v: anytype) Real(Elem(@TypeOf(v))) {
     if (on_spirv and comptime spirvVec(@TypeOf(v))) return spvLength(v);
     const sq = dot2(v);
     const looks_fine = on_spirv or (std.math.isFinite(sq) and (sq != 0 or isZero(v)));
@@ -216,7 +220,8 @@ inline fn isZero(v: anytype) bool {
 }
 
 /// `length(b - a)`. Under SPIR-V `Distance`.
-pub inline fn distance(a: anytype, b: @TypeOf(a)) Real(Elem(@TypeOf(a))) {
+/// A plain `fn`, as `length`.
+pub fn distance(a: anytype, b: @TypeOf(a)) Real(Elem(@TypeOf(a))) {
     if (on_spirv and comptime spirvVec(@TypeOf(a))) return spvDistance(a, b);
     return length(diff(b, a));
 }
@@ -234,7 +239,8 @@ inline fn diff(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
 /// Normalizes `v` to `v / length(v)` (GLSL's `normalize`; MATLAB's `norm` is
 /// `length`). A fallback is the caller's: `norm(v) catch fallback`. Under
 /// SPIR-V `Normalize` after a `Length` test.
-pub inline fn norm(v: anytype) error{ZeroVector}!@TypeOf(v) {
+/// A plain `fn`, as `length`.
+pub fn norm(v: anytype) error{ZeroVector}!@TypeOf(v) {
     const V = @TypeOf(v);
     const len = length(v);
     if (len == 0) return error.ZeroVector;
@@ -266,6 +272,7 @@ pub inline fn cross(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
 
 /// `(1 - t) a + t b` (GLSL's `mix`): floats or `Vec`s, `t` a float or, for
 /// `Vec`s, a weight per element. Under SPIR-V `FMix`.
+/// A plain `fn`, as `length`.
 pub fn mix(a: anytype, b: anytype, t: anytype) @TypeOf(a, b) {
     const V = @TypeOf(a, b);
     const weight_info = @typeInfo(@TypeOf(t));
@@ -325,6 +332,85 @@ pub inline fn max(v: anytype) Elem(@TypeOf(v)) {
 /// The smallest element, or the first NaN, as `max`.
 pub inline fn min(v: anytype) Elem(@TypeOf(v)) {
     return extreme(false, v);
+}
+
+// ---- lane shuffles -----------------------------------------------------------
+// pffft's (`src/simd/pf_sse1_float.h`, marton78/pffft efc1dd2d) for any even
+// `@Vector` length; its `VTRANSPOSE4` is `matrix.transposeVecs`.
+
+/// `INTERLEAVE2`: `a` and `b`'s lanes alternating, their low halves'
+/// in the first vector and their high halves' in the second.
+pub inline fn interleave(a: anytype, b: @TypeOf(a)) [2]@TypeOf(a) {
+    const V = @TypeOf(a);
+    const h = count(V) / 2;
+    const lo = comptime alternate(h, 0);
+    const hi = comptime alternate(h, h);
+    return .{ @shuffle(Elem(V), a, b, lo), @shuffle(Elem(V), a, b, hi) };
+}
+
+/// `UNINTERLEAVE2`, `interleave` undone: the even lanes of `a` then of
+/// `b`, and the odd ones.
+pub inline fn uninterleave(a: anytype, b: @TypeOf(a)) [2]@TypeOf(a) {
+    const V = @TypeOf(a);
+    const even = comptime strided(count(V), 0);
+    const odd = comptime strided(count(V), 1);
+    return .{ @shuffle(Elem(V), a, b, even), @shuffle(Elem(V), a, b, odd) };
+}
+
+/// `VSWAPHL(a, b)`: `b`'s low half, then `a`'s high half.
+pub inline fn swapHalves(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+    const V = @TypeOf(a);
+    const n = count(V);
+    const mask = comptime blk: {
+        var m: [n]i32 = undefined;
+        for (0..n) |i| m[i] = if (i < n / 2) ~@as(i32, i) else i;
+        break :blk m;
+    };
+    return @shuffle(Elem(V), a, b, mask);
+}
+
+/// `VREV_S`: the lanes reversed.
+pub inline fn reverse(a: anytype) @TypeOf(a) {
+    const V = @TypeOf(a);
+    const n = count(V);
+    const mask = comptime blk: {
+        var m: [n]i32 = undefined;
+        for (0..n) |i| m[i] = n - 1 - i;
+        break :blk m;
+    };
+    return @shuffle(Elem(V), a, undefined, mask);
+}
+
+/// `VREV_C`: the (re, im) lane pairs reversed, each pair kept in order.
+pub inline fn reversePairs(a: anytype) @TypeOf(a) {
+    const V = @TypeOf(a);
+    const n = count(V);
+    const mask = comptime blk: {
+        var m: [n]i32 = undefined;
+        for (0..n) |i| m[i] = n - 2 - (i - i % 2) + i % 2;
+        break :blk m;
+    };
+    return @shuffle(Elem(V), a, undefined, mask);
+}
+
+/// The shuffle mask taking lanes `from..from + h` of `a` and `b` in turn.
+fn alternate(comptime h: comptime_int, comptime from: comptime_int) [2 * h]i32 {
+    var m: [2 * h]i32 = undefined;
+    for (0..h) |i| {
+        m[2 * i] = from + i;
+        m[2 * i + 1] = ~@as(i32, from + i);
+    }
+    return m;
+}
+
+/// The mask taking lanes `first`, `first + 2`, ... of `a`, then of `b`.
+fn strided(comptime n: comptime_int, comptime first: comptime_int) [n]i32 {
+    var m: [n]i32 = undefined;
+    for (0..n / 2) |i| {
+        m[i] = first + 2 * i;
+        m[n / 2 + i] = ~@as(i32, first + 2 * i);
+    }
+    return m;
 }
 
 inline fn extreme(comptime largest: bool, v: anytype) Elem(@TypeOf(v)) {
@@ -452,7 +538,7 @@ const Before = struct {
     }
 };
 
-const expectSameBits = @import("blas/_test/bitwise.zig").expectSameBits;
+const expectSameBits = @import("../math/kernels/blas/_test/bitwise.zig").expectSameBits;
 
 fn expectAsBefore(comptime T: type, comptime n: comptime_int, random: std.Random) !void {
     const scales = [_]f64{ 1, 1e-3, 1e3, 1e30, 1e-30, 1e200, 1e-200 };
@@ -508,6 +594,32 @@ test "sum, prod, max and min in element order" {
     try zigstd.testExpectEqual(@as(f32, 24), prod([4]f32{ 1, 2, 3, 4 }));
     try zigstd.testExpectEqual(@as(f64, 7), max(V3f64{ -1, 7, 3 }));
     try zigstd.testExpectEqual(@as(f64, -1), min(V3f64{ -1, 7, 3 }));
+}
+
+test "pffft's lane shuffles: SSE's lane orders at 4, and inverse pairs at 2 and 8" {
+    const a: V4f32 = .{ 0, 1, 2, 3 };
+    const b: V4f32 = .{ 4, 5, 6, 7 };
+    // _mm_unpacklo_ps / _mm_unpackhi_ps
+    const il = interleave(a, b);
+    try zigstd.testExpectEqual(V4f32{ 0, 4, 1, 5 }, il[0]);
+    try zigstd.testExpectEqual(V4f32{ 2, 6, 3, 7 }, il[1]);
+    // _MM_SHUFFLE(2,0,2,0) and (3,1,3,1)
+    const un = uninterleave(a, b);
+    try zigstd.testExpectEqual(V4f32{ 0, 2, 4, 6 }, un[0]);
+    try zigstd.testExpectEqual(V4f32{ 1, 3, 5, 7 }, un[1]);
+    // _mm_shuffle_ps(b, a, _MM_SHUFFLE(3,2,1,0))
+    try zigstd.testExpectEqual(V4f32{ 4, 5, 2, 3 }, swapHalves(a, b));
+    try zigstd.testExpectEqual(V4f32{ 3, 2, 1, 0 }, reverse(a));
+    try zigstd.testExpectEqual(V4f32{ 2, 3, 0, 1 }, reversePairs(a));
+    inline for (.{ Vec(2, f64), Vec(8, f32) }) |V| {
+        const x: V = std.simd.iota(Elem(V), count(V));
+        const y = x + @as(V, @splat(100));
+        const back = uninterleave(interleave(x, y)[0], interleave(x, y)[1]);
+        try zigstd.testExpectEqual(x, back[0]);
+        try zigstd.testExpectEqual(y, back[1]);
+        try zigstd.testExpectEqual(x, reverse(reverse(x)));
+        try zigstd.testExpectEqual(x, reversePairs(reversePairs(x)));
+    }
 }
 
 test "max and min: the first NaN wins, ties keep the first" {

@@ -5,6 +5,7 @@ const zigstd = @import("../../../../../zigstd.zig");
 const types = @import("../../types.zig");
 const aux_types = @import("../../aux_types.zig");
 const CffTable = @import("CffTable.zig");
+const Dict = @import("Dict.zig");
 const Index = @import("Index.zig");
 
 const Allocator = zigstd.Allocator;
@@ -117,7 +118,7 @@ const CharstringCtx = struct {
 /// stacks, unimplemented operators, a missing subroutine, ...); distinct
 /// from CffTable.CffError (which is about resolving the table structure
 /// itself) and from Allocator.Error, which callers union in separately.
-pub const CharstringError = error{
+pub const CharstringError = Dict.ParseError || error{
     Unimplemented,
     RMoveToStack,
     VMoveToStack,
@@ -246,10 +247,6 @@ const Buf = struct {
         return b.data[b.cursor];
     }
 
-    pub fn get16(b: *Buf) u16 {
-        return @truncate(b.get(2));
-    }
-
     pub fn get32(b: *Buf) u32 {
         return b.get(4);
     }
@@ -263,16 +260,11 @@ const Buf = struct {
     }
 
     /// Decodes one Type 2 charstring number operand at the cursor.
-    pub fn cffInt(b: *Buf) u32 {
-        const b0: i32 = b.get8();
-        return switch (b0) {
-            32...246 => @bitCast(b0 - 139),
-            247...250 => @bitCast((b0 - 247) * 256 + b.get8() + 108),
-            251...254 => @bitCast(-(b0 - 251) * 256 - b.get8() - 108),
-            28 => b.get16(),
-            29 => b.get32(),
-            else => @panic("invalid instruction"),
-        };
+    pub fn cffInt(b: *Buf) Dict.ParseError!i32 {
+        var pos: usize = b.cursor;
+        const v = try Dict.decodeInt(b.data, &pos);
+        b.cursor = @intCast(pos);
+        return v;
     }
 };
 
@@ -466,7 +458,7 @@ fn runCharstring(cff: CffTable, glyph: GlyphIndex, ctx: *CharstringCtx) !void {
                     @floatFromInt(@as(i32, @intCast(b.get32() / 0x10000)))
                 else blk: {
                     b.cursor -= 1;
-                    break :blk @floatFromInt(@as(i16, @truncate(@as(i32, @bitCast(b.cffInt())))));
+                    break :blk @floatFromInt(@as(i16, @truncate(try b.cffInt())));
                 };
                 if (sp >= 48) return error.PushStackOverflow;
                 s[sp] = f;

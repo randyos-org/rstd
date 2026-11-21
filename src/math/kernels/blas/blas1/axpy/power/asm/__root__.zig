@@ -1,0 +1,22 @@
+//! Which converted file has which kernel, its cores in its `keys`; converted from OpenBLAS `v0.3.34-794-gdbf2c24c9` by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+const registry = @import("../../../../registry.zig");
+
+pub const Entry = registry.Entry;
+
+pub const entries = [_]Entry{
+    .{ .slot = .saxpy_k, .module = @import("saxpy_32_32le.zig") },
+    .{ .slot = .saxpy_k, .module = @import("saxpy_64_64be.zig") },
+    .{ .slot = .daxpy_k, .module = @import("daxpy_32_32le.zig") },
+    .{ .slot = .daxpy_k, .module = @import("daxpy_64_64be.zig") },
+    .{ .slot = .caxpy_k, .module = @import("caxpy_32_32le.zig") },
+    .{ .slot = .caxpy_k, .module = @import("caxpy_64_64be.zig") },
+    .{ .slot = .zaxpy_k, .module = @import("zaxpy_32_32le.zig") },
+    .{ .slot = .zaxpy_k, .module = @import("zaxpy_64_64be.zig") },
+    .{ .slot = .caxpyc_k, .module = @import("caxpyc_32_32le.zig") },
+    .{ .slot = .caxpyc_k, .module = @import("caxpyc_64_64be.zig") },
+    .{ .slot = .zaxpyc_k, .module = @import("zaxpyc_32_32le.zig") },
+    .{ .slot = .zaxpyc_k, .module = @import("zaxpyc_64_64be.zig") },
+    .{ .slot = .saxpy_k, .module = @import("saxpy_ppc440_32_32le.zig") },
+    .{ .slot = .daxpy_k, .module = @import("daxpy_ppc440_32_32le.zig") },
+};

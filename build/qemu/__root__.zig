@@ -1,6 +1,6 @@
 //! `qemu-test` steps: rstd's tests on `qemu-system-*` machines (`machines.zig`): a freestanding kernel (`test/qemu/`, root
-//! `src/_test_qemu.zig`; on UEFI an application), Linux with an initramfs (`test/linux/init.zig`), or an installed macOS over SSH
-//! (`macos.zig`). Consoles log live to `.zig-cache/qemu-test-<name>.log`; without semihosting the summary carries the result.
+//! `src/_test_qemu.zig`; on UEFI an application), or Linux with an initramfs (`test/linux/init.zig`).
+//! Consoles log live to `.zig-cache/qemu-test-<name>.log`; without semihosting the summary carries the result.
 
 const std = @import("std");
 const rstdbuild = @import("../../src/buildutils/__root__.zig");
@@ -10,45 +10,41 @@ const blaskern = @import("../blaskern.zig");
 const buildroot = @import("../__root__.zig");
 const tools = @import("../tools.zig");
 const machines = @import("machines.zig");
-const macos = @import("macos.zig");
 
 const Machine = machines.Machine;
 const Boot = machines.Boot;
+const Part = machines.Part;
 
 /// What the VM benches (`bench.zig`) take from the rigs' options.
 pub const Rigs = struct { test_host: ?TestHost, whpx_host: bool, linux_vm: bool };
 
 /// Adds the `qemu-test` step and each machine's `qemu-test-<name>` step.
-pub fn addQemuTests(b: *Build, optimize: Optimize) !Rigs {
+/// `rstd_filters`: `-Drstd-test-filter`, which the rigs take when
+/// `-Dqemu-test-filter` is not given (issue #568).
+pub fn addQemuTests(b: *Build, optimize: Optimize, rstd_filters: []const []const u8) !Rigs {
     const all = b.step("qemu-test", "Run rstd's hardware-independent tests under qemu-system-* (all archs)");
     const check = b.step("qemu-check", "Build every kernel rig's test images and check their inline asm, without running qemu");
-    const filters = b.option([]const []const u8, "qemu-test-filter", "Only run tests whose name contains this (repeatable)") orelse &.{};
+    const filters = b.option([]const []const u8, "qemu-test-filter", "Only run tests whose name contains this (repeatable)") orelse rstd_filters;
     const only_parts = b.option([]const []const u8, "qemu-test-part", "Only build and run this part of a rig that splits its tests into images, e.g. blas3-kernel-complex (repeatable)") orelse &.{};
     for (only_parts) |o| if (!hasPart(o)) std.debug.panic("-Dqemu-test-part: no rig has a part named {s}", .{o});
-    // On when rstd is the project being built, so a dependent never fetches OSX-KVM.
-    const macos_vm = vmOption(b, "macos-vm", "the macOS VM rigs", "OSX-KVM");
-    const mac: macos.Options = if (macos_vm) .{
-        .user = b.option([]const u8, "mac-user", "macOS account in the VM (default randyos)") orelse "randyos",
-        .port = b.option(u16, "mac-port", "Host port forwarded to the VM's ssh") orelse 2222,
-        .release = b.option(macos.Release, "mac-release", "macOS release qemu-setup fetches (default sonoma)") orelse .sonoma,
-        .gdb = b.option(bool, "mac-gdb", "Let gdb attach to the macOS VM on localhost:1234") orelse false,
-        .detach = b.option(bool, "mac-detach", "qemu-install/start return once the macOS VM is up rather than when it stops") orelse false,
-        .headless = b.option(bool, "mac-headless", "qemu-install/start show no window, VNC on 127.0.0.1:5901 instead; test runs always start the VM this way") orelse false,
-        .keep = b.option(bool, "mac-keep", "Leave the macOS VM a test run started running afterward") orelse false,
-        .mttcg = b.option(bool, "mac-mttcg", "Run the macOS VM's vCPUs on host threads of their own: faster in the window, but macOS has hung and misread files under it (default: true in a window, false headless)"),
-        .ovmf_vars = b.option([]const u8, "mac-ovmf-vars", "Empty OVMF variable store for qemu-setup (default: QEMU's edk2-i386-vars.fd)"),
-        .snapshot = b.option([]const u8, "mac-snapshot", "Name of the restore point qemu-snapshot/restore make or go back to (default clean)") orelse "clean",
-    } else .{};
+    // declared whether or not a Linux rig's kernel is fetched yet
+    _ = nixHere(b);
     // a one-time fetch of about 55 MB per kernel
     const linux_vm = vmOption(b, "linux-vm", "the Linux rigs", "their kernels");
     // the rigs run on the Mac when rstd is the project being built; a
     // dependent runs them here unless it names a host
     const host_off = b.option(bool, "test-host-off", "Run the rigs' QEMU here rather than on -Dtest-host") orelse false;
-    const host_named = b.option([]const u8, "test-host", "SSH alias of a machine to run the rigs' QEMU on, Nix's from tools/nix (default " ++ tools.mac_alias ++ " when rstd is the root project); images still build here, and x86_64-whpx and the macOS VM rigs stay local");
+    const host_named = b.option([]const u8, "test-host", "SSH alias of a machine to run the rigs' QEMU on, Nix's from tools/nix (default " ++ tools.mac_alias ++ " when rstd is the root project); images still build here, and x86_64-whpx stays local");
     const host_alias: ?[]const u8 = if (host_off) null else host_named orelse if (b.isRoot()) tools.mac_alias else null;
     const host_jobs = b.option(u32, "test-host-jobs", "Rigs running at once on -Dtest-host, across builds (default 8)") orelse 8;
     const host_tcg = b.option(bool, "test-host-tcg", "Run every rig on -Dtest-host under TCG, also those HVF could run") orelse false;
-    const test_host: ?TestHost = if (host_alias) |alias| .{ .alias = alias, .jobs = host_jobs, .tcg = host_tcg } else null;
+    const host_arch = b.option(TestHost.Arch, "test-host-arch", "-Dtest-host's CPU: HVF runs only the rigs of its architecture (default x86_64 for " ++ tools.intel_mac_alias ++ ", else aarch64)");
+    const test_host: ?TestHost = if (host_alias) |alias| .{
+        .alias = alias,
+        .jobs = host_jobs,
+        .tcg = host_tcg,
+        .arch = host_arch orelse if (std.mem.eql(u8, alias, tools.intel_mac_alias)) .x86_64 else .aarch64,
+    } else null;
 
     const host = b.graph.host.result;
     const whpx_host = host.os.tag == .windows and host.cpu.arch == .x86_64;
@@ -64,18 +60,24 @@ pub fn addQemuTests(b: *Build, optimize: Optimize) !Rigs {
             },
             // not in `qemu-check`, which builds the kernel rigs
             .linux => b.step(b.fmt("qemu-check-{s}", .{m.name}), b.fmt("Build {s}'s initramfs and check its inline asm, without running qemu", .{m.name})),
-            .macos => check,
         };
-        if (m.boot == .kernel and m.parts.len != 0 and filters.len == 0) {
-            const step = b.step(b.fmt("qemu-test-{s}", .{m.name}), b.fmt("Run rstd's tests under qemu-system on {s}, in {d} images (live logs: .zig-cache/qemu-test-{s}-<part>.log)", .{ m.name, m.parts.len, m.name }));
-            for (m.parts) |p| {
+        const parts: []const Part = if (filters.len != 0) &.{} else switch (m.boot) {
+            .kernel => if (m.split.len != 0) try withRest(b, m.split) else m.parts,
+            .linux => if (buildroot.tsan and m.tsan_parts.len != 0) try withRest(b, m.tsan_parts) else if (m.split.len != 0) try withRest(b, m.split) else &.{},
+        };
+        if (parts.len != 0) {
+            const step = b.step(b.fmt("qemu-test-{s}", .{m.name}), b.fmt("Run rstd's tests under qemu-system on {s}, in {d} parts (live logs: .zig-cache/qemu-test-{s}-<part>.log)", .{ m.name, parts.len, m.name }));
+            for (parts) |p| {
                 const picked = for (only_parts) |o| {
                     if (std.mem.eql(u8, o, p.name)) break true;
                 } else only_parts.len == 0;
                 if (!picked) continue;
                 var part = m;
                 part.name = b.fmt("{s}-{s}", .{ m.name, p.name });
-                const run = try addKernelRun(b, part, m.boot.kernel, target, m.optimize orelse optimize, p.filters, test_host, rig_check);
+                const run = switch (m.boot) {
+                    .kernel => |k| try addKernelRun(b, part, k, target, m.optimize orelse optimize, p.filters, test_host, rig_check),
+                    .linux => |l| if (linux_vm) try addLinuxRun(b, part, l, target, m.optimize orelse optimize, p.filters, test_host, rig_check) orelse continue else continue,
+                };
                 step.dependOn(&run.step);
                 all.dependOn(&run.step);
             }
@@ -83,14 +85,9 @@ pub fn addQemuTests(b: *Build, optimize: Optimize) !Rigs {
         }
         const run = switch (m.boot) {
             .kernel => |k| try addKernelRun(b, m, k, target, m.optimize orelse optimize, filters, test_host, rig_check),
-            .macos => if (macos_vm) try macos.addRun(b, m, target, m.optimize orelse optimize, filters, mac) orelse continue else continue,
             .linux => |l| if (linux_vm) try addLinuxRun(b, m, l, target, m.optimize orelse optimize, filters, test_host, rig_check) orelse continue else continue,
         };
-        const about = switch (m.boot) {
-            .kernel, .linux => b.fmt("Run rstd's tests under qemu-system on {s} (live log: {s})", .{ m.name, liveLog(b, m) }),
-            .macos => b.fmt("Run rstd's tests under qemu-system on {s}", .{m.name}),
-        };
-        const step = b.step(b.fmt("qemu-test-{s}", .{m.name}), about);
+        const step = b.step(b.fmt("qemu-test-{s}", .{m.name}), b.fmt("Run rstd's tests under qemu-system on {s} (live log: {s})", .{ m.name, liveLog(b, m) }));
         step.dependOn(&run.step);
         all.dependOn(&run.step);
     }
@@ -98,8 +95,53 @@ pub fn addQemuTests(b: *Build, optimize: Optimize) !Rigs {
 }
 
 fn hasPart(name: []const u8) bool {
-    for (machines.all) |m| for (m.parts) |p| if (std.mem.eql(u8, p.name, name)) return true;
+    for (machines.all) |m| {
+        for (m.parts) |p| if (std.mem.eql(u8, p.name, name)) return true;
+        for (m.tsan_parts) |p| if (std.mem.eql(u8, p.name, name)) return true;
+        for (m.split) |p| if (std.mem.eql(u8, p.name, name)) return true;
+        if ((m.tsan_parts.len != 0 or m.split.len != 0) and std.mem.eql(u8, name, "rest")) return true;
+    }
     return false;
+}
+
+/// `parts` and a `rest` part: every file and folder of `src/` as a test
+/// name's prefix (`math.kernels.blas.blas1.`), descending where a part's filter
+/// lies within. Filters match by substring, so parts may overlap, never miss.
+fn withRest(b: *Build, parts: []const Part) ![]const Part {
+    var rest: std.ArrayList([]const u8) = .empty;
+    try addRest(b, &rest, "src", "", parts);
+    // rstd's other module (`build/__root__.zig`)
+    try rest.append(b.allocator, "rstd_matrix.");
+    return std.mem.concat(b.allocator, Part, &.{ parts, &.{.{ .name = "rest", .filters = rest.items }} });
+}
+
+fn addRest(b: *Build, rest: *std.ArrayList([]const u8), path: []const u8, prefix: []const u8, parts: []const Part) !void {
+    const io = b.graph.io;
+    var dir = try b.root.openDir(io, path, .{ .iterate = true });
+    defer dir.close(io);
+    var it = dir.iterate();
+    while (try it.next(io)) |e| {
+        const name = switch (e.kind) {
+            .directory => e.name,
+            .file => if (std.mem.endsWith(u8, e.name, ".zig")) e.name[0 .. e.name.len - ".zig".len] else continue,
+            else => continue,
+        };
+        // the roots: rstd's, whose test only references, and the kernel rigs'
+        if (prefix.len == 0 and (std.mem.eql(u8, name, "__root__") or std.mem.eql(u8, name, "_test_qemu"))) continue;
+        const p = b.fmt("{s}{s}.", .{ prefix, name });
+        var within = false;
+        const covered = covered: for (parts) |part| {
+            for (part.filters) |f| {
+                if (std.mem.startsWith(u8, p, f)) break :covered true;
+                if (std.mem.startsWith(u8, f, p)) within = true;
+            }
+        } else false;
+        if (covered) continue;
+        if (within and e.kind == .directory)
+            try addRest(b, rest, b.pathJoin(&.{ path, e.name }), p, parts)
+        else
+            try rest.append(b.allocator, p);
+    }
 }
 
 /// Whether to add a family of VM rigs: on when rstd is the root project, so a
@@ -111,18 +153,33 @@ fn vmOption(b: *Build, comptime name: []const u8, comptime rigs: []const u8, com
     return !off and (on orelse b.isRoot());
 }
 
-/// `-Dtest-host`: the machine the rigs' QEMU runs on (`tools/test_host.zig`).
-pub const TestHost = struct { alias: []const u8, jobs: u32, tcg: bool };
+/// `-Dtest-host`: the machine the rigs' QEMU runs on (`tools/rig/test_host.zig`).
+pub const TestHost = struct {
+    alias: []const u8,
+    jobs: u32,
+    tcg: bool,
+    arch: Arch,
+
+    /// The Macs' architectures, whose guests HVF runs.
+    pub const Arch = enum { aarch64, x86_64 };
+};
 
 /// Where `m` runs: the test host, or here (null).
 fn testHostFor(m: Machine, host: ?TestHost) ?TestHost {
     return if (m.whpx) null else host;
 }
 
-/// `m`'s qemu and `args`, under `tools/qemu_watch.zig`: a firmware halt or
+/// Whether `m` runs under HVF: on a test host of its architecture, unless
+/// `-Dtest-host-tcg`.
+fn underHvf(m: Machine, host: ?TestHost) bool {
+    const h = testHostFor(m, host) orelse return false;
+    return m.hvf != null and !h.tcg and std.mem.eql(u8, @tagName(h.arch), @tagName(m.query.cpu_arch.?));
+}
+
+/// `m`'s qemu and `args`, under `tools/rig/qemu_watch.zig`: a firmware halt or
 /// an hour with no output ends it and fails the step, where it would
 /// otherwise never end. The slowest test prints nothing for about 20 minutes
-/// on the x86 rigs. On a test host, through `tools/test_host.zig`, which
+/// on the x86 rigs. On a test host, through `tools/rig/test_host.zig`, which
 /// copies over the files `fileArg` adds.
 pub fn qemuCommand(b: *Build, m: Machine, host: ?TestHost) *Build.Step.Run {
     const run = watchCommand(b);
@@ -130,7 +187,7 @@ pub fn qemuCommand(b: *Build, m: Machine, host: ?TestHost) *Build.Step.Run {
     run.addArgs(&.{ "Stopping execution", "!!!! X64 Exception", "Synchronous Exception at", "--" });
     const h = testHostFor(m, host) orelse {
         run.addArg(m.qemu);
-        run.addArgs(m.args);
+        run.addArgs(if (kvm(b)) m.kvm orelse m.args else m.args);
         return run;
     };
     run.addArtifactArg2(tools.hostTool(b, .test_host), .{});
@@ -138,10 +195,10 @@ pub fn qemuCommand(b: *Build, m: Machine, host: ?TestHost) *Build.Step.Run {
     run.addDirectoryArg2(b.path("tools/nix"), .{});
     run.addArgs(&.{ m.qemu, "--tcg" });
     run.addArgs(m.args);
-    if (m.hvf) |hvf| if (!h.tcg) {
+    if (underHvf(m, host)) {
         run.addArg("--hvf");
-        run.addArgs(hvf);
-    };
+        run.addArgs(m.hvf.?);
+    }
     run.addArg("--");
     return run;
 }
@@ -151,13 +208,35 @@ pub fn fileArg(run: *Build.Step.Run, m: Machine, host: ?TestHost, file: Build.La
     if (testHostFor(m, host) != null) run.addPrefixedFileArg("local:", file) else run.addFileArg(file);
 }
 
-/// `tools/qemu_watch.zig` with its idle limit (an hour) and `-Dfail-fast`;
+/// `tools/rig/qemu_watch.zig` with its idle limit (an hour) and `-Dfail-fast`;
 /// the caller adds halt texts, `--` and the command.
 pub fn watchCommand(b: *Build) *Build.Step.Run {
     const run = b.addRunArtifact(tools.hostTool(b, .qemu_watch));
     run.addArg("60");
     if (failFast(b)) run.addArg("--fail-fast");
     return run;
+}
+
+var kvm_on: ?struct { owner: *Build, on: bool } = null;
+
+/// `-Dqemu-kvm`: rigs with KVM arguments (`Machine.kvm`) run under KVM, on a
+/// Linux host of their architecture, as CI's runners are; the rest under TCG.
+fn kvm(b: *Build) bool {
+    if (kvm_on) |k| if (k.owner == b) return k.on;
+    const on = b.option(bool, "qemu-kvm", "Run the rigs that can under KVM, here on a Linux host of their architecture (CI)") orelse false;
+    kvm_on = .{ .owner = b, .on = on };
+    return on;
+}
+
+var nix_here_on: ?struct { owner: *Build, on: bool } = null;
+
+/// `-Dqemu-nix-here`: the Linux rigs' Nix packages (glibc under
+/// `-Drstd-tsan`) from this machine's Nix, without `-Dtest-host` (CI).
+fn nixHere(b: *Build) bool {
+    if (nix_here_on) |k| if (k.owner == b) return k.on;
+    const on = b.option(bool, "qemu-nix-here", "The Linux rigs take their Nix packages (glibc with -Drstd-tsan) from this machine's Nix (CI)") orelse false;
+    nix_here_on = .{ .owner = b, .on = on };
+    return on;
 }
 
 var fail_fast: ?struct { owner: *Build, on: bool } = null;
@@ -176,11 +255,12 @@ pub fn liveLog(b: *Build, m: Machine) []const u8 {
 }
 
 /// qemu's console on stdout and, as it is written, in `liveLog`: a run step
-/// checking stdout shows it only once qemu exits. Naming the serial port and
+/// checking stdout shows it only once qemu exits (issue #215). Naming the serial port and
 /// monitor keeps `-nographic`'s firmware console. On a test host
-/// `tools/test_host.zig` writes the log.
+/// `tools/rig/test_host.zig` writes the log.
 pub fn addConsole(b: *Build, run: *Build.Step.Run, m: Machine, host: ?TestHost) void {
-    run.addArgs(&.{ "-m", m.memory, "-nographic", "-no-reboot" });
+    const memory = if (buildroot.tsan) m.tsan_memory orelse m.memory else m.memory;
+    run.addArgs(&.{ "-m", memory, "-nographic", "-no-reboot" });
     const log = if (testHostFor(m, host) != null) "" else b.fmt(",logfile={s}", .{liveLog(b, m)});
     // not `-mon`, deprecated (a warning) from QEMU 11.1
     run.addArgs(&.{ "-chardev", b.fmt("stdio,id=con,mux=on,signal=off{s}", .{log}), "-serial", "chardev:con", "-monitor", "chardev:con" });
@@ -191,8 +271,9 @@ pub fn addConsole(b: *Build, run: *Build.Step.Run, m: Machine, host: ?TestHost) 
 /// null until the kernel's package is fetched.
 fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedTarget, optimize: Optimize, filters: []const []const u8, host: ?TestHost, rig_check: *Build.Step) !?*Build.Step.Run {
     const kernel = b.dependencyLazy(l.dep, .{}) catch return null;
-    // ThreadSanitizer wants glibc, and its loader, from Nix (`tools/nix/blas.sh`)
-    const nix: ?[]const u8 = if (!buildroot.tsan or host == null) null else switch (target.result.cpu.arch) {
+    // ThreadSanitizer wants glibc, and its loader, from Nix (`tools/nix/blas.sh`):
+    // `-Dtest-host`'s, or with `-Dqemu-nix-here` this machine's
+    const nix: ?[]const u8 = if (!buildroot.tsan or (host == null and !nixHere(b))) null else switch (target.result.cpu.arch) {
         .x86_64 => "x86_64-linux",
         .aarch64 => "aarch64-linux",
         else => null,
@@ -200,10 +281,9 @@ fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedT
     var query = target.query;
     if (nix != null) query.abi = .gnu;
     const t = if (nix != null) b.resolveTargetQuery(query) else target;
-    const hvf = if (testHostFor(m, host)) |h| m.hvf != null and !h.tcg else false;
-    const core = if (hvf) m.hvf_core else m.core;
+    const core = if (underHvf(m, host)) m.hvf_core else m.core;
     // a filtered run still prints the core
-    const core_test = "linalg.blas.__root__.test.the core in use";
+    const core_test = "math.kernels.blas.__root__.test.the core in use";
     const run_filters = if (core != null and filters.len != 0) try std.mem.concat(b.allocator, []const u8, &.{ filters, &.{core_test} }) else filters;
     const mod = try buildroot.addRstdModule(b, null, t, optimize, .all, .{});
     const test_exe = try buildroot.addRstdTest(b, mod, t, optimize, run_filters);
@@ -213,7 +293,7 @@ fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedT
         .optimize = optimize,
     }) });
     const pack: Initramfs = .init(b, "initramfs.cpio", init_exe, test_exe);
-    if (nix) |system| pack.run.addPrefixedFileArg("+", (try tools.nixBlas(b, host.?.alias, system, false)).captureStdOut(.{}));
+    if (nix) |system| pack.run.addPrefixedFileArg("+", (try tools.nixBlas(b, if (host) |h| h.alias else null, system, false)).captureStdOut(.{}));
     rig_check.dependOn(&pack.run.step);
 
     const run = qemuCommand(b, m, host);
@@ -231,7 +311,7 @@ fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedT
     return run;
 }
 
-/// An initramfs (`tools/initramfs.zig`) of `init` as `/init` and `test` as
+/// An initramfs (`tools/rig/initramfs.zig`) of `init` as `/init` and `test` as
 /// `/test`; `run` takes more files.
 pub const Initramfs = struct {
     run: *Build.Step.Run,
@@ -245,6 +325,25 @@ pub const Initramfs = struct {
         return .{ .run = run, .cpio = cpio };
     }
 };
+
+/// `m`'s RAM where its kernel's addresses are physical and the machine's RAM
+/// start is fixed (`pc` at 0; `virt` at 0x40000000 on Arm, 0x80000000 on
+/// RISC-V); null elsewhere. The kernel and its stack must fit (issue #575).
+fn ramWindow(m: Machine, arch: std.Target.Cpu.Arch) ?struct { base: u64, size: u64 } {
+    const model = m.args[1];
+    const base: u64 = if (std.mem.eql(u8, model, "pc")) 0 else if (std.mem.eql(u8, model, "virt")) switch (arch) {
+        .aarch64, .arm => 0x40000000,
+        .riscv64 => 0x80000000,
+        else => return null,
+    } else return null;
+    const unit: u64 = switch (m.memory[m.memory.len - 1]) {
+        'M' => 1 << 20,
+        'G' => 1 << 30,
+        else => return null,
+    };
+    const count = std.fmt.parseInt(u64, m.memory[0 .. m.memory.len - 1], 10) catch return null;
+    return .{ .base = base, .size = count * unit };
+}
 
 /// QEMU booting `m`'s freestanding test kernel, once its inline asm is checked
 /// (`blaskern.asmCheck`), which `check` also does.
@@ -282,6 +381,16 @@ fn addKernelRun(b: *Build, m: Machine, k: Boot.Kernel, target: rstdbuild.Resolve
         check.dependOn(&fit.step);
         run.step.dependOn(&fit.step);
     }
+    if (k.firmware == null) if (ramWindow(m, target.result.cpu.arch)) |w| {
+        const fit = b.addRunArtifact(tools.hostTool(b, .load_window));
+        fit.setName(b.fmt("check memory of {s}", .{test_exe.name}));
+        fit.addArgs(&.{ m.name, b.fmt("0x{x}", .{w.base}), b.fmt("0x{x}", .{w.size}) });
+        fit.addFileArg(test_exe.getEmittedBin());
+        _ = fit.addOutputFileArg2("ram", .{});
+        fit.addArg("memory");
+        check.dependOn(&fit.step);
+        run.step.dependOn(&fit.step);
+    };
     // only x86_64 defaults to the self-hosted backend; `zig cc` ignores `ofmt`
     const llvm = k.llvm or target.result.cpu.arch != .x86_64;
     if (llvm and m.query.ofmt == null) {
@@ -305,7 +414,8 @@ fn addKernelRun(b: *Build, m: Machine, k: Boot.Kernel, target: rstdbuild.Resolve
         _ = esp.addCopyFile(test_exe.getEmittedBin(), b.fmt("EFI/BOOT/{s}", .{boot}));
         // read-only pflash, without a variable store: OVMF's code is no
         // multiple of 64 KiB, which `-bios` wants
-        if (testHostFor(m, host) == null) run.step.dependOn(&b.addFail(b.fmt("{s} runs on -Dtest-host, whose tools/nix/run.sh finds QEMU's firmware", .{m.name})).step);
+        // `@qemu-data@`: QEMU's firmware directory, which `tools/nix/run.sh` fills
+        // in on a test host and `tools/rig/qemu_watch.zig` here
         run.addArgs(&.{ "-drive", b.fmt("if=pflash,unit=0,format=raw,readonly=on,file=@qemu-data@/{s}", .{fw}), "-nic", "none", "-drive" });
         const drive = "if=none,id=esp,format=raw,readonly=on,file=fat:";
         run.addPrefixedDirectoryArg(if (testHostFor(m, host) != null) drive ++ "local:" else drive, esp.getDirectory());
@@ -316,8 +426,7 @@ fn addKernelRun(b: *Build, m: Machine, k: Boot.Kernel, target: rstdbuild.Resolve
     }
     run.has_side_effects = true;
     // HVF has no semihosting, so no exit status
-    const hvf = if (testHostFor(m, host)) |h| m.hvf != null and !h.tcg else false;
-    if (!semihosting or hvf) run.expectStdOutMatch(", 0 failed");
+    if (!semihosting or underHvf(m, host)) run.expectStdOutMatch(", 0 failed");
     if (k.stderr_note) |note| run.expectStdErrMatch(note);
     return run;
 }

@@ -1,0 +1,177 @@
+//! `sscal` for la264, from OpenBLAS `kernel/loongarch64/scal_lsx.S` (`v0.3.34-794-gdbf2c24c9`); converted by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+/// Each function's core and variant.
+pub const keys = .{
+    .{ .core = .la264, .variant = "" },
+};
+
+pub const Body = struct {
+    pub fn entry() callconv(.naked) void {
+        asm volatile (
+            \\ .align 5
+            \\ bge $r0, $r4, 20015f
+            \\ bge $r0, $r8, 20015f
+            \\ ld.d $r14, $sp, 0
+            \\ li.d $r13, 1
+            \\ movgr2fr.d $f8, $r0
+            \\ ffint.s.l $f8, $f8
+            \\ movgr2fr.d $f23, $r13
+            \\ ffint.s.l $f23, $f23
+            \\ slli.d $r13, $r13, 2
+            \\ slli.d $r8, $r8, 2
+            \\ slli.d $r14, $r14, 2
+            \\ fcmp.ceq.s $fcc0, $f0, $f8
+            \\ bcnez $fcc0, 20003f
+            \\ fcmp.ceq.s $fcc0, $f0, $f23
+            \\ bcnez $fcc0, 20015f
+            \\ 20000:
+            \\ srai.d $r12, $r4, 3
+            \\ beq $r8, $r13, 20011f
+            \\ movfr2gr.s $r13, $f0
+            \\ vreplgr2vr.w $vr19, $r13
+            \\ move $r16, $r7
+            \\ .align 3
+            \\ 20001:
+            \\ bge $r0, $r12, 20013f
+            \\ .align 3
+            \\ 20002:
+            \\ ld.w $r14, $r7, 0 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ ld.w $r18, $r7, 0 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ ld.w $r15, $r7, 0 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ ld.w $r17, $r7, 0 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ vinsgr2vr.w $vr12, $r14, 0
+            \\ vinsgr2vr.w $vr12, $r18, 1
+            \\ vinsgr2vr.w $vr12, $r15, 2
+            \\ vinsgr2vr.w $vr12, $r17, 3
+            \\ ld.w $r14, $r7, 0 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ ld.w $r18, $r7, 0 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ vfmul.s $vr14, $vr12, $vr19
+            \\ ld.w $r15, $r7, 0 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ ld.w $r17, $r7, 0 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ vinsgr2vr.w $vr13, $r14, 0
+            \\ vinsgr2vr.w $vr13, $r18, 1
+            \\ vinsgr2vr.w $vr13, $r15, 2
+            \\ vinsgr2vr.w $vr13, $r17, 3
+            \\ vstelm.w $vr14, $r16, 0, 0
+            \\ add.d $r16, $r16, $r8
+            \\ vstelm.w $vr14, $r16, 0, 1
+            \\ add.d $r16, $r16, $r8
+            \\ vstelm.w $vr14, $r16, 0, 2
+            \\ add.d $r16, $r16, $r8
+            \\ vstelm.w $vr14, $r16, 0, 3
+            \\ add.d $r16, $r16, $r8
+            \\ vfmul.s $vr15, $vr13, $vr19
+            \\ vstelm.w $vr15, $r16, 0, 0
+            \\ add.d $r16, $r16, $r8
+            \\ vstelm.w $vr15, $r16, 0, 1
+            \\ add.d $r16, $r16, $r8
+            \\ vstelm.w $vr15, $r16, 0, 2
+            \\ add.d $r16, $r16, $r8
+            \\ vstelm.w $vr15, $r16, 0, 3
+            \\ add.d $r16, $r16, $r8
+            \\ addi.d $r12, $r12, -1
+            \\ blt $r0, $r12, 20002b
+            \\ b 20013f
+            \\ .align 3
+            \\ 20003:
+            \\ beq $r14, $r13, 20000b
+            \\ srai.d $r12, $r4, 3
+            \\ beq $r8, $r13, 20007f
+            \\ bge $r0, $r12, 20005f
+            \\ .align 3
+            \\ 20004:
+            \\ fst.s $f8, $r7, 0
+            \\ add.d $r7, $r7, $r8
+            \\ fst.s $f8, $r7, 0
+            \\ add.d $r7, $r7, $r8
+            \\ fst.s $f8, $r7, 0
+            \\ add.d $r7, $r7, $r8
+            \\ fst.s $f8, $r7, 0
+            \\ add.d $r7, $r7, $r8
+            \\ fst.s $f8, $r7, 0
+            \\ add.d $r7, $r7, $r8
+            \\ fst.s $f8, $r7, 0
+            \\ add.d $r7, $r7, $r8
+            \\ fst.s $f8, $r7, 0
+            \\ add.d $r7, $r7, $r8
+            \\ fst.s $f8, $r7, 0
+            \\ add.d $r7, $r7, $r8
+            \\ addi.d $r12, $r12, -1
+            \\ blt $r0, $r12, 20004b
+            \\ .align 3
+            \\ 20005:
+            \\ andi $r12, $r4, 7
+            \\ bge $r0, $r12, 20015f
+            \\ .align 3
+            \\ 20006:
+            \\ fst.s $f8, $r7, 0 * 4
+            \\ addi.d $r12, $r12, -1
+            \\ add.d $r7, $r7, $r8
+            \\ blt $r0, $r12, 20006b
+            \\ jirl $r0, $r1, 0
+            \\ .align 3
+            \\ 20007:
+            \\ bge $r0, $r12, 20009f
+            \\ .align 3
+            \\ 20008:
+            \\ vxor.v $vr12, $vr12, $vr12
+            \\ vst $vr12, $r7, 0 * 4
+            \\ vst $vr12, $r7, 4 * 4
+            \\ addi.d $r12, $r12, -1
+            \\ addi.d $r7, $r7, 8 * 4
+            \\ blt $r0, $r12, 20008b
+            \\ .align 3
+            \\ 20009:
+            \\ andi $r12, $r4, 7
+            \\ bge $r0, $r12, 20015f
+            \\ .align 3
+            \\ 20010:
+            \\ fst.s $f8, $r7, 0 * 4
+            \\ addi.d $r12, $r12, -1
+            \\ addi.d $r7, $r7, 4
+            \\ blt $r0, $r12, 20010b
+            \\ jirl $r0, $r1, 0
+            \\ .align 3
+            \\ 20011:
+            \\ bge $r0, $r12, 20013f
+            \\ movfr2gr.s $r13, $f0
+            \\ vreplgr2vr.w $vr19 , $r13
+            \\ .align 3
+            \\ 20012:
+            \\ vld $vr12, $r7, 0 * 4
+            \\ vld $vr13, $r7, 4 * 4
+            \\ vfmul.s $vr14, $vr12, $vr19
+            \\ vfmul.s $vr15, $vr13, $vr19
+            \\ addi.d $r12, $r12, -1
+            \\ vst $vr14, $r7, 0 * 4
+            \\ vst $vr15, $r7, 4 * 4
+            \\ addi.d $r7, $r7, 8 * 4
+            \\ blt $r0, $r12, 20012b
+            \\ .align 3
+            \\ 20013:
+            \\ andi $r12, $r4, 7
+            \\ bge $r0, $r12, 20015f
+            \\ .align 3
+            \\ 20014:
+            \\ fld.s $f8, $r7, 0 * 4
+            \\ addi.d $r12, $r12, -1
+            \\ fmul.s $f8, $f0, $f8
+            \\ fst.s $f8, $r7, 0 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ blt $r0, $r12, 20014b
+            \\ jirl $r0, $r1, 0
+            \\ .align 3
+            \\ 20015:
+            \\ jirl $r0, $r1, 0x0
+            \\
+        );
+    }
+};

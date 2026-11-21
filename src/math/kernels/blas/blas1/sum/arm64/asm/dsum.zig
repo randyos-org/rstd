@@ -1,0 +1,116 @@
+//! `dsum` for a64fx, armv8, armv8sve, armv9sme, cortexa510, cortexa53, cortexa55, cortexa57, cortexa710, cortexa72, cortexa73, cortexa76, cortexx1, cortexx2, emag8180, falkor, ft2000, neoversen2, neoversev1, neoversev2, thunderx, thunderx2t99, thunderx3t110, tsv110, from OpenBLAS `kernel/arm64/sum.S` (`v0.3.34-794-gdbf2c24c9`); converted by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+/// Each function's core and variant.
+pub const keys = .{
+    .{ .core = .a64fx, .variant = "" },
+    .{ .core = .armv8, .variant = "" },
+    .{ .core = .armv8sve, .variant = "" },
+    .{ .core = .armv9sme, .variant = "" },
+    .{ .core = .cortexa510, .variant = "" },
+    .{ .core = .cortexa53, .variant = "" },
+    .{ .core = .cortexa55, .variant = "" },
+    .{ .core = .cortexa57, .variant = "" },
+    .{ .core = .cortexa710, .variant = "" },
+    .{ .core = .cortexa72, .variant = "" },
+    .{ .core = .cortexa73, .variant = "" },
+    .{ .core = .cortexa76, .variant = "" },
+    .{ .core = .cortexx1, .variant = "" },
+    .{ .core = .cortexx2, .variant = "" },
+    .{ .core = .emag8180, .variant = "" },
+    .{ .core = .falkor, .variant = "" },
+    .{ .core = .ft2000, .variant = "" },
+    .{ .core = .neoversen2, .variant = "" },
+    .{ .core = .neoversev1, .variant = "" },
+    .{ .core = .neoversev2, .variant = "" },
+    .{ .core = .thunderx, .variant = "" },
+    .{ .core = .thunderx2t99, .variant = "" },
+    .{ .core = .thunderx3t110, .variant = "" },
+    .{ .core = .tsv110, .variant = "" },
+};
+
+pub const Body = struct {
+    pub fn entry() callconv(.naked) void {
+        asm volatile (
+            \\ .macro PROLOGUE
+            \\ .p2align 2
+            \\ .endm
+            \\ .macro KERNEL_F1
+            \\ ldr d1, [x1], #8
+            \\ fadd d0, d0, d1
+            \\ .endm
+            \\ .macro KERNEL_F8
+            \\ ld1 {v2.2d, v3.2d, v4.2d, v5.2d}, [x1]
+            \\ add x1, x1, #64
+            \\ PRFM PLDL1KEEP, [x1, #1024]
+            \\ fadd v2.2d, v2.2d, v3.2d
+            \\ fadd v4.2d, v4.2d, v5.2d
+            \\ fadd v0.2d, v0.2d, v2.2d
+            \\ fadd v0.2d, v0.2d, v4.2d
+            \\ .endm
+            \\ .macro KERNEL_F8_FINALIZE
+            \\ faddp d0, v0.2d
+            \\ .endm
+            \\ .macro INIT_S
+            \\ lsl x2, x2, #3
+            \\ .endm
+            \\ .macro KERNEL_S1
+            \\ ld1 {v1.d}[0], [x1], x2
+            \\ fadd d0, d0, d1
+            \\ .endm
+            \\ PROLOGUE
+            \\ fmov d0, xzr
+            \\ fmov d1, d0
+            \\ cmp x0, xzr
+            \\ ble 20004f
+            \\ cmp x2, xzr
+            \\ ble 20004f
+            \\ cmp x2, #1
+            \\ bne 20005f
+            \\ 20000:
+            \\ asr x5, x0, #3
+            \\ cmp x5, xzr
+            \\ beq 20002f
+            \\ 20001:
+            \\ KERNEL_F8
+            \\ subs x5, x5, #1
+            \\ bne 20001b
+            \\ KERNEL_F8_FINALIZE
+            \\ 20002:
+            \\ ands x5, x0, #7
+            \\ ble 20004f
+            \\ 20003:
+            \\ KERNEL_F1
+            \\ subs x5, x5, #1
+            \\ bne 20003b
+            \\ 20004:
+            \\ ret
+            \\ 20005:
+            \\ INIT_S
+            \\ asr x5, x0, #2
+            \\ cmp x5, xzr
+            \\ ble 20007f
+            \\ 20006:
+            \\ KERNEL_S1
+            \\ KERNEL_S1
+            \\ KERNEL_S1
+            \\ KERNEL_S1
+            \\ subs x5, x5, #1
+            \\ bne 20006b
+            \\ 20007:
+            \\ ands x5, x0, #3
+            \\ ble 20004b
+            \\ 20008:
+            \\ KERNEL_S1
+            \\ subs x5, x5, #1
+            \\ bne 20008b
+            \\ ret
+            \\ .purgem PROLOGUE
+            \\ .purgem KERNEL_F1
+            \\ .purgem KERNEL_F8
+            \\ .purgem KERNEL_F8_FINALIZE
+            \\ .purgem INIT_S
+            \\ .purgem KERNEL_S1
+            \\
+        );
+    }
+};

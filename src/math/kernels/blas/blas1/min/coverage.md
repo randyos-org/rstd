@@ -1,0 +1,208 @@
+# `min` kernel coverage
+
+Surveyed from OpenBLAS `kernel/` (`v0.3.34-794-gdbf2c24c9`) and rstd's kernel indexes by `tools/blas_asm` (retired: [#618](https://github.com/randyos-org/rstd/issues/618)); maintained by hand. How to read it: [`coverage.md`](../../coverage.md).
+
+## x86_64
+
+| core           | smin                 | dmin                 | qmin                |
+| -------------- | -------------------- | -------------------- | ------------------- |
+| ATOM           | `amax_sse.S` → vec   | `amax_atom.S` → vec  | `amax.S` → portable |
+| BARCELONA      | `amax_sse.S` → vec   | `amax_sse2.S` → vec  | `amax.S` → portable |
+| BOBCAT         | `amax_sse.S` → vec   | `amax_sse2.S` → vec  | `amax.S` → portable |
+| BULLDOZER      | `amax_sse.S` → vec   | `amax_sse2.S` → vec  | `amax.S` → portable |
+| COOPERLAKE     | `amax_sse.S` → vec   | `amax_sse2.S` → vec  | `amax.S` → portable |
+| CORE2          | `amax_sse.S` → vec   | `amax_sse2.S` → vec  | `amax.S` → portable |
+| DUNNINGTON     | `amax_sse.S` → vec   | `amax_sse2.S` → vec  | `amax.S` → portable |
+| EXCAVATOR      | `amax_sse.S` → vec   | `amax_sse2.S` → vec  | `amax.S` → portable |
+| generic        | `../arm/min.c` → n/a | `../arm/min.c` → n/a | `amax.S` → n/a      |
+| HASWELL        | `amax_sse.S` → vec   | `amax_sse2.S` → vec  | `amax.S` → portable |
+| NANO           | `amax_sse.S` → vec   | `amax_sse2.S` → vec  | `amax.S` → portable |
+| NEHALEM        | `amax_sse.S` → vec   | `amax_sse2.S` → vec  | `amax.S` → portable |
+| OPTERON        | `amax_sse.S` → vec   | `amax_sse2.S` → vec  | `amax.S` → portable |
+| OPTERON_SSE3   | `amax_sse.S` → vec   | `amax_sse2.S` → vec  | `amax.S` → portable |
+| PENRYN         | `amax_sse.S` → vec   | `amax_sse2.S` → vec  | `amax.S` → portable |
+| PILEDRIVER     | `amax_sse.S` → vec   | `amax_sse2.S` → vec  | `amax.S` → portable |
+| PRESCOTT       | `amax_sse.S` → vec   | `amax_sse2.S` → vec  | `amax.S` → portable |
+| SANDYBRIDGE    | `amax_sse.S` → vec   | `amax_sse2.S` → vec  | `amax.S` → portable |
+| SAPPHIRERAPIDS | `amax_sse.S` → vec   | `amax_sse2.S` → vec  | `amax.S` → portable |
+| SKYLAKEX       | `amax_sse.S` → vec   | `amax_sse2.S` → vec  | `amax.S` → portable |
+| STEAMROLLER    | `amax_sse.S` → vec   | `amax_sse2.S` → vec  | `amax.S` → portable |
+| ZEN            | `amax_sse.S` → vec   | `amax_sse2.S` → vec  | `amax.S` → portable |
+
+## x86
+
+| core         | smin                 | dmin                 | qmin                |
+| ------------ | -------------------- | -------------------- | ------------------- |
+| ATHLON       | `amax.S` → vec       | `amax.S` → vec       | `amax.S` → portable |
+| ATOM         | `amax.S` → vec       | `amax.S` → vec       | `amax.S` → portable |
+| BANIAS       | `amax.S` → vec       | `amax.S` → vec       | `amax.S` → portable |
+| BARCELONA    | `amax.S` → vec       | `amax.S` → vec       | `amax.S` → portable |
+| BOBCAT       | `amax.S` → vec       | `amax.S` → vec       | `amax.S` → portable |
+| BULLDOZER    | `amax.S` → vec       | `amax.S` → vec       | `amax.S` → portable |
+| COPPERMINE   | `amax.S` → vec       | `amax.S` → vec       | `amax.S` → portable |
+| CORE2        | `amax.S` → vec       | `amax.S` → vec       | `amax.S` → portable |
+| DUNNINGTON   | `amax.S` → vec       | `amax.S` → vec       | `amax.S` → portable |
+| generic      | `../arm/min.c` → n/a | `../arm/min.c` → n/a | `amax.S` → n/a      |
+| HASWELL      | `amax.S` → vec       | `amax.S` → vec       | `amax.S` → portable |
+| KATMAI       | `amax.S` → vec       | `amax.S` → vec       | `amax.S` → portable |
+| NANO         | `amax.S` → vec       | `amax.S` → vec       | `amax.S` → portable |
+| NEHALEM      | `amax.S` → vec       | `amax.S` → vec       | `amax.S` → portable |
+| NORTHWOOD    | `amax.S` → vec       | `amax.S` → vec       | `amax.S` → portable |
+| OPTERON      | `amax.S` → vec       | `amax.S` → vec       | `amax.S` → portable |
+| OPTERON_SSE3 | `amax.S` → vec       | `amax.S` → vec       | `amax.S` → portable |
+| P5           | `amax.S` → vec       | `amax.S` → vec       | `amax.S` → portable |
+| P6           | `amax.S` → vec       | `amax.S` → vec       | `amax.S` → portable |
+| PENRYN       | `amax.S` → vec       | `amax.S` → vec       | `amax.S` → portable |
+| PILEDRIVER   | `amax.S` → vec       | `amax.S` → vec       | `amax.S` → portable |
+| PRESCOTT     | `amax.S` → vec       | `amax.S` → vec       | `amax.S` → portable |
+| SANDYBRIDGE  | `amax.S` → vec       | `amax.S` → vec       | `amax.S` → portable |
+| VIAC3        | `amax.S` → vec       | `amax.S` → vec       | `amax.S` → portable |
+| YONAH        | `amax.S` → vec       | `amax.S` → vec       | `amax.S` → portable |
+| ZEN          | `amax.S` → vec       | `amax.S` → vec       | `amax.S` → portable |
+
+## arm64
+
+| core          | smin                 | dmin                 | qmin                         |
+| ------------- | -------------------- | -------------------- | ---------------------------- |
+| A64FX         | `../arm/min.c` → vec | `../arm/min.c` → vec | `min.S` (missing) → portable |
+| AMPERE1       | `../arm/min.c` → vec | `../arm/min.c` → vec | `min.S` (missing) → portable |
+| ARMV8         | `../arm/min.c` → vec | `../arm/min.c` → vec | `min.S` (missing) → portable |
+| ARMV8SVE      | `../arm/min.c` → vec | `../arm/min.c` → vec | `min.S` (missing) → portable |
+| ARMV9SME      | `../arm/min.c` → vec | `../arm/min.c` → vec | `min.S` (missing) → portable |
+| CORTEXA510    | `../arm/min.c` → vec | `../arm/min.c` → vec | `min.S` (missing) → portable |
+| CORTEXA53     | `../arm/min.c` → vec | `../arm/min.c` → vec | `min.S` (missing) → portable |
+| CORTEXA55     | `../arm/min.c` → vec | `../arm/min.c` → vec | `min.S` (missing) → portable |
+| CORTEXA57     | `../arm/min.c` → vec | `../arm/min.c` → vec | `min.S` (missing) → portable |
+| CORTEXA710    | `../arm/min.c` → vec | `../arm/min.c` → vec | `min.S` (missing) → portable |
+| CORTEXA72     | `../arm/min.c` → vec | `../arm/min.c` → vec | `min.S` (missing) → portable |
+| CORTEXA73     | `../arm/min.c` → vec | `../arm/min.c` → vec | `min.S` (missing) → portable |
+| CORTEXA76     | `../arm/min.c` → vec | `../arm/min.c` → vec | `min.S` (missing) → portable |
+| CORTEXX1      | `../arm/min.c` → vec | `../arm/min.c` → vec | `min.S` (missing) → portable |
+| CORTEXX2      | `../arm/min.c` → vec | `../arm/min.c` → vec | `min.S` (missing) → portable |
+| EMAG8180      | `../arm/min.c` → vec | `../arm/min.c` → vec | `min.S` (missing) → portable |
+| FALKOR        | `../arm/min.c` → vec | `../arm/min.c` → vec | `min.S` (missing) → portable |
+| FT2000        | `../arm/min.c` → vec | `../arm/min.c` → vec | `min.S` (missing) → portable |
+| generic       | `../arm/min.c` → n/a | `../arm/min.c` → n/a | `min.S` (missing) → n/a      |
+| NEOVERSEN1    | `../arm/min.c` → vec | `../arm/min.c` → vec | `min.S` (missing) → portable |
+| NEOVERSEN2    | `../arm/min.c` → vec | `../arm/min.c` → vec | `min.S` (missing) → portable |
+| NEOVERSEV1    | `../arm/min.c` → vec | `../arm/min.c` → vec | `min.S` (missing) → portable |
+| NEOVERSEV2    | `../arm/min.c` → vec | `../arm/min.c` → vec | `min.S` (missing) → portable |
+| THUNDERX      | `../arm/min.c` → vec | `../arm/min.c` → vec | `min.S` (missing) → portable |
+| THUNDERX2T99  | `../arm/min.c` → vec | `../arm/min.c` → vec | `min.S` (missing) → portable |
+| THUNDERX3T110 | `../arm/min.c` → vec | `../arm/min.c` → vec | `min.S` (missing) → portable |
+| TSV110        | `../arm/min.c` → vec | `../arm/min.c` → vec | `min.S` (missing) → portable |
+| VORTEX        | `../arm/min.c` → vec | `../arm/min.c` → vec | `min.S` (missing) → portable |
+| VORTEXM4      | `../arm/min.c` → vec | `../arm/min.c` → vec | `min.S` (missing) → portable |
+
+## arm
+
+| core      | smin                  | dmin                 | qmin                         |
+| --------- | --------------------- | -------------------- | ---------------------------- |
+| ARMV5     | `../arm/min.c` → vec  | `../arm/min.c` → vec | `min.S` (missing) → portable |
+| ARMV6     | `amax_vfp.S` → vec    | `amax_vfp.S` → vec   | `min.S` (missing) → portable |
+| ARMV7     | `amax_vfp.S` → vec    | `amax_vfp.S` → vec   | `min.S` (missing) → portable |
+| CORTEXA15 | `amax_vfp.S` → routed | `amax_vfp.S` → vec   | `min.S` (missing) → portable |
+| CORTEXA9  | `amax_vfp.S` → routed | `amax_vfp.S` → vec   | `min.S` (missing) → portable |
+
+## power
+
+| core      | smin                               | dmin                               | qmin               |
+| --------- | ---------------------------------- | ---------------------------------- | ------------------ |
+| CELL      | `min.S` → vec                      | `min.S` → vec                      | `min.S` → portable |
+| POWER10   | `min.S` → vec                      | `min.S` → vec                      | `min.S` → portable |
+| POWER3    | `min.S` → vec                      | `min.S` → vec                      | `min.S` → portable |
+| POWER4    | `min.S` → vec                      | `min.S` → vec                      | `min.S` → portable |
+| POWER5    | `min.S` → vec                      | `min.S` → vec                      | `min.S` → portable |
+| POWER6    | `min.S` → vec                      | `min.S` → vec                      | `min.S` → portable |
+| POWER8    | `min.S` → vec                      | `min.S` → vec                      | `min.S` → portable |
+| POWER9    | `min.S` → vec                      | `min.S` → vec                      | `min.S` → portable |
+| PPC440    | `min_ppc440.S` → vec               | `min_ppc440.S` → vec               | `min.S` → portable |
+| PPC440FP2 | `min_hummer.S` (unsupported) → vec | `min_hummer.S` (unsupported) → vec | `min.S` → portable |
+| PPC970    | `min.S` → vec                      | `min.S` → vec                      | `min.S` → portable |
+| PPCG4     | `min_ppc440.S` → vec               | `min_ppc440.S` → vec               | `min.S` → portable |
+
+## mips64
+
+| core           | smin                 | dmin                 | qmin               |
+| -------------- | -------------------- | -------------------- | ------------------ |
+| generic        | `../arm/min.c` → n/a | `../arm/min.c` → n/a | `min.S` → n/a      |
+| I6400          | `../arm/min.c` → vec | `../arm/min.c` → vec | `min.S` → portable |
+| I6500          | `../arm/min.c` → vec | `../arm/min.c` → vec | `min.S` → portable |
+| LOONGSON3R3    | `min.S` → vec        | `min.S` → vec        | `min.S` → portable |
+| LOONGSON3R4    | `min.S` → vec        | `min.S` → vec        | `min.S` → portable |
+| MIPS64_GENERIC | `../arm/min.c` → vec | `../arm/min.c` → vec | `min.S` → portable |
+| P6600          | `../arm/min.c` → vec | `../arm/min.c` → vec | `min.S` → portable |
+
+## mips
+
+| core      | smin                 | dmin                 | qmin                         |
+| --------- | -------------------- | -------------------- | ---------------------------- |
+| generic   | `../arm/min.c` → n/a | `../arm/min.c` → n/a | `min.S` (missing) → n/a      |
+| MIPS1004K | `../arm/min.c` → vec | `../arm/min.c` → vec | `min.S` (missing) → portable |
+| MIPS24K   | `../arm/min.c` → vec | `../arm/min.c` → vec | `min.S` (missing) → portable |
+| P5600     | `../arm/min.c` → vec | `../arm/min.c` → vec | `min.S` (missing) → portable |
+
+## riscv64
+
+| core            | smin                                | dmin                                | qmin                         |
+| --------------- | ----------------------------------- | ----------------------------------- | ---------------------------- |
+| C910V           | `min_vector.c` +intrinsics → routed | `min_vector.c` +intrinsics → routed | `min.S` (missing) → portable |
+| RISCV64_GENERIC | `../riscv64/min.c` → routed         | `../riscv64/min.c` → routed         | `min.S` (missing) → portable |
+| RISCV64_ZVL128B | `min_rvv.c` +intrinsics → vec       | `min_rvv.c` +intrinsics → vec       | `min.S` (missing) → portable |
+| RISCV64_ZVL256B | `min_vector.c` +intrinsics → vec    | `min_vector.c` +intrinsics → vec    | `min.S` (missing) → portable |
+| U74             | `../riscv64/min.c` → routed         | `../riscv64/min.c` → routed         | `min.S` (missing) → portable |
+| x280            | `min_rvv.c` +intrinsics → vec       | `min_rvv.c` +intrinsics → vec       | `min.S` (missing) → portable |
+
+## loongarch64
+
+| core         | smin                 | dmin                 | qmin               |
+| ------------ | -------------------- | -------------------- | ------------------ |
+| generic      | `../arm/min.c` → n/a | `../arm/min.c` → n/a | `min.S` → n/a      |
+| LA264        | `min_lsx.S` → vec    | `min_lsx.S` → vec    | `min.S` → portable |
+| LA464        | `min_lsx.S` → vec    | `min_lsx.S` → vec    | `min.S` → portable |
+| LA64_GENERIC | `min.S` → vec        | `min.S` → vec        | `min.S` → portable |
+
+## zarch
+
+| core          | smin                    | dmin                       | qmin                         |
+| ------------- | ----------------------- | -------------------------- | ---------------------------- |
+| Z13           | `../arm/min.c` → routed | `dmin_z13.c` +asm → routed | `min.S` (missing) → portable |
+| Z14           | `smin.c` +asm → routed  | `dmin.c` +asm → routed     | `min.S` (missing) → portable |
+| ZARCH_GENERIC | `../arm/min.c` → routed | `../arm/min.c` → routed    | `min.S` (missing) → portable |
+
+## sparc
+
+| core    | smin          | dmin          | qmin                         |
+| ------- | ------------- | ------------- | ---------------------------- |
+| sparc   | `max.S` → vec | `max.S` → vec | `min.S` (missing) → portable |
+| sparcv7 | `max.S` → vec | `max.S` → vec | `min.S` (missing) → portable |
+
+## alpha
+
+rstd has no target here.
+
+| core  | smin          | dmin          | qmin                    |
+| ----- | ------------- | ------------- | ----------------------- |
+| (all) | `max.S` → n/a | `max.S` → n/a | `min.S` (missing) → n/a |
+
+## ia64
+
+rstd has no target here.
+
+| core  | smin           | dmin           | qmin           |
+| ----- | -------------- | -------------- | -------------- |
+| (all) | `amax.S` → n/a | `amax.S` → n/a | `amax.S` → n/a |
+
+## wasm
+
+| core            | smin                        | dmin                        | qmin                         |
+| --------------- | --------------------------- | --------------------------- | ---------------------------- |
+| WASM128_GENERIC | `../riscv64/min.c` → routed | `../riscv64/min.c` → routed | `min.S` (missing) → portable |
+
+## Gaps
+
+None: no core runs the portable kernels where upstream is tuned.
+
+## Totals
+
+(core, role) pairs by what rstd serves: `vec` 214, `portable` 115, `n/a` 24, `routed` 16. 0 gaps.

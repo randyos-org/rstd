@@ -1,0 +1,224 @@
+//! `zswap` for sparcv7 (32), from OpenBLAS `kernel/sparc/zswap.S` (`v0.3.34-794-gdbf2c24c9`); converted by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+/// Each function's core and variant.
+pub const keys = .{
+    .{ .core = .sparcv7, .variant = "32" },
+};
+
+pub const Body = struct {
+    pub fn entry() callconv(.naked) void {
+        asm volatile (
+            \\ .align 32
+            \\ .proc 07
+            \\ save %sp, -64, %sp
+            \\ ld [%sp + 128 + 32], %i1
+            \\ ld [%sp + 128 + 36], %i2
+            \\ ld [%sp + 128 + 40], %i3
+            \\ ld [%sp + 128 + 44], %i4
+            \\ sll %i2, 4, %i2
+            \\ sll %i4, 4, %i4
+            \\ cmp %i2, 2 * 8
+            \\ bne 20006f
+            \\ nop
+            \\ cmp %i4, 2 * 8
+            \\ bne 20006f
+            \\ nop
+            \\ sra %i0, 2, %i5
+            \\ cmp %i5, 0
+            \\ ble,pn %icc, 20002f
+            \\ nop
+            \\ ldd [%i1 + 0 * 8], %f0
+            \\ ldd [%i3 + 0 * 8], %f16
+            \\ ldd [%i1 + 1 * 8], %f2
+            \\ ldd [%i3 + 1 * 8], %f18
+            \\ ldd [%i1 + 2 * 8], %f4
+            \\ ldd [%i3 + 2 * 8], %f20
+            \\ ldd [%i1 + 3 * 8], %f6
+            \\ ldd [%i3 + 3 * 8], %f22
+            \\ ldd [%i1 + 4 * 8], %f8
+            \\ ldd [%i3 + 4 * 8], %f24
+            \\ ldd [%i1 + 5 * 8], %f10
+            \\ ldd [%i3 + 5 * 8], %f26
+            \\ ldd [%i1 + 6 * 8], %f12
+            \\ ldd [%i3 + 6 * 8], %f28
+            \\ ldd [%i1 + 7 * 8], %f14
+            \\ ldd [%i3 + 7 * 8], %f30
+            \\ deccc %i5
+            \\ ble,pn %icc, 20001f
+            \\ nop
+            \\ 20000:
+            \\ prefetch [%i1 + 128 * 8], 0
+            \\ deccc %i5
+            \\ std %f0, [%i3 + 0 * 8]
+            \\ ldd [%i1 + 8 * 8], %f0
+            \\ std %f16, [%i1 + 0 * 8]
+            \\ ldd [%i3 + 8 * 8], %f16
+            \\ std %f2, [%i3 + 1 * 8]
+            \\ ldd [%i1 + 9 * 8], %f2
+            \\ std %f18, [%i1 + 1 * 8]
+            \\ ldd [%i3 + 9 * 8], %f18
+            \\ std %f4, [%i3 + 2 * 8]
+            \\ ldd [%i1 + 10 * 8], %f4
+            \\ std %f20, [%i1 + 2 * 8]
+            \\ ldd [%i3 + 10 * 8], %f20
+            \\ std %f6, [%i3 + 3 * 8]
+            \\ ldd [%i1 + 11 * 8], %f6
+            \\ std %f22, [%i1 + 3 * 8]
+            \\ ldd [%i3 + 11 * 8], %f22
+            \\ prefetch [%i3 + 128 * 8], 0
+            \\ add %i1, 8 * 8, %i1
+            \\ std %f8, [%i3 + 4 * 8]
+            \\ ldd [%i1 + 4 * 8], %f8
+            \\ std %f24, [%i1 - 4 * 8]
+            \\ ldd [%i3 + 12 * 8], %f24
+            \\ std %f10, [%i3 + 5 * 8]
+            \\ ldd [%i1 + 5 * 8], %f10
+            \\ std %f26, [%i1 - 3 * 8]
+            \\ ldd [%i3 + 13 * 8], %f26
+            \\ std %f12, [%i3 + 6 * 8]
+            \\ ldd [%i1 + 6 * 8], %f12
+            \\ std %f28, [%i1 - 2 * 8]
+            \\ ldd [%i3 + 14 * 8], %f28
+            \\ std %f14, [%i3 + 7 * 8]
+            \\ ldd [%i1 + 7 * 8], %f14
+            \\ std %f30, [%i1 - 1 * 8]
+            \\ ldd [%i3 + 15 * 8], %f30
+            \\ bg,pt %icc, 20000b
+            \\ add %i3, 8 * 8, %i3
+            \\ 20001:
+            \\ std %f0, [%i3 + 0 * 8]
+            \\ std %f16, [%i1 + 0 * 8]
+            \\ std %f2, [%i3 + 1 * 8]
+            \\ std %f18, [%i1 + 1 * 8]
+            \\ std %f4, [%i3 + 2 * 8]
+            \\ std %f20, [%i1 + 2 * 8]
+            \\ std %f6, [%i3 + 3 * 8]
+            \\ std %f22, [%i1 + 3 * 8]
+            \\ std %f8, [%i3 + 4 * 8]
+            \\ std %f24, [%i1 + 4 * 8]
+            \\ std %f10, [%i3 + 5 * 8]
+            \\ std %f26, [%i1 + 5 * 8]
+            \\ std %f12, [%i3 + 6 * 8]
+            \\ std %f28, [%i1 + 6 * 8]
+            \\ std %f14, [%i3 + 7 * 8]
+            \\ std %f30, [%i1 + 7 * 8]
+            \\ add %i1, 8 * 8, %i1
+            \\ add %i3, 8 * 8, %i3
+            \\ 20002:
+            \\ and %i0, 3, %i5
+            \\ cmp %i5, 0
+            \\ ble,a,pn %icc, 20004f
+            \\ nop
+            \\ 20003:
+            \\ ldd [%i1 + 0 * 8], %f0
+            \\ add %i5, -1, %i5
+            \\ ldd [%i1 + 1 * 8], %f2
+            \\ ldd [%i3 + 0 * 8], %f16
+            \\ ldd [%i3 + 1 * 8], %f18
+            \\ cmp %i5, 0
+            \\ std %f0, [%i3 + 0 * 8]
+            \\ std %f2, [%i3 + 1 * 8]
+            \\ add %i3, 2 * 8, %i3
+            \\ std %f16, [%i1 + 0 * 8]
+            \\ std %f18, [%i1 + 1 * 8]
+            \\ bg,pt %icc, 20003b
+            \\ add %i1, 2 * 8, %i1
+            \\ 20004:
+            \\ return %i7 + 8
+            \\ clr %g0
+            \\ 20005:
+            \\ cmp %i0, 0
+            \\ ble 20010f
+            \\ mov %i0, %i5
+            \\ b 20009f
+            \\ nop
+            \\ 20006:
+            \\ cmp %i2, 0
+            \\ be 20005b
+            \\ nop
+            \\ cmp %i4, 0
+            \\ be 20005b
+            \\ nop
+            \\ sra %i0, 2, %i5
+            \\ mov %i1, %l0
+            \\ cmp %i5, 0
+            \\ ble,pn %icc, 20008f
+            \\ mov %i3, %l1
+            \\ 20007:
+            \\ ldd [%i1 + 0 * 8], %f0
+            \\ ldd [%i3 + 0 * 8], %f16
+            \\ ldd [%i1 + 1 * 8], %f2
+            \\ add %i1, %i2, %i1
+            \\ ldd [%i3 + 1 * 8], %f18
+            \\ add %i3, %i4, %i3
+            \\ ldd [%i1 + 0 * 8], %f4
+            \\ ldd [%i3 + 0 * 8], %f20
+            \\ ldd [%i1 + 1 * 8], %f6
+            \\ add %i1, %i2, %i1
+            \\ ldd [%i3 + 1 * 8], %f22
+            \\ add %i3, %i4, %i3
+            \\ ldd [%i1 + 0 * 8], %f8
+            \\ ldd [%i3 + 0 * 8], %f24
+            \\ ldd [%i1 + 1 * 8], %f10
+            \\ add %i1, %i2, %i1
+            \\ ldd [%i3 + 1 * 8], %f26
+            \\ add %i3, %i4, %i3
+            \\ ldd [%i1 + 0 * 8], %f12
+            \\ ldd [%i3 + 0 * 8], %f28
+            \\ ldd [%i1 + 1 * 8], %f14
+            \\ add %i1, %i2, %i1
+            \\ ldd [%i3 + 1 * 8], %f30
+            \\ add %i3, %i4, %i3
+            \\ std %f0, [%l1 + 0 * 8]
+            \\ add %i5, -1, %i5
+            \\ std %f16, [%l0 + 0 * 8]
+            \\ cmp %i5, 0
+            \\ std %f2, [%l1 + 1 * 8]
+            \\ add %l1, %i4, %l1
+            \\ std %f18, [%l0 + 1 * 8]
+            \\ add %l0, %i2, %l0
+            \\ std %f4, [%l1 + 0 * 8]
+            \\ std %f20, [%l0 + 0 * 8]
+            \\ std %f6, [%l1 + 1 * 8]
+            \\ add %l1, %i4, %l1
+            \\ std %f22, [%l0 + 1 * 8]
+            \\ add %l0, %i2, %l0
+            \\ std %f8, [%l1 + 0 * 8]
+            \\ std %f24, [%l0 + 0 * 8]
+            \\ std %f10, [%l1 + 1 * 8]
+            \\ add %l1, %i4, %l1
+            \\ std %f26, [%l0 + 1 * 8]
+            \\ add %l0, %i2, %l0
+            \\ std %f12, [%l1 + 0 * 8]
+            \\ std %f28, [%l0 + 0 * 8]
+            \\ std %f14, [%l1 + 1 * 8]
+            \\ add %l1, %i4, %l1
+            \\ std %f30, [%l0 + 1 * 8]
+            \\ bg,pt %icc, 20007b
+            \\ add %l0, %i2, %l0
+            \\ 20008:
+            \\ and %i0, 3, %i5
+            \\ cmp %i5, 0
+            \\ ble,a,pn %icc, 20010f
+            \\ nop
+            \\ 20009:
+            \\ ldd [%i1 + 0 * 8], %f0
+            \\ add %i5, -1, %i5
+            \\ ldd [%i1 + 1 * 8], %f2
+            \\ ldd [%i3 + 0 * 8], %f16
+            \\ cmp %i5, 0
+            \\ ldd [%i3 + 1 * 8], %f18
+            \\ std %f16, [%i1 + 0 * 8]
+            \\ std %f18, [%i1 + 1 * 8]
+            \\ add %i1, %i2, %i1
+            \\ std %f0, [%i3 + 0 * 8]
+            \\ std %f2, [%i3 + 1 * 8]
+            \\ bg,pt %icc, 20009b
+            \\ add %i3, %i4, %i3
+            \\ 20010:
+            \\ return %i7 + 8
+            \\ clr %o0
+            \\
+        );
+    }
+};

@@ -16,18 +16,31 @@ pub const Machine = struct {
     /// Overrides the build's optimize mode; OpenBIOS maps about 4 MB of a sparc64
     /// image, which debug builds of the tests outgrow. sparc64 uses `.fast`, as
     /// `.small` from Zig 0.18.0-dev.250 jumps into unrelated code in the gemm
-    /// parameter test (an LLVM `-Oz` miscompile on sparc64, it appears).
+    /// parameter test (an LLVM `-Oz` miscompile on sparc64, it appears; issue #183).
     optimize: ?Optimize = null,
-    memory: []const u8 = "128M",
+    memory: []const u8 = "256M",
+    /// `memory` under `-Drstd-tsan`, whose shadow memory and bigger test
+    /// outgrow it (ENOMEM in faer's evd tests at 3G, issue #408)
+    tsan_memory: ?[]const u8 = null,
+    /// A Linux rig's `parts` under `-Drstd-tsan`, each a VM of its own, and a
+    /// `rest` part of every test they leave out.
+    tsan_parts: []const Part = &.{},
+    /// As `tsan_parts`, in every run, kernel rigs too.
+    split: []const Part = &.{},
     boot: Boot,
     /// Why this rig is not wired up yet; a stub gets no step.
     stub: ?[]const u8 = null,
     /// Runs under WHPX (`args` has the `-accel`), so only on an x86_64
     /// Windows host, and never on `-Dtest-host`.
     whpx: bool = false,
-    /// `args` under HVF, on a `-Dtest-host` that is an arm64 Mac, unless
-    /// `-Dtest-host-tcg`; null where the rig needs a CPU the host lacks.
+    /// `args` under HVF, on a `-Dtest-host` Mac of the rig's architecture
+    /// (`-Dtest-host-arch`), unless `-Dtest-host-tcg`; null where the rig
+    /// needs a CPU the host lacks.
     hvf: ?[]const []const u8 = null,
+    /// `args` under KVM, with `-Dqemu-kvm` on a Linux host of the rig's
+    /// architecture (CI's runners); null where the rig needs a CPU the host
+    /// lacks, or has not been tried under KVM.
+    kvm: ?[]const []const u8 = null,
     /// The BLAS core a Linux rig must select under `args`, and under `hvf`
     /// (on the M6); its run fails otherwise.
     core: ?[]const u8 = null,
@@ -61,8 +74,6 @@ pub const Part = struct { name: []const u8, filters: []const []const u8 };
 /// How the tests reach a machine.
 pub const Boot = union(enum) {
     kernel: Kernel,
-    /// An installed macOS, set up once (`macos.zig`).
-    macos,
     /// A Linux kernel booted with an initramfs holding rstd's full test suite.
     linux: Linux,
 
@@ -102,6 +113,35 @@ pub const Boot = union(enum) {
             return b.fmt("console={s} rdinit=/init panic=-1 quiet loglevel=3", .{l.console});
         }
     };
+};
+
+/// The Linux rigs' ThreadSanitizer runs, each part a VM: in one, TCG on CI's
+/// arm64 runners passes the job's time limit, and x86_64 runs out of memory
+/// after hours (issue #412); split as the kernel rigs' default set.
+const tsan_parts = [_]Part{
+    .{ .name = "blas1-2", .filters = &.{ "math.kernels.blas.blas1.", "math.kernels.blas.blas2.", "math.kernels.blas._test.blas1.", "math.kernels.blas._test.blas2." } },
+    .{ .name = "blas3", .filters = &.{ "math.kernels.blas.blas3.", "math.kernels.blas._test.blas3." } },
+    .{ .name = "lapack", .filters = &.{"math.kernels.lapack."} },
+};
+
+/// The SVE rigs' runs, each part a VM or image: in one, TCG on CI's arm64
+/// runners takes 3.3 to 4.6 hours (issue #569). Balanced on `aarch64-sve`'s
+/// test times in run 44702146209, 22 to 33 minutes a part.
+const sve_parts = [_]Part{
+    .{ .name = "blas1", .filters = &.{ "math.kernels.blas.blas1.", "math.kernels.blas._test.blas1.", "math.kernels.blas._test.from_openblas." } },
+    .{ .name = "blas2-edge", .filters = &.{"math.kernels.blas._test.blas2.edge."} },
+    .{ .name = "blas2", .filters = &.{
+        "math.kernels.blas.blas2.",
+        "math.kernels.blas._test.blas2.banded.",
+        "math.kernels.blas._test.blas2.interface.",
+        "math.kernels.blas._test.blas2.interface_any.",
+        "math.kernels.blas._test.blas2.symcopy.",
+        "math.kernels.blas._test.blas2.threaded.",
+        "math.kernels.blas._test.blas2.triangular.",
+    } },
+    .{ .name = "blas3-tri", .filters = &.{ "math.kernels.blas.blas3.trmm.", "math.kernels.blas.blas3.trsm.", "math.kernels.blas.blas3.syrk.", "math.kernels.blas.blas3.syr2k.", "math.kernels.blas._test.blas3." } },
+    .{ .name = "blas3", .filters = &.{ "math.kernels.blas.blas3.gemm.", "math.kernels.blas.blas3.gemm3m.", "math.kernels.blas.blas3.gemmt.", "math.kernels.blas.blas3.hemm.", "math.kernels.blas.blas3.hemm3m.", "math.kernels.blas.blas3.symm.", "math.kernels.blas.blas3.symm3m." } },
+    .{ .name = "lapack-lu", .filters = &.{ "math.kernels.lapack._test.lu.", "math.kernels.lapack._test.lu_solve.", "math.kernels.lapack._test.cholesky." } },
 };
 
 /// Tier 4 (user, 2026-11-01): the images outgrow OpenBIOS's window faster
@@ -147,6 +187,7 @@ const base_machines = [_]Machine{
         .args = &.{ "-M", "virt", "-cpu", "cortex-a72" },
         // no semihosting: the boot code falls back to the PL011 and PSCI
         .hvf = &.{ "-accel", "hvf", "-M", "virt", "-cpu", "host" },
+        .kvm = &.{ "-accel", "kvm", "-M", "virt,gic-version=host", "-cpu", "host" },
         .boot = .{ .kernel = .{
             .linker_script = "test/qemu/aarch64.ld",
         } },
@@ -158,6 +199,7 @@ const base_machines = [_]Machine{
         .qemu = "qemu-system-aarch64",
         .args = &.{ "-M", "virt", "-cpu", "cortex-a72" },
         .hvf = &.{ "-accel", "hvf", "-M", "virt", "-cpu", "host" },
+        .kvm = &.{ "-accel", "kvm", "-M", "virt,gic-version=host", "-cpu", "host" },
         .boot = .{ .kernel = .{
             .linker_script = "test/qemu/aarch64.ld",
         } },
@@ -170,6 +212,7 @@ const base_machines = [_]Machine{
         .qemu = "qemu-system-aarch64",
         // max has SVE2, SME2 and BF16, so every core but Apple's runs
         .args = &.{ "-M", "virt", "-cpu", "max,pauth-impdef=on" },
+        .split = &sve_parts,
         .boot = .{ .kernel = .{
             .linker_script = "test/qemu/aarch64.ld",
         } },
@@ -337,7 +380,7 @@ const base_machines = [_]Machine{
         .query = .{ .cpu_arch = .x86, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.x86.cpu.pentium3 } },
         .qemu = "qemu-system-i386",
         .args = &.{ "-M", "pc", "-cpu", "pentium3" },
-        .memory = "128M",
+        .memory = "256M",
         .boot = .{ .kernel = .{
             .linker_script = "test/qemu/x86.ld",
         } },
@@ -349,7 +392,7 @@ const base_machines = [_]Machine{
         .query = .{ .cpu_arch = .x86, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.x86.cpu.nehalem } },
         .qemu = "qemu-system-i386",
         .args = &.{ "-M", "pc", "-cpu", "max" },
-        .memory = "128M",
+        .memory = "256M",
         .boot = .{ .kernel = .{
             .linker_script = "test/qemu/x86.ld",
         } },
@@ -359,7 +402,9 @@ const base_machines = [_]Machine{
         .query = .{ .cpu_arch = .x86_64, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.x86.cpu.haswell } },
         .qemu = "qemu-system-x86_64",
         .args = &.{ "-M", "pc", "-cpu", "max" },
-        .memory = "128M",
+        .hvf = &.{ "-accel", "hvf", "-M", "pc", "-cpu", "host" },
+        .kvm = &.{ "-accel", "kvm", "-M", "pc", "-cpu", "host" },
+        .memory = "256M",
         .boot = .{ .kernel = .{
             .linker_script = "test/qemu/x86_64.ld",
             .llvm = true,
@@ -371,7 +416,9 @@ const base_machines = [_]Machine{
         .query = .{ .cpu_arch = .x86_64, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.x86.cpu.haswell } },
         .qemu = "qemu-system-x86_64",
         .args = &.{ "-M", "pc", "-cpu", "max" },
-        .memory = "128M",
+        .hvf = &.{ "-accel", "hvf", "-M", "pc", "-cpu", "host" },
+        .kvm = &.{ "-accel", "kvm", "-M", "pc", "-cpu", "host" },
+        .memory = "256M",
         .boot = .{ .kernel = .{
             .linker_script = "test/qemu/x86_64.ld",
             .llvm = true,
@@ -388,7 +435,7 @@ const base_machines = [_]Machine{
         .qemu = "qemu-system-x86_64",
         .args = &.{ "-accel", "whpx", "-M", "pc", "-cpu", "SapphireRapids,+fma4,+xop" },
         .whpx = true,
-        .memory = "128M",
+        .memory = "256M",
         .boot = .{ .kernel = .{
             .linker_script = "test/qemu/x86_64.ld",
             .llvm = true,
@@ -401,20 +448,20 @@ const base_machines = [_]Machine{
         // OpenBIOS maps 0x400000 to 0x800000 only, and the default set's
         // code alone is about 5 MB; blas2 by itself is 3.3 MB
         .parts = &.{
-            .{ .name = "blas1", .filters = &.{ "linalg.blas.blas1.", "linalg.blas._test.blas1.", "linalg.blas._test.check.", "linalg.blas._test.bitwise." } },
-            .{ .name = "blas2-dense", .filters = &.{ "linalg.blas.blas2.__root__.", "linalg.blas.blas2.gemv.", "linalg.blas._test.bf16.", "linalg.blas.blas2.ger.", "linalg.blas.blas2.hemv.", "linalg.blas.blas2.symv." } },
-            .{ .name = "blas2-banded", .filters = &.{ "linalg.blas.blas2.banded.", "linalg.blas.blas2.symmetric." } },
-            .{ .name = "blas2-triangular", .filters = &.{"linalg.blas.blas2.triangular."} },
-            .{ .name = "blas2-interface", .filters = &.{"linalg.blas.blas2.interface."} },
-            .{ .name = "blas2-edge", .filters = &.{"linalg.blas._test.blas2.edge."} },
+            .{ .name = "blas1", .filters = &.{ "math.kernels.blas.blas1.", "math.kernels.blas._test.blas1.", "math.kernels.blas._test.check.", "math.kernels.blas._test.bitwise." } },
+            .{ .name = "blas2-dense", .filters = &.{ "math.kernels.blas.blas2.__root__.", "math.kernels.blas.blas2.gemv.", "math.kernels.blas._test.bf16.", "math.kernels.blas.blas2.ger.", "math.kernels.blas.blas2.hemv.", "math.kernels.blas.blas2.symv." } },
+            .{ .name = "blas2-banded", .filters = &.{ "math.kernels.blas._test.blas2.banded.", "math.kernels.blas.blas2.symmetric." } },
+            .{ .name = "blas2-triangular", .filters = &.{"math.kernels.blas._test.blas2.triangular."} },
+            .{ .name = "blas2-interface", .filters = &.{ "math.kernels.blas._test.blas2.interface.", "math.kernels.blas._test.blas2.interface_any." } },
+            .{ .name = "blas2-edge", .filters = &.{"math.kernels.blas._test.blas2.edge."} },
             // one per routine family: together past the window
-            .{ .name = "blas3-gemm", .filters = &.{ "linalg.blas.blas3.__root__.", "linalg.blas.blas3.gemm." } },
-            .{ .name = "blas3-symm", .filters = &.{"linalg.blas.blas3.symm."} },
-            .{ .name = "blas3-rank", .filters = &.{ "linalg.blas.blas3.syrk.", "linalg.blas.blas3.syr2k." } },
-            .{ .name = "blas3-tri", .filters = &.{ "linalg.blas.blas3.trmm.", "linalg.blas.blas3.trsm.", "linalg.lapack." } },
-            .{ .name = "blas3-interface", .filters = &.{"linalg.blas.blas3.interface."} },
-            .{ .name = "openblas", .filters = &.{"linalg.blas._test.from_openblas."} },
-            .{ .name = "rest", .filters = &.{ "linalg.blas.__root__.", "linalg.blas.Config.", "linalg.blas.cpu." } },
+            .{ .name = "blas3-gemm", .filters = &.{ "math.kernels.blas.blas3.__root__.", "math.kernels.blas.blas3.gemm.", "math.kernels.blas._test.blas3.params." } },
+            .{ .name = "blas3-symm", .filters = &.{"math.kernels.blas.blas3.symm."} },
+            .{ .name = "blas3-rank", .filters = &.{ "math.kernels.blas.blas3.syrk.", "math.kernels.blas.blas3.syr2k." } },
+            .{ .name = "blas3-tri", .filters = &.{ "math.kernels.blas.blas3.trmm.", "math.kernels.blas.blas3.trsm.", "math.kernels.lapack." } },
+            .{ .name = "blas3-interface", .filters = &.{"math.kernels.blas._test.blas3.interface."} },
+            .{ .name = "openblas", .filters = &.{"math.kernels.blas._test.from_openblas."} },
+            .{ .name = "rest", .filters = &.{ "math.kernels.blas.__root__.", "math.kernels.blas.Config.", "math.kernels.blas.cpu." } },
             .{ .name = "small", .filters = &small_filters },
         },
         .query = .{ .cpu_arch = .sparc64, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.sparc.cpu.v9 } },
@@ -434,109 +481,109 @@ const base_machines = [_]Machine{
         .optimize = .debug,
         .parts = &.{
             // blas1 in three, as two are past the window
-            .{ .name = "blas1", .filters = &.{ "linalg.blas.blas1.__root__.", "linalg.blas.blas1.asum.", "linalg.blas.blas1.axpby.", "linalg.blas.blas1.axpy.", "linalg.blas._test.check.", "linalg.blas._test.bitwise.", "linalg.blas.blas1.copy.", "linalg.blas.blas1.dot.", "linalg.blas.blas1.extremum.", "linalg.blas._test.blas1.extremum.", "linalg.blas.blas1.nrm2.", "linalg.blas.blas1.rot.", "linalg.blas.blas1.rotm.", "linalg.blas.blas1.scal.", "linalg.blas.blas1.sum.", "linalg.blas.blas1.swap.", "linalg.blas.uk_block." } },
-            .{ .name = "blas1-interface", .filters = &.{ "linalg.blas.blas1.interface.", "linalg.blas._test.blas1.threaded." } },
-            .{ .name = "blas1-edge", .filters = &.{"linalg.blas._test.blas1.edge."} },
-            .{ .name = "blas1-denormal", .filters = &.{"linalg.blas._test.blas1.denormal."} },
+            .{ .name = "blas1", .filters = &.{ "math.kernels.blas.blas1.__root__.", "math.kernels.blas.blas1.asum.", "math.kernels.blas.blas1.axpby.", "math.kernels.blas.blas1.axpy.", "math.kernels.blas._test.check.", "math.kernels.blas._test.bitwise.", "math.kernels.blas.blas1.copy.", "math.kernels.blas.blas1.dot.", "math.kernels.blas.blas1.extremum.", "math.kernels.blas._test.blas1.extremum.", "math.kernels.blas.blas1.nrm2.", "math.kernels.blas.blas1.rot.", "math.kernels.blas.blas1.rotm.", "math.kernels.blas.blas1.scal.", "math.kernels.blas.blas1.sum.", "math.kernels.blas.blas1.swap.", "math.kernels.blas.uk_block." } },
+            .{ .name = "blas1-interface", .filters = &.{ "math.kernels.blas._test.blas1.interface.", "math.kernels.blas._test.blas1.interface_any.", "math.kernels.blas._test.blas1.rot_reals.", "math.kernels.blas._test.blas1.threaded." } },
+            .{ .name = "blas1-edge", .filters = &.{ "math.kernels.blas._test.blas1.edge.test.portable level-1 kernels: special", "math.kernels.blas._test.blas1.edge.test.every linked core's level-1 kernels: special", "math.kernels.blas._test.blas1.edge.test.portable level-1 reductions", "math.kernels.blas._test.blas1.edge.test.every linked core's level-1 reductions", "math.kernels.blas._test.blas1.edge.test.every linked core keeps" } },
+            .{ .name = "blas1-denormal", .filters = &.{ "math.kernels.blas._test.blas1.edge.test.portable level-1 kernels: denormal", "math.kernels.blas._test.blas1.edge.test.every linked core's level-1 kernels: denormal", "math.kernels.blas._test.blas1.edge.test.where util.vectorIeee" } },
             // the dense routines, the triangular ones, the interface and the
             // complex edge cases each in two, as one is past the window
-            .{ .name = "blas2-dense", .filters = &.{ "linalg.blas.blas2.__root__.", "linalg.blas.blas2.gemv.__root__.test.portable", "linalg.blas.blas2.gemv.__root__.test_" } },
-            .{ .name = "blas2-gemv-x87", .filters = &.{ "linalg.blas._test.bf16.gemv.", "linalg.blas.blas2.gemv.extended.test.extended gemv:" } },
-            .{ .name = "blas2-gemv-cores", .filters = &.{"linalg.blas.blas2.gemv.__root__.test.every linked core's"} },
-            .{ .name = "blas2-dense-2", .filters = &.{ "linalg.blas.blas2.ger.", "linalg.blas.blas2.hemv.", "linalg.blas.blas2.symv." } },
+            .{ .name = "blas2-dense", .filters = &.{ "math.kernels.blas.blas2.__root__.", "math.kernels.blas.blas2.gemv.__root__.test.portable", "math.kernels.blas.blas2.gemv.__root__.test_" } },
+            .{ .name = "blas2-gemv-x87", .filters = &.{ "math.kernels.blas._test.bf16.gemv.", "math.kernels.blas.blas2.gemv.extended.test.extended gemv:" } },
+            .{ .name = "blas2-gemv-cores", .filters = &.{"math.kernels.blas.blas2.gemv.__root__.test.every linked core's"} },
+            .{ .name = "blas2-dense-2", .filters = &.{ "math.kernels.blas.blas2.ger.", "math.kernels.blas.blas2.hemv.", "math.kernels.blas.blas2.symv." } },
             .{ .name = "blas2-banded", .filters = &.{
-                "linalg.blas.blas2.banded.test.banded",
-                "linalg.blas.blas2.banded.test.the small",
-                "linalg.blas.blas2.banded.test.strided",
-                "linalg.blas.blas2.banded.test.an allocation",
-                "linalg.blas.blas2.banded.test.invalid",
-                "linalg.blas.blas2.symmetric.",
+                "math.kernels.blas._test.blas2.banded.test.banded",
+                "math.kernels.blas._test.blas2.banded.test.the small",
+                "math.kernels.blas._test.blas2.banded.test.strided",
+                "math.kernels.blas._test.blas2.banded.test.an allocation",
+                "math.kernels.blas._test.blas2.banded.test.invalid",
+                "math.kernels.blas.blas2.symmetric.",
             } },
-            .{ .name = "blas2-triangular", .filters = &.{"linalg.blas.blas2.triangular.test.triangular"} },
+            .{ .name = "blas2-triangular", .filters = &.{"math.kernels.blas._test.blas2.triangular.test.triangular"} },
             // every core's triangular results in three, as one is past the window
-            .{ .name = "blas2-triangular-cores-real", .filters = &.{"linalg.blas.blas2.triangular.test.every linked core's kernels give the same triangular results, real"} },
-            .{ .name = "blas2-triangular-cores-complex", .filters = &.{"linalg.blas.blas2.triangular.test.every linked core's kernels give the same triangular results, complex products"} },
-            .{ .name = "blas2-triangular-cores-complex-2", .filters = &.{"linalg.blas.blas2.triangular.test.every linked core's kernels give the same triangular results, complex solves"} },
-            .{ .name = "blas2-f80", .filters = &.{ "linalg.blas.blas2.banded.test.f80", "linalg.blas.blas2.triangular.test.f80" } },
+            .{ .name = "blas2-triangular-cores-real", .filters = &.{"math.kernels.blas._test.blas2.triangular.test.every linked core's kernels give the same triangular results, real"} },
+            .{ .name = "blas2-triangular-cores-complex", .filters = &.{"math.kernels.blas._test.blas2.triangular.test.every linked core's kernels give the same triangular results, complex products"} },
+            .{ .name = "blas2-triangular-cores-complex-2", .filters = &.{"math.kernels.blas._test.blas2.triangular.test.every linked core's kernels give the same triangular results, complex solves"} },
+            .{ .name = "blas2-f80", .filters = &.{ "math.kernels.blas._test.blas2.banded.test.f80", "math.kernels.blas._test.blas2.triangular.test.f80" } },
             .{ .name = "blas2-interface", .filters = &.{
-                "linalg.blas.blas2.interface.test.interface: gemv",
-                "linalg.blas.blas2.interface.test.interface: ger",
-                "linalg.blas.blas2.interface.test.interface: symv",
-                "linalg.blas.blas2.interface.test.interface: problems",
+                "math.kernels.blas._test.blas2.interface.test.interface: gemv",
+                "math.kernels.blas._test.blas2.interface.test.interface: ger",
+                "math.kernels.blas._test.blas2.interface.test.interface: symv",
+                "math.kernels.blas._test.blas2.interface.test.interface: problems",
             } },
             .{ .name = "blas2-interface-2", .filters = &.{
-                "linalg.blas.blas2.interface.test.interface: the half",
-                "linalg.blas.blas2.interface.test.interface: half",
-                "linalg.blas.blas2.interface.test.every linked core's",
-                "linalg.blas.blas2.interface.test_",
+                "math.kernels.blas._test.blas2.interface.test.interface: the half",
+                "math.kernels.blas._test.blas2.interface.test.interface: half",
+                "math.kernels.blas._test.blas2.interface_any.test.every linked core's",
+                "math.kernels.blas._test.blas2.interface.test_",
             } },
             // f16, f80 and f128: past the window with the rest
-            .{ .name = "blas2-interface-any", .filters = &.{"linalg.blas.blas2.interface.test.interface: level 2"} },
+            .{ .name = "blas2-interface-any", .filters = &.{"math.kernels.blas._test.blas2.interface_any.test.interface: level 2"} },
             // real, complex, and complex on every core in two, as one is past
             // the window
-            .{ .name = "blas2-edge-real", .filters = &.{ "linalg.blas._test.blas2.edge.test.portable level-2 routines, real", "linalg.blas._test.blas2.edge.test.every linked core's level-2 routines, real" } },
-            .{ .name = "blas2-edge-complex", .filters = &.{"linalg.blas._test.blas2.edge.test.portable level-2 routines, complex"} },
-            .{ .name = "blas2-edge-complex-cores", .filters = &.{"linalg.blas._test.blas2.edge.test.every linked core's level-2 routines, complex products"} },
-            .{ .name = "blas2-edge-complex-cores-2", .filters = &.{"linalg.blas._test.blas2.edge.test.every linked core's level-2 routines, complex solves"} },
-            .{ .name = "blas3-gemm", .filters = &.{"linalg.blas.blas3.gemm.__root__."} },
+            .{ .name = "blas2-edge-real", .filters = &.{ "math.kernels.blas._test.blas2.edge.test.portable level-2 routines, real", "math.kernels.blas._test.blas2.edge.test.every linked core's level-2 routines, real" } },
+            .{ .name = "blas2-edge-complex", .filters = &.{"math.kernels.blas._test.blas2.edge.test.portable level-2 routines, complex"} },
+            .{ .name = "blas2-edge-complex-cores", .filters = &.{"math.kernels.blas._test.blas2.edge.test.every linked core's level-2 routines, complex products"} },
+            .{ .name = "blas2-edge-complex-cores-2", .filters = &.{"math.kernels.blas._test.blas2.edge.test.every linked core's level-2 routines, complex solves"} },
+            .{ .name = "blas3-gemm", .filters = &.{"math.kernels.blas.blas3.gemm.__root__."} },
             // but "every core of" each family: those are the blas3-params-* parts
             .{ .name = "blas3-params", .filters = &.{
-                "linalg.blas.blas3.gemm.params.test.dtb entries",
-                "linalg.blas.blas3.gemm.params.test.generic follows",
-                "linalg.blas.blas3.gemm.params.test.the block factor",
-                "linalg.blas.blas3.gemm.params.test.fixed sets",
-                "linalg.blas.blas3.gemm.params.test.old x86",
-                "linalg.blas.blas3.gemm.params.test.LA464",
-                "linalg.blas.blas3.gemm.params.test.detection gives",
+                "math.kernels.blas._test.blas3.params.test.dtb entries",
+                "math.kernels.blas._test.blas3.params.test.generic follows",
+                "math.kernels.blas._test.blas3.params.test.the block factor",
+                "math.kernels.blas._test.blas3.params.test.fixed sets",
+                "math.kernels.blas._test.blas3.params.test.old x86",
+                "math.kernels.blas._test.blas3.params.test.LA464",
+                "math.kernels.blas._test.blas3.params.test.detection gives",
             } },
-            .{ .name = "blas3-params-x86_64", .filters = &.{"linalg.blas.blas3.gemm.params.test.every core of the x86_64 family"} },
-            .{ .name = "blas3-params-x86", .filters = &.{"linalg.blas.blas3.gemm.params.test.every core of the x86 family"} },
-            .{ .name = "blas3-params-arm", .filters = &.{ "linalg.blas.blas3.gemm.params.test.every core of the arm64 family", "linalg.blas.blas3.gemm.params.test.every core of the arm family" } },
-            .{ .name = "blas3-params-power", .filters = &.{ "linalg.blas.blas3.gemm.params.test.every core of the power64 family", "linalg.blas.blas3.gemm.params.test.every core of the power32 family" } },
-            .{ .name = "blas3-params-rest", .filters = &.{ "linalg.blas.blas3.gemm.params.test.every core of the riscv64 family", "linalg.blas.blas3.gemm.params.test.every core of the s390x family", "linalg.blas.blas3.gemm.params.test.every core of the mips64 family", "linalg.blas.blas3.gemm.params.test.every core of the mips32 family", "linalg.blas.blas3.gemm.params.test.every core of the loongarch64 family", "linalg.blas.blas3.gemm.params.test.every core of the sparc family", "linalg.blas.blas3.gemm.params.test.every core of the wasm family", "linalg.blas.blas3.gemm.params.test.every core of the generic family" } },
+            .{ .name = "blas3-params-x86_64", .filters = &.{"math.kernels.blas._test.blas3.params.test.every core of the x86_64 family"} },
+            .{ .name = "blas3-params-x86", .filters = &.{"math.kernels.blas._test.blas3.params.test.every core of the x86 family"} },
+            .{ .name = "blas3-params-arm", .filters = &.{ "math.kernels.blas._test.blas3.params.test.every core of the arm64 family", "math.kernels.blas._test.blas3.params.test.every core of the arm family" } },
+            .{ .name = "blas3-params-power", .filters = &.{ "math.kernels.blas._test.blas3.params.test.every core of the power64 family", "math.kernels.blas._test.blas3.params.test.every core of the power32 family" } },
+            .{ .name = "blas3-params-rest", .filters = &.{ "math.kernels.blas._test.blas3.params.test.every core of the riscv64 family", "math.kernels.blas._test.blas3.params.test.every core of the s390x family", "math.kernels.blas._test.blas3.params.test.every core of the mips64 family", "math.kernels.blas._test.blas3.params.test.every core of the mips32 family", "math.kernels.blas._test.blas3.params.test.every core of the loongarch64 family", "math.kernels.blas._test.blas3.params.test.every core of the sparc family", "math.kernels.blas._test.blas3.params.test.every core of the wasm family", "math.kernels.blas._test.blas3.params.test.every core of the generic family" } },
             .{ .name = "blas3-kernel", .filters = &.{
-                "linalg.blas.blas3.__root__.",
-                "linalg.blas.blas3.gemm.kernel.test.packed kernels",
-                "linalg.blas.blas3.gemm.kernel.test.geometry",
-                "linalg.blas.blas3.gemm.kernel.test.beta",
+                "math.kernels.blas.blas3.__root__.",
+                "math.kernels.blas.blas3.gemm.kernel.test.packed kernels",
+                "math.kernels.blas.blas3.gemm.kernel.test.geometry",
+                "math.kernels.blas.blas3.gemm.kernel.test.beta",
             } },
             // the complex kernels in three, as the 8-lane tile's alone are
             // past the window
-            .{ .name = "blas3-kernel-complex", .filters = &.{"linalg.blas.blas3.gemm.kernel.test.complex packed kernels match"} },
-            .{ .name = "blas3-kernel-complex-wide", .filters = &.{"linalg.blas.blas3.gemm.kernel.test.complex packed kernels of an 8-lane tile match plain arithmetic, A plain"} },
-            .{ .name = "blas3-kernel-complex-wide-2", .filters = &.{"linalg.blas.blas3.gemm.kernel.test.complex packed kernels of an 8-lane tile match plain arithmetic, A conjugated"} },
-            .{ .name = "blas3-symm", .filters = &.{"linalg.blas.blas3.symm."} },
-            .{ .name = "blas3-syrk", .filters = &.{"linalg.blas.blas3.syrk."} },
-            .{ .name = "blas3-syr2k", .filters = &.{"linalg.blas.blas3.syr2k."} },
-            .{ .name = "blas3-trmm", .filters = &.{"linalg.blas.blas3.trmm."} },
-            .{ .name = "blas3-trsm", .filters = &.{"linalg.blas.blas3.trsm."} },
+            .{ .name = "blas3-kernel-complex", .filters = &.{"math.kernels.blas.blas3.gemm.kernel.test.complex packed kernels match"} },
+            .{ .name = "blas3-kernel-complex-wide", .filters = &.{"math.kernels.blas.blas3.gemm.kernel.test.complex packed kernels of an 8-lane tile match plain arithmetic, A plain"} },
+            .{ .name = "blas3-kernel-complex-wide-2", .filters = &.{"math.kernels.blas.blas3.gemm.kernel.test.complex packed kernels of an 8-lane tile match plain arithmetic, A conjugated"} },
+            .{ .name = "blas3-symm", .filters = &.{"math.kernels.blas.blas3.symm."} },
+            .{ .name = "blas3-syrk", .filters = &.{"math.kernels.blas.blas3.syrk."} },
+            .{ .name = "blas3-syr2k", .filters = &.{"math.kernels.blas.blas3.syr2k."} },
+            .{ .name = "blas3-trmm", .filters = &.{"math.kernels.blas.blas3.trmm."} },
+            .{ .name = "blas3-trsm", .filters = &.{"math.kernels.blas.blas3.trsm."} },
             // the interface in five, as two are near the window
-            .{ .name = "blas3-interface", .filters = &.{ "linalg.blas.blas3.interface.test.interface: gemm", "linalg.blas.blas3.interface.test.interface: a matrix past" } },
-            .{ .name = "blas3-interface-symm", .filters = &.{"linalg.blas.blas3.interface.test.interface: symm"} },
-            .{ .name = "blas3-interface-rank", .filters = &.{ "linalg.blas.blas3.interface.test.interface: syrk", "linalg.blas.blas3.interface.test.interface: the rank-k" } },
-            .{ .name = "blas3-interface-tri", .filters = &.{"linalg.blas.blas3.interface.test.interface: trmm"} },
-            .{ .name = "blas3-interface-tri-unslotted", .filters = &.{"linalg.blas.blas3.interface.test.interface: unslotted trmm"} },
+            .{ .name = "blas3-interface", .filters = &.{ "math.kernels.blas._test.blas3.interface.test.interface: gemm", "math.kernels.blas._test.blas3.interface.test.interface: a matrix past" } },
+            .{ .name = "blas3-interface-symm", .filters = &.{"math.kernels.blas._test.blas3.interface.test.interface: symm"} },
+            .{ .name = "blas3-interface-rank", .filters = &.{ "math.kernels.blas._test.blas3.interface.test.interface: syrk", "math.kernels.blas._test.blas3.interface.test.interface: the rank-k" } },
+            .{ .name = "blas3-interface-tri", .filters = &.{"math.kernels.blas._test.blas3.interface.test.interface: trmm"} },
+            .{ .name = "blas3-interface-tri-unslotted", .filters = &.{"math.kernels.blas._test.blas3.interface.test.interface: unslotted trmm"} },
             // the OpenBLAS suites in three
-            .{ .name = "openblas-l1", .filters = &.{ "linalg.blas._test.from_openblas.blat1.", "linalg.blas._test.from_openblas.utest.", "linalg.blas._test.from_openblas.utest_ext." } },
+            .{ .name = "openblas-l1", .filters = &.{ "math.kernels.blas._test.from_openblas.blat1.", "math.kernels.blas._test.from_openblas.utest.", "math.kernels.blas._test.from_openblas.utest_ext." } },
             // blat2 in two, past the window with level 3's kernels
-            .{ .name = "openblas-blat2", .filters = &.{ "linalg.blas._test.from_openblas.blat2.test_", "linalg.blas._test.from_openblas.blat2.test.blat2: SMVCH", "linalg.blas._test.from_openblas.blat2.test.blat2: xGEMV", "linalg.blas._test.from_openblas.blat2.test.blat2: xGBMV", "linalg.blas._test.from_openblas.blat2.test.blat2: xSYMV", "linalg.blas._test.from_openblas.blat2.test.blat2: xSBMV", "linalg.blas._test.from_openblas.blat2.test.blat2: xSPMV", "linalg.blas._test.from_openblas.blat2.test.blat2: xTRMV", "linalg.blas._test.from_openblas.blat2.test.blat2: xTBMV", "linalg.blas._test.from_openblas.blat2.test.blat2: xTPMV", "linalg.blas._test.from_openblas.blat2.test.blat2: error exits" } },
-            .{ .name = "openblas-blat2-b", .filters = &.{ "linalg.blas._test.from_openblas.blat2.test.blat2: xTRSV", "linalg.blas._test.from_openblas.blat2.test.blat2: xTBSV", "linalg.blas._test.from_openblas.blat2.test.blat2: xTPSV", "linalg.blas._test.from_openblas.blat2.test.blat2: xGER,", "linalg.blas._test.from_openblas.blat2.test.blat2: xGERC", "linalg.blas._test.from_openblas.blat2.test.blat2: xSYR,", "linalg.blas._test.from_openblas.blat2.test.blat2: xSPR,", "linalg.blas._test.from_openblas.blat2.test.blat2: xSYR2", "linalg.blas._test.from_openblas.blat2.test.blat2: xSPR2" } },
-            .{ .name = "openblas-blat3", .filters = &.{"linalg.blas._test.from_openblas.blat3."} },
+            .{ .name = "openblas-blat2", .filters = &.{ "math.kernels.blas._test.from_openblas.blat2.test_", "math.kernels.blas._test.from_openblas.blat2.test.blat2: SMVCH", "math.kernels.blas._test.from_openblas.blat2.test.blat2: xGEMV", "math.kernels.blas._test.from_openblas.blat2.test.blat2: xGBMV", "math.kernels.blas._test.from_openblas.blat2.test.blat2: xSYMV", "math.kernels.blas._test.from_openblas.blat2.test.blat2: xSBMV", "math.kernels.blas._test.from_openblas.blat2.test.blat2: xSPMV", "math.kernels.blas._test.from_openblas.blat2.test.blat2: xTRMV", "math.kernels.blas._test.from_openblas.blat2.test.blat2: xTBMV", "math.kernels.blas._test.from_openblas.blat2.test.blat2: xTPMV", "math.kernels.blas._test.from_openblas.blat2.test.blat2: error exits" } },
+            .{ .name = "openblas-blat2-b", .filters = &.{ "math.kernels.blas._test.from_openblas.blat2.test.blat2: xTRSV", "math.kernels.blas._test.from_openblas.blat2.test.blat2: xTBSV", "math.kernels.blas._test.from_openblas.blat2.test.blat2: xTPSV", "math.kernels.blas._test.from_openblas.blat2.test.blat2: xGER,", "math.kernels.blas._test.from_openblas.blat2.test.blat2: xGERC", "math.kernels.blas._test.from_openblas.blat2.test.blat2: xSYR,", "math.kernels.blas._test.from_openblas.blat2.test.blat2: xSPR,", "math.kernels.blas._test.from_openblas.blat2.test.blat2: xSYR2", "math.kernels.blas._test.from_openblas.blat2.test.blat2: xSPR2" } },
+            .{ .name = "openblas-blat3", .filters = &.{"math.kernels.blas._test.from_openblas.blat3."} },
             // the suites on every linked core, by level, level 1 by suite
             // (utest_ext's level 3 runs with level 3), level 2 by type
-            .{ .name = "openblas-cores-l1-blat1", .filters = &.{"linalg.blas._test.from_openblas.__root__.test.blat1 on every"} },
-            .{ .name = "openblas-cores-l1-utest", .filters = &.{"linalg.blas._test.from_openblas.__root__.test.utest and utest_ext's level-1 cases"} },
-            .{ .name = "openblas-cores-l1-utest-2", .filters = &.{"linalg.blas._test.from_openblas.__root__.test.utest_ext's level-2 cases"} },
-            .{ .name = "openblas-cores-l2-real", .filters = &.{ "linalg.blas._test.from_openblas.__root__.test.blat2 at f32", "linalg.blas._test.from_openblas.__root__.test.blat2 at f64" } },
-            .{ .name = "openblas-cores-l2-complex", .filters = &.{"linalg.blas._test.from_openblas.__root__.test.blat2 at complex"} },
-            .{ .name = "openblas-cores-l3", .filters = &.{"linalg.blas._test.from_openblas.__root__.test.blat3, utest's LAPACK cases"} },
+            .{ .name = "openblas-cores-l1-blat1", .filters = &.{"math.kernels.blas._test.from_openblas.__root__.test.blat1 on every"} },
+            .{ .name = "openblas-cores-l1-utest", .filters = &.{"math.kernels.blas._test.from_openblas.__root__.test.utest and utest_ext's level-1 cases"} },
+            .{ .name = "openblas-cores-l1-utest-2", .filters = &.{"math.kernels.blas._test.from_openblas.__root__.test.utest_ext's level-2 cases"} },
+            .{ .name = "openblas-cores-l2-real", .filters = &.{ "math.kernels.blas._test.from_openblas.__root__.test.blat2 at f32", "math.kernels.blas._test.from_openblas.__root__.test.blat2 at f64" } },
+            .{ .name = "openblas-cores-l2-complex", .filters = &.{"math.kernels.blas._test.from_openblas.__root__.test.blat2 at complex"} },
+            .{ .name = "openblas-cores-l3", .filters = &.{"math.kernels.blas._test.from_openblas.__root__.test.blat3, utest's LAPACK cases"} },
             // LAPACK in five, as one is past the window
-            .{ .name = "lapack-cholesky", .filters = &.{"linalg.lapack.cholesky."} },
-            .{ .name = "lapack-getrf", .filters = &.{"linalg.lapack.lu.test.getrf"} },
-            .{ .name = "lapack-getrs-real", .filters = &.{ "linalg.lapack.lu.test.getrs: op(A) X = B on getrf's factor, every op, NaN in one column of B, real", "linalg.lapack.lu.test.getrs: a known", "linalg.lapack.lu.test.getrs: reports" } },
-            .{ .name = "lapack-getrs-complex", .filters = &.{"linalg.lapack.lu.test.getrs: op(A) X = B on getrf's factor, every op, NaN in one column of B, complex"} },
-            .{ .name = "lapack-faer", .filters = &.{ "linalg.lapack.ops.", "linalg.lapack.interface.", "linalg.lapack.blas_calls.", "linalg.lapack.auxiliary.", "linalg.lapack.householder.", "linalg.lapack.qr.", "linalg.lapack.qr_solve.", "linalg.lapack.tridiag.", "linalg.lapack.tridiag_evd.", "linalg.lapack.hessenberg.", "linalg.lapack.real_schur.", "linalg.lapack.complex_schur.", "linalg.lapack.balance.", "linalg.lapack.bidiag.", "linalg.lapack.bidiag_svd." } },
-            .{ .name = "rest", .filters = &.{ "linalg.blas.__root__.", "linalg.blas.Config.", "linalg.blas.cpu." } },
+            .{ .name = "lapack-cholesky", .filters = &.{"math.kernels.lapack._test.cholesky."} },
+            .{ .name = "lapack-getrf", .filters = &.{ "math.kernels.lapack._test.lu.test.getrf", "math.kernels.lapack._test.lu_solve.test.getrf" } },
+            .{ .name = "lapack-getrs-real", .filters = &.{ "math.kernels.lapack._test.lu_solve.test.getrs: op(A) X = B on getrf's factor, every op, NaN in one column of B, real", "math.kernels.lapack._test.lu_solve.test.getrs: a known", "math.kernels.lapack._test.lu_solve.test.getrs: reports" } },
+            .{ .name = "lapack-getrs-complex", .filters = &.{"math.kernels.lapack._test.lu_solve.test.getrs: op(A) X = B on getrf's factor, every op, NaN in one column of B, complex"} },
+            .{ .name = "lapack-faer", .filters = &.{ "math.kernels.lapack.ops.", "math.kernels.lapack.interface.", "math.kernels.lapack.blas_calls.", "math.kernels.lapack.auxiliary.", "math.kernels.lapack.householder.", "math.kernels.lapack.qr.", "math.kernels.lapack.qr_solve.", "math.kernels.lapack.tridiag.", "math.kernels.lapack.tridiag_evd.", "math.kernels.lapack.hessenberg.", "math.kernels.lapack.real_schur.", "math.kernels.lapack.complex_schur.", "math.kernels.lapack._test.balance.", "math.kernels.lapack.bidiag.", "math.kernels.lapack._test.bidiag_svd." } },
+            .{ .name = "rest", .filters = &.{ "math.kernels.blas.__root__.", "math.kernels.blas.Config.", "math.kernels.blas.cpu." } },
             .{ .name = "small", .filters = &small_filters },
         },
         .query = .{ .cpu_arch = .sparc64, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.sparc.cpu.v9 } },
@@ -704,6 +751,8 @@ const base_machines = [_]Machine{
         .query = .{ .cpu_arch = .x86_64, .os_tag = .uefi },
         .qemu = "qemu-system-x86_64",
         .args = &.{ "-M", "q35", "-cpu", "max" },
+        .hvf = &.{ "-accel", "hvf", "-M", "q35", "-cpu", "host" },
+        .kvm = &.{ "-accel", "kvm", "-M", "q35", "-cpu", "host" },
         .memory = "1G",
         .boot = .{ .kernel = .{
             .linker_script = "",
@@ -717,7 +766,21 @@ const base_machines = [_]Machine{
         .qemu = "qemu-system-aarch64",
         .args = &.{ "-M", "virt", "-cpu", "cortex-a72" },
         .hvf = &.{ "-accel", "hvf", "-M", "virt", "-cpu", "host" },
+        .kvm = &.{ "-accel", "kvm", "-M", "virt,gic-version=host", "-cpu", "host" },
         .memory = "1G",
+        .boot = .{ .kernel = .{
+            .linker_script = "",
+            .firmware = "edk2-aarch64-code.fd",
+        } },
+    },
+    .{
+        // the SVE and SME cores, linked only for an SVE target; TCG, as `aarch64-sve`
+        .name = "aarch64-uefi-sve",
+        .query = .{ .cpu_arch = .aarch64, .os_tag = .uefi, .cpu_model = .{ .explicit = &std.Target.aarch64.cpu.neoverse_v1 } },
+        .qemu = "qemu-system-aarch64",
+        .args = &.{ "-M", "virt", "-cpu", "max,pauth-impdef=on" },
+        .memory = "1G",
+        .split = &sve_parts,
         .boot = .{ .kernel = .{
             .linker_script = "",
             .firmware = "edk2-aarch64-code.fd",
@@ -732,6 +795,8 @@ const base_machines = [_]Machine{
         .hvf = &.{ "-accel", "hvf", "-M", "virt", "-cpu", "host", "-smp", "4" },
         .hvf_core = "vortexm4",
         .memory = "1G",
+        .tsan_memory = "8G",
+        .tsan_parts = &tsan_parts,
         .boot = .{ .linux = .{ .dep = "debian_netboot_arm64", .kernel = "debian-installer/arm64/linux", .console = "ttyAMA0" } },
     },
     .{
@@ -742,6 +807,7 @@ const base_machines = [_]Machine{
         .args = &.{ "-M", "virt", "-cpu", "max,pauth-impdef=on", "-smp", "4" },
         .core = "armv9sme",
         .memory = "1G",
+        .split = &sve_parts,
         .boot = .{ .linux = .{ .dep = "debian_netboot_arm64", .kernel = "debian-installer/arm64/linux", .console = "ttyAMA0" } },
     },
     .{
@@ -749,10 +815,14 @@ const base_machines = [_]Machine{
         .query = .{ .cpu_arch = .x86_64, .os_tag = .linux },
         .qemu = "qemu-system-x86_64",
         .args = &.{ "-M", "pc", "-cpu", "max", "-smp", "4" },
+        .hvf = &.{ "-accel", "hvf", "-M", "pc", "-cpu", "host", "-smp", "4" },
+        .kvm = &.{ "-accel", "kvm", "-M", "pc", "-cpu", "host", "-smp", "4" },
         // the initramfs and its unpacked copy: the test, with every core's
         // kernels and their debug info, is about 700 MB, and `/` (where tests
         // write files) gets half the memory
         .memory = "3G",
+        .tsan_memory = "12G",
+        .tsan_parts = &tsan_parts,
         .boot = .{ .linux = .{ .dep = "debian_netboot_amd64", .kernel = "debian-installer/amd64/linux", .console = "ttyS0" } },
     },
     .{
@@ -806,41 +876,15 @@ const base_machines = [_]Machine{
         .stub = "TCG's fldt/fstpt misplace the significand bytes past a page boundary, which i386's 4-aligned f80 arrays cross (issue #221)",
         .boot = .{ .linux = .{ .dep = "debian_netboot_i386", .kernel = "debian-installer/i386/linux", .console = "ttyS0" } },
     },
-    .{
-        // macOS 13 and up; Zig's default minimum is 15.0
-        .name = "x86_64-macos",
-        .query = .{ .cpu_arch = .x86_64, .os_tag = .macos, .os_version_min = .{ .semver = .{ .major = 13, .minor = 0, .patch = 0 } } },
-        .qemu = "qemu-system-x86_64",
-        // `-accel` is added by `macosQemu` (`-Dmac-mttcg`)
-        .args = &.{
-            "-M",      "q35",
-            // OSX-KVM's OpenCore-Boot.sh model, less its KVM-only flags: macOS
-            // wants an Intel CPU, from 13 with AVX2. Under WHPX `max` and `host`
-            // fault the firmware (randyos's `build/qemu.zig`).
-            "-cpu",    "Skylake-Client,-hle,-rtm,vendor=GenuineIntel,+invtsc,+ssse3,+sse4.2,+popcnt,+avx,+aes,+xsave,+xsaveopt",
-            // each vCPU is a host thread under `thread=multi`
-            "-smp",    "8,cores=4,sockets=1",
-            // keyboard and mouse on xHCI: macOS has no USB 1.1 driver
-            "-device", "qemu-xhci,id=xhci",
-            "-device", "usb-kbd,bus=xhci.0",
-            "-device", "usb-tablet,bus=xhci.0",
-            "-device", "usb-ehci,id=ehci",
-            "-smbios", "type=2",
-            "-device", "ich9-ahci,id=sata",
-            "-device", "vmware-svga",
-        },
-        .memory = "6G",
-        .boot = .macos,
-    },
 };
 
 /// Tests that need an OS (files, threads) live in files the test root also
 /// reaches, so the runnable ones are picked by name; the runner supplies a heap.
-/// Left out: `linalg.blas.abi.`, which resolves targets through `std.testing.io`.
-pub const default_filters: []const []const u8 = &([_][]const u8{ "linalg.blas.__root__.", "linalg.blas.Config.", "linalg.blas.cpu.", "linalg.blas.blas1.", "linalg.blas.blas2.", "linalg.blas.blas3.", "linalg.blas._test.", "linalg.lapack." } ++ small_filters);
+/// Left out: `math.kernels.blas.abi.`, which resolves targets through `std.testing.io`.
+pub const default_filters: []const []const u8 = &([_][]const u8{ "math.kernels.blas.__root__.", "math.kernels.blas.Config.", "math.kernels.blas.cpu.", "math.kernels.blas.blas1.", "math.kernels.blas.blas2.", "math.kernels.blas.blas3.", "math.kernels.blas._test.", "math.kernels.lapack." } ++ small_filters);
 
 /// The multicore rigs' tests: those that thread.
-pub const smp_filters: []const []const u8 = &.{ "linalg.blas.threading.", "linalg.blas.blas3.threaded.", "linalg.blas._test.blas3.threaded.", "linalg.blas._test.blas2.threaded.", "threaded level 1", "at any worker count" };
+pub const smp_filters: []const []const u8 = &.{ "math.kernels.blas.threading.", "math.kernels.blas.blas3.threaded.", "math.kernels.blas._test.blas3.threaded.", "math.kernels.blas._test.blas2.threaded.", "threaded level 1", "at any worker count" };
 
 /// The smaller BLAS test files: types, `fma`, `portable`, `ext`, `util` and `FpState`.
-const small_filters = [_][]const u8{ "linalg.blas._test.types.", "linalg.blas.fma.", "linalg.blas.portable.", "linalg.blas.ext.", "linalg.blas.util.", "linalg.blas.FpState." };
+const small_filters = [_][]const u8{ "math.kernels.blas._test.types.", "math.kernels.blas.fma.", "math.kernels.blas.portable.", "math.kernels.blas.ext.", "math.kernels.blas.util.", "math.kernels.blas.FpState." };

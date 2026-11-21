@@ -1,0 +1,195 @@
+//! `dcopy` for bulldozer, excavator, piledriver, steamroller (sysv), from OpenBLAS `kernel/x86_64/dcopy_bulldozer.S` (`v0.3.34-794-gdbf2c24c9`); converted by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+/// Each function's core and variant.
+pub const keys = .{
+    .{ .core = .bulldozer, .variant = "sysv" },
+    .{ .core = .excavator, .variant = "sysv" },
+    .{ .core = .piledriver, .variant = "sysv" },
+    .{ .core = .steamroller, .variant = "sysv" },
+};
+
+pub const Body = struct {
+    pub fn entry() callconv(.naked) void {
+        asm volatile (
+            \\ .balign 512
+            \\ leaq (, %rdx, 8), %rdx
+            \\ leaq (, %r8, 8), %r8
+            \\ cmpq $8, %rdx
+            \\ jne 20008f
+            \\ cmpq $8, %r8
+            \\ jne 20008f
+            \\ testq $8, %rsi
+            \\ je 20000f
+            \\ vmovsd (%rsi), %xmm0
+            \\ vmovsd %xmm0, (%rcx)
+            \\ addq $1 * 8, %rsi
+            \\ addq $1 * 8, %rcx
+            \\ decq %rdi
+            \\ jle 20007f
+            \\ .balign 16
+            \\ 20000:
+            \\ subq $-16 * 8, %rsi
+            \\ subq $-16 * 8, %rcx
+            \\ movq %rdi, %rax
+            \\ sarq $4, %rax
+            \\ jle 20003f
+            \\ vmovups -16 * 8(%rsi), %xmm0
+            \\ vmovups -14 * 8(%rsi), %xmm1
+            \\ vmovups -12 * 8(%rsi), %xmm2
+            \\ vmovups -10 * 8(%rsi), %xmm3
+            \\ vmovups -8 * 8(%rsi), %xmm4
+            \\ vmovups -6 * 8(%rsi), %xmm5
+            \\ vmovups -4 * 8(%rsi), %xmm6
+            \\ vmovups -2 * 8(%rsi), %xmm7
+            \\ decq %rax
+            \\ jle 20002f
+            \\ .balign 16
+            \\ 20001:
+            \\ prefetchnta 640(%rsi)
+            \\ nop
+            \\ vmovups %xmm0, -16 * 8(%rcx)
+            \\ vmovups %xmm1, -14 * 8(%rcx)
+            \\ prefetchnta 640(%rcx)
+            \\ nop
+            \\ vmovups %xmm2, -12 * 8(%rcx)
+            \\ vmovups %xmm3, -10 * 8(%rcx)
+            \\ vmovups 0 * 8(%rsi), %xmm0
+            \\ vmovups 2 * 8(%rsi), %xmm1
+            \\ vmovups 4 * 8(%rsi), %xmm2
+            \\ vmovups 6 * 8(%rsi), %xmm3
+            \\ prefetchnta 640 +64(%rsi)
+            \\ nop
+            \\ vmovups %xmm4, -8 * 8(%rcx)
+            \\ vmovups %xmm5, -6 * 8(%rcx)
+            \\ prefetchnta 640 +64(%rcx)
+            \\ nop
+            \\ vmovups %xmm6, -4 * 8(%rcx)
+            \\ vmovups %xmm7, -2 * 8(%rcx)
+            \\ vmovups 8 * 8(%rsi), %xmm4
+            \\ vmovups 10 * 8(%rsi), %xmm5
+            \\ subq $-16 * 8, %rcx
+            \\ vmovups 12 * 8(%rsi), %xmm6
+            \\ vmovups 14 * 8(%rsi), %xmm7
+            \\ subq $-16 * 8, %rsi
+            \\ decq %rax
+            \\ jg 20001b
+            \\ .balign 8
+            \\ 20002:
+            \\ vmovups %xmm0, -16 * 8(%rcx)
+            \\ vmovups %xmm1, -14 * 8(%rcx)
+            \\ vmovups %xmm2, -12 * 8(%rcx)
+            \\ vmovups %xmm3, -10 * 8(%rcx)
+            \\ vmovups %xmm4, -8 * 8(%rcx)
+            \\ vmovups %xmm5, -6 * 8(%rcx)
+            \\ vmovups %xmm6, -4 * 8(%rcx)
+            \\ vmovups %xmm7, -2 * 8(%rcx)
+            \\ subq $-16 * 8, %rcx
+            \\ subq $-16 * 8, %rsi
+            \\ .balign 8
+            \\ 20003:
+            \\ testq $8, %rdi
+            \\ jle 20004f
+            \\ .balign 8
+            \\ vmovups -16 * 8(%rsi), %xmm0
+            \\ vmovups -14 * 8(%rsi), %xmm1
+            \\ vmovups -12 * 8(%rsi), %xmm2
+            \\ vmovups -10 * 8(%rsi), %xmm3
+            \\ vmovups %xmm0, -16 * 8(%rcx)
+            \\ vmovups %xmm1, -14 * 8(%rcx)
+            \\ vmovups %xmm2, -12 * 8(%rcx)
+            \\ vmovups %xmm3, -10 * 8(%rcx)
+            \\ addq $8 * 8, %rsi
+            \\ addq $8 * 8, %rcx
+            \\ .balign 8
+            \\ 20004:
+            \\ testq $4, %rdi
+            \\ jle 20005f
+            \\ .balign 8
+            \\ vmovups -16 * 8(%rsi), %xmm0
+            \\ vmovups -14 * 8(%rsi), %xmm1
+            \\ vmovups %xmm0, -16 * 8(%rcx)
+            \\ vmovups %xmm1, -14 * 8(%rcx)
+            \\ addq $4 * 8, %rsi
+            \\ addq $4 * 8, %rcx
+            \\ .balign 8
+            \\ 20005:
+            \\ testq $2, %rdi
+            \\ jle 20006f
+            \\ .balign 8
+            \\ vmovups -16 * 8(%rsi), %xmm0
+            \\ vmovups %xmm0, -16 * 8(%rcx)
+            \\ addq $2 * 8, %rsi
+            \\ addq $2 * 8, %rcx
+            \\ .balign 8
+            \\ 20006:
+            \\ testq $1, %rdi
+            \\ jle 20007f
+            \\ .balign 8
+            \\ vmovsd -16 * 8(%rsi), %xmm0
+            \\ vmovsd %xmm0, -16 * 8(%rcx)
+            \\ .balign 8
+            \\ 20007:
+            \\ xorq %rax,%rax
+            \\ ret
+            \\ .balign 8
+            \\ 20008:
+            \\ movq %rdi, %rax
+            \\ sarq $3, %rax
+            \\ jle 20010f
+            \\ .balign 8
+            \\ 20009:
+            \\ vmovsd (%rsi), %xmm0
+            \\ addq %rdx, %rsi
+            \\ vmovsd (%rsi), %xmm4
+            \\ addq %rdx, %rsi
+            \\ vmovsd (%rsi), %xmm1
+            \\ addq %rdx, %rsi
+            \\ vmovsd (%rsi), %xmm5
+            \\ addq %rdx, %rsi
+            \\ vmovsd (%rsi), %xmm2
+            \\ addq %rdx, %rsi
+            \\ vmovsd (%rsi), %xmm6
+            \\ addq %rdx, %rsi
+            \\ vmovsd (%rsi), %xmm3
+            \\ addq %rdx, %rsi
+            \\ vmovsd (%rsi), %xmm7
+            \\ addq %rdx, %rsi
+            \\ vmovsd %xmm0, (%rcx)
+            \\ addq %r8, %rcx
+            \\ vmovsd %xmm4, (%rcx)
+            \\ addq %r8, %rcx
+            \\ vmovsd %xmm1, (%rcx)
+            \\ addq %r8, %rcx
+            \\ vmovsd %xmm5, (%rcx)
+            \\ addq %r8, %rcx
+            \\ vmovsd %xmm2, (%rcx)
+            \\ addq %r8, %rcx
+            \\ vmovsd %xmm6, (%rcx)
+            \\ addq %r8, %rcx
+            \\ vmovsd %xmm3, (%rcx)
+            \\ addq %r8, %rcx
+            \\ vmovsd %xmm7, (%rcx)
+            \\ addq %r8, %rcx
+            \\ decq %rax
+            \\ jg 20009b
+            \\ .balign 8
+            \\ 20010:
+            \\ movq %rdi, %rax
+            \\ andq $7, %rax
+            \\ jle 20012f
+            \\ .balign 8
+            \\ 20011:
+            \\ vmovsd (%rsi), %xmm0
+            \\ addq %rdx, %rsi
+            \\ vmovsd %xmm0, (%rcx)
+            \\ addq %r8, %rcx
+            \\ decq %rax
+            \\ jg 20011b
+            \\ .balign 8
+            \\ 20012:
+            \\ xorq %rax, %rax
+            \\ ret
+            \\
+        );
+    }
+};

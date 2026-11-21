@@ -1,0 +1,156 @@
+//! `caxpyc` for armv6, armv7, cortexa15, cortexa9 (hf); armv6, armv7, cortexa15, cortexa9 (sf), from OpenBLAS `kernel/arm/axpy_vfp.S` (`v0.3.34-794-gdbf2c24c9`); converted by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+/// Each function's core and variant, and its parts (`__bk`'s arguments).
+pub const keys = .{
+    .{ .core = .armv6, .variant = "hf", .parts = "1, 0" },
+    .{ .core = .armv7, .variant = "hf", .parts = "1, 0" },
+    .{ .core = .cortexa15, .variant = "hf", .parts = "1, 0" },
+    .{ .core = .cortexa9, .variant = "hf", .parts = "1, 0" },
+    .{ .core = .armv6, .variant = "sf", .parts = "0, 1" },
+    .{ .core = .armv7, .variant = "sf", .parts = "0, 1" },
+    .{ .core = .cortexa15, .variant = "sf", .parts = "0, 1" },
+    .{ .core = .cortexa9, .variant = "sf", .parts = "0, 1" },
+};
+
+/// The functions' one text, a macro whose parameters select the parts.
+const text =
+    \\ .macro __bk bp0, bp1
+    \\ .macro KERNEL_F4
+    \\ pld [ r3, #512 ]
+    \\ vldmia.f32 r3!, { s4 - s7 }
+    \\ pld [ r1, #512 ]
+    \\ vldmia.f32 r1 , { s8 - s11 }
+    \\ fmacs s8 , s0, s4
+    \\ fmacs s8 , s1, s5
+    \\ vmls.f32 s9 , s0, s5
+    \\ fmacs s9 , s1, s4
+    \\ vstmia.f32 r1!, { s8 }
+    \\ vstmia.f32 r1!, { s9 }
+    \\ fmacs s10, s0, s6
+    \\ fmacs s10, s1, s7
+    \\ vmls.f32 s11, s0, s7
+    \\ fmacs s11, s1, s6
+    \\ vstmia.f32 r1!, { s10 }
+    \\ vstmia.f32 r1!, { s11 }
+    \\ vldmia.f32 r3!, { s4 - s7 }
+    \\ vldmia.f32 r1 , { s8 - s11 }
+    \\ fmacs s8 , s0, s4
+    \\ fmacs s8 , s1, s5
+    \\ vmls.f32 s9 , s0, s5
+    \\ fmacs s9 , s1, s4
+    \\ vstmia.f32 r1!, { s8 }
+    \\ vstmia.f32 r1!, { s9 }
+    \\ fmacs s10, s0, s6
+    \\ fmacs s10, s1, s7
+    \\ vmls.f32 s11, s0, s7
+    \\ fmacs s11, s1, s6
+    \\ vstmia.f32 r1!, { s10 }
+    \\ vstmia.f32 r1!, { s11 }
+    \\ .endm
+    \\ .macro KERNEL_F1
+    \\ vldmia.f32 r3!, { s4 - s5 }
+    \\ vldmia.f32 r1 , { s8 - s9 }
+    \\ fmacs s8 , s0, s4
+    \\ fmacs s8 , s1, s5
+    \\ vmls.f32 s9 , s0, s5
+    \\ fmacs s9 , s1, s4
+    \\ vstmia.f32 r1!, { s8 }
+    \\ vstmia.f32 r1!, { s9 }
+    \\ .endm
+    \\ .macro KERNEL_S1
+    \\ vldmia.f32 r3 , { s4 - s5 }
+    \\ vldmia.f32 r1 , { s8 - s9 }
+    \\ fmacs s8 , s0, s4
+    \\ fmacs s8 , s1, s5
+    \\ vmls.f32 s9 , s0, s5
+    \\ fmacs s9 , s1, s4
+    \\ vstmia.f32 r1 , { s8 - s9 }
+    \\ add r3, r3, r2
+    \\ add r1, r1, r4
+    \\ .endm
+    \\ .arm
+    \\ .align 5
+    \\ push {r4 , fp}
+    \\ add fp, sp, #8
+    \\ sub sp, sp, #256
+    \\ .if \bp0
+    \\ ldr r2 , [fp, #0 ]
+    \\ ldr r1, [fp, #4 ]
+    \\ ldr r4 , [fp, #8 ]
+    \\ .endif
+    \\ .if \bp1
+    \\ vmov s0, r3
+    \\ vldr s1, [fp, #0 ]
+    \\ ldr r3, [fp, #4 ]
+    \\ ldr r2 , [fp, #8 ]
+    \\ ldr r1, [fp, #12 ]
+    \\ ldr r4 , [fp, #16 ]
+    \\ .endif
+    \\ sub r12, fp, #128
+    \\ vstm r12, { s8 - s15}
+    \\ cmp r0, #0
+    \\ ble 20008f
+    \\ cmp r2, #1
+    \\ bne 20004f
+    \\ cmp r4, #1
+    \\ bne 20004f
+    \\ 20000:
+    \\ asrs r12, r0, #2
+    \\ ble 20002f
+    \\ .align 5
+    \\ 20001:
+    \\ KERNEL_F4
+    \\ subs r12, r12, #1
+    \\ ble 20002f
+    \\ KERNEL_F4
+    \\ subs r12, r12, #1
+    \\ bne 20001b
+    \\ 20002:
+    \\ ands r12, r0, #3
+    \\ ble 20008f
+    \\ 20003:
+    \\ KERNEL_F1
+    \\ subs r12, r12, #1
+    \\ bne 20003b
+    \\ b 20008f
+    \\ 20004:
+    \\ lsl r2, r2, #3
+    \\ lsl r4, r4, #3
+    \\ asrs r12, r0, #2
+    \\ ble 20006f
+    \\ .align 5
+    \\ 20005:
+    \\ KERNEL_S1
+    \\ KERNEL_S1
+    \\ KERNEL_S1
+    \\ KERNEL_S1
+    \\ subs r12, r12, #1
+    \\ bne 20005b
+    \\ 20006:
+    \\ ands r12, r0, #3
+    \\ ble 20008f
+    \\ 20007:
+    \\ KERNEL_S1
+    \\ subs r12, r12, #1
+    \\ bne 20007b
+    \\ 20008:
+    \\ sub r3, fp, #128
+    \\ vldm r3, { s8 - s15 }
+    \\ mov r0, #0
+    \\ sub sp, fp, #8
+    \\ pop {r4,fp}
+    \\ bx lr
+    \\ .purgem KERNEL_F4
+    \\ .purgem KERNEL_F1
+    \\ .purgem KERNEL_S1
+    \\ .endm
+    \\
+;
+
+pub fn Body(comptime args: []const u8) type {
+    return struct {
+        pub fn entry() callconv(.naked) void {
+            asm volatile (text ++ (" __bk " ++ args ++ "\n .purgem __bk\n"));
+        }
+    };
+}

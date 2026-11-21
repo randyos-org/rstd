@@ -4,9 +4,10 @@
 //! are `linalg.vector`'s. Shaderlib re-exports them under GLSL names.
 
 const std = @import("std");
+const mem = @import("../mem.zig");
 const rstd_matrix = @import("rstd_matrix");
 const vector = @import("vector.zig");
-const ops = @import("lapack/ops.zig");
+const ops = @import("../math/kernels/lapack/ops.zig");
 
 const Vec = vector.Vec;
 const Elem = vector.Elem;
@@ -22,7 +23,7 @@ const root = @import("root");
 pub const Options = struct {
     /// `L`, per dimension: at or below it the inline kernels, past it the
     /// BLAS and LAPACK. At least 4, for shaderlib's `Mat2` to `Mat4`.
-    inline_limit: usize = 8,
+    inline_limit: usize = 12,
 };
 
 /// The root's options, or the defaults.
@@ -232,6 +233,18 @@ pub fn transpose(m: anytype) Transposed(@TypeOf(m)) {
     for (0..M.cols) |j| for (0..M.rows) |i| {
         r.data[i][j] = m.data[j][i];
     };
+    return r;
+}
+
+/// The `n` by `n` matrix whose columns are `v`, transposed, as columns:
+/// pffft's `VTRANSPOSE4` (`src/simd/pf_sse1_float.h`, marton78/pffft
+/// efc1dd2d) for any `n`, through `transpose` (`@Matrix`'s where it has one).
+pub fn transposeVecs(comptime n: comptime_int, comptime T: type, v: [n]Vec(n, T)) [n]Vec(n, T) {
+    var c: [n][n]T = undefined;
+    inline for (0..n) |j| c[j] = v[j];
+    const t = transpose(fromCols(StaticMat(n, n, T), c));
+    var r: [n]Vec(n, T) = undefined;
+    inline for (0..n) |j| r[j] = t.data[j];
     return r;
 }
 
@@ -446,8 +459,8 @@ pub fn luInPlace(comptime n: comptime_int, comptime T: type, a: *[n][n]T, perm: 
         }
         if (big == 0) return error.Singular;
         if (p != k) {
-            for (a) |*c| std.mem.swap(T, &c[k], &c[p]);
-            std.mem.swap(usize, &perm[k], &perm[p]);
+            for (a) |*c| mem.swap(T, &c[k], &c[p]);
+            mem.swap(usize, &perm[k], &perm[p]);
             odd.* = !odd.*;
         }
         for (k + 1..n) |i| a[k][i] = eDiv(a[k][i], a[k][k]);
@@ -725,9 +738,19 @@ const V2f32 = vector.V2f32;
 const V3f32 = vector.V3f32;
 const V4f64 = vector.V4f64;
 
-const bitwise = @import("blas/_test/bitwise.zig");
+const bitwise = @import("../math/kernels/blas/_test/bitwise.zig");
 const expectSameBits = bitwise.expectSameBits;
-const math = @import("../math.zig");
+const math = @import("../math/__root__.zig");
+
+test "transposeVecs is pffft's VTRANSPOSE4 (_MM_TRANSPOSE4_PS)" {
+    const V = vector.V4f32;
+    const t = transposeVecs(4, f32, .{ V{ 0, 1, 2, 3 }, V{ 4, 5, 6, 7 }, V{ 8, 9, 10, 11 }, V{ 12, 13, 14, 15 } });
+    try zigstd.testExpectEqual(V{ 0, 4, 8, 12 }, t[0]);
+    try zigstd.testExpectEqual(V{ 3, 7, 11, 15 }, t[3]);
+    const d = transposeVecs(2, f64, .{ .{ 1, 2 }, .{ 3, 4 } });
+    try zigstd.testExpectEqual(vector.V2f64{ 1, 3 }, d[0]);
+    try zigstd.testExpectEqual(vector.V2f64{ 2, 4 }, d[1]);
+}
 
 test "StaticMat construction, access and transposes" {
     const M = StaticMat(2, 3, f32);

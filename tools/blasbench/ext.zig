@@ -3,7 +3,6 @@
 const std = @import("std");
 const Io = std.Io;
 const rstd = @import("rstd");
-const bench = @import("bench.zig");
 const bb = @import("blas_bench.zig");
 const kernels = @import("kernels.zig");
 const libs = @import("libs.zig");
@@ -24,14 +23,11 @@ const l2_bytes = kernels.l2_bytes;
 
 const cast = libs.cast;
 const Col = libs.Col;
-const Diff = libs.Diff;
 const fail = libs.fail;
 const lib_cols = libs.lib_cols;
 const lookupF = libs.lookupF;
 const Num = libs.Num;
 const printHeader = libs.printHeader;
-const printRow = libs.printRow;
-const Rstd = libs.Rstd;
 const rstd_alloc = libs.rstd_alloc;
 const rstd_col = libs.rstd_col;
 const rstdFirst = libs.rstdFirst;
@@ -120,10 +116,10 @@ pub const ext_cols = lib_cols[0..4].* ++ [_]Col{
 
 pub const ext_l2 = .{ Ger, Symv, Trsv, Gbmv };
 pub const ext_l3 = .{ Gemm3, Symm, Syrk, Trmm, Trsm };
-/// rstd's LAPACK, then the hooks: T34's SVD (faer), T111's QR and
-/// eigensolver, T110's ReLAPACK set; each races the libraries now and
-/// takes rstd's column once its routine lands.
-const lapack_ops = .{ Potrf, Getrf, Getrs, Gesv, Trtri, Potri, Gesvd, Gesdd, Geqrf, Syevd, Sytrf, Gbtrf };
+/// rstd's LAPACK. An entry gates rstd's call on `@hasDecl`, so it races
+/// once the routine lands; `Geqrf` and `Syevd` race the libraries alone until
+/// their rstd call is added (issue #120).
+const lapack_ops = .{ Potrf, Getrf, Getrs, Gesv, Trtri, Potri, Gesvd, Gesdd, Geqrf, Syevd, SyevdN, Sytrf, Gbtrf };
 
 pub fn libLapack(io: Io, gpa: std.mem.Allocator) !void {
     sectionMark("lapack");
@@ -136,14 +132,14 @@ pub fn extTable(io: Io, gpa: std.mem.Allocator, comptime lv: Level, comptime ops
     std.debug.print("\n{s} GFLOP/s, best of {d} batches of at least {d} ms; ratios are over OpenBLAS. {s} {s}\n\n", .{ ext_leads[@backingInt(lv)], t.batches, @divTrunc(t.min_ns, std.time.ns_per_ms), libs.io_note, ext_note });
     printHeader("routine | p | n", "------- | - | -:", &ext_cols);
     inline for (ops) |E| {
-        inline for (precs) |p| try raceExt(io, gpa, E, lv, p);
+        if (libs.wanted(E.name)) inline for (precs) |p| try raceExt(io, gpa, E, lv, p);
     }
 }
 
 const ext_leads = [_][]const u8{
     "Level 2 beyond `gemv`, each library's Fortran-ABI routine, unit strides, n as `gemv`'s (`A` of 32 KiB, 4 MiB, 64 MiB): `ger` `A += 1e-6 x yᵀ` (`geru` complex), `symv` `y += 1e-3 S x` (upper), `trsv` upper, no transpose, non-unit on a diagonally dominant `A`, `x` restored before each call (counted), `gbmv` `y += 1e-3 A x` with kl = ku = 32 (`A`'s band of the same bytes); rates by 2n², 2n², n², 2n (kl + ku + 1), four times as many complex.",
     "Level 3 beyond `gemm`, each library's Fortran-ABI routine, square n, `alpha` and `beta` 1: `gemm` NN, `symm` left upper, `syrk` upper NN, `trmm` and `trsm` left upper NN non-unit (`trsm` on a diagonally dominant `A`), `B` restored before each `trmm` and `trsm` call (an n² copy, counted); rates by 2n³, 2n³, n²(n + 1), n³, n³, four times as many complex; `reference` to n = 1024.",
-    "LAPACK, square n, upper where it matters: rates by LAPACK's counts, `potrf` n³/3, `getrf` 2n³/3, `getrs` 2n³ (n right-hand sides), `gesv` 2n³/3 + 2n² (one), `trtri` n³/3, `potri` 2n³/3, and nominal ones: `gesvd` and `gesdd` 22n³ (thin `U` and `Vᵀ`, Golub and Van Loan's Golub-Reinsch count), `geqrf` 4n³/3, `syevd` (`heevd` complex) 9n³ with vectors, `sytrf` n³/3, `gbtrf` 4nk² (kl = ku = k = 32, at `gemv`'s band sizes); four times as many complex. `A` is diagonally dominant for `getrf`, `getrs`, `gesv` and `trtri` (no row exchanges, so pivots agree), Hermitian positive definite for `potrf`, `potri`, `syevd` and `sytrf`; `getrs` and `potri` start from a factorization made here in f64. Each call restores what it overwrites first (an n² copy, counted). `gesvd`, `gesdd`, `geqrf`, `syevd`, `sytrf` and `gbtrf` race the libraries until rstd has them.",
+    "LAPACK, square n, upper where it matters: rates by LAPACK's counts, `potrf` n³/3, `getrf` 2n³/3, `getrs` 2n³ (n right-hand sides), `gesv` 2n³/3 + 2n² (one), `trtri` n³/3, `potri` 2n³/3, and nominal ones: `gesvd` and `gesdd` 22n³ (thin `U` and `Vᵀ`, Golub and Van Loan's Golub-Reinsch count), `geqrf` 4n³/3, `syevd` (`heevd` complex) 9n³ with vectors and `syevdN` 4n³/3 without (the reduction's), `sytrf` n³/3, `gbtrf` 4nk² (kl = ku = k = 32, at `gemv`'s band sizes); four times as many complex. `A` is diagonally dominant for `getrf`, `getrs`, `gesv` and `trtri` (no row exchanges, so pivots agree), Hermitian positive definite for `potrf`, `potri`, `syevd` and `sytrf`; `getrs` and `potri` start from a factorization made here in f64. Each call restores what it overwrites first (an n² copy, counted). `gesvd`, `gesdd`, `geqrf`, `syevd`, `sytrf` and `gbtrf` race the libraries until rstd has them.",
 };
 
 const ext_note = "`rstd err` is rstd's largest residual at the checked entries (all, or 256 sampled), in eps of the type relative to the size of its terms; `rstd-<lib>` is rstd's largest difference from that library's output in eps relative to the output's largest entry, `!` past 2 (terms + 8). `rstd bits` hashes rstd's output. Eigen runs one thread; `-` where a library lacks the routine";
@@ -298,8 +294,11 @@ fn Work(comptime p: Prec) type {
         rwork: []align(64) F,
         ipiv: []c_int,
         ipiv0: []c_int,
-        rpiv: []isize,
-        rpiv0: []isize,
+        /// rstd's pivots, 0-based (issue #398)
+        rpiv: []usize,
+        rpiv0: []usize,
+        /// `sytrf`'s, 0-based with their block of `D` (issue #314)
+        spiv: []lapack.Pivot,
         iwork: []c_int,
         info: c_int = 0,
 
@@ -321,13 +320,14 @@ fn Work(comptime p: Prec) type {
             w.iwork = try gpa.alloc(c_int, if (big) liwork(n) else 0);
             w.ipiv = try gpa.alloc(c_int, n);
             w.ipiv0 = try gpa.alloc(c_int, n);
-            w.rpiv = try gpa.alloc(isize, n);
-            w.rpiv0 = try gpa.alloc(isize, n);
+            w.rpiv = try gpa.alloc(usize, n);
+            w.rpiv0 = try gpa.alloc(usize, n);
+            w.spiv = try gpa.alloc(lapack.Pivot, n);
             return w;
         }
 
         fn deinit(w: *W, gpa: std.mem.Allocator) void {
-            inline for (.{ "a", "a0", "orig", "b", "b0", "c", "c0", "s", "u", "vt", "work", "rwork", "iwork", "ipiv", "ipiv0", "rpiv", "rpiv0" }) |f| gpa.free(@field(w, f));
+            inline for (.{ "a", "a0", "orig", "b", "b0", "c", "c0", "s", "u", "vt", "work", "rwork", "iwork", "ipiv", "ipiv0", "rpiv", "rpiv0", "spiv" }) |f| gpa.free(@field(w, f));
         }
 
         /// Workspace for every routine's blocked path: past each one's
@@ -427,9 +427,9 @@ fn Work(comptime p: Prec) type {
                 for (0..n) |i| w.orig[(i + i * n) * cs] += two_n;
             }
             @memcpy(w.a0[0..la], w.orig[0..la]);
-            for (w.ipiv0[0..n], w.rpiv0[0..n], 1..) |*d, *e, k| {
-                d.* = @intCast(k);
-                e.* = @intCast(k);
+            for (w.ipiv0[0..n], w.rpiv0[0..n], 0..) |*d, *e, k| {
+                d.* = @intCast(k + 1);
+                e.* = k;
             }
             const prep = comptime decl(E, "prep", Prep.none);
             if (prep != .none) try prepare(gpa, p, w, prep);
@@ -518,7 +518,7 @@ fn ExtCall(comptime E: type, comptime p: Prec) type {
             if (s.f) |f| return E.lib(p, f, s.w);
             if (comptime hasRstd(E)) E.rstd(p, s.w) catch |e| fail(e);
         }
-        fn run(o: *anyopaque) void {
+        pub fn run(o: *anyopaque) void {
             const s: *@This() = @ptrCast(@alignCast(o));
             s.call();
         }
@@ -549,13 +549,8 @@ fn raceExt(io: Io, gpa: std.mem.Allocator, comptime E: type, comptime table_leve
         if (n > libs.n_max) continue;
         try w.setup(gpa, E, n);
         const len = outLen(E, p, n);
-        var ctxs: [ext_cols.len]EC = undefined;
-        var calls: [ext_cols.len]bench.Call = undefined;
-        var at: [ext_cols.len]?usize = @splat(null);
-        var diffs: [ext_cols.len]?Diff = @splat(null);
-        var count: usize = 0;
+        var es: libs.Entrants(EC, ext_cols.len) = .{};
         var ok = true;
-        var mine: Rstd = .{};
         var have_mine = false;
         for (0..ext_cols.len) |o| {
             const i = rstdFirst(o);
@@ -564,9 +559,9 @@ fn raceExt(io: Io, gpa: std.mem.Allocator, comptime E: type, comptime table_leve
             if (i == rstd_col) {
                 if (!comptime hasRstd(E)) continue;
             } else if (fns[i] == null) continue;
-            ctxs[count] = .{ .f = fns[i], .w = &w };
+            const ctx = es.add(i, .{ .f = fns[i], .w = &w });
             w.reset(E);
-            ctxs[count].call();
+            ctx.call();
             if (libs.lib_err) |err| return err;
             const e = checkExt(E, p, &w);
             if (w.info != 0 or (e != null and e.? > wrongLimit(E, n))) {
@@ -576,23 +571,15 @@ fn raceExt(io: Io, gpa: std.mem.Allocator, comptime E: type, comptime table_leve
             const got = w.out(E);
             if (i == rstd_col) {
                 @memcpy(kout[0..len], got);
-                mine = .{ .err = e, .bits = std.hash.Wyhash.hash(0, std.mem.sliceAsBytes(got)) };
+                es.mine = .{ .err = e, .bits = std.hash.Wyhash.hash(0, std.mem.sliceAsBytes(got)) };
                 have_mine = true;
-            } else if (have_mine and col.lib != null) diffs[i] = .{ .eps = diffNorm(p.F, kout[0..len], got), .bound = sumBound(terms(E, n)) };
-            at[i] = count;
-            count += 1;
+            } else if (have_mine and col.lib != null) es.diffs[i] = .{ .eps = diffNorm(p.F, kout[0..len], got), .bound = sumBound(terms(E, n)) };
         }
-        if (!ok or count == 0) continue;
-        for (0..count) |k| calls[k] = .{ .ctx = &ctxs[k], .run = EC.run };
+        if (!ok or es.count == 0) continue;
         w.reset(E);
-        var secs: [ext_cols.len]f64 = undefined;
-        try bench.race(io, timing, calls[0..count], &secs);
-        if (libs.lib_err) |err| return err;
-        const flops = E.flops(@floatFromInt(n)) * @as(f64, if (p.complex) 4 else 1);
-        var rates: [ext_cols.len]?f64 = undefined;
-        for (at, &rates) |j, *rt| rt.* = if (j) |k| flops / secs[k] / 1e9 else null;
+        const rates = try es.race(io, timing, E.flops(@floatFromInt(n)) * @as(f64, if (p.complex) 4 else 1));
         std.debug.print("| {s} | {s} | {d} | ", .{ E.name, p.name, n });
-        printRow(&ext_cols, &rates, &diffs, mine);
+        es.print(&ext_cols, &rates);
     }
 }
 
@@ -626,7 +613,8 @@ const Ger = struct {
         f(&n, &n, &al, w.b.ptr, &one_c, w.c.ptr, &one_c, w.a.ptr, &n);
     }
     pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
-        try blas.ger(rstd_alloc, libs.rstd_io, Num(p), w.in(), w.in(), num(p, axpy_alpha), cast(p, w.b.ptr), 1, cast(p, w.c.ptr), 1, cast(p, w.a.ptr), w.in());
+        const n = w.in();
+        try blas.ger(rstd_alloc, libs.rstd_io, Num(p), num(p, axpy_alpha), libs.view(Num(p), cast(p, w.b.ptr), n, 1).toConst(), libs.view(Num(p), cast(p, w.c.ptr), n, 1).toConst(), libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), @intCast(n));
     }
     pub fn residual(comptime p: Prec, w: *const Work(p), i: usize, j: usize) ?[2]f64 {
         const k = i + j * w.n;
@@ -654,7 +642,8 @@ const Symv = struct {
         f(&fc.U, &n, &al, w.a.ptr, &n, w.b.ptr, &one_c, &one, w.c.ptr, &one_c, 1);
     }
     pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
-        try blas.symv(rstd_alloc, libs.rstd_io, Num(p), .u, w.in(), num(p, gemv_alpha), cast(p, w.a.ptr), w.in(), cast(p, w.b.ptr), 1, num(p, 1), cast(p, w.c.ptr), 1);
+        const n = w.in();
+        try blas.symv(rstd_alloc, libs.rstd_io, Num(p), .u, num(p, gemv_alpha), libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), @intCast(n), libs.view(Num(p), cast(p, w.b.ptr), n, 1).toConst(), num(p, 1), libs.view(Num(p), cast(p, w.c.ptr), n, 1));
     }
     pub fn residual(comptime p: Prec, w: *const Work(p), i: usize, _: usize) ?[2]f64 {
         var s: Pair = .{ 0, 0 };
@@ -688,7 +677,8 @@ const Trsv = struct {
         f(&fc.U, &fc.N, &fc.N, &n, w.a.ptr, &n, w.b.ptr, &one_c, 1, 1, 1);
     }
     pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
-        try blas.trsv(rstd_alloc, libs.rstd_io, Num(p), .u, .n, .n, w.in(), cast(p, w.a.ptr), w.in(), cast(p, w.b.ptr), 1);
+        const n = w.in();
+        try blas.trsv(rstd_alloc, libs.rstd_io, Num(p), .u, .n, .n, libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), @intCast(n), libs.view(Num(p), cast(p, w.b.ptr), n, 1));
     }
     /// `A x` against the right-hand side.
     pub fn residual(comptime p: Prec, w: *const Work(p), i: usize, _: usize) ?[2]f64 {
@@ -723,7 +713,9 @@ const Gbmv = struct {
         f(&fc.N, &n, &n, &band_kc, &band_kc, &al, w.a.ptr, &lda, w.b.ptr, &one_c, &one, w.c.ptr, &one_c, 1);
     }
     pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
-        try blas.gbmv(rstd_alloc, libs.rstd_io, Num(p), .n, w.in(), w.in(), band_k, band_k, num(p, gemv_alpha), cast(p, w.a.ptr), @intCast(bandRows(@This())), cast(p, w.b.ptr), 1, num(p, 1), cast(p, w.c.ptr), 1);
+        const n = w.in();
+        const rows: isize = @intCast(bandRows(@This()));
+        try blas.gbmv(rstd_alloc, libs.rstd_io, Num(p), .n, band_k, band_k, num(p, gemv_alpha), libs.matrix(Num(p), cast(p, w.a.ptr), rows, n, rows), @intCast(rows), libs.view(Num(p), cast(p, w.b.ptr), n, 1).toConst(), num(p, 1), libs.view(Num(p), cast(p, w.c.ptr), n, 1));
     }
     pub fn residual(comptime p: Prec, w: *const Work(p), i: usize, _: usize) ?[2]f64 {
         const lda = bandRows(@This());
@@ -801,7 +793,8 @@ const Gemm3 = struct {
     }
     pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
         const n = w.in();
-        try blas.gemm(rstd_alloc, libs.rstd_io, Num(p), .n, .n, n, n, n, num(p, 1), cast(p, w.a.ptr), n, cast(p, w.b.ptr), n, num(p, 1), cast(p, w.c.ptr), n);
+        const u: usize = @intCast(n);
+        try blas.gemm(rstd_alloc, libs.rstd_io, Num(p), .n, .n, u, u, u, num(p, 1), libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), u, libs.matrix(Num(p), cast(p, w.b.ptr), n, n, n), u, num(p, 1), libs.matrix(Num(p), cast(p, w.c.ptr), n, n, n), u);
     }
     pub fn residual(comptime p: Prec, w: *const Work(p), i: usize, j: usize) ?[2]f64 {
         return productAt(p, w, i, j, struct {
@@ -829,7 +822,8 @@ const Symm = struct {
     }
     pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
         const n = w.in();
-        try blas.symm(rstd_alloc, libs.rstd_io, Num(p), .l, .u, n, n, num(p, 1), cast(p, w.a.ptr), n, cast(p, w.b.ptr), n, num(p, 1), cast(p, w.c.ptr), n);
+        const u: usize = @intCast(n);
+        try blas.symm(rstd_alloc, libs.rstd_io, Num(p), .l, .u, u, u, num(p, 1), libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), u, libs.matrix(Num(p), cast(p, w.b.ptr), n, n, n), u, num(p, 1), libs.matrix(Num(p), cast(p, w.c.ptr), n, n, n), u);
     }
     pub fn residual(comptime p: Prec, w: *const Work(p), i: usize, j: usize) ?[2]f64 {
         return productAt(p, w, i, j, struct {
@@ -857,7 +851,8 @@ const Syrk = struct {
     }
     pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
         const n = w.in();
-        try blas.syrk(rstd_alloc, libs.rstd_io, Num(p), .u, .n, n, n, num(p, 1), cast(p, w.a.ptr), n, num(p, 1), cast(p, w.c.ptr), n);
+        const u: usize = @intCast(n);
+        try blas.syrk(rstd_alloc, libs.rstd_io, Num(p), .u, .n, u, u, num(p, 1), libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), u, num(p, 1), libs.matrix(Num(p), cast(p, w.c.ptr), n, n, n), u);
     }
     /// `c0 + A Aᵀ`, upper triangle.
     pub fn residual(comptime p: Prec, w: *const Work(p), i: usize, j: usize) ?[2]f64 {
@@ -887,7 +882,8 @@ const Trmm = struct {
     pub const lib = libTri;
     pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
         const n = w.in();
-        try blas.trmm(rstd_alloc, libs.rstd_io, Num(p), .l, .u, .n, .n, n, n, num(p, 1), cast(p, w.a.ptr), n, cast(p, w.b.ptr), n);
+        const u: usize = @intCast(n);
+        try blas.trmm(rstd_alloc, libs.rstd_io, Num(p), .l, .u, .n, .n, u, u, num(p, 1), libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), u, libs.matrix(Num(p), cast(p, w.b.ptr), n, n, n), u);
     }
     pub fn residual(comptime p: Prec, w: *const Work(p), i: usize, j: usize) ?[2]f64 {
         const r = triRow(p, w, .b0, i, j);
@@ -908,7 +904,8 @@ const Trsm = struct {
     pub const lib = libTri;
     pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
         const n = w.in();
-        try blas.trsm(rstd_alloc, libs.rstd_io, Num(p), .l, .u, .n, .n, n, n, num(p, 1), cast(p, w.a.ptr), n, cast(p, w.b.ptr), n);
+        const u: usize = @intCast(n);
+        try blas.trsm(rstd_alloc, libs.rstd_io, Num(p), .l, .u, .n, .n, u, u, num(p, 1), libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), u, libs.matrix(Num(p), cast(p, w.b.ptr), n, n, n), u);
     }
     /// `A X` against the right-hand sides.
     pub fn residual(comptime p: Prec, w: *const Work(p), i: usize, j: usize) ?[2]f64 {
@@ -973,7 +970,8 @@ const Potrf = struct {
     pub const Sig = SigUplo;
     pub const lib = libUplo;
     pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
-        try lapack.potrf(rstd_alloc, libs.rstd_io, Num(p), .u, w.in(), cast(p, w.a.ptr), w.in(), null);
+        const n = w.in();
+        try lapack.potrf(rstd_alloc, libs.rstd_io, Num(p), .u, w.n, libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), w.n);
     }
     /// `Uᴴ U` against `A`, upper triangle.
     pub fn residual(comptime p: Prec, w: *const Work(p), i: usize, j: usize) ?[2]f64 {
@@ -1008,8 +1006,10 @@ const Getrf = struct {
         f(&n, &n, w.a.ptr, &n, w.ipiv.ptr, &w.info);
     }
     pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
-        try lapack.getrf(rstd_alloc, libs.rstd_io, Num(p), w.in(), w.in(), cast(p, w.a.ptr), w.in(), w.rpiv.ptr, null);
-        for (w.ipiv[0..w.n], w.rpiv[0..w.n]) |*d, s| d.* = @intCast(s);
+        const n = w.in();
+        _ = try lapack.getrf(rstd_alloc, libs.rstd_io, Num(p), w.n, w.n, libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), w.n, w.rpiv);
+        // the libraries' 1-based form, which `residual` reads
+        for (w.ipiv[0..w.n], w.rpiv[0..w.n]) |*d, s| d.* = @intCast(s + 1);
     }
     /// `L U` against `P A`.
     pub fn residual(comptime p: Prec, w: *const Work(p), i: usize, j: usize) ?[2]f64 {
@@ -1053,7 +1053,7 @@ const Getrs = struct {
     }
     pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
         const n = w.in();
-        try lapack.getrs(rstd_alloc, libs.rstd_io, Num(p), .n, n, n, cast(p, w.a.ptr), n, w.rpiv.ptr, cast(p, w.b.ptr), n);
+        try lapack.getrs(rstd_alloc, libs.rstd_io, Num(p), .n, w.n, w.n, libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), w.n, w.rpiv, libs.matrix(Num(p), cast(p, w.b.ptr), n, n, n), w.n);
     }
     pub fn residual(comptime p: Prec, w: *const Work(p), i: usize, j: usize) ?[2]f64 {
         return solveAt(p, w, i, j);
@@ -1079,7 +1079,7 @@ const Gesv = struct {
     }
     pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
         const n = w.in();
-        try lapack.gesv(rstd_alloc, libs.rstd_io, Num(p), n, 1, cast(p, w.a.ptr), n, w.rpiv.ptr, cast(p, w.b.ptr), n, null);
+        try lapack.gesv(rstd_alloc, libs.rstd_io, Num(p), w.n, 1, libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), w.n, w.rpiv, libs.matrix(Num(p), cast(p, w.b.ptr), n, 1, n), w.n);
     }
     pub fn residual(comptime p: Prec, w: *const Work(p), i: usize, j: usize) ?[2]f64 {
         return solveAt(p, w, i, j);
@@ -1103,7 +1103,8 @@ const Trtri = struct {
         f(&fc.U, &fc.N, &n, w.a.ptr, &n, &w.info, 1, 1);
     }
     pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
-        try lapack.trtri(rstd_alloc, libs.rstd_io, Num(p), .u, .n, w.in(), cast(p, w.a.ptr), w.in(), null);
+        const n = w.in();
+        try lapack.trtri(rstd_alloc, libs.rstd_io, Num(p), .u, .n, w.n, libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), w.n);
     }
     /// `A X` against `I`, upper triangle.
     pub fn residual(comptime p: Prec, w: *const Work(p), i: usize, j: usize) ?[2]f64 {
@@ -1129,7 +1130,8 @@ const Potri = struct {
     pub const Sig = SigUplo;
     pub const lib = libUplo;
     pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
-        try lapack.potri(rstd_alloc, libs.rstd_io, Num(p), .u, w.in(), cast(p, w.a.ptr), w.in(), null);
+        const n = w.in();
+        try lapack.potri(rstd_alloc, libs.rstd_io, Num(p), .u, w.n, libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), w.n);
     }
     /// `A X` against `I`, `X` Hermitian from its upper triangle.
     pub fn residual(comptime p: Prec, w: *const Work(p), i: usize, j: usize) ?[2]f64 {
@@ -1157,7 +1159,7 @@ fn svdAt(comptime p: Prec, w: *const Work(p), i: usize, j: usize) [2]f64 {
     return .{ cdist(s, w.at(.orig, i + j * n)), mag };
 }
 
-/// T34 (faer): thin `U` and `Vᵀ` (`S`).
+/// faer: thin `U` and `Vᵀ` (`S`).
 const Gesvd = struct {
     pub const name = "gesvd";
     pub const shape: Shape = .mm;
@@ -1184,14 +1186,14 @@ const Gesvd = struct {
     pub const has_rstd = @hasDecl(lapack, "gesvd");
     pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
         const n = w.in();
-        try lapack.gesvd(rstd_alloc, libs.rstd_io, Num(p), .s, .s, n, n, cast(p, w.a.ptr), n, w.s.ptr, cast(p, w.u.ptr), n, cast(p, w.vt.ptr), n, null);
+        try lapack.gesvd(rstd_alloc, libs.rstd_io, Num(p), .s, .s, w.n, w.n, libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), w.n, w.s[0..w.n], libs.matrix(Num(p), cast(p, w.u.ptr), n, n, n), w.n, libs.matrix(Num(p), cast(p, w.vt.ptr), n, n, n), w.n, null);
     }
     pub fn residual(comptime p: Prec, w: *const Work(p), i: usize, j: usize) ?[2]f64 {
         return svdAt(p, w, i, j);
     }
 };
 
-/// T34 (faer): `jobz` `S`.
+/// faer: `jobz` `S`.
 const Gesdd = struct {
     pub const name = "gesdd";
     pub const shape: Shape = .mm;
@@ -1218,14 +1220,14 @@ const Gesdd = struct {
     pub const has_rstd = @hasDecl(lapack, "gesdd");
     pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
         const n = w.in();
-        try lapack.gesdd(rstd_alloc, libs.rstd_io, Num(p), .s, n, n, cast(p, w.a.ptr), n, w.s.ptr, cast(p, w.u.ptr), n, cast(p, w.vt.ptr), n);
+        try lapack.gesdd(rstd_alloc, libs.rstd_io, Num(p), .s, w.n, w.n, libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), w.n, w.s[0..w.n], libs.matrix(Num(p), cast(p, w.u.ptr), n, n, n), w.n, libs.matrix(Num(p), cast(p, w.vt.ptr), n, n, n), w.n);
     }
     pub fn residual(comptime p: Prec, w: *const Work(p), i: usize, j: usize) ?[2]f64 {
         return svdAt(p, w, i, j);
     }
 };
 
-/// T111 (faer): add `rstd` when its `geqrf` lands; `tau` in `s`.
+/// faer's QR; rstd's call waits on issue #120. `tau` in `s`.
 const Geqrf = struct {
     pub const name = "geqrf";
     pub const shape: Shape = .mm;
@@ -1244,8 +1246,7 @@ const Geqrf = struct {
     }
 };
 
-/// T111 (faer): `syevd`, `heevd` complex, with vectors; add `rstd` when its
-/// eigensolver lands.
+/// `syevd`, `heevd` complex, with vectors; rstd's call waits on issue #120.
 const Syevd = struct {
     pub const name = "syevd";
     pub const shape: Shape = .mm;
@@ -1291,7 +1292,40 @@ const Syevd = struct {
     }
 };
 
-/// T110 (ReLAPACK): Bunch-Kaufman, symmetric (not Hermitian) complex too;
+/// `syevd`, `heevd` with `jobz` `N`: the values alone, the reduction and
+/// the tridiagonal's eigenvalues (rstd's `stebr.zig` from
+/// `evd.stebr_crossover`); a nominal 4n³/3, the reduction's. No residual
+/// without vectors: only the agreement with rstd.
+const SyevdN = struct {
+    pub const name = "syevdN";
+    pub const shape: Shape = .mm;
+    pub const fill: Fill = .spd;
+    pub const restore: Restore = .{ .a = true };
+    pub const out: Buf = .s;
+    pub fn flops(n: f64) f64 {
+        return 4 * n * n * n / 3;
+    }
+    pub fn sym(comptime p: Prec) []const u8 {
+        return p.name ++ (if (p.complex) "heevd" else "syevd");
+    }
+    pub const Sig = Syevd.Sig;
+    pub fn lib(comptime p: Prec, f: *const Sig(p), w: *Work(p)) void {
+        const n = w.ni();
+        const lw = w.lw();
+        const liw = w.liw();
+        if (p.complex) {
+            const lrw = w.lrw();
+            f(&fc.N, &fc.U, &n, w.a.ptr, &n, w.s.ptr, w.work.ptr, &lw, w.rwork.ptr, &lrw, w.iwork.ptr, &liw, &w.info, 1, 1);
+        } else f(&fc.N, &fc.U, &n, w.a.ptr, &n, w.s.ptr, w.work.ptr, &lw, w.iwork.ptr, &liw, &w.info, 1, 1);
+    }
+    pub const has_rstd = @hasDecl(lapack, "syevd");
+    pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
+        const n = w.in();
+        try lapack.syevd(rstd_alloc, libs.rstd_io, Num(p), .n, .u, w.n, libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), w.n, w.s[0..w.n]);
+    }
+};
+
+/// ReLAPACK: Bunch-Kaufman, symmetric (not Hermitian) complex too;
 /// no residual, which would need the pivots' blocks.
 const Sytrf = struct {
     pub const name = "sytrf";
@@ -1312,11 +1346,12 @@ const Sytrf = struct {
     }
     pub const has_rstd = @hasDecl(lapack, "sytrf");
     pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
-        try lapack.sytrf(rstd_alloc, libs.rstd_io, Num(p), .u, w.in(), cast(p, w.a.ptr), w.in(), w.rpiv.ptr, null);
+        const n = w.in();
+        _ = try lapack.sytrf(rstd_alloc, libs.rstd_io, Num(p), .u, w.n, libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), w.n, w.spiv);
     }
 };
 
-/// T110 (ReLAPACK): kl = ku = `band_k` in LAPACK's band storage, kl rows
+/// ReLAPACK: kl = ku = `band_k` in LAPACK's band storage, kl rows
 /// for the fill, at `gemv`'s band sizes; no residual.
 const Gbtrf = struct {
     pub const name = "gbtrf";
@@ -1338,6 +1373,6 @@ const Gbtrf = struct {
     }
     pub const has_rstd = @hasDecl(lapack, "gbtrf");
     pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
-        try lapack.gbtrf(rstd_alloc, libs.rstd_io, Num(p), w.in(), w.in(), band_k, band_k, cast(p, w.a.ptr), band_rows, w.rpiv.ptr, null);
+        _ = try lapack.gbtrf(Num(p), w.n, w.n, band_k, band_k, libs.matrix(Num(p), cast(p, w.a.ptr), band_rows, w.in(), band_rows), band_rows, w.rpiv);
     }
 };

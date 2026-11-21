@@ -1,0 +1,103 @@
+//! `zswap` for a64fx, ampere1, armv8sve, armv9sme, cortexa510, cortexa710, cortexx2, neoversen1, neoversen2, neoversev1, neoversev2, thunderx2t99, thunderx3t110, vortex, vortexm4, from OpenBLAS `kernel/arm64/swap_thunderx2t99.S` (`v0.3.34-794-gdbf2c24c9`); converted by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+/// Each function's core and variant.
+pub const keys = .{
+    .{ .core = .a64fx, .variant = "" },
+    .{ .core = .ampere1, .variant = "" },
+    .{ .core = .armv8sve, .variant = "" },
+    .{ .core = .armv9sme, .variant = "" },
+    .{ .core = .cortexa510, .variant = "" },
+    .{ .core = .cortexa710, .variant = "" },
+    .{ .core = .cortexx2, .variant = "" },
+    .{ .core = .neoversen1, .variant = "" },
+    .{ .core = .neoversen2, .variant = "" },
+    .{ .core = .neoversev1, .variant = "" },
+    .{ .core = .neoversev2, .variant = "" },
+    .{ .core = .thunderx2t99, .variant = "" },
+    .{ .core = .thunderx3t110, .variant = "" },
+    .{ .core = .vortex, .variant = "" },
+    .{ .core = .vortexm4, .variant = "" },
+};
+
+pub const Body = struct {
+    pub fn entry() callconv(.naked) void {
+        asm volatile (
+            \\ .macro PROLOGUE
+            \\ .p2align 2
+            \\ .endm
+            \\ .macro KERNEL_F1
+            \\ ldr q0, [x3]
+            \\ ldr q1, [x5]
+            \\ str q0, [x5]
+            \\ str q1, [x3]
+            \\ add x3, x3, x4
+            \\ add x5, x5, x6
+            \\ .endm
+            \\ .macro KERNEL_F
+            \\ ldr q0, [x3]
+            \\ ldr q1, [x5]
+            \\ add x3, x3, #16
+            \\ add x5, x5, #16
+            \\ prfm PLDL1STRM, [x3, #1024]
+            \\ prfm PLDL1STRM, [x5, #1024]
+            \\ str q0, [x5, #-16]
+            \\ str q1, [x3, #-16]
+            \\ .endm
+            \\ .macro INIT
+            \\ lsl x4, x4, #4
+            \\ lsl x6, x6, #4
+            \\ .endm
+            \\ PROLOGUE
+            \\ cmp x0, xzr
+            \\ ble 20008f
+            \\ cmp x4, #1
+            \\ bne 20004f
+            \\ cmp x6, #1
+            \\ bne 20004f
+            \\ 20000:
+            \\ INIT
+            \\ asr x1, x0, #0
+            \\ cmp x1, xzr
+            \\ beq 20002f
+            \\ .align 5
+            \\ 20001:
+            \\ KERNEL_F
+            \\ subs x1, x1, #1
+            \\ bne 20001b
+            \\ 20002:
+            \\ b 20008f
+            \\ 20003:
+            \\ KERNEL_F1
+            \\ subs x1, x1, #1
+            \\ bne 20003b
+            \\ b 20008f
+            \\ 20004:
+            \\ INIT
+            \\ asr x1, x0, #2
+            \\ cmp x1, xzr
+            \\ ble 20006f
+            \\ 20005:
+            \\ KERNEL_F1
+            \\ KERNEL_F1
+            \\ KERNEL_F1
+            \\ KERNEL_F1
+            \\ subs x1, x1, #1
+            \\ bne 20005b
+            \\ 20006:
+            \\ ands x1, x0, #3
+            \\ ble 20008f
+            \\ 20007:
+            \\ KERNEL_F1
+            \\ subs x1, x1, #1
+            \\ bne 20007b
+            \\ 20008:
+            \\ mov w0, wzr
+            \\ ret
+            \\ .purgem PROLOGUE
+            \\ .purgem KERNEL_F1
+            \\ .purgem KERNEL_F
+            \\ .purgem INIT
+            \\
+        );
+    }
+};

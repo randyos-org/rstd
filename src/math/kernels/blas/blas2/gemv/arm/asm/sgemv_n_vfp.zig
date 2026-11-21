@@ -1,0 +1,343 @@
+//! `sgemv_n` for armv6 (hf); armv6 (sf), from OpenBLAS `kernel/arm/gemv_n_vfp.S` (`v0.3.34-794-gdbf2c24c9`); converted by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+/// Each function's core and variant, and its parts (`__bk`'s arguments).
+pub const keys = .{
+    .{ .core = .armv6, .variant = "hf", .parts = "0, 1" },
+    .{ .core = .armv6, .variant = "sf", .parts = "1, 0" },
+};
+
+/// The functions' one text, a macro whose parameters select the parts.
+const text =
+    \\ .macro __bk bp0, bp1
+    \\ .macro INIT_F8
+    \\ pld [ r6 , #0 ]
+    \\ flds s8 , [fp, #-228]
+    \\ vmov.f32 s9 , s8
+    \\ vmov.f32 s10 , s8
+    \\ vmov.f32 s11 , s8
+    \\ vmov.f32 s12 , s8
+    \\ vmov.f32 s13 , s8
+    \\ vmov.f32 s14 , s8
+    \\ vmov.f32 s15 , s8
+    \\ .endm
+    \\ .macro KERNEL_F8X8
+    \\ pld [ r5 , #64 ]
+    \\ KERNEL_F8X1
+    \\ KERNEL_F8X1
+    \\ KERNEL_F8X1
+    \\ KERNEL_F8X1
+    \\ KERNEL_F8X1
+    \\ KERNEL_F8X1
+    \\ KERNEL_F8X1
+    \\ KERNEL_F8X1
+    \\ .endm
+    \\ .macro KERNEL_F8X1
+    \\ pld [ r4, #0 ]
+    \\ vldmia.f32 r5! , { s2 }
+    \\ vldmia.f32 r0 , { s4 - s7 }
+    \\ vmla.f32 s8 , s2 , s4
+    \\ vmla.f32 s9 , s2 , s5
+    \\ vmla.f32 s10 , s2 , s6
+    \\ vmla.f32 s11 , s2 , s7
+    \\ add r3, r0, #4*4
+    \\ vldmia.f32 r3 , { s4 - s7 }
+    \\ vmla.f32 s12 , s2 , s4
+    \\ vmla.f32 s13 , s2 , s5
+    \\ vmla.f32 s14 , s2 , s6
+    \\ vmla.f32 s15 , s2 , s7
+    \\ add r0, r0, r7
+    \\ add r4, r4, r7
+    \\ .endm
+    \\ .macro SAVE_F8
+    \\ vldmia.f32 r6, { s4 - s7 }
+    \\ vmla.f32 s4 , s0, s8
+    \\ vmla.f32 s5 , s0, s9
+    \\ vmla.f32 s6 , s0, s10
+    \\ vmla.f32 s7 , s0, s11
+    \\ vstmia.f32 r6!, { s4 - s7 }
+    \\ vldmia.f32 r6, { s4 - s7 }
+    \\ vmla.f32 s4 , s0, s12
+    \\ vmla.f32 s5 , s0, s13
+    \\ vmla.f32 s6 , s0, s14
+    \\ vmla.f32 s7 , s0, s15
+    \\ vstmia.f32 r6!, { s4 - s7 }
+    \\ .endm
+    \\ .macro INIT_F1
+    \\ flds s12 , [fp, #-228]
+    \\ .endm
+    \\ .macro KERNEL_F1X1
+    \\ vldmia.f32 r5! , { s2 }
+    \\ vldmia.f32 r0 , { s8 }
+    \\ vmla.f32 s12 , s2 , s8
+    \\ add r0, r0, r7
+    \\ .endm
+    \\ .macro SAVE_F1
+    \\ vldmia.f32 r6, { s4 }
+    \\ vmla.f32 s4, s0, s12
+    \\ vstmia.f32 r6!, { s4 }
+    \\ .endm
+    \\ .macro INIT_S4
+    \\ flds s12 , [fp, #-228]
+    \\ vmov.f32 s13 , s12
+    \\ vmov.f32 s14 , s12
+    \\ vmov.f32 s15 , s12
+    \\ .endm
+    \\ .macro KERNEL_S4X4
+    \\ pld [ r4 , #0 ]
+    \\ KERNEL_S4X1
+    \\ KERNEL_S4X1
+    \\ pld [ r4 , #0 ]
+    \\ KERNEL_S4X1
+    \\ KERNEL_S4X1
+    \\ .endm
+    \\ .macro KERNEL_S4X1
+    \\ vldmia.f32 r5 , { s2 }
+    \\ vldmia.f32 r0 , { s8 - s11 }
+    \\ vmla.f32 s12 , s2 , s8
+    \\ vmla.f32 s13 , s2 , s9
+    \\ vmla.f32 s14 , s2 , s10
+    \\ vmla.f32 s15 , s2 , s11
+    \\ add r0, r0, r7
+    \\ add r4, r4, r7
+    \\ add r5, r5 , r8
+    \\ .endm
+    \\ .macro SAVE_S4
+    \\ vldmia.f32 r6, { s4 }
+    \\ vmla.f32 s4 , s0, s12
+    \\ vstmia.f32 r6, { s4 }
+    \\ add r6, r6, r9
+    \\ vldmia.f32 r6, { s5 }
+    \\ vmla.f32 s5 , s0, s13
+    \\ vstmia.f32 r6, { s5 }
+    \\ add r6, r6, r9
+    \\ vldmia.f32 r6, { s4 }
+    \\ vmla.f32 s4 , s0, s14
+    \\ vstmia.f32 r6, { s4 }
+    \\ add r6, r6, r9
+    \\ vldmia.f32 r6, { s5 }
+    \\ vmla.f32 s5 , s0, s15
+    \\ vstmia.f32 r6, { s5 }
+    \\ add r6, r6, r9
+    \\ .endm
+    \\ .macro INIT_S1
+    \\ flds s12 , [fp, #-228]
+    \\ .endm
+    \\ .macro KERNEL_S1X1
+    \\ vldmia.f32 r5 , { s2 }
+    \\ vldmia.f32 r0 , { s8 }
+    \\ vmla.f32 s12 , s2 , s8
+    \\ add r0, r0, r7
+    \\ add r5, r5 , r8
+    \\ .endm
+    \\ .macro SAVE_S1
+    \\ vldmia.f32 r6, { s4 }
+    \\ vmla.f32 s4, s0, s12
+    \\ vstmia.f32 r6 , { s4 }
+    \\ add r6, r6, r9
+    \\ .endm
+    \\ .arm
+    \\ .align 5
+    \\ push {r4 - r9 , fp}
+    \\ add fp, sp, #28
+    \\ sub sp, sp, #256
+    \\ sub r12, fp, #192
+    \\ vstm r12, { s8 - s15 }
+    \\ movs r12, #0
+    \\ str r12, [fp, #-228]
+    \\ str r12, [fp, #-224]
+    \\ cmp r0, #0
+    \\ ble 20020f
+    \\ cmp r1, #0
+    \\ ble 20020f
+    \\ .if \bp0
+    \\ vmov s0, r3
+    \\ ldr r3, [fp, #0 ]
+    \\ .endif
+    \\ str r3, [fp, #-256 ]
+    \\ str r0, [fp, #-252 ]
+    \\ .if \bp1
+    \\ ldr r8 , [fp, #8 ]
+    \\ ldr r9 , [fp, #16 ]
+    \\ .endif
+    \\ .if \bp0
+    \\ ldr r8 , [fp, #12 ]
+    \\ ldr r9 , [fp, #20 ]
+    \\ .endif
+    \\ cmp r8, #0
+    \\ beq 20020f
+    \\ cmp r9, #0
+    \\ beq 20020f
+    \\ .if \bp1
+    \\ ldr r7, [fp, #0 ]
+    \\ .endif
+    \\ .if \bp0
+    \\ ldr r7, [fp, #4 ]
+    \\ .endif
+    \\ lsl r7, r7, #2
+    \\ cmp r8, #1
+    \\ bne 20010f
+    \\ cmp r9, #1
+    \\ bne 20010f
+    \\ 20000:
+    \\ .if \bp1
+    \\ ldr r6 , [fp, #12 ]
+    \\ .endif
+    \\ .if \bp0
+    \\ ldr r6 , [fp, #16 ]
+    \\ .endif
+    \\ ldr r12, [fp, #-252 ]
+    \\ asrs r12, r12, #3
+    \\ ble 20006f
+    \\ 20001:
+    \\ ldr r0, [fp, #-256 ]
+    \\ add r4, r0, r7
+    \\ add r3 , r0, #8*4
+    \\ str r3 , [fp, #-256 ]
+    \\ add r4, r4, r7
+    \\ add r4, r4, r7
+    \\ .if \bp1
+    \\ ldr r5 , [fp, #4 ]
+    \\ .endif
+    \\ .if \bp0
+    \\ ldr r5 , [fp, #8 ]
+    \\ .endif
+    \\ INIT_F8
+    \\ asrs r2, r1, #3
+    \\ ble 20003f
+    \\ 20002:
+    \\ KERNEL_F8X8
+    \\ subs r2, r2, #1
+    \\ bne 20002b
+    \\ 20003:
+    \\ ands r2, r1 , #7
+    \\ ble 20005f
+    \\ 20004:
+    \\ KERNEL_F8X1
+    \\ subs r2, r2, #1
+    \\ bne 20004b
+    \\ 20005:
+    \\ SAVE_F8
+    \\ subs r12 , r12 , #1
+    \\ bne 20001b
+    \\ 20006:
+    \\ ldr r12, [fp, #-252 ]
+    \\ ands r12, r12 , #7
+    \\ ble 20020f
+    \\ 20007:
+    \\ ldr r0, [fp, #-256 ]
+    \\ add r3, r0, #4
+    \\ str r3, [fp, #-256 ]
+    \\ .if \bp1
+    \\ ldr r5 , [fp, #4 ]
+    \\ .endif
+    \\ .if \bp0
+    \\ ldr r5 , [fp, #8 ]
+    \\ .endif
+    \\ INIT_F1
+    \\ mov r2, r1
+    \\ 20008:
+    \\ KERNEL_F1X1
+    \\ subs r2, r2, #1
+    \\ bne 20008b
+    \\ 20009:
+    \\ SAVE_F1
+    \\ subs r12 , r12 , #1
+    \\ bne 20007b
+    \\ b 20020f
+    \\ 20010:
+    \\ lsl r8, r8, #2
+    \\ lsl r9, r9, #2
+    \\ .if \bp1
+    \\ ldr r6 , [fp, #12 ]
+    \\ .endif
+    \\ .if \bp0
+    \\ ldr r6 , [fp, #16 ]
+    \\ .endif
+    \\ ldr r12, [fp, #-252 ]
+    \\ asrs r12, r12, #2
+    \\ ble 20016f
+    \\ 20011:
+    \\ ldr r0, [fp, #-256 ]
+    \\ add r4, r0, r7
+    \\ add r3 , r0, #4*4
+    \\ str r3 , [fp, #-256 ]
+    \\ .if \bp1
+    \\ ldr r5 , [fp, #4 ]
+    \\ .endif
+    \\ .if \bp0
+    \\ ldr r5 , [fp, #8 ]
+    \\ .endif
+    \\ INIT_S4
+    \\ asrs r2, r1, #2
+    \\ ble 20013f
+    \\ 20012:
+    \\ KERNEL_S4X4
+    \\ subs r2, r2, #1
+    \\ bne 20012b
+    \\ 20013:
+    \\ ands r2, r1 , #3
+    \\ ble 20015f
+    \\ 20014:
+    \\ KERNEL_S4X1
+    \\ subs r2, r2, #1
+    \\ bne 20014b
+    \\ 20015:
+    \\ SAVE_S4
+    \\ subs r12 , r12 , #1
+    \\ bne 20011b
+    \\ 20016:
+    \\ ldr r12, [fp, #-252 ]
+    \\ ands r12, r12 , #3
+    \\ ble 20020f
+    \\ 20017:
+    \\ ldr r0, [fp, #-256 ]
+    \\ add r3, r0, #4
+    \\ str r3, [fp, #-256 ]
+    \\ .if \bp1
+    \\ ldr r5 , [fp, #4 ]
+    \\ .endif
+    \\ .if \bp0
+    \\ ldr r5 , [fp, #8 ]
+    \\ .endif
+    \\ INIT_S1
+    \\ mov r2, r1
+    \\ 20018:
+    \\ KERNEL_S1X1
+    \\ subs r2, r2, #1
+    \\ bne 20018b
+    \\ 20019:
+    \\ SAVE_S1
+    \\ subs r12 , r12 , #1
+    \\ bne 20017b
+    \\ 20020:
+    \\ sub r3, fp, #192
+    \\ vldm r3, { s8 - s15 }
+    \\ mov r0, #0
+    \\ sub sp, fp, #28
+    \\ pop {r4 -r9 ,fp}
+    \\ bx lr
+    \\ .purgem INIT_F8
+    \\ .purgem KERNEL_F8X8
+    \\ .purgem KERNEL_F8X1
+    \\ .purgem SAVE_F8
+    \\ .purgem INIT_F1
+    \\ .purgem KERNEL_F1X1
+    \\ .purgem SAVE_F1
+    \\ .purgem INIT_S4
+    \\ .purgem KERNEL_S4X4
+    \\ .purgem KERNEL_S4X1
+    \\ .purgem SAVE_S4
+    \\ .purgem INIT_S1
+    \\ .purgem KERNEL_S1X1
+    \\ .purgem SAVE_S1
+    \\ .endm
+    \\
+;
+
+pub fn Body(comptime args: []const u8) type {
+    return struct {
+        pub fn entry() callconv(.naked) void {
+            asm volatile (text ++ (" __bk " ++ args ++ "\n .purgem __bk\n"));
+        }
+    };
+}

@@ -35,71 +35,71 @@ pub const HeadTable = struct {
     }
 
     pub inline fn version(self: Self) types.Fixed {
-        return types.Fixed.fromBytes(self.table_data[@offsetOf(StreamLayout, "version")..]);
+        return types.field(StreamLayout, "version", self.table_data);
     }
 
     pub inline fn fontRevision(self: Self) types.Fixed {
-        return types.Fixed.fromBytes(self.table_data[@offsetOf(StreamLayout, "font_revision")..]);
+        return types.field(StreamLayout, "font_revision", self.table_data);
     }
 
     pub inline fn checksumAdjustment(self: Self) u32 {
-        return bytes.getU32BE(self.table_data[@offsetOf(StreamLayout, "checksum_adjustment")..]);
+        return types.field(StreamLayout, "checksum_adjustment", self.table_data);
     }
 
     pub inline fn magicNumber(self: Self) u32 {
-        return bytes.getU32BE(self.table_data[@offsetOf(StreamLayout, "magic_number")..]);
+        return types.field(StreamLayout, "magic_number", self.table_data);
     }
 
     pub inline fn flags(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "flags")..]);
+        return types.field(StreamLayout, "flags", self.table_data);
     }
 
     pub inline fn unitsPerEm(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "units_per_em")..]);
+        return types.field(StreamLayout, "units_per_em", self.table_data);
     }
 
     pub inline fn created(self: Self) types.LongDateTime {
-        return bytes.readIntBE(types.LongDateTime, self.table_data[@offsetOf(StreamLayout, "created")..]);
+        return types.field(StreamLayout, "created", self.table_data);
     }
 
     pub inline fn modified(self: Self) types.LongDateTime {
-        return bytes.readIntBE(types.LongDateTime, self.table_data[@offsetOf(StreamLayout, "modified")..]);
+        return types.field(StreamLayout, "modified", self.table_data);
     }
 
     pub inline fn xMin(self: Self) i16 {
-        return bytes.getI16BE(self.table_data[@offsetOf(StreamLayout, "x_min")..]);
+        return types.field(StreamLayout, "x_min", self.table_data);
     }
 
     pub inline fn yMin(self: Self) i16 {
-        return bytes.getI16BE(self.table_data[@offsetOf(StreamLayout, "y_min")..]);
+        return types.field(StreamLayout, "y_min", self.table_data);
     }
 
     pub inline fn xMax(self: Self) i16 {
-        return bytes.getI16BE(self.table_data[@offsetOf(StreamLayout, "x_max")..]);
+        return types.field(StreamLayout, "x_max", self.table_data);
     }
 
     pub inline fn yMax(self: Self) i16 {
-        return bytes.getI16BE(self.table_data[@offsetOf(StreamLayout, "y_max")..]);
+        return types.field(StreamLayout, "y_max", self.table_data);
     }
 
     pub inline fn macStyle(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "mac_style")..]);
+        return types.field(StreamLayout, "mac_style", self.table_data);
     }
 
     pub inline fn lowestRecPpem(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "lowest_rec_ppem")..]);
+        return types.field(StreamLayout, "lowest_rec_ppem", self.table_data);
     }
 
     pub inline fn fontDirectionHint(self: Self) i16 {
-        return bytes.getI16BE(self.table_data[@offsetOf(StreamLayout, "font_direction_hint")..]);
+        return types.field(StreamLayout, "font_direction_hint", self.table_data);
     }
 
     pub inline fn indexToLocFormat(self: Self) i16 {
-        return bytes.getI16BE(self.table_data[@offsetOf(StreamLayout, "index_to_loc_format")..]);
+        return types.field(StreamLayout, "index_to_loc_format", self.table_data);
     }
 
     pub inline fn glyphDataFormat(self: Self) i16 {
-        return bytes.getI16BE(self.table_data[@offsetOf(StreamLayout, "glyph_data_format")..]);
+        return types.field(StreamLayout, "glyph_data_format", self.table_data);
     }
 
     /// When calculating the raw_font_checksum_adj0, the checksum_adjustment field is assumed to be 0.

@@ -13,30 +13,30 @@ const tools = @import("tools.zig");
 /// Adds the SSH steps and `bench.zig`'s; `filters` is `-Drstd-test-filter`.
 pub fn addSshTests(b: *Build, optimize: Optimize, filters: []const []const u8) !void {
     const mac = b.option([]const u8, "ssh-mac", "SSH alias of the Apple silicon Mac for the ssh-test steps (default " ++ tools.mac_alias ++ ")") orelse tools.mac_alias;
+    const intel = b.option([]const u8, "ssh-mac-intel", "SSH alias of the Intel Mac for ssh-test-x86_64-macos (default " ++ tools.intel_mac_alias ++ ")") orelse tools.intel_mac_alias;
     const tool = tools.hostTool(b, .ssh_test);
     // Apple silicon: the cores only real hardware runs (vortex, vortexm4, SME)
     const arm = b.resolveTargetQuery(.{ .cpu_arch = .aarch64, .os_tag = .macos });
-    try addSshTest(b, optimize, filters, mac, tool, arm, &.{.{ .where = "on the Mac" }});
-    // x86_64 macOS under Rosetta 2, which the Mac must have installed. Its
-    // cpuid hides AVX unless asked, so rstd's AVX cores run only in `-avx2`.
-    // `hw.optional.avx2_0` stays 0 there, so Accelerate likely keeps its SSE
-    // path: its AVX2 path needs an Intel Mac.
+    try addSshTest(b, optimize, filters, tool, arm, &.{.{ .mac = mac, .option = "ssh-mac", .where = "on the Mac" }});
+    // x86_64 macOS on the Intel Mac; Rosetta 2 on the Apple silicon Mac stays
+    // for comparison. Rosetta's cpuid hides AVX unless asked, so rstd's AVX
+    // cores run there only in `-avx2`, and Accelerate keeps its SSE path.
     const x86 = b.resolveTargetQuery(.{ .cpu_arch = .x86_64, .os_tag = .macos });
-    try addSshTest(b, optimize, filters, mac, tool, x86, &.{
-        .{ .where = "on the Mac under Rosetta 2" },
-        .{ .suffix = "-avx2", .env = "ROSETTA_ADVERTISE_AVX=1", .where = "on the Mac under Rosetta 2 with AVX2 and FMA in cpuid (rstd's AVX cores too)" },
+    try addSshTest(b, optimize, filters, tool, x86, &.{
+        .{ .mac = intel, .option = "ssh-mac-intel", .where = "on the Intel Mac" },
+        .{ .suffix = "-rosetta", .mac = mac, .option = "ssh-mac", .where = "on the Apple silicon Mac under Rosetta 2" },
+        .{ .suffix = "-rosetta-avx2", .mac = mac, .option = "ssh-mac", .env = "ROSETTA_ADVERTISE_AVX=1", .where = "on the Apple silicon Mac under Rosetta 2 with AVX2 and FMA in cpuid (rstd's AVX cores too)" },
     });
     addGroupRepro(b, optimize, mac, tool, arm);
     try bench.addBenches(b, mac, arm, tool);
 }
 
-/// One `ssh-test-<arch>-macos<suffix>` step: where it runs, and a variable
-/// set for the run.
-const SshVariant = struct { suffix: []const u8 = "", env: ?[]const u8 = null, where: []const u8 };
+/// One `ssh-test-<arch>-macos<suffix>` step: the Mac it runs on and the option
+/// naming it, where it runs, and a variable set for the run.
+const SshVariant = struct { suffix: []const u8 = "", mac: []const u8, option: []const u8, env: ?[]const u8 = null, where: []const u8 };
 
-/// `ssh-test-<arch>-macos`: the full suite for `target`, run on `mac`, once
-/// per variant.
-fn addSshTest(b: *Build, optimize: Optimize, filters: []const []const u8, mac: []const u8, tool: *rstdbuild.CompileStep, target: rstdbuild.ResolvedTarget, variants: []const SshVariant) !void {
+/// `ssh-test-<arch>-macos`: the full suite for `target`, once per variant.
+fn addSshTest(b: *Build, optimize: Optimize, filters: []const []const u8, tool: *rstdbuild.CompileStep, target: rstdbuild.ResolvedTarget, variants: []const SshVariant) !void {
     const mod = try buildroot.addRstdModule(b, null, target, optimize, .all, .{});
     const test_exe = try buildroot.addRstdTest(b, mod, target, optimize, filters);
     for (variants) |v| {
@@ -44,13 +44,13 @@ fn addSshTest(b: *Build, optimize: Optimize, filters: []const []const u8, mac: [
         const run = qemutest.watchCommand(b);
         run.addArg("--");
         run.addArtifactArg2(tool, .{});
-        run.addArg(mac);
+        run.addArg(v.mac);
         run.addArtifactArg2(test_exe, .{});
         if (v.env) |e| run.addArg(b.fmt("env:{s}", .{e}));
         run.stdio = .inherit;
         run.has_side_effects = true;
         const name = b.fmt("ssh-test-{t}-macos{s}", .{ target.result.cpu.arch, v.suffix });
-        b.step(name, b.fmt("Run rstd's {t} tests {s} at SSH alias {s} (-Dssh-mac)", .{ target.result.cpu.arch, v.where, mac })).dependOn(&run.step);
+        b.step(name, b.fmt("Run rstd's {t} tests {s} at SSH alias {s} (-D{s})", .{ target.result.cpu.arch, v.where, v.mac, v.option })).dependOn(&run.step);
         // what that runs, built alone, so a build queue frees its slot before
         // the Mac runs the tests
         const check = b.step(b.fmt("ssh-check-{t}-macos{s}", .{ target.result.cpu.arch, v.suffix }), b.fmt("Build what {s} runs, without running it", .{name}));

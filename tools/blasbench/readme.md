@@ -1,13 +1,21 @@
 # blasbench
 
-Races rstd's BLAS and LAPACK against other libraries, and its arm64 kernels against OpenBLAS's assembly. `blas_bench.zig` is the bench (`kernels.zig`, `libs.zig` and `ext.zig` hold the sections), `bench.zig` the timing loop, `merge.zig` the merge of repeated runs, `flyoff.sh` the timed reruns, `nix/` the Eigen shim. Results: [`results-flyoff.md`](results/results-flyoff.md) (every OS and CPU at hand), [`results-m6.md`](results/results-m6.md) and [`results-m6-libraries.md`](results/results-m6-libraries.md) (the M6).
+Races rstd's BLAS and LAPACK against other libraries, and its kernels against OpenBLAS's own (arm64's assembly, x86_64's level 1). `blas_bench.zig` is the bench (`kernels.zig`, `libs.zig`, `ext.zig` and `l3thread.zig` hold the sections), `bench.zig` the timing loop, `merge.zig` the merge of repeated runs, `flyoff.sh` the timed reruns, `nix/` the Eigen shim. Results: [`results-flyoff.md`](results/results-flyoff.md) (every OS and CPU at hand), [`results-m6.md`](results/results-m6.md) and [`results-m6-libraries.md`](results/results-m6-libraries.md) (the M6), [`results-sum.md`](results/results-sum.md) (`sum`'s kernels on Zen 3 and the M6, T192).
 
 ## Sections
 
 - `probe`, `l1`, `l2`, `l3`: arm64 kernels in their vtable slots' ABI (`l3` needs `-Dopenblas`).
+- `l1` on x86_64 (unnamed only with `-Dopenblas`): the selected core's level-1 kernels (`core`) against OpenBLAS's own for HASWELL or ZEN (`asm`), its `.c` microkernels and `.S` as `kernel/x86_64/KERNEL.<core>` picks them, compiled from the `-Dopenblas` checkout (`obx86.zig`; T173); without it, or on another core, `asm` is `none`.
 - `kern3` (only when named, any host): the selected core's gemm kernel alone, on a `P` by 64 block of depth `Q` its own copies packed, against rstd's whole `gemm` at n = 128 to 1024 on one worker, every type: how much of the kernel's rate the driver keeps (T21).
+- `l3thread` (only when named, any host): rstd's public `gemm` at n = 256 to 2000, `f64` and `f32`, serial and at 2, 4, 8 and 16 workers (`l3thread.zig`), medians in GFLOPS: how level 3 scales with workers ([`threading.md`](../../src/math/kernels/blas/threading.md)).
+- `sparse` (only when named, any host): CSC `A x` and `Aᵀ y` against dense `gemv` on the same `f64` matrix, one worker, over fill (1% to 60%), size (100 to 3000; 10 000 with `--max-n=10000`, whose dense matrix is 800 MB) and pattern (random, banded): the crossover for a dense-or-sparse switch; and `Aᵀ y` in four sums, with scalar loads and, on x86_64 with AVX2, `vgatherdpd`, checked equal: whether a gather pays (`sparse_bench.zig`, `sparse_gather.zig`, T151).
+- `matcopy` (only when named, any host): the real out-of-place copy of an n by n matrix, `f32` and `f64`, n = 64 to 4096, `alpha` 1 and 1.5: transposed, the plain loops against the tiled kernel in one call (`ext/transpose.zig`) and the public `omatcopy` on rstd's `Io` (`--threads`), which bands it from `65536 * 4` elements; not transposed, the kernel in one call against the public `omatcopy` (`matcopy_bench.zig`, T185).
+- `potrf` (only when named, any host): rstd's own upper `potrf` with Accelerate's routing off, every type at n = 32 to 1024 (`potrf_bench.zig`): `potf2`, `potrf` on one worker and on `--threads`' workers, and the workers' gain; what `team_grain` (`src/math/kernels/lapack/interface.zig`) was measured with ([`threading.md`](../../src/math/kernels/blas/threading.md), LAPACK).
+- `inline` (only when named, any host): `rstd.linalg`'s inline `@Vector` forms (`vector.dot` and `length`, `matrix.any_size`'s `mul` by a vector and by a matrix, `det` and `solve`) against the BLAS and LAPACK calls past the inline limit (`dot`, `nrm2`, `gemv`, `gemm`, `getrf`, `gesv`), at sizes 4 to 16, `f32` and `f64`, one worker: where the inline limit belongs: it moved from 8 to 12 on these results (`inline_bench.zig`, M4).
+- `compensated` (only when named, any host): `sum`, `asum` and `dot` in each `blas.Summation` (plain, compensated, fast) and, when loaded, OpenBLAS's `cblas_*` routine, `f32`, `f64` and `c32`, n = 100 to 10^7, on rstd's `Io` (`--threads`): the price of each mode, for choosing the defaults (`compensated_bench.zig`, T138, T198).
+- `rotreals` (only when named, any host): complex `rot` by a real rotation through its own slot (`csrot_k`, `zdrot_k`) against the real slot (`srot_k`, `drot_k`) on the same `2n` reals, unit strides, `c32` and `c64`, n = 1000 to 10^6, one call each: whether the route to the real kernel from n = 4096 on x86_64 (OpenBLAS's `interface/zrot.c`, `blas1/rot_reals.zig`) pays on this core (`rot_reals_bench.zig`, T183).
 - `lib1`, `lib2`, `lib3`: rstd's public routines against the libraries through CBLAS (level 1, `gemv`, `gemm`), then the table-driven races through each library's Fortran-ABI routines: `ger`, `symv`, `trsv`, `gbmv` in `lib2`; `gemm`, `symm`, `syrk`, `trmm`, `trsm` in `lib3`.
-- `lapack`: `potrf`, `getrf`, `getrs`, `gesv`, `trtri`, `potri`, and the routines rstd does not have yet, which race the libraries until it does: `gesvd`, `gesdd` (T34), `geqrf`, `syevd` (T111), `sytrf`, `gbtrf` (T110).
+- `lapack`: `potrf`, `getrf`, `getrs`, `gesv`, `trtri`, `potri`, `gesvd`, `gesdd`, `syevdN` (`syevd` with `jobz` `N`, the values alone; T186), `sytrf` and `gbtrf`; `geqrf` and `syevd` with vectors race the libraries alone until their rstd call is added (#120).
 
 Adding a routine to `lib2`, `lib3` or `lapack` is adding an entry to `ext_l2`, `ext_l3` or `lapack_ops`: a struct naming its operands, FLOP count, Fortran-ABI call, rstd's call and a residual (the comment above `Level` in `ext.zig`). An entry written before rstd has the routine gates rstd's call on `@hasDecl`, so it joins the race when the routine lands.
 
@@ -15,14 +23,17 @@ Every contestant is checked once on fresh data before timing (its residual, in e
 
 ## Options
 
-The bench takes `--name=value` options, then section names; with none named every section but `kern3` that the host and options allow runs.
+The bench takes `--name=value` options, then section names; with none named every section but `kern3` and `l3thread` that the host and options allow runs.
 
 - `--openblas=<library>` (`-Dopenblas-lib`), `--blis=<library>`, `--accelerate=<path>` (macOS' framework by default), `--reference=<liblapack>`, `--eigen=<shim>`, `--aocl-libflame=<library>`: the libraries, by absolute path; each but OpenBLAS is skipped with a warning when it cannot load. The library sections run unnamed only with `--openblas`.
 - `--threads=<n>` or `--threads=default`: each library's thread count and rstd's ceiling; 1 by default.
 - `--rstd-io=failing`: rstd on `Io.failing`, serial, rather than its own `Io.Threaded`.
 - `--max-n=<n>`: library rows of `n` up to that only.
+- `--only=<routine>[,<routine>...]`: the table sections (`lib2`'s and `lib3`'s routines beyond `gemv` and `gemm`, `lapack`) race those routines only, by their names in the tables (`--only=potrf,potri`).
 - `--ob-core=<core>`: `OPENBLAS_CORETYPE`, which rstd reads too.
+- `--openblas-prefix=<prefix>`: the prefix on each OpenBLAS symbol, as SciPy's `scipy-openblas32` wheels have (`scipy_`).
 - `--rstd-accelerate=0`: rstd's own kernels on macOS, not Accelerate.
+- `--routines=<name>[,<name>...]`: only those level-1 routines in `l1` and `lib1` (`sum,asum`), for a short run.
 - `--accelerate-alone=1`: only the libraries, rstd never initialized (see Accelerate's threads below).
 - `blas_bench --merge <out.md> <log>...` merges runs of one configuration (`merge.zig`, `flyoff.sh`).
 
@@ -53,7 +64,7 @@ The reference binaries (design.md, the anthology decision) are baselines only:
 
 | step | what |
 | ---- | ---- |
-| `bench-native -Dopenblas-lib=<library>` | here; `-Dblis-lib`, `-Dreference-lib`, `-Deigen-lib`, `-Daocl-libflame-lib` add the others |
+| `bench-native -Dopenblas-lib=<library>` | here; `-Dblis-lib`, `-Dreference-lib`, `-Deigen-lib`, `-Daocl-libflame-lib` add the others; `-Dopenblas=<checkout>` the x86_64 `l1` references |
 | `ssh-bench-aarch64-macos` | on the Mac, nixpkgs' libraries and the reference binaries through its Nix |
 | `qemu-bench-linux-<arch>` | in a Linux VM on the host's CPU (`-Dvm-bench-arg` for the bench) |
 | `bench-check` | compiles the bench for Windows x86_64, Linux and macOS on x86_64 and arm64, and tests `merge.zig` |
@@ -77,7 +88,8 @@ Each stages its files (`zig build flyoff-stage-<host>`), then runs every configu
 **The timing rule** (R4; design.md, "Timing on a host macOS keeps busy"; its details in [`results-flyoff.md`](results/results-flyoff.md#timing-rule)):
 
 - Quiet the host first: on the Mac `tools/macos/configure_mac_host_arm.sh` (auto-login, indexing daemons off with SIP off). A first window starts when the host is idle twice two minutes apart.
-- A run starts when no QEMU runs, the one-minute load is under 2, and no other process passes 5% of a core in a 5 s sample. Activity Monitor and `sysmond` are left out of the 5% test, their share added to the load limit. Windows has no load average: there the processor queue length stands in for it, under 2, sampled with `typeperf`.
-- A watch every 20 s notes any other process over 5% or another QEMU; such a run is set aside and repeated, 3 times at most. `uptime` and the top processes are recorded before and after each run.
+- A run starts when no QEMU runs, the one-minute load is under 2, and no other process passes 15% of a core in a 5 s sample. Activity Monitor and `sysmond` are left out of the 15% test, their share added to the load limit. Windows has no load average: there the processor queue length stands in for it, under 2, sampled with `typeperf`.
+- A watch every 20 s notes any other process over 15% of a core or another QEMU; a run with three or more such samples (a minute) is set aside and repeated, 3 times at most. Brief spikes are let through: on the M6, passes with single spikes up to 77% matched clean ones as closely as clean ones match each other ([#542](https://github.com/randyos-org/rstd/issues/542)). `uptime` and the top processes are recorded before and after each run.
+- A session started again continues: `progress.log` is appended to, and a configuration whose `final` line is there is skipped.
 - Each configuration runs twice; a row counts when the two agree within 3% on every rate (`blas_bench --merge`); sections with rows apart run again, up to 3 more times, and a row still apart is marked noisy.
 - A ratio from 0.97 to 1.03 is within noise; multithreaded rows are indicative only.

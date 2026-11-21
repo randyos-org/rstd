@@ -1,0 +1,114 @@
+//! `dgemv_t` for la264, from OpenBLAS `kernel/loongarch64/dgemv_t_lsx.S` (`v0.3.34-794-gdbf2c24c9`); converted by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+/// Each function's core and variant.
+pub const keys = .{
+    .{ .core = .la264, .variant = "" },
+};
+
+pub const Body = struct {
+    pub fn entry() callconv(.naked) void {
+        asm volatile (
+            \\ .align 5
+            \\ ld.d $r6, $sp, 0
+            \\ ld.d $r16, $sp, 8
+            \\ addi.d $sp, $sp, -80
+            \\ st.d $r23, $sp, 0
+            \\ st.d $r24, $sp, 8
+            \\ st.d $r25, $sp, 16
+            \\ st.d $r26, $sp, 32
+            \\ st.d $r27, $sp, 40
+            \\ st.d $r28, $sp, 48
+            \\ st.d $r29, $sp, 56
+            \\ st.d $r30, $sp, 64
+            \\ fst.d $f0, $sp, 72
+            \\ slli.d $r8, $r8, 3
+            \\ slli.d $r10, $r10, 3
+            \\ slli.d $r6, $r6, 3
+            \\ bge $r0, $r4, 20007f
+            \\ bge $r0, $r5, 20007f
+            \\ move $r15, $r0
+            \\ move $r26, $r0
+            \\ move $r24, $r9
+            \\ move $r23, $r7
+            \\ li.d $r20, 8
+            \\ 20000:
+            \\ vxor.v $vr11, $vr11, $vr11
+            \\ movgr2fr.d $f17, $r0
+            \\ move $r9, $r24
+            \\ move $r27, $r0
+            \\ move $r14, $r0
+            \\ srli.d $r28, $r4, 1
+            \\ slli.d $r28, $r28, 1
+            \\ bne $r10, $r20, 20004f
+            \\ 20001:
+            \\ beq $r14, $r28, 20002f
+            \\ vld $vr12, $r9, 0
+            \\ vld $vr13, $r23, 0
+            \\ vfmadd.d $vr11, $vr13, $vr12, $vr11
+            \\ addi.d $r27, $r27, 16
+            \\ addi.d $r14, $r14, 2
+            \\ addi.d $r9, $r9, 16
+            \\ addi.d $r23, $r23, 16
+            \\ b 20001b
+            \\ 20002:
+            \\ andi $r29, $r4, 1
+            \\ beq $r0, $r29, 20003f
+            \\ fld.d $f19, $r23, 0
+            \\ fld.d $f18, $r9, 0
+            \\ fmadd.d $f17, $f19, $f18, $f17
+            \\ 20003:
+            \\ vextrins.d $vr14, $vr11, 0x01
+            \\ vfadd.d $vr14, $vr11, $vr14
+            \\ vpickve2gr.d $r19, $vr14, 0
+            \\ movgr2fr.d $f18, $r19
+            \\ fadd.d $f17, $f18, $f17
+            \\ fldx.d $f19, $r11, $r26
+            \\ fmadd.d $f19, $f0, $f17, $f19
+            \\ fstx.d $f19, $r11, $r26
+            \\ addi.d $r29, $r15, 1
+            \\ mul.d $r29, $r29, $r8
+            \\ add.d $r23, $r7, $r29
+            \\ add.d $r26, $r26, $r6
+            \\ addi.d $r15, $r15, 1
+            \\ blt $r15, $r5, 20000b
+            \\ b 20007f
+            \\ 20004:
+            \\ move $r25, $r0
+            \\ move $r14, $r0
+            \\ move $r27, $r0
+            \\ 20005:
+            \\ beq $r14, $r4, 20006f
+            \\ fldx.d $f18, $r9, $r25
+            \\ fldx.d $f19, $r23, $r27
+            \\ fmadd.d $f17, $f19, $f18, $f17
+            \\ add.d $r25, $r25, $r10
+            \\ addi.d $r27, $r27, 8
+            \\ addi.d $r14, $r14, 1
+            \\ b 20005b
+            \\ 20006:
+            \\ fldx.d $f19, $r11, $r26
+            \\ fmadd.d $f19, $f0, $f17, $f19
+            \\ fstx.d $f19, $r11, $r26
+            \\ addi.d $r29, $r15, 1
+            \\ mul.d $r29, $r29, $r8
+            \\ add.d $r23, $r7, $r29
+            \\ add.d $r26, $r26, $r6
+            \\ addi.d $r15, $r15, 1
+            \\ blt $r15, $r5, 20000b
+            \\ b 20007f
+            \\ 20007:
+            \\ ld.d $r23, $sp, 0
+            \\ ld.d $r24, $sp, 8
+            \\ ld.d $r25, $sp, 16
+            \\ ld.d $r26, $sp, 32
+            \\ ld.d $r27, $sp, 40
+            \\ ld.d $r28, $sp, 48
+            \\ ld.d $r29, $sp, 56
+            \\ ld.d $r30, $sp, 64
+            \\ fld.d $f0, $sp, 72
+            \\ addi.d $sp, $sp, 80
+            \\ jirl $r0, $r1, 0x0
+            \\
+        );
+    }
+};

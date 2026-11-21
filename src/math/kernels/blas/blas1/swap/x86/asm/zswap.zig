@@ -1,0 +1,167 @@
+//! `zswap` for athlon, atom, banias, barcelona, bobcat, bulldozer, coppermine, core2, dunnington, haswell, katmai, nano, nehalem, northwood, opteron, opteron_sse3, p5, p6, penryn, piledriver, prescott, sandybridge, viac3, yonah, zen, from OpenBLAS `kernel/x86/zswap.S` (`v0.3.34-794-gdbf2c24c9`); converted by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+/// Each function's core and variant.
+pub const keys = .{
+    .{ .core = .athlon, .variant = "" },
+    .{ .core = .atom, .variant = "" },
+    .{ .core = .banias, .variant = "" },
+    .{ .core = .barcelona, .variant = "" },
+    .{ .core = .bobcat, .variant = "" },
+    .{ .core = .bulldozer, .variant = "" },
+    .{ .core = .coppermine, .variant = "" },
+    .{ .core = .core2, .variant = "" },
+    .{ .core = .dunnington, .variant = "" },
+    .{ .core = .haswell, .variant = "" },
+    .{ .core = .katmai, .variant = "" },
+    .{ .core = .nano, .variant = "" },
+    .{ .core = .nehalem, .variant = "" },
+    .{ .core = .northwood, .variant = "" },
+    .{ .core = .opteron, .variant = "" },
+    .{ .core = .opteron_sse3, .variant = "" },
+    .{ .core = .p5, .variant = "" },
+    .{ .core = .p6, .variant = "" },
+    .{ .core = .penryn, .variant = "" },
+    .{ .core = .piledriver, .variant = "" },
+    .{ .core = .prescott, .variant = "" },
+    .{ .core = .sandybridge, .variant = "" },
+    .{ .core = .viac3, .variant = "" },
+    .{ .core = .yonah, .variant = "" },
+    .{ .core = .zen, .variant = "" },
+};
+
+pub const Body = struct {
+    pub fn entry() callconv(.naked) void {
+        asm volatile (
+            \\ .balign 16
+            \\ pushl %ebp
+            \\ pushl %edi
+            \\ pushl %esi
+            \\ pushl %ebx
+            \\ movl 4 + 16 + 0(%esp), %edx
+            \\ movl 32 + 16 + 0(%esp), %esi
+            \\ movl 40 + 16 + 0(%esp), %edi
+            \\ movl 36 + 16 + 0(%esp), %ebx
+            \\ movl 44 + 16 + 0(%esp), %ecx
+            \\ sall $4, %ebx
+            \\ sall $4, %ecx
+            \\ cmpl $2 * 8, %ebx
+            \\ jne 20004f
+            \\ cmpl $2 * 8, %ecx
+            \\ jne 20004f
+            \\ movl %edx, %eax
+            \\ sarl $1, %eax
+            \\ jle 20001f
+            \\ .balign 8
+            \\ 20000:
+            \\ fldl 3 * 8(%esi)
+            \\ fldl 2 * 8(%esi)
+            \\ fldl 1 * 8(%esi)
+            \\ fldl 0 * 8(%esi)
+            \\ fldl 3 * 8(%edi)
+            \\ fldl 2 * 8(%edi)
+            \\ fldl 1 * 8(%edi)
+            \\ fldl 0 * 8(%edi)
+            \\ fstpl 0 * 8(%esi)
+            \\ fstpl 1 * 8(%esi)
+            \\ fstpl 2 * 8(%esi)
+            \\ fstpl 3 * 8(%esi)
+            \\ fstpl 0 * 8(%edi)
+            \\ fstpl 1 * 8(%edi)
+            \\ fstpl 2 * 8(%edi)
+            \\ fstpl 3 * 8(%edi)
+            \\ addl $4 * 8, %esi
+            \\ addl $4 * 8, %edi
+            \\ decl %eax
+            \\ jg 20000b
+            \\ .balign 8
+            \\ 20001:
+            \\ movl %edx, %eax
+            \\ andl $1, %eax
+            \\ jle 20008f
+            \\ .balign 8
+            \\ 20002:
+            \\ fldl 1 * 8(%esi)
+            \\ fldl 0 * 8(%esi)
+            \\ fldl 1 * 8(%edi)
+            \\ fldl 0 * 8(%edi)
+            \\ fstpl 0 * 8(%esi)
+            \\ fstpl 1 * 8(%esi)
+            \\ fstpl 0 * 8(%edi)
+            \\ fstpl 1 * 8(%edi)
+            \\ jmp 20008f
+            \\ .balign 8
+            \\ 20003:
+            \\ fldl 1 * 8(%esi)
+            \\ fldl 0 * 8(%esi)
+            \\ fldl 1 * 8(%edi)
+            \\ fldl 0 * 8(%edi)
+            \\ fstpl 0 * 8(%esi)
+            \\ fstpl 1 * 8(%esi)
+            \\ fstpl 0 * 8(%edi)
+            \\ fstpl 1 * 8(%edi)
+            \\ addl %ebx, %esi
+            \\ addl %ecx, %edi
+            \\ decl %eax
+            \\ jg 20003b
+            \\ jmp 20008f
+            \\ 20004:
+            \\ movl %edx, %eax
+            \\ cmpl $0, %ebx
+            \\ je 20003b
+            \\ cmpl $0, %ecx
+            \\ je 20003b
+            \\ sarl $1, %eax
+            \\ jle 20006f
+            \\ .balign 4
+            \\ 20005:
+            \\ fldl 1 * 8(%esi)
+            \\ fldl 0 * 8(%esi)
+            \\ addl %ebx, %esi
+            \\ fldl 1 * 8(%esi)
+            \\ fldl 0 * 8(%esi)
+            \\ fldl 1 * 8(%edi)
+            \\ fldl 0 * 8(%edi)
+            \\ addl %ecx, %edi
+            \\ fldl 1 * 8(%edi)
+            \\ fldl 0 * 8(%edi)
+            \\ fstpl 0 * 8(%esi)
+            \\ fstpl 1 * 8(%esi)
+            \\ subl %ebx, %esi
+            \\ fstpl 0 * 8(%esi)
+            \\ fstpl 1 * 8(%esi)
+            \\ leal (%esi, %ebx, 2), %esi
+            \\ fstpl 0 * 8(%edi)
+            \\ fstpl 1 * 8(%edi)
+            \\ subl %ecx, %edi
+            \\ fstpl 0 * 8(%edi)
+            \\ fstpl 1 * 8(%edi)
+            \\ leal (%edi, %ecx, 2), %edi
+            \\ decl %eax
+            \\ jg 20005b
+            \\ .balign 8
+            \\ 20006:
+            \\ movl %edx, %eax
+            \\ andl $1, %eax
+            \\ jle 20008f
+            \\ .balign 8
+            \\ 20007:
+            \\ fldl 1 * 8(%esi)
+            \\ fldl 0 * 8(%esi)
+            \\ fldl 1 * 8(%edi)
+            \\ fldl 0 * 8(%edi)
+            \\ fstpl 0 * 8(%esi)
+            \\ fstpl 1 * 8(%esi)
+            \\ fstpl 0 * 8(%edi)
+            \\ fstpl 1 * 8(%edi)
+            \\ .balign 8
+            \\ 20008:
+            \\ xorl %eax,%eax
+            \\ popl %ebx
+            \\ popl %esi
+            \\ popl %edi
+            \\ popl %ebp
+            \\ ret
+            \\
+        );
+    }
+};

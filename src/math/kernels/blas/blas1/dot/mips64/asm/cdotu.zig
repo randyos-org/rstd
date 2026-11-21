@@ -1,0 +1,261 @@
+//! `cdotu` for loongson3r3, from OpenBLAS `kernel/mips64/zdot.S` (`v0.3.34-794-gdbf2c24c9`); converted by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+/// Each function's core and variant.
+pub const keys = .{
+    .{ .core = .loongson3r3, .variant = "" },
+};
+
+pub const Body = struct {
+    pub fn entry() callconv(.naked) void {
+        asm volatile (
+            \\ .set mips64
+            \\ .align 5
+            \\ .set noreorder
+            \\ .set nomacro
+            \\ mtc1 $0, $f0
+            \\ mov.s $f1, $f0
+            \\ mov.s $f2, $f1
+            \\ mov.s $f3, $f2
+            \\ dsll $6, $6, 3
+            \\ li $3, 2 * 4
+            \\ blez $4, 20010f
+            \\ dsll $8, $8, 3
+            \\ bne $6, $3, 20005f
+            \\ dsra $2, $4, 2
+            \\ bne $8, $3, 20005f
+            \\ move $0, $0
+            \\ blez $2, 20002f
+            \\ move $0, $0
+            \\ lwc1 $f4, 0 * 4($5)
+            \\ lwc1 $f5, 1 * 4($5)
+            \\ lwc1 $f8, 0 * 4($7)
+            \\ daddiu $2, $2, -1
+            \\ blez $2, 20001f
+            \\ lwc1 $f9, 1 * 4($7)
+            \\ .align 3
+            \\ 20000:
+            \\ madd.s $f0, $f0, $f4, $f8
+            \\ lwc1 $f6, 2 * 4($5)
+            \\ madd.s $f1, $f1, $f5, $f8
+            \\ lwc1 $f7, 3 * 4($5)
+            \\ madd.s $f2, $f2, $f4, $f9
+            \\ lwc1 $f10, 2 * 4($7)
+            \\ madd.s $f3, $f3, $f5, $f9
+            \\ lwc1 $f11, 3 * 4($7)
+            \\ madd.s $f0, $f0, $f6, $f10
+            \\ lwc1 $f4, 4 * 4($5)
+            \\ madd.s $f1, $f1, $f7, $f10
+            \\ lwc1 $f5, 5 * 4($5)
+            \\ madd.s $f2, $f2, $f6, $f11
+            \\ lwc1 $f8, 4 * 4($7)
+            \\ madd.s $f3, $f3, $f7, $f11
+            \\ lwc1 $f9, 5 * 4($7)
+            \\ madd.s $f0, $f0, $f4, $f8
+            \\ lwc1 $f6, 6 * 4($5)
+            \\ madd.s $f1, $f1, $f5, $f8
+            \\ lwc1 $f7, 7 * 4($5)
+            \\ madd.s $f2, $f2, $f4, $f9
+            \\ lwc1 $f10, 6 * 4($7)
+            \\ madd.s $f3, $f3, $f5, $f9
+            \\ lwc1 $f11, 7 * 4($7)
+            \\ madd.s $f0, $f0, $f6, $f10
+            \\ lwc1 $f4, 8 * 4($5)
+            \\ madd.s $f1, $f1, $f7, $f10
+            \\ lwc1 $f5, 9 * 4($5)
+            \\ madd.s $f2, $f2, $f6, $f11
+            \\ lwc1 $f8, 8 * 4($7)
+            \\ madd.s $f3, $f3, $f7, $f11
+            \\ lwc1 $f9, 9 * 4($7)
+            \\ daddiu $2, $2, -1
+            \\ daddiu $5, $5, 8 * 4
+            \\ bgtz $2, 20000b
+            \\ daddiu $7, $7, 8 * 4
+            \\ .align 3
+            \\ 20001:
+            \\ madd.s $f0, $f0, $f4, $f8
+            \\ lwc1 $f6, 2 * 4($5)
+            \\ madd.s $f1, $f1, $f5, $f8
+            \\ lwc1 $f7, 3 * 4($5)
+            \\ madd.s $f2, $f2, $f4, $f9
+            \\ lwc1 $f10, 2 * 4($7)
+            \\ madd.s $f3, $f3, $f5, $f9
+            \\ lwc1 $f11, 3 * 4($7)
+            \\ madd.s $f0, $f0, $f6, $f10
+            \\ lwc1 $f4, 4 * 4($5)
+            \\ madd.s $f1, $f1, $f7, $f10
+            \\ lwc1 $f5, 5 * 4($5)
+            \\ madd.s $f2, $f2, $f6, $f11
+            \\ lwc1 $f8, 4 * 4($7)
+            \\ madd.s $f3, $f3, $f7, $f11
+            \\ lwc1 $f9, 5 * 4($7)
+            \\ madd.s $f0, $f0, $f4, $f8
+            \\ lwc1 $f6, 6 * 4($5)
+            \\ madd.s $f1, $f1, $f5, $f8
+            \\ lwc1 $f7, 7 * 4($5)
+            \\ madd.s $f2, $f2, $f4, $f9
+            \\ lwc1 $f10, 6 * 4($7)
+            \\ madd.s $f3, $f3, $f5, $f9
+            \\ lwc1 $f11, 7 * 4($7)
+            \\ madd.s $f0, $f0, $f6, $f10
+            \\ daddiu $5, $5, 8 * 4
+            \\ madd.s $f1, $f1, $f7, $f10
+            \\ daddiu $7, $7, 8 * 4
+            \\ madd.s $f2, $f2, $f6, $f11
+            \\ madd.s $f3, $f3, $f7, $f11
+            \\ .align 3
+            \\ 20002:
+            \\ andi $2, $4, 3
+            \\ blez $2, 20010f
+            \\ move $0, $0
+            \\ lwc1 $f4, 0 * 4($5)
+            \\ lwc1 $f5, 1 * 4($5)
+            \\ lwc1 $f8, 0 * 4($7)
+            \\ daddiu $2, $2, -1
+            \\ blez $2, 20004f
+            \\ lwc1 $f9, 1 * 4($7)
+            \\ .align 3
+            \\ 20003:
+            \\ madd.s $f0, $f0, $f4, $f8
+            \\ daddiu $2, $2, -1
+            \\ madd.s $f1, $f1, $f5, $f8
+            \\ lwc1 $f8, 2 * 4($7)
+            \\ madd.s $f2, $f2, $f4, $f9
+            \\ lwc1 $f4, 2 * 4($5)
+            \\ madd.s $f3, $f3, $f5, $f9
+            \\ lwc1 $f5, 3 * 4($5)
+            \\ lwc1 $f9, 3 * 4($7)
+            \\ daddiu $5, $5, 2 * 4
+            \\ bgtz $2, 20003b
+            \\ daddiu $7, $7, 2 * 4
+            \\ .align 3
+            \\ 20004:
+            \\ madd.s $f0, $f0, $f4, $f8
+            \\ madd.s $f1, $f1, $f5, $f8
+            \\ move $0, $0
+            \\ madd.s $f2, $f2, $f4, $f9
+            \\ j 20010f
+            \\ madd.s $f3, $f3, $f5, $f9
+            \\ .align 3
+            \\ 20005:
+            \\ blez $2, 20008f
+            \\ move $0, $0
+            \\ lwc1 $f4, 0 * 4($5)
+            \\ lwc1 $f5, 1 * 4($5)
+            \\ lwc1 $f8, 0 * 4($7)
+            \\ lwc1 $f9, 1 * 4($7)
+            \\ dadd $5, $5, $6
+            \\ daddiu $2, $2, -1
+            \\ blez $2, 20007f
+            \\ dadd $7, $7, $8
+            \\ .align 3
+            \\ 20006:
+            \\ madd.s $f0, $f0, $f4, $f8
+            \\ lwc1 $f6, 0 * 4($5)
+            \\ madd.s $f1, $f1, $f5, $f8
+            \\ lwc1 $f7, 1 * 4($5)
+            \\ madd.s $f2, $f2, $f4, $f9
+            \\ lwc1 $f10, 0 * 4($7)
+            \\ madd.s $f3, $f3, $f5, $f9
+            \\ lwc1 $f11, 1 * 4($7)
+            \\ dadd $5, $5, $6
+            \\ dadd $7, $7, $8
+            \\ madd.s $f0, $f0, $f6, $f10
+            \\ lwc1 $f4, 0 * 4($5)
+            \\ madd.s $f1, $f1, $f7, $f10
+            \\ lwc1 $f5, 1 * 4($5)
+            \\ madd.s $f2, $f2, $f6, $f11
+            \\ lwc1 $f8, 0 * 4($7)
+            \\ madd.s $f3, $f3, $f7, $f11
+            \\ lwc1 $f9, 1 * 4($7)
+            \\ dadd $5, $5, $6
+            \\ dadd $7, $7, $8
+            \\ madd.s $f0, $f0, $f4, $f8
+            \\ lwc1 $f6, 0 * 4($5)
+            \\ madd.s $f1, $f1, $f5, $f8
+            \\ lwc1 $f7, 1 * 4($5)
+            \\ madd.s $f2, $f2, $f4, $f9
+            \\ lwc1 $f10, 0 * 4($7)
+            \\ madd.s $f3, $f3, $f5, $f9
+            \\ lwc1 $f11, 1 * 4($7)
+            \\ dadd $5, $5, $6
+            \\ dadd $7, $7, $8
+            \\ madd.s $f0, $f0, $f6, $f10
+            \\ lwc1 $f4, 0 * 4($5)
+            \\ madd.s $f1, $f1, $f7, $f10
+            \\ lwc1 $f5, 1 * 4($5)
+            \\ madd.s $f2, $f2, $f6, $f11
+            \\ lwc1 $f8, 0 * 4($7)
+            \\ madd.s $f3, $f3, $f7, $f11
+            \\ lwc1 $f9, 1 * 4($7)
+            \\ dadd $5, $5, $6
+            \\ daddiu $2, $2, -1
+            \\ bgtz $2, 20006b
+            \\ dadd $7, $7, $8
+            \\ .align 3
+            \\ 20007:
+            \\ madd.s $f0, $f0, $f4, $f8
+            \\ lwc1 $f6, 0 * 4($5)
+            \\ madd.s $f1, $f1, $f5, $f8
+            \\ lwc1 $f7, 1 * 4($5)
+            \\ madd.s $f2, $f2, $f4, $f9
+            \\ lwc1 $f10, 0 * 4($7)
+            \\ madd.s $f3, $f3, $f5, $f9
+            \\ lwc1 $f11, 1 * 4($7)
+            \\ dadd $5, $5, $6
+            \\ dadd $7, $7, $8
+            \\ madd.s $f0, $f0, $f6, $f10
+            \\ lwc1 $f4, 0 * 4($5)
+            \\ madd.s $f1, $f1, $f7, $f10
+            \\ lwc1 $f5, 1 * 4($5)
+            \\ madd.s $f2, $f2, $f6, $f11
+            \\ lwc1 $f8, 0 * 4($7)
+            \\ madd.s $f3, $f3, $f7, $f11
+            \\ lwc1 $f9, 1 * 4($7)
+            \\ dadd $5, $5, $6
+            \\ dadd $7, $7, $8
+            \\ madd.s $f0, $f0, $f4, $f8
+            \\ lwc1 $f6, 0 * 4($5)
+            \\ madd.s $f1, $f1, $f5, $f8
+            \\ lwc1 $f7, 1 * 4($5)
+            \\ madd.s $f2, $f2, $f4, $f9
+            \\ lwc1 $f10, 0 * 4($7)
+            \\ madd.s $f3, $f3, $f5, $f9
+            \\ lwc1 $f11, 1 * 4($7)
+            \\ madd.s $f0, $f0, $f6, $f10
+            \\ dadd $5, $5, $6
+            \\ madd.s $f1, $f1, $f7, $f10
+            \\ dadd $7, $7, $8
+            \\ madd.s $f2, $f2, $f6, $f11
+            \\ madd.s $f3, $f3, $f7, $f11
+            \\ .align 3
+            \\ 20008:
+            \\ andi $2, $4, 3
+            \\ blez $2, 20010f
+            \\ move $0, $0
+            \\ .align 3
+            \\ 20009:
+            \\ lwc1 $f4, 0 * 4($5)
+            \\ lwc1 $f5, 1 * 4($5)
+            \\ lwc1 $f8, 0 * 4($7)
+            \\ lwc1 $f9, 1 * 4($7)
+            \\ madd.s $f0, $f0, $f4, $f8
+            \\ madd.s $f1, $f1, $f5, $f8
+            \\ madd.s $f2, $f2, $f4, $f9
+            \\ madd.s $f3, $f3, $f5, $f9
+            \\ dadd $5, $5, $6
+            \\ dadd $7, $7, $8
+            \\ daddiu $2, $2, -1
+            \\ bgtz $2, 20009b
+            \\ move $0, $0
+            \\ .align 3
+            \\ 20010:
+            \\ move $0, $0
+            \\ sub.s $f0, $f0, $f3
+            \\ j $31
+            \\ add.s $f2, $f2, $f1
+            \\ .set macro
+            \\ .set reorder
+            \\
+        );
+    }
+};
