@@ -28,11 +28,12 @@ const converted = .{
     @import("../blas3/kernels.zig").Registry(Core),
 };
 
-/// Where the `@Vector` kernels (`vector.zig`) go: the `routed` slots, and
-/// off Apple each other slot of theirs no converted kernel fills or that
-/// they displace on `vortex` and `vortexm4` (`registry.displacing`), whose
-/// objects then leave the converted kernels out; on Apple's systems, of
-/// those, only `sum`'s (`registry.unaccelerated`).
+/// Where the `@Vector` kernels (`vector.zig`) go: the `routed` slots, each
+/// other slot of theirs no converted kernel fills (on Apple's systems the
+/// fallback when routing to Accelerate is off, #590), and those they
+/// displace on `vortex` and `vortexm4` (`registry.displacing`; on Apple's
+/// systems only `sum`, `registry.unaccelerated`), whose objects then leave
+/// the converted kernels out.
 const vector_rule: registry.Rule(Core) = .unfilled;
 
 /// The `@Vector` kernels go over those.
