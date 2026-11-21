@@ -12,7 +12,7 @@ How rstd's math is organized: one low-level kernel layer, modeled on Intel's MKL
 ## Layout
 
 ```text
-rstd.math                  scalar functions (today's math.zig)
+rstd.math                  scalar functions (math/scalar.zig)
 rstd.math.kernels          the kernel layer: every optimized routine, every knob explicit
   blas                     BLAS levels 1 to 3 and rstd's extensions (sum, axpby, gemmt, batch, bf16)
   lapack                   LAPACK
