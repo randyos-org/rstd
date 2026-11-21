@@ -18,6 +18,8 @@ pub const rationalApprox = scalar.rationalApprox;
 
 test {
     _ = scalar;
+    // the kernel layer's tests: no public name re-exports it now (issue #669)
+    _ = kernels;
     _ = fft;
     _ = linalg;
     _ = signal;

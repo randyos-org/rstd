@@ -56,7 +56,7 @@ fn want2(comptime T: type, comptime op: Binary, a: T, b: T) T {
 
 fn bits(comptime T: type, v: T) u128 {
     if (comptime types.isComplex(T)) return (@as(u128, bits(@TypeOf(v.re), v.re)) << 64) | bits(@TypeOf(v.im), v.im);
-    return @as(std.meta.Int(.unsigned, @bitSizeOf(T)), @bitCast(v));
+    return @as(@Int(.unsigned, @bitSizeOf(T)), @bitCast(v));
 }
 
 /// Values in the functions' domains: positive, from 1/16 to about 2.
