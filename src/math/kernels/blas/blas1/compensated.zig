@@ -15,7 +15,7 @@ const Float = types.Float;
 const isComplex = types.isComplex;
 
 /// A running sum and its compensation, in `W` (`f64` for `f32`).
-fn Acc(comptime W: type) type {
+pub fn Acc(comptime W: type) type {
     return struct {
         s: W = 0,
         c: W = 0,
@@ -24,27 +24,27 @@ fn Acc(comptime W: type) type {
 
         // the error-free sum needs `x` and `t` rounded to `W`, which the
         // x87 holds wider until stored (issue #476)
-        inline fn add(a: *Self, x_wide: W) void {
+        pub inline fn add(a: *Self, x_wide: W) void {
             const x = util.rounded(W, x_wide);
             const t = util.rounded(W, a.s + x);
             if (@abs(a.s) >= @abs(x)) a.c += (a.s - t) + x else a.c += (x - t) + a.s;
             a.s = t;
         }
 
-        fn merge(a: Self, b: Self) Self {
+        pub fn merge(a: Self, b: Self) Self {
             var r = a;
             r.add(b.s);
             r.c += b.c;
             return r;
         }
 
-        fn value(a: Self) W {
+        pub fn value(a: Self) W {
             return a.s + a.c;
         }
     };
 }
 
-fn Wide(comptime T: type) type {
+pub fn Wide(comptime T: type) type {
     return if (Float(T) == f32) f64 else Float(T);
 }
 

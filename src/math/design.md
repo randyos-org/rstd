@@ -121,13 +121,13 @@ Each type the kernel layer defines or takes, after the moves; the high-level opt
 | `ConvolutionMode` | `enum { full, same, valid }`: NumPy's `convolve` modes | none | `kernels.dsp` | backlog (#627) |
 | `BiquadSection(T)` | `struct { b0: T, b1: T, b2: T, a1: T, a2: T }`: one second-order section, `a0` 1 (SciPy's `sos` row) | none | `kernels.dsp` | backlog (#627) |
 | `DecibelScale` | `enum { power, amplitude }`: `10·log10` or `20·log10` | none | `kernels.dsp` | backlog (#627) |
-| `DeviationSums(T)` | `struct { sum: T, sum_sq: Float(T) }`: `Σ(x − m)` and `Σ\|x − m\|²` | none | `kernels.stats` | #605 |
+| `DeviationSums(T)` | `struct { sum: T, sum_sq: Float(T) }`: `Σ(x − m)` and `Σ\|x − m\|²` | same | `kernels.stats` | yes (#605) |
 | `CentralMomentSums(F)` | `struct { m2: F, m3: F, m4: F }`: `Σ(x − m)²`, `Σ(x − m)³`, `Σ(x − m)⁴` | none | `kernels.stats` | backlog (#628) |
 | `RunningMoments(F)` | `struct { count: u64 = 0, avg: F = 0, m2: F = 0 }`: Welford's state | `Running` | `kernels.stats` | yes |
 | `Bins(F)`, `Histogram(F)` | `union(enum) { count: usize, edges: []const F }`; `struct { counts: []u64, edges: []F }` | same | `kernels.stats` | yes |
 | `RandomStream` | `struct { state: std.Random.Xoshiro256 }`: one stream; a chunk's stream is the seed's jumped by its index, so the bits do not depend on the worker count | none | `kernels.stats` | backlog (#628) |
 | `Fraction(F)` | `struct { numerator: F, denominator: F }` | same | `rstd.math` | yes |
-| `MomentOptions` | `struct { summation: Summation = .plain }`: `meanWith`, `varianceWith`, `stdDevWith` | none | `rstd.math.stats` | #605 |
+| `MomentOptions` | `struct { summation: Summation = .plain }`: `meanWith`, `varianceWith`, `stdDevWith` | same | `rstd.math.stats` | yes (#605) |
 | `QuantileOptions` | `struct { method: QuantileMethod = .linear }`: `quantileWith`; `QuantileMethod` NumPy's nine | same | `rstd.math.stats` | yes, moved by #613 |
 | `FftOptions` | `struct { normalization: Normalization = .backward }`: the `*With` transforms | same | `rstd.math.fft` | yes (#611) |
 
@@ -511,7 +511,7 @@ Since [#611](https://github.com/randyos-org/rstd/issues/611) the transforms take
 | Signature | Computes | Accelerate | MKL | Source | v0.1.0 |
 | --- | --- | --- | --- | --- | --- |
 | `kernels.blas.sum`, `sumWith`, `index`, `extreme` | sums and extremes: the BLAS's, not copies | `vDSP_sve`, `vDSP_maxv`, `vDSP_minv` | VS | rstd | yes |
-| `deviationSums(io, T, s: Summation, m: T, x: ConstStrided(T)) Io.Cancelable!DeviationSums(T)` | `Σ(x − m)` and `Σ\|x − m\|²` in one pass; the same bits at any worker count | none | `vsldSSCompute` (`VSL_SS_2C_MOM`) | Chan, Golub and LeVeque's corrected two-pass; rstd's `fast.zig` lanes | #605 |
+| `deviationSums(io, T, s: Summation, m: T, x: ConstStrided(T)) Io.Cancelable!DeviationSums(T)` | `Σ(x − m)` and `Σ\|x − m\|²` in one pass; the same bits at any worker count | none | `vsldSSCompute` (`VSL_SS_2C_MOM`) | Chan, Golub and LeVeque's corrected two-pass; rstd's `fast.zig` lanes | yes (#605) |
 | `centralMoments(io, T, s: Summation, m: T, x: ConstStrided(T)) Io.Cancelable!CentralMomentSums(T)` | `Σ(x − m)²`, `³`, `⁴`, for skewness and kurtosis | none | `vsldSSCompute` (`VSL_SS_4C_MOM`) | SciPy `stats.moment`; StatsBase `moment` | backlog |
 | `RunningMoments(F)`: `push(self: *Self, x: F) void`, `mean(self: Self) error{EmptyInput}!F`, `variance(self: Self, normalize: Normalize) error{EmptyInput}!F` | Welford's running mean and variance | none | VS streaming | Welford 1962 | yes (#613) |
 | `RunningMoments(F)`: `merge(self: *Self, other: Self) void` | combines two runs (Chan's formula), for threads | none | none | Chan, Golub and LeVeque 1979 | backlog |
@@ -642,9 +642,9 @@ The plans (`Plan`, `RealPlan` and the stubs) are in `kernels.fft`; this layer, n
 | Signature | Computes | v0.1.0 |
 | --- | --- | --- |
 | `mean(io, R: type, xs: anytype) MomentError!R` | the mean, of any integer, float or complex elements, as `R` | yes |
-| `meanWith(io, R: type, xs: anytype, options: MomentOptions) MomentError!R` | the mean with a `Summation` | yes; struct by #605 |
-| `variance(io, R: type, xs: anytype, normalize: Normalize) MomentError!R`, `varianceWith(io, R: type, xs: anytype, normalize: Normalize, options: MomentOptions) MomentError!R` | the corrected two-pass variance (#605) | yes; #605 |
-| `stdDev(io, R: type, xs: anytype, normalize: Normalize) MomentError!R`, `stdDevWith(...)` | its square root | yes; #605 |
+| `meanWith(io, R: type, xs: anytype, options: MomentOptions) MomentError!R` | the mean with a `Summation` | yes (#605) |
+| `variance(io, R: type, xs: anytype, normalize: Normalize) MomentError!R`, `varianceWith(io, R: type, xs: anytype, normalize: Normalize, options: MomentOptions) MomentError!R` | the corrected two-pass variance (#605) | yes (#605) |
+| `stdDev(io, R: type, xs: anytype, normalize: Normalize) MomentError!R`, `stdDevWith(...)` | its square root | yes (#605) |
 | `RunningMoments(F)`: `push(self: *Self, x: F) void`, `mean(self: Self) error{EmptyInput}!F`, `variance(self: Self, normalize: Normalize) error{EmptyInput}!F` | a running mean and variance | yes (#613) |
 | `median(allocator, R: type, xs: anytype) MedianError!R` | the median; NaN if any | yes |
 | `quantile(allocator, R: type, xs: anytype, p: []const R) QuantileError![]R`, `quantileInto(allocator, R: type, out: []R, xs: anytype, p: []const R) QuantileIntoError!void` | quantiles at `p`, NumPy's `linear` | yes; options move to `quantileWith` (#613) |

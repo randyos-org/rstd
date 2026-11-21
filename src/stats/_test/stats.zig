@@ -32,13 +32,13 @@ test "mean, variance, stdDev" {
 test "moments: compensated sums, the types the BLAS lacks, NaN" {
     const io = testing.io;
     const hard = [_]f64{ 1e16, 1, -1e16, 1 };
-    try testing.expectEqual(0.5, try meanWith(io, f64, &hard, .compensated));
-    try testing.expectEqual(try mean(io, f64, &hard), try meanWith(io, f64, &hard, .plain));
+    try testing.expectEqual(0.5, try meanWith(io, f64, &hard, .{ .summation = .compensated }));
+    try testing.expectEqual(try mean(io, f64, &hard), try meanWith(io, f64, &hard, .{ .summation = .plain }));
     const h = [_]f16{ 1, 2, 3, 4 };
     try testing.expectEqual(2.5, try mean(io, f16, &h));
     try testing.expectEqual(1.25, try variance(io, f16, &h, .population));
     const f = [_]f32{ 2, 4, 4, 4, 5, 5, 7, 9 };
-    try testing.expectEqual(2, try stdDevWith(io, f32, &f, .population, .compensated));
+    try testing.expectEqual(2, try stdDevWith(io, f32, &f, .population, .{ .summation = .compensated }));
     const nan = [_]f64{ 1, std.math.nan(f64), 3 };
     try testing.expect(std.math.isNan(try mean(io, f64, &nan)));
     try testing.expect(std.math.isNan(try variance(io, f64, &nan, .sample)));
@@ -164,4 +164,70 @@ test "median of Complex: MATLAB's order" {
     const m = try median(testing.allocator, C, &xs);
     try testing.expectEqual(-2, m.re);
     try testing.expectEqual(0, m.im);
+}
+
+/// The population variance of `xs`, in `f128`.
+fn wideVariance(comptime T: type, xs: []const T) f128 {
+    const complex = @typeInfo(T) != .float;
+    const nf: f128 = @floatFromInt(xs.len);
+    var sr: f128 = 0;
+    var si: f128 = 0;
+    for (xs) |x| {
+        sr += if (complex) x.re else x;
+        if (complex) si += x.im;
+    }
+    sr /= nf;
+    si /= nf;
+    var q: f128 = 0;
+    for (xs) |x| {
+        const dr = @as(f128, if (complex) x.re else x) - sr;
+        const di = if (complex) @as(f128, x.im) - si else 0;
+        q += dr * dr + di * di;
+    }
+    return q / nf;
+}
+
+test "variance: a large offset, every summation mode, within each mode's error" {
+    const al = testing.allocator;
+    const n = 5000;
+    const x = try al.alloc(f32, n);
+    defer al.free(x);
+    var prng: std.Random.DefaultPrng = .init(605);
+    const r = prng.random();
+    for (x) |*v| v.* = 1e5 + (r.float(f32) * 2 - 1);
+    const want = wideVariance(f32, x);
+    for ([_]stats.Summation{ .plain, .compensated, .fast }) |s| {
+        const got = try stats.varianceWith(testing.io, f32, x, .population, .{ .summation = s });
+        const tol: f128 = if (s == .fast) 1e-3 else 1e-6;
+        try testing.expect(@abs(@as(f128, got) - want) <= tol * want);
+    }
+}
+
+test "mean and variance of complex elements: strided sums and deviationSums" {
+    const al = testing.allocator;
+    const n = 3001;
+    inline for (.{ f32, f64 }) |F| {
+        const C = std.math.Complex(F);
+        const x = try al.alloc(C, n);
+        defer al.free(x);
+        var prng: std.Random.DefaultPrng = .init(5);
+        const r = prng.random();
+        for (x) |*v| v.* = .{ .re = 3 + r.float(F), .im = -2 + r.float(F) };
+        const m = try mean(testing.io, C, x);
+        var sr: f128 = 0;
+        var si: f128 = 0;
+        for (x) |v| {
+            sr += v.re;
+            si += v.im;
+        }
+        const tol: f128 = if (F == f32) 1e-6 else 1e-14;
+        try testing.expect(@abs(@as(f128, m.re) - sr / n) <= tol * 4);
+        try testing.expect(@abs(@as(f128, m.im) - si / n) <= tol * 4);
+        const want = wideVariance(C, x);
+        for ([_]stats.Summation{ .plain, .compensated, .fast }) |s| {
+            const got = try stats.varianceWith(testing.io, F, x, .population, .{ .summation = s });
+            const t: f128 = if (s == .fast and F == f32) 1e-4 else tol;
+            try testing.expect(@abs(@as(f128, got) - want) <= t * want);
+        }
+    }
 }

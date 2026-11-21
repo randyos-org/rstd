@@ -67,38 +67,72 @@ inline fn term(comptime absolute: bool, v: anytype) @TypeOf(v) {
     return if (absolute) abs(v) else v;
 }
 
-/// The sum of `len` floats (`|x|` for `absolute`): float `i` of each `2W`
-/// into lane `i % W` of sum `i / W % 2`, a last `W` into the first, then
-/// native vectors into a third; the first two added and halved to `L` lanes,
-/// the third added, halved to one, and the floats left added in order.
-fn floats(comptime absolute: bool, len: usize, x: [*]const F) F {
-    var acc: [2]V = @splat(@splat(0));
+/// The term map of `sum` and `asum`: one sum of `term(absolute, x)`.
+fn Terms(comptime absolute: bool) type {
+    return struct {
+        pub const k = 1;
+
+        pub inline fn add(_: @This(), comptime Vt: type, acc: *[k]Vt, v: Vt) void {
+            acc[0] += term(absolute, v);
+        }
+
+        pub inline fn addOne(_: @This(), s: anytype, lane: usize, v: F) void {
+            s[0][lane] += term(absolute, v);
+        }
+    };
+}
+
+/// `map`'s `k` sums of `len` floats at `x`, `x` at an even float, so a lane's
+/// parity is its float's (a complex element's `re` or `im`). `map.add(Vt,
+/// acc, v)` adds a vector's terms to `acc`, `map.addOne(s, lane, f)` one
+/// float's to lane `lane` of `s`. Float `i` of each `2W` into lane `i % W` of
+/// accumulator `i / W % 2`, a last `W` into the first, then native vectors
+/// into a third; the first two added and halved to `L` lanes, the third
+/// added, halved to `keep` lanes, and the floats left added in order to lane
+/// `i % keep`.
+pub fn laneSums(comptime keep: comptime_int, map: anytype, len: usize, x: [*]const F) [@TypeOf(map).k][keep]F {
+    const k = @TypeOf(map).k;
+    var acc: [2][k]V = @splat(@splat(@splat(0)));
     var i: usize = 0;
     while (i + 2 * W <= len) : (i += 2 * W) {
-        inline for (0..2) |q| acc[q] += term(absolute, load(V, x + i + q * W));
+        inline for (0..2) |q| map.add(V, &acc[q], load(V, x + i + q * W));
     }
     if (i + W <= len) {
-        acc[0] += term(absolute, load(V, x + i));
+        map.add(V, &acc[0], load(V, x + i));
         i += W;
     }
-    var t: N = @splat(0);
-    while (i + L <= len) : (i += L) t += term(absolute, load(N, x + i));
-    var s = halved(1, halved(L, acc[0] + acc[1]) + t)[0];
-    while (i < len) : (i += 1) s += term(absolute, x[i]);
+    var t: [k]N = @splat(@splat(0));
+    while (i + L <= len) : (i += L) map.add(N, &t, load(N, x + i));
+    var s: [k][keep]F = undefined;
+    inline for (0..k) |j| s[j] = halved(keep, halved(L, acc[0][j] + acc[1][j]) + t[j]);
+    while (i < len) : (i += 1) map.addOne(&s, i % keep, x[i]);
     return s;
 }
 
-/// `floats` of `n` strided elements: float `i` of each four into lane `i % 4`,
-/// then the lanes in order and the rest in order.
-fn stridedFloats(comptime absolute: bool, comptime w: comptime_int, n: usize, x: [*]const F, inc: isize) F {
-    var acc: G = @splat(0);
+/// `laneSums` of `n` strided elements of `w` floats: float `i` of each four
+/// into lane `i % 4`; the lanes reduced (one sum) or halved to two, then the
+/// rest in order, float `c` of an element to lane `c % keep`.
+pub fn stridedSums(comptime keep: comptime_int, comptime w: comptime_int, map: anytype, n: usize, x: [*]const F, inc: isize) [@TypeOf(map).k][keep]F {
+    const k = @TypeOf(map).k;
+    var acc: [k]G = @splat(@splat(0));
     var i: usize = 0;
-    while (i + 4 / w <= n) : (i += 4 / w) acc += term(absolute, gather(w, x, inc, i));
-    var s = @reduce(.Add, acc);
+    while (i + 4 / w <= n) : (i += 4 / w) map.add(G, &acc, gather(w, x, inc, i));
+    var s: [k][keep]F = undefined;
+    inline for (0..k) |j| s[j] = if (keep == 1) .{@reduce(.Add, acc[j])} else halved(keep, acc[j]);
     while (i < n) : (i += 1) {
-        inline for (0..w) |c| s += term(absolute, flt(w, x, inc, i, c));
+        inline for (0..w) |c| map.addOne(&s, c % keep, flt(w, x, inc, i, c));
     }
     return s;
+}
+
+/// The sum of `len` floats (`|x|` for `absolute`), `laneSums`' order.
+fn floats(comptime absolute: bool, len: usize, x: [*]const F) F {
+    return laneSums(1, Terms(absolute){}, len, x)[0][0];
+}
+
+/// `floats` of `n` strided elements, `stridedSums`' order.
+fn stridedFloats(comptime absolute: bool, comptime w: comptime_int, n: usize, x: [*]const F, inc: isize) F {
+    return stridedSums(1, w, Terms(absolute){}, n, x, inc)[0][0];
 }
 
 /// The real dot of `len` floats, in `floats`' order, each product fused

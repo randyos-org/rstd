@@ -14,6 +14,7 @@ const covariance = @import("cov.zig");
 pub const Normalize = moments.Normalize;
 pub const MomentError = moments.MomentError;
 pub const Summation = moments.Summation;
+pub const MomentOptions = moments.MomentOptions;
 pub const mean = moments.mean;
 pub const meanWith = moments.meanWith;
 pub const variance = moments.variance;
