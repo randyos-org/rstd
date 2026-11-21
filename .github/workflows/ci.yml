@@ -511,8 +511,9 @@ jobs:
   # GitHub's Linux runners offer (issues #343, #344), and the aarch64 ones on its
   # arm64 runners, under KVM where they offer it (#345, #346). QEMU and its firmware come
   # from tools/nix's flake, as on the Macs' rigs; the 32-bit Arm and PowerPC 750
-  # ones under TCG (#347, #348), and the Linux rigs of zfls's targets (#356). The
-  # tier 3 rigs are rig-tier34's.
+  # ones under TCG (#347, #348). zfls's Linux targets run in the test job, natively
+  # or under qemu-user, not in the Linux rigs (#654), which stay for local runs.
+  # The tier 3 rigs are rig-tier34's.
   rig:
     name: Rig (${{ matrix.rig }})
     needs: version
@@ -536,9 +537,6 @@ jobs:
           # PowerPC 750 on OpenBIOS: TCG
           - { rig: powerpc-750, runner: ubuntu-24.04 }
           - { rig: powerpc-750-hf, runner: ubuntu-24.04 }
-          # zfls's Linux: KVM on x86_64, TCG on the arm64 runners
-          - { rig: linux-x86_64, runner: ubuntu-24.04 }
-          - { rig: linux-aarch64, runner: ubuntu-24.04-arm }
     steps: &rig-steps
       - uses: actions/checkout@v7
         with:
