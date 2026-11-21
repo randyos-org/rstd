@@ -341,7 +341,7 @@ jobs:
         zig: ['0.17.1', latest]
         platform:
           # every field the shared steps read, so both matrices have the same shape
-          - { name: x86_64-windows, tier: 1, runner: windows-2025, step: rstd-test, qemu: false, qemu_cpu: '', swap: false, node: '' }
+          - { name: x86_64-windows, tier: 1, runner: windows-2025, step: rstd-test, qemu: false, qemu_cpu: '', swap: false, node: '', core: '' }
           - { name: aarch64-windows, tier: 2, runner: windows-11-arm }
           - { name: x86_64-linux-gnu, tier: 2, runner: ubuntu-24.04 }
           # ThreadSanitizer natively, not in the linux-x86_64 rig's VMs (issue #652)
@@ -352,6 +352,9 @@ jobs:
           # passed the job's time limit under TCG (issue #539)
           - { name: 'aarch64-linux-gnu, tsan', tier: 2, runner: ubuntu-24.04-arm, args: -Drstd-tsan }
           - { name: aarch64-linux-musl, tier: 2, runner: ubuntu-24.04-arm, args: -Dtarget=aarch64-linux-musl }
+          # the SVE and SME cores under qemu-user's `max` CPU, on an x86_64
+          # runner so that it emulates; not in the linux-aarch64-sve rig's VMs (issue #653)
+          - { name: 'aarch64-linux-musl, sve', tier: 2, runner: ubuntu-24.04, args: -Dtarget=aarch64-linux-musl -Dcpu=neoverse_v1 -fqemu, qemu: true, qemu_cpu: 'max,pauth-impdef=on', core: armv9sme }
           - { name: aarch64-macos, tier: 2, runner: macos-15 }
           - { name: x86_64-macos, tier: 2, runner: macos-15-intel }
     steps: &test-steps
@@ -428,13 +431,20 @@ jobs:
           done
           zig build "$FETCH"
 
-      # the BLAS core rstd detects and runs here (issue #619); only informational
+      # the BLAS core rstd detects and runs here (issue #619); informational,
+      # unless the leg names the core it must run
       - name: BLAS core
-        continue-on-error: true
+        continue-on-error: ${{ !matrix.platform.core }}
         env:
           ARGS: ${{ matrix.platform.args }}
+          CORE: ${{ matrix.platform.core }}
         # ARGS splits into words on purpose
-        run: zig build blas-core $ARGS -Dtest-host-off
+        run: |
+          zig build blas-core $ARGS -Dtest-host-off 2>&1 | tee "$RUNNER_TEMP/blas-core.txt"
+          if [ -n "$CORE" ] && ! grep -q "runs $CORE\$" "$RUNNER_TEMP/blas-core.txt"; then
+            echo "::error::expected the $CORE core"
+            exit 1
+          fi
 
       - name: Test
         env:
@@ -504,14 +514,10 @@ jobs:
   # ones under TCG (#347, #348), and the Linux rigs of zfls's targets (#356). The
   # tier 3 rigs are rig-tier34's.
   rig:
-    name: Rig (${{ matrix.rig }}${{ matrix.part && format(', {0}', matrix.part) || '' }})
+    name: Rig (${{ matrix.rig }})
     needs: version
     if: ${{ needs.version.outputs.ci == 'true' }}
     runs-on: ${{ matrix.runner }}
-    # the steps' (shared with rig-tier34, where it is unset)
-    env:
-      # one of a rig's parts (build/qemu/machines.zig), if set
-      PART: ${{ matrix.part }}
     timeout-minutes: 350
     strategy:
       fail-fast: false
@@ -533,15 +539,6 @@ jobs:
           # zfls's Linux: KVM on x86_64, TCG on the arm64 runners
           - { rig: linux-x86_64, runner: ubuntu-24.04 }
           - { rig: linux-aarch64, runner: ubuntu-24.04-arm }
-          # in parts: 4.6 hours in one run (#569); the bare-metal and UEFI SVE rigs are
-          # tier 3 (#619)
-          - { rig: linux-aarch64-sve, runner: ubuntu-24.04-arm, part: blas1 }
-          - { rig: linux-aarch64-sve, runner: ubuntu-24.04-arm, part: blas2-edge }
-          - { rig: linux-aarch64-sve, runner: ubuntu-24.04-arm, part: blas2 }
-          - { rig: linux-aarch64-sve, runner: ubuntu-24.04-arm, part: blas3-tri }
-          - { rig: linux-aarch64-sve, runner: ubuntu-24.04-arm, part: blas3 }
-          - { rig: linux-aarch64-sve, runner: ubuntu-24.04-arm, part: lapack-lu }
-          - { rig: linux-aarch64-sve, runner: ubuntu-24.04-arm, part: rest }
     steps: &rig-steps
       - uses: actions/checkout@v7
         with:
@@ -623,7 +620,7 @@ jobs:
         env:
           RIG: ${{ matrix.rig }}
         # KVM splits into words on purpose, and may be empty
-        run: zig build "qemu-test-$RIG" $KVM ${PART:+"-Dqemu-test-part=$PART"} -Dfail-fast=true -Dtest-host-off --summary line
+        run: zig build "qemu-test-$RIG" $KVM -Dfail-fast=true -Dtest-host-off --summary line
 
       # every OS-free test built for UEFI, x86_64 and aarch64, beside the rig
       - name: rstd-check-uefi
@@ -635,7 +632,7 @@ jobs:
         if: ${{ failure() }}
         env:
           RIG: ${{ matrix.rig }}
-        run: tail -c 300000 ".zig-cache/qemu-test-$RIG${PART:+-$PART}.log" || true
+        run: tail -c 300000 ".zig-cache/qemu-test-$RIG.log" || true
 
   # The tier 3 rigs (support.md), picked as the tier 3 and 4 legs are (see the
   # top; a leg is `<rig> rig`), on the rig job's steps; their failures only
