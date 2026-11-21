@@ -10,8 +10,8 @@ const Allocator = std.mem.Allocator;
 const Float = types.Float;
 const isComplex = types.isComplex;
 const Side = types.Side;
-const BalanceJob = balancing.BalanceJob;
-const Block = balancing.Block;
+const Balancing = balancing.Balancing;
+const BalancedRange = balancing.BalancedRange;
 const back = balancing.back;
 const balance = balancing.balance;
 const gebak = balancing.gebak;
@@ -256,7 +256,7 @@ fn nextNumber(it: *std.mem.TokenIterator(u8, .any)) f64 {
 /// `gebak` against `gebal`'s `A` and `B = D⁻¹ Pᵀ A P D`: `A X = X B` with
 /// `X = P D` (right), `Yᵀ A = B Yᵀ` with `Y = P D⁻¹` (left), within
 /// `4 n eps ‖A‖ ‖X‖` per entry.
-fn expectBack(comptime T: type, al: Allocator, job: BalanceJob, n: usize, a: []const T, b: []const T, blk: Block, scale: []const Float(T)) !void {
+fn expectBack(comptime T: type, al: Allocator, job: Balancing, n: usize, a: []const T, b: []const T, blk: BalancedRange, scale: []const Float(T)) !void {
     const F = Float(T);
     const x = try al.alloc(T, n * n);
     defer al.free(x);
@@ -327,7 +327,7 @@ test "lapack gebal: the reference's dbal.in cases, and gebak takes vectors back"
             for (0..n * n) |i| got[i] = lcheck.fromF64(T, a[i]);
             const a0 = got;
             var scale: [7]F = undefined;
-            const blk = try gebal(check.io, T, .b, n, &got, n, &scale);
+            const blk = try gebal(check.io, T, .both, n, &got, n, &scale);
             try testing.expectEqual(wlo, blk.lo);
             try testing.expectEqual(whi, blk.hi);
             // A and scale checked only by expectBack for case 5, whose swap
@@ -354,7 +354,7 @@ test "lapack gebal: the reference's dbal.in cases, and gebak takes vectors back"
                     return error.TestUnexpectedResult;
                 }
             };
-            try expectBack(T, al, .b, n, a0[0 .. n * n], got[0 .. n * n], blk, scale[0..n]);
+            try expectBack(T, al, .both, n, a0[0 .. n * n], got[0 .. n * n], blk, scale[0..n]);
         }
     }
 }
@@ -363,7 +363,7 @@ test "lapack gebal: every job on random and structured matrices, with gebak" {
     const al = testing.allocator;
     inline for (test_types) |T| {
         const F = Float(T);
-        for ([_]usize{ 1, 2, 5, 12 }) |n| for ([_]BalanceJob{ .n, .p, .s, .b }) |job| for (0..3) |kind| {
+        for ([_]usize{ 1, 2, 5, 12 }) |n| for ([_]Balancing{ .none, .permute, .scale, .both }) |job| for (0..3) |kind| {
             const a = try al.alloc(T, n * n);
             defer al.free(a);
             check.fill(T, a, n * 31 + kind);
@@ -386,17 +386,17 @@ test "lapack gebal: every job on random and structured matrices, with gebak" {
             defer al.free(scale);
             const blk = try gebal(check.io, T, job, n, b, n, scale);
             try testing.expect(blk.lo <= blk.hi and blk.hi <= n);
-            if (job == .n) {
+            if (job == .none) {
                 try testing.expect(blk.lo == 0 and blk.hi == n);
                 try testing.expectEqualSlices(u8, std.mem.sliceAsBytes(a), std.mem.sliceAsBytes(b));
             }
-            if (job == .s) try testing.expect(blk.lo == 0 and blk.hi == n);
+            if (job == .scale) try testing.expect(blk.lo == 0 and blk.hi == n);
             // below the diagonal outside lo..hi: zero
             for (0..n) |j| for (j + 1..n) |i| {
                 if (j < blk.lo or i >= blk.hi) try testing.expect(ops.isZero(T, b[i + j * n]));
             };
             // the scalings are powers of 2
-            if (job == .s or job == .b) for (blk.lo..blk.hi) |i| {
+            if (job == .scale or job == .both) for (blk.lo..blk.hi) |i| {
                 try testing.expectEqual(@as(F, 0.5), std.math.frexp(scale[i]).significand);
             };
             try expectBack(T, al, job, n, a, b, blk, scale);
@@ -409,31 +409,31 @@ test "lapack gebal: n = 0 and 1, NaN, bad arguments; gebak's" {
         const F = Float(T);
         var scale = [_]F{ 7, 7 };
         var a = [_]T{ ops.scalar(T, 2), ops.scalar(T, 1), ops.scalar(T, 1), ops.scalar(T, 3) };
-        var blk = try gebal(check.io, T, .b, 0, &a, 1, &scale);
+        var blk = try gebal(check.io, T, .both, 0, &a, 1, &scale);
         try testing.expect(blk.lo == 0 and blk.hi == 0 and scale[0] == 7);
-        blk = try gebal(check.io, T, .b, 1, &a, 1, &scale);
+        blk = try gebal(check.io, T, .both, 1, &a, 1, &scale);
         try testing.expect(blk.lo == 0 and blk.hi == 1 and scale[0] == 1);
         a[1] = lcheck.poisoned(T);
-        try testing.expectError(error.NanInA, gebal(check.io, T, .s, 2, &a, 2, &scale));
+        try testing.expectError(error.NanInA, gebal(check.io, T, .scale, 2, &a, 2, &scale));
     }
     var a = [_]f64{ 1, 2, 3, 4 };
     var s = [_]f64{ 1, 1 };
-    try testing.expectError(error.LeadingDimensionTooSmall, gebal(check.io, f64, .b, 2, &a, 1, &s));
-    try testing.expectError(error.SliceTooShort, gebal(check.io, f64, .b, 2, a[0..3], 2, &s));
-    try testing.expectError(error.SliceTooShort, gebal(check.io, f64, .b, 2, &a, 2, s[0..1]));
-    try testing.expectError(error.BlockOutOfRange, gebak(check.io, f64, .b, .r, 1, 1, 0, &s, 1, &a, 1));
-    try testing.expectError(error.BlockOutOfRange, gebak(check.io, f64, .b, .l, 2, 0, 3, &s, 1, &a, 2));
-    try testing.expectError(error.LeadingDimensionTooSmall, gebak(check.io, f64, .b, .l, 2, 0, 2, &s, 1, &a, 1));
-    try testing.expectError(error.SliceTooShort, gebak(check.io, f64, .b, .l, 2, 0, 2, &s, 3, &a, 2));
-    try testing.expectError(error.SliceTooShort, gebak(check.io, f64, .b, .l, 2, 0, 2, s[0..1], 1, &a, 2));
+    try testing.expectError(error.LeadingDimensionTooSmall, gebal(check.io, f64, .both, 2, &a, 1, &s));
+    try testing.expectError(error.SliceTooShort, gebal(check.io, f64, .both, 2, a[0..3], 2, &s));
+    try testing.expectError(error.SliceTooShort, gebal(check.io, f64, .both, 2, &a, 2, s[0..1]));
+    try testing.expectError(error.BlockOutOfRange, gebak(check.io, f64, .both, .r, 1, 1, 0, &s, 1, &a, 1));
+    try testing.expectError(error.BlockOutOfRange, gebak(check.io, f64, .both, .l, 2, 0, 3, &s, 1, &a, 2));
+    try testing.expectError(error.LeadingDimensionTooSmall, gebak(check.io, f64, .both, .l, 2, 0, 2, &s, 1, &a, 1));
+    try testing.expectError(error.SliceTooShort, gebak(check.io, f64, .both, .l, 2, 0, 2, &s, 3, &a, 2));
+    try testing.expectError(error.SliceTooShort, gebak(check.io, f64, .both, .l, 2, 0, 2, s[0..1], 1, &a, 2));
     // a swapped row past `V`'s, outside the block
     s = .{ 2, 1 };
-    try testing.expectError(error.PivotOutOfRange, gebak(check.io, f64, .p, .l, 2, 1, 2, &s, 1, &a, 2));
+    try testing.expectError(error.PivotOutOfRange, gebak(check.io, f64, .permute, .l, 2, 1, 2, &s, 1, &a, 2));
     s = .{ 0.5, 1 };
-    try testing.expectError(error.PivotOutOfRange, gebak(check.io, f64, .b, .l, 2, 1, 2, &s, 1, &a, 2));
+    try testing.expectError(error.PivotOutOfRange, gebak(check.io, f64, .both, .l, 2, 1, 2, &s, 1, &a, 2));
     // job s reads no rows from scale
-    try gebak(check.io, f64, .s, .l, 2, 1, 2, &s, 1, &a, 2);
-    try gebak(check.io, f64, .b, .l, 0, 0, 0, &s, 1, &a, 1);
+    try gebak(check.io, f64, .scale, .l, 2, 1, 2, &s, 1, &a, 2);
+    try gebak(check.io, f64, .both, .l, 0, 0, 0, &s, 1, &a, 1);
 }
 
 test "lapack gebal: D⁻¹ Pᵀ A P D is the balanced matrix, isolated eigenvalues outside ilo..ihi" {

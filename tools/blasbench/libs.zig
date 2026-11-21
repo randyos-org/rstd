@@ -434,7 +434,7 @@ fn L1Via(comptime src: Src, comptime r: L1, comptime p: Prec) type {
             var f: *const Sig = undefined;
             fn k(n: I, x: [*]F, ix: I) callconv(.c) I {
                 if (lib) return @as(I, f(@intCast(n), x, @intCast(ix))) + 1;
-                const i = blas.index(rstd_io, T, .amax, view(T, cast(p, x), n, ix).toConst()) catch |e| {
+                const i = blas.index(rstd_io, T, .largest_magnitude, view(T, cast(p, x), n, ix).toConst()) catch |e| {
                     fail(e);
                     return 0;
                 };

@@ -16,9 +16,9 @@ const Side = types.Side;
 const Error = ops.Error;
 const Mat = ops.Mat;
 
-/// `JOB`: nothing (`n`), permute only (`p`), scale only (`s`), or both
-/// (`b`).
-pub const BalanceJob = enum { n, p, s, b };
+/// LAPACK's `JOB`: nothing (`N`), permute only (`P`), scale only (`S`), or
+/// both (`B`).
+pub const Balancing = enum { none, permute, scale, both };
 
 /// `SCLFAC`: scalings are powers of 2.
 const sclfac = 2;
@@ -27,7 +27,7 @@ const factor = 0.95;
 
 /// The rows and columns `lo..hi` (0-based, `hi` past the end) that
 /// `gebal` leaves to reduce; outside them `A` is upper triangular.
-pub const Block = struct { lo: usize, hi: usize };
+pub const BalancedRange = struct { lo: usize, hi: usize };
 
 /// What `gebal` returns: a slice too short (`a`, or `scale` under `n`) or a
 /// leading dimension too small, `NanInA` for a NaN met while scaling (the
@@ -40,7 +40,7 @@ pub const GebalError = interface.ShapeError || interface.NanError || Io.Cancelab
 /// block, the row (0-based) each row was swapped with (in the reference's
 /// order: from `n - 1` down to `hi`, then up from 0), and inside it `D`'s
 /// entries.
-pub fn gebal(io: Io, comptime T: type, job: BalanceJob, n: usize, a: []T, lda: usize, scale: []Float(T)) GebalError!Block {
+pub fn gebal(io: Io, comptime T: type, job: Balancing, n: usize, a: []T, lda: usize, scale: []Float(T)) GebalError!BalancedRange {
     comptime ops.requireFloat(T, "gebal");
     try util.holds(a.len, n, n, lda);
     if (scale.len < n) return error.SliceTooShort;
@@ -52,16 +52,16 @@ pub fn gebal(io: Io, comptime T: type, job: BalanceJob, n: usize, a: []T, lda: u
 }
 
 /// `gebal` after its checks.
-pub fn balanceJob(io: Io, comptime T: type, job: BalanceJob, n: usize, a: [*]T, lda: usize, scale: [*]Float(T)) (Error || interface.NanError)!Block {
+pub fn balanceJob(io: Io, comptime T: type, job: Balancing, n: usize, a: [*]T, lda: usize, scale: [*]Float(T)) (Error || interface.NanError)!BalancedRange {
     const F = Float(T);
-    if (job == .n) {
+    if (job == .none) {
         for (0..n) |i| scale[i] = 1;
         return .{ .lo = 0, .hi = n };
     }
     // `k`, `l`: the 1-based active window
     var k: usize = 1;
     var l: usize = n;
-    if (job != .s) {
+    if (job != .scale) {
         // rows isolating an eigenvalue go to the bottom
         var noconv = true;
         while (noconv) {
@@ -112,7 +112,7 @@ pub fn balanceJob(io: Io, comptime T: type, job: BalanceJob, n: usize, a: [*]T, 
         }
     }
     for (k - 1..l) |i| scale[i] = 1;
-    if (job == .p) return .{ .lo = k - 1, .hi = l };
+    if (job == .permute) return .{ .lo = k - 1, .hi = l };
     // scale toward equal row and column norms
     const sfmin1 = std.math.floatMin(F) / std.math.floatEps(F);
     const sfmax1 = 1 / sfmin1;
@@ -171,23 +171,23 @@ fn at(a: anytype, lda: usize, i: usize, j: usize) @typeInfo(@TypeOf(a)).pointer.
 
 /// What `gebak` returns: `BlockOutOfRange` unless `lo <= hi <= n`, a slice
 /// too short (`v`, or `scale` under `n`) or a leading dimension too small,
-/// `PivotOutOfRange` for a `scale` entry outside the block (with `job` `p`
-/// or `b`) that is not a row of `V`.
+/// `PivotOutOfRange` for a `scale` entry outside the block (with `job`
+/// `.permute` or `.both`) that is not a row of `V`.
 pub const GebakError = interface.BlockError || interface.ShapeError || interface.PivotError || Io.Cancelable;
 
 /// `?GEBAK` (`dgebak.f`, `zgebak.f`): `V := P D V` for right eigenvectors
 /// (`side` `r`) or `V := P D⁻¹ V` for left ones (`l`), the `n x m` `V`'s
 /// rows, from `gebal`'s `job`, block `lo..hi` and `scale`.
-pub fn gebak(io: Io, comptime T: type, job: BalanceJob, side: Side, n: usize, lo: usize, hi: usize, scale: []const Float(T), m: usize, v: []T, ldv: usize) GebakError!void {
+pub fn gebak(io: Io, comptime T: type, job: Balancing, side: Side, n: usize, lo: usize, hi: usize, scale: []const Float(T), m: usize, v: []T, ldv: usize) GebakError!void {
     comptime ops.requireFloat(T, "gebak");
     try interface.blockIn(lo, hi, n);
     try util.holds(v.len, n, m, ldv);
     if (scale.len < n) return error.SliceTooShort;
-    if (job == .p or job == .b) for (0..n) |i| if (i < lo or i >= hi) {
+    if (job == .permute or job == .both) for (0..n) |i| if (i < lo or i >= hi) {
         const k = scale[i];
         if (!(k >= 0 and k < @as(Float(T), @floatFromInt(n)) and k == @trunc(k))) return error.PivotOutOfRange;
     };
-    if (n == 0 or m == 0 or job == .n) return;
+    if (n == 0 or m == 0 or job == .none) return;
     backJob(io, T, job, side, n, lo, hi, scale.ptr, m, v.ptr, ldv) catch |e| return switch (e) {
         error.OutOfMemory => unreachable,
         error.Canceled => error.Canceled,
@@ -195,15 +195,15 @@ pub fn gebak(io: Io, comptime T: type, job: BalanceJob, side: Side, n: usize, lo
 }
 
 /// `gebak` after its checks.
-pub fn backJob(io: Io, comptime T: type, job: BalanceJob, side: Side, n: usize, lo: usize, hi: usize, scale: [*]const Float(T), m: usize, v: [*]T, ldv: usize) Error!void {
+pub fn backJob(io: Io, comptime T: type, job: Balancing, side: Side, n: usize, lo: usize, hi: usize, scale: [*]const Float(T), m: usize, v: [*]T, ldv: usize) Error!void {
     // `dgebak.f`: a block of one is not scaled
-    if (hi > lo + 1 and (job == .s or job == .b)) {
+    if (hi > lo + 1 and (job == .scale or job == .both)) {
         for (lo..hi) |i| {
             const s = if (side == .r) scale[i] else 1 / scale[i];
             try blas_calls.scal(io, T, m, s, v + i, ldv);
         }
     }
-    if (job == .p or job == .b) {
+    if (job == .permute or job == .both) {
         // from `lo - 1` down to 0, then from `hi` up
         for (0..n) |ii| {
             var i = ii;
@@ -220,8 +220,8 @@ pub fn backJob(io: Io, comptime T: type, job: BalanceJob, side: Side, n: usize, 
 
 /// `xGEBAL` with job `B` on the `n x n` `a`, which holds no NaN; `scale`
 /// (`n`) as `gebal`'s.
-pub fn balance(io: Io, comptime T: type, a: Mat(T), scale: []Float(T)) Error!Block {
-    return balanceJob(io, T, .b, a.rows, a.ptr, a.ld, scale.ptr) catch |e| switch (e) {
+pub fn balance(io: Io, comptime T: type, a: Mat(T), scale: []Float(T)) Error!BalancedRange {
+    return balanceJob(io, T, .both, a.rows, a.ptr, a.ld, scale.ptr) catch |e| switch (e) {
         error.NanInA => unreachable,
         error.OutOfMemory, error.Canceled => |x| return x,
     };
@@ -229,7 +229,7 @@ pub fn balance(io: Io, comptime T: type, a: Mat(T), scale: []Float(T)) Error!Blo
 
 /// `xGEBAK` with job `B`: `v`'s rows (the balanced matrix's right vectors,
 /// or with `left` its left ones) back to `a`'s.
-pub fn back(io: Io, comptime T: type, block: Block, scale: []const Float(T), left: bool, v: Mat(T)) Error!void {
+pub fn back(io: Io, comptime T: type, block: BalancedRange, scale: []const Float(T), left: bool, v: Mat(T)) Error!void {
     if (v.rows == 0 or v.cols == 0) return;
-    try backJob(io, T, .b, if (left) .l else .r, v.rows, block.lo, block.hi, scale.ptr, v.cols, v.ptr, v.ld);
+    try backJob(io, T, .both, if (left) .l else .r, v.rows, block.lo, block.hi, scale.ptr, v.cols, v.ptr, v.ld);
 }

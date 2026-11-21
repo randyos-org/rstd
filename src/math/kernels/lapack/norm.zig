@@ -29,10 +29,9 @@ pub const scaledSolve = latrs_solve.scaledSolve;
 pub const GeconError = gecon_estimate.GeconError;
 pub const gecon = gecon_estimate.gecon;
 
-/// `NORM`: the largest `|a(i, j)|` (`m`), the one norm (`o`, LAPACK's `1`
-/// or `O`), the infinity norm (`i`) or the Frobenius norm (`f`, `F` or
-/// `E`). `|.|` is the modulus for complex.
-pub const Norm = enum { m, o, i, f };
+/// LAPACK's `NORM`: the largest `|a(i, j)|` (`M`), the one norm (`O` or
+/// `1`), the infinity norm (`I`) or the Frobenius norm (`F` or `E`). `|.|` is the modulus for complex.
+pub const NormType = enum { max_abs, one, infinity, frobenius };
 
 // ---- xLANGE, xLASSQ ----------------------------------------------------------------
 
@@ -42,9 +41,9 @@ pub const LangeError = interface.ShapeError || Allocator.Error;
 
 /// `?LANGE` (`dlange.f`, `zlange.f`): `norm` of the `m x n` `A`; 0 when
 /// empty. A NaN entry gives NaN. The reference checks no argument; here a
-/// slice too short or a short `lda` is an error. `i` takes `m` reals of
-/// workspace.
-pub fn lange(allocator: Allocator, io: Io, comptime T: type, norm: Norm, m: usize, n: usize, a: []const T, lda: usize) LangeError!Float(T) {
+/// slice too short or a short `lda` is an error. `.infinity` takes `m` reals
+/// of workspace.
+pub fn lange(allocator: Allocator, io: Io, comptime T: type, norm: NormType, m: usize, n: usize, a: []const T, lda: usize) LangeError!Float(T) {
     comptime ops.requireFloat(T, "lange");
     _ = io;
     try util.holds(a.len, m, n, lda);
@@ -53,21 +52,21 @@ pub fn lange(allocator: Allocator, io: Io, comptime T: type, norm: Norm, m: usiz
 }
 
 /// `lange` after its checks.
-pub fn matNorm(al: Allocator, comptime T: type, norm: Norm, m: usize, n: usize, a: [*]const T, lda: usize) Allocator.Error!Float(T) {
+pub fn matNorm(al: Allocator, comptime T: type, norm: NormType, m: usize, n: usize, a: [*]const T, lda: usize) Allocator.Error!Float(T) {
     const F = Float(T);
     if (m == 0 or n == 0) return 0;
     var value: F = 0;
     switch (norm) {
-        .m => for (0..n) |j| for (0..m) |i| {
+        .max_abs => for (0..n) |j| for (0..m) |i| {
             const t = ops.abs(T, a[i + j * lda]);
             if (value < t or std.math.isNan(t)) value = t;
         },
-        .o => for (0..n) |j| {
+        .one => for (0..n) |j| {
             var sum: F = 0;
             for (0..m) |i| sum += ops.abs(T, a[i + j * lda]);
             if (value < sum or std.math.isNan(sum)) value = sum;
         },
-        .i => {
+        .infinity => {
             const work = try al.alloc(F, m);
             defer al.free(work);
             @memset(work, 0);
@@ -78,7 +77,7 @@ pub fn matNorm(al: Allocator, comptime T: type, norm: Norm, m: usize, n: usize, 
                 value = t;
             };
         },
-        .f => {
+        .frobenius => {
             var scale: F = 0;
             var sum: F = 1;
             for (0..n) |j| lassq(T, .of((a + j * lda)[0..m]), &scale, &sum);

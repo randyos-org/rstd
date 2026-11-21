@@ -225,13 +225,13 @@ pub fn gemm(comptime T: type, vt: *const Vtable, ta: bool, tb: bool, ca: bool, c
 
 /// `sbgemm` on the small path if `vt`'s permit allows it and the core has
 /// the kernel: true if done. After `half.gemm`'s quick returns, as `gemm`.
-pub fn gemmHalf(vt: *const Vtable, ta: bool, tb: bool, m: usize, n: usize, k: usize, alpha: f32, a: [*]const types.BF16, lda: usize, b: [*]const types.BF16, ldb: usize, beta: f32, c: [*]f32, ldc: usize) bool {
+pub fn gemmHalf(vt: *const Vtable, ta: bool, tb: bool, m: usize, n: usize, k: usize, alpha: f32, a: [*]const types.BFloat16, lda: usize, b: [*]const types.BFloat16, ldb: usize, beta: f32, c: [*]f32, ldc: usize) bool {
     const permit = vt.sbgemm_small_matrix_permit orelse return false;
     const M: BlasLong = @intCast(m);
     const N: BlasLong = @intCast(n);
     const K: BlasLong = @intCast(k);
-    const ap: [*]types.BF16 = @constCast(a);
-    const bp: [*]types.BF16 = @constCast(b);
+    const ap: [*]types.BFloat16 = @constCast(a);
+    const bp: [*]types.BFloat16 = @constCast(b);
     switch (ta) {
         inline else => |xa| switch (tb) {
             inline else => |xb| {

@@ -9,7 +9,7 @@ const portable = @import("../../portable.zig");
 const kernel = @import("kernel.zig");
 const check = @import("../../_test/check.zig");
 
-const BF16 = types.BF16;
+const BFloat16 = types.BFloat16;
 
 // ---- portable kernels ------------------------------------------------------
 
@@ -21,7 +21,7 @@ pub const installGeneric = kernel.installGeneric;
 
 /// A bfloat16 scalar as `f32`, through the vtable's conversion, as the
 /// interfaces' `SBF16TOS_K(1, &alpha, 1, &alpha_float, 1)` does.
-pub fn scalarToF32(v: BF16) f32 {
+pub fn scalarToF32(v: BFloat16) f32 {
     var in = v;
     var out: f32 = undefined;
     blas.kernel(.sbf16tos_k)(1, @ptrCast(&in), 1, @ptrCast(&out), 1);
@@ -76,7 +76,7 @@ test "portable conversions round-trip through strides" {
         a.* = (r.float(f32) - 0.5) * 1000;
         b.* = a.*;
     }
-    var h: [96]BF16 = @splat(@fromBackingInt(@intCast(0)));
+    var h: [96]BFloat16 = @splat(@fromBackingInt(@intCast(0)));
     var back: [64]f32 = @splat(0);
     var back_d: [64]f64 = @splat(0);
     vt.sbstobf16_k.?(32, &f, 2, &h, 3);
@@ -107,8 +107,8 @@ fn checkAll(vt: *const Vtable) !void {
     for (check.sizes) |n| for (check.strides) |inc| {
         var f: [check.capacity]f32 = undefined;
         check.fill(f32, &f, n + 3);
-        var x: [check.capacity]BF16 = undefined;
-        var y: [check.capacity]BF16 = undefined;
+        var x: [check.capacity]BFloat16 = undefined;
+        var y: [check.capacity]BFloat16 = undefined;
         for (0..check.capacity) |i| {
             x[i] = toBf16(f[i]);
             y[i] = toBf16(f[check.capacity - 1 - i]);
@@ -116,7 +116,7 @@ fn checkAll(vt: *const Vtable) !void {
         var want: f64 = 0;
         for (0..n) |i| want += @as(f64, fromBf16(x[i * inc[0]])) * fromBf16(y[i * inc[1]]);
         const got = vt.sbdot_k.?(@intCast(n), &x, @intCast(inc[0]), &y, @intCast(inc[1]));
-        check.expectClose(f32, @floatCast(want), got, check.tolerance(f32, 4 * n)) catch |e| return check.case(e, "sbdot", BF16, n, inc);
+        check.expectClose(f32, @floatCast(want), got, check.tolerance(f32, 4 * n)) catch |e| return check.case(e, "sbdot", BFloat16, n, inc);
     };
 }
 
@@ -134,8 +134,8 @@ test "sbdot sums a long, cancelling vector in f64" {
     // products of 2^28 against 1s: +2^28 over the first half, -2^28 over the
     // second; an f32 partial sum loses the 1s
     const n = 4096;
-    var x: [n]BF16 = undefined;
-    var y: [n]BF16 = undefined;
+    var x: [n]BFloat16 = undefined;
+    var y: [n]BFloat16 = undefined;
     for (0..n) |i| {
         const big = i % 2 == 0;
         x[i] = toBf16(if (big) 16384 else 1);
@@ -167,7 +167,7 @@ test "bscal follows generic/scal.c, with the flag, signed zeros and denormals" {
     const das = [_]u16{ 0x0000, 0x8000, 0x0001, 0x3fc0, 0xbf00, 0x7f80, 0x7fc0 };
     const xs = [_]u16{ 0x0000, 0x8000, 0x0001, 0x3f80, 0xc040, 0x7f80, 0xff80, 0x7fc1, 0x4049 };
     for ([_]i64{ 0, 1 }) |flag| for (das) |da| {
-        var pad: [xs.len * 2]BF16 = undefined;
+        var pad: [xs.len * 2]BFloat16 = undefined;
         for (xs, 0..) |s, i| {
             pad[2 * i] = @fromBackingInt(@intCast(s));
             pad[2 * i + 1] = @fromBackingInt(@intCast(0x1234));
@@ -183,7 +183,7 @@ test "bscal follows generic/scal.c, with the flag, signed zeros and denormals" {
         }
     };
     // nothing for n <= 0 or a non-positive stride
-    var one = [_]BF16{@fromBackingInt(@intCast(0x3f80))};
+    var one = [_]BFloat16{@fromBackingInt(@intCast(0x3f80))};
     _ = kernel.bscal_k(0, 0, 0, @fromBackingInt(@intCast(0)), &one, 1, &one, 0, &one, 1);
     _ = kernel.bscal_k(1, 0, 0, @fromBackingInt(@intCast(0)), &one, 0, &one, 0, &one, 1);
     try std.testing.expectEqual(@as(u16, 0x3f80), @backingInt(one[0]));

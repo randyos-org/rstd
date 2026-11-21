@@ -10,8 +10,8 @@ pub const Error = iface.Error;
 pub const ArgError = iface.ArgError;
 pub const HalfError = half.HalfError;
 pub const BatchError = batch.Error;
-pub const HalfGemm = half.HalfGemm;
-pub const Group = batch.Group;
+pub const HalfPrecision = half.HalfPrecision;
+pub const GemmGroup = batch.GemmGroup;
 
 pub const gemm = iface.gemm;
 pub const gemm3m = iface.gemm3m;

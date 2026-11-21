@@ -96,7 +96,7 @@ fn Gen(comptime T: type) type {
             const r = try tgsyl(al, io, T, trans, ijob, m, n, g.a, m + ld.a, g.b, n + ld.b, g.c, m + ld.c, g.d, m + ld.d, g.e, n + ld.e, g.f, m + ld.f);
             if (r.perturbed) return error.TestUnexpectedResult;
             scale.* = r.scale;
-            if (r.dif) |x| dif.* = x;
+            if (r.separation) |x| dif.* = x;
         }
 
         fn at(x: []const T, ldx: usize, i: usize, j: usize) Wt {
@@ -241,7 +241,7 @@ fn sigmaMin(comptime T: type, al: Allocator, g: Gen(T)) !f64 {
     };
     const s = try al.alloc(f64, 2 * k);
     defer al.free(s);
-    try faer_svd.gesvd(al, check.io, C, .n, .n, 2 * k, 2 * k, z, 2 * k, s, z[0..0], 1, z[0..0], 1, null);
+    try faer_svd.gesvd(al, check.io, C, .none, .none, 2 * k, 2 * k, z, 2 * k, s, z[0..0], 1, z[0..0], 1, null);
     return s[2 * k - 1];
 }
 
@@ -310,7 +310,7 @@ test "relapack tgsyl: common eigenvalues are perturbed, written and finite; scal
             var c: [4]T = @splat(scalar(T, big));
             var f: [4]T = @splat(scalar(T, big));
             const r = try tgsyl(al, check.io, T, .n, 0, 2, 2, &a, 2, &a, 2, &c, 2, &d, 2, &d, 2, &f, 2);
-            try testing.expect(r.perturbed and r.dif == null);
+            try testing.expect(r.perturbed and r.separation == null);
             try testing.expect(r.scale > 0 and r.scale <= 1);
             if (big > 1) try testing.expect(r.scale < 1);
             for (c ++ f) |x| try testing.expect(if (comptime isComplex(T)) std.math.isFinite(x.re) and std.math.isFinite(x.im) else std.math.isFinite(x));
@@ -330,7 +330,7 @@ test "relapack tgsyl: common eigenvalues are perturbed, written and finite; scal
         // empty, which the reference refuses: nothing read or written
         for ([_][2]usize{ .{ 0, 2 }, .{ 2, 0 } }) |s| {
             const r = try tgsyl(al, check.io, T, transOf(T, true), 9, s[0], s[1], z, 2, z, 2, z, 2, z, 2, z, 2, z, 2);
-            try testing.expect(r.scale == 1 and r.dif == null and !r.perturbed);
+            try testing.expect(r.scale == 1 and r.separation == null and !r.perturbed);
         }
         for (c) |x| try testing.expect(lcheck.isNanT(T, x));
     }

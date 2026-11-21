@@ -19,7 +19,7 @@ const Io = std.Io;
 const Mat = ops.Mat;
 const Float = ops.Float;
 const isComplex = ops.isComplex;
-const Jobz = evd.Jobz;
+const VectorJob = evd.VectorJob;
 const Eigenvalues = schur.Eigenvalues;
 const test_types = evd_tests.test_types;
 const tolerance = evd_tests.tolerance;
@@ -108,7 +108,7 @@ fn geevCase(comptime T: type, al: Allocator, io: Io, a0: Mat(T)) !void {
     for (0..2) |pass| {
         a.fill(lcheck.poisoned(T));
         a.sub(0, 0, n, n).copyFrom(a0);
-        const jv: Jobz = if (pass == 0) .v else .n;
+        const jv: VectorJob = if (pass == 0) .compute else .none;
         const off = pass * 2 * n;
         const w: Eigenvalues(T) = if (comptime isComplex(T)) cw[pass * n ..][0..n] else .{ .re = ev[off..][0..n], .im = ev[off + n ..][0..n] };
         try evd.geev(al, io, T, jv, jv, n, a.slice(), n + 1, w, vl.slice(), n, vr.slice(), n, null);
@@ -249,9 +249,9 @@ test "faer evd: geev's NaN is NanInA, infinity NoConvergence; scaled past the bo
         const w: Eigenvalues(T) = if (comptime isComplex(T)) &ce else .{ .re = e[0..3], .im = e[3..] };
         var v: [9]T = undefined;
         a[4] = ops.scalar(T, std.math.nan(F));
-        try testing.expectError(error.NanInA, evd.geev(al, check.io, T, .v, .n, 3, &a, 3, w, &v, 3, v[0..0], 1, null));
+        try testing.expectError(error.NanInA, evd.geev(al, check.io, T, .compute, .none, 3, &a, 3, w, &v, 3, v[0..0], 1, null));
         a[4] = ops.scalar(T, std.math.inf(F));
-        try testing.expectError(error.NoConvergence, evd.geev(al, check.io, T, .n, .n, 3, &a, 3, w, v[0..0], 1, v[0..0], 1, null));
+        try testing.expectError(error.NoConvergence, evd.geev(al, check.io, T, .none, .none, 3, &a, 3, w, v[0..0], 1, v[0..0], 1, null));
         // scaled past SMLNUM and BIGNUM: the unscaled matrix's vectors
         // (residuals on it, as they would overflow on the scaled one) and
         // its values times the scale
@@ -276,7 +276,7 @@ test "faer evd: geev's NaN is NanInA, infinity NoConvergence; scaled past the bo
             var ev: [2 * n]F = undefined;
             var cw: [n]T = undefined;
             const ws: Eigenvalues(T) = if (comptime isComplex(T)) &cw else .{ .re = ev[0..n], .im = ev[n..] };
-            try evd.geev(al, check.io, T, .v, .v, n, as.slice(), n, ws, vl.slice(), n, vr.slice(), n, null);
+            try evd.geev(al, check.io, T, .compute, .compute, n, as.slice(), n, ws, vl.slice(), n, vr.slice(), n, null);
             for (&ev) |*x| x.* /= sc / 8;
             for (&cw) |*x| x.* = ops.mulReal(T, x.*, 1 / (sc / 8));
             if (comptime isComplex(T)) {
@@ -291,13 +291,13 @@ test "faer evd: geev's NaN is NanInA, infinity NoConvergence; scaled past the bo
     var wr: [2]f64 = @splat(std.math.nan(f64));
     var wi: [2]f64 = @splat(std.math.nan(f64));
     const w: Eigenvalues(f64) = .{ .re = &wr, .im = &wi };
-    try testing.expectError(error.LeadingDimensionTooSmall, evd.geev(fa, check.io, f64, .v, .v, 2, &a, 1, w, &a, 2, &a, 2, null));
-    try testing.expectError(error.LeadingDimensionTooSmall, evd.geev(fa, check.io, f64, .v, .v, 2, &a, 2, w, &a, 1, &a, 2, null));
-    try testing.expectError(error.LeadingDimensionTooSmall, evd.geev(fa, check.io, f64, .n, .v, 2, &a, 2, w, a[0..0], 0, &a, 1, null));
-    try testing.expectError(error.SliceTooShort, evd.geev(fa, check.io, f64, .n, .n, 2, a[0..3], 2, w, a[0..0], 0, a[0..0], 0, null));
-    try testing.expectError(error.SliceTooShort, evd.geev(fa, check.io, f64, .n, .v, 2, &a, 2, w, a[0..0], 0, a[0..3], 2, null));
-    try testing.expectError(error.SliceTooShort, evd.geev(fa, check.io, f64, .n, .n, 2, &a, 2, .{ .re = &wr, .im = wi[0..1] }, a[0..0], 0, a[0..0], 0, null));
-    try evd.geev(fa, check.io, f64, .v, .v, 0, &a, 1, w, &a, 1, &a, 1, null);
+    try testing.expectError(error.LeadingDimensionTooSmall, evd.geev(fa, check.io, f64, .compute, .compute, 2, &a, 1, w, &a, 2, &a, 2, null));
+    try testing.expectError(error.LeadingDimensionTooSmall, evd.geev(fa, check.io, f64, .compute, .compute, 2, &a, 2, w, &a, 1, &a, 2, null));
+    try testing.expectError(error.LeadingDimensionTooSmall, evd.geev(fa, check.io, f64, .none, .compute, 2, &a, 2, w, a[0..0], 0, &a, 1, null));
+    try testing.expectError(error.SliceTooShort, evd.geev(fa, check.io, f64, .none, .none, 2, a[0..3], 2, w, a[0..0], 0, a[0..0], 0, null));
+    try testing.expectError(error.SliceTooShort, evd.geev(fa, check.io, f64, .none, .compute, 2, &a, 2, w, a[0..0], 0, a[0..3], 2, null));
+    try testing.expectError(error.SliceTooShort, evd.geev(fa, check.io, f64, .none, .none, 2, &a, 2, .{ .re = &wr, .im = wi[0..1] }, a[0..0], 0, a[0..0], 0, null));
+    try evd.geev(fa, check.io, f64, .compute, .compute, 0, &a, 1, w, &a, 1, &a, 1, null);
     for (a ++ wr ++ wi) |x| try testing.expect(std.math.isNan(x));
 }
 
@@ -315,7 +315,7 @@ test "faer evd: geev's INFO > 0: w[i..n] converged and scaled back, the count in
         var cw: [n]T = undefined;
         var a = a0;
         const w0: Eigenvalues(T) = if (comptime isComplex(T)) &cw else .{ .re = ev[0..n], .im = ev[n..] };
-        try evd.geev(al, check.io, T, .n, .n, n, &a, n, w0, &v, 1, &v, 1, null);
+        try evd.geev(al, check.io, T, .none, .none, n, &a, n, w0, &v, 1, &v, 1, null);
         for ([_]F{ 1, std.math.ldexp(@as(F, 1), std.math.floatExponentMin(F) + 8) }) |sc| {
             ops.test_iter_limit = 10;
             defer ops.test_iter_limit = null;
@@ -325,7 +325,7 @@ test "faer evd: geev's INFO > 0: w[i..n] converged and scaled back, the count in
             const w1: Eigenvalues(T) = if (comptime isComplex(T)) &cw1 else .{ .re = ev1[0..n], .im = ev1[n..] };
             var info: usize = 0;
             var vr: [n * n]T = undefined;
-            try testing.expectError(error.NoConvergence, evd.geev(al, check.io, T, .n, .v, n, &a, n, w1, &v, 1, &vr, n, &info));
+            try testing.expectError(error.NoConvergence, evd.geev(al, check.io, T, .none, .compute, n, &a, n, w1, &v, 1, &vr, n, &info));
             try testing.expect(info > 0 and info < n);
             const tol = tolerance(F, n, auxiliary.normMax(T, .{ .ptr = &a0, .rows = n, .cols = n, .ld = n }));
             for (info..n) |i| {
@@ -341,7 +341,7 @@ test "faer evd: geev's INFO > 0: w[i..n] converged and scaled back, the count in
         a = a0;
         a[5] = ops.scalar(T, std.math.inf(F));
         var info: usize = 0;
-        try testing.expectError(error.NoConvergence, evd.geev(al, check.io, T, .n, .n, n, &a, n, w0, &v, 1, &v, 1, &info));
+        try testing.expectError(error.NoConvergence, evd.geev(al, check.io, T, .none, .none, n, &a, n, w0, &v, 1, &v, 1, &info));
         try testing.expectEqual(n, info);
     }
 }
@@ -377,7 +377,7 @@ test "faer evd: geev gives one worker's bits at any worker count" {
             const o = outs[c];
             @memcpy(o[0 .. n * n], a0.ptr[0 .. n * n]);
             const w: Eigenvalues(T) = if (comptime isComplex(T)) evs[c][0..n] else .{ .re = evs[c][0..n], .im = evs[c][n..] };
-            try evd.geev(al, io, T, .v, .v, n, o[0 .. n * n], n, w, o[n * n ..][0 .. n * n], n, o[2 * n * n ..], n, null);
+            try evd.geev(al, io, T, .compute, .compute, n, o[0 .. n * n], n, w, o[n * n ..][0 .. n * n], n, o[2 * n * n ..], n, null);
         }
         try test_io.expectSameBytes(outs);
         try test_io.expectSameBytes(evs);
@@ -404,7 +404,7 @@ test "faer evd: geev balances, so D M D⁻¹ keeps M's eigenvalues to M's scale 
         var v: [1]T = undefined;
         for ([_]Mat(T){ m, a }, 0..) |x, p| {
             const w: Eigenvalues(T) = if (comptime isComplex(T)) cw[p * n ..][0..n] else .{ .re = ev[2 * p * n ..][0..n], .im = ev[2 * p * n + n ..][0..n] };
-            try evd.geev(al, check.io, T, .n, .n, n, x.slice(), n, w, &v, 1, &v, 1, null);
+            try evd.geev(al, check.io, T, .none, .none, n, x.slice(), n, w, &v, 1, &v, 1, null);
         }
         // each of A's within tolerance of one of M's
         const tol = tolerance(F, n, 4);

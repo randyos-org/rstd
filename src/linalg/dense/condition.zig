@@ -30,13 +30,13 @@ pub fn rcond(allocator: Allocator, io: Io, a: anytype) RcondError!Real(ElementOf
     if (n == 0) return std.math.inf(F);
     const f = try copyOf(T, allocator, ca);
     defer f.deinit(allocator);
-    const anorm = lapack.lange(allocator, io, T, .o, n, n, f.data, n) catch |e| return narrow(e);
+    const anorm = lapack.lange(allocator, io, T, .one, n, n, f.data, n) catch |e| return narrow(e);
     if (std.math.isNan(anorm)) return std.math.nan(F);
     if (std.math.isInf(anorm)) return 0;
     const ipiv = try allocator.alloc(usize, n);
     defer allocator.free(ipiv);
     if (lapack.getrf(allocator, io, T, n, n, f.data, n, ipiv) catch |e| return narrow(e)) |_| return 0;
-    return lapack.gecon(allocator, io, T, .o, n, f.data, n, anorm) catch |e| switch (e) {
+    return lapack.gecon(allocator, io, T, .one, n, f.data, n, anorm) catch |e| switch (e) {
         // an LU too ill-scaled to estimate: as singular
         error.EstimateFailed => 0,
         else => return narrow(e),

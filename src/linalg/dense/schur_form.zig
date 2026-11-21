@@ -109,7 +109,7 @@ fn gees(comptime T: type, allocator: Allocator, io: Io, t: Mat(T)) SchurError!Sc
     const w = try allocator.alloc(T, if (comptime isComplex(T)) n else 2 * n);
     defer allocator.free(w);
     const ev: lapack.Eigenvalues(T) = if (comptime isComplex(T)) w else .{ .re = w[0..n], .im = w[n..] };
-    _ = lapack.gees(allocator, io, T, .v, null, n, t.data, n, ev, u.data, n, null) catch |e| return switch (e) {
+    _ = lapack.gees(allocator, io, T, .compute, null, n, t.data, n, ev, u.data, n, null) catch |e| return switch (e) {
         error.NanInA => error.NoConvergence,
         else => ops.narrow(SchurError, e),
     };

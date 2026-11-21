@@ -115,7 +115,7 @@ test "lapack trexc: moves every block to every place, Q T Q' = T0, Schur form ke
                 for (0..n) |i| q[i * (n + 1)] = ops.one(T);
                 var ifst = f;
                 var ilst = l;
-                try trexc(check.io, T, .v, n, t, n, q, n, &ifst, &ilst);
+                try trexc(check.io, T, .update, n, t, n, q, n, &ifst, &ilst);
                 try expectSimilar(T, n, t0, t, q);
                 // the moved eigenvalue sits at ilst
                 const want = eigAt(T, n, t0, ifst);
@@ -134,24 +134,24 @@ test "lapack trexc: n = 0 and 1, compq n, bad arguments" {
         var q = [_]T{ops.scalar(T, 7)};
         var f: usize = 0;
         var l: usize = 0;
-        try trexc(check.io, T, .v, 1, &t, 1, &q, 1, &f, &l);
-        try trexc(check.io, T, .n, 0, &t, 1, &q, 1, &f, &l);
+        try trexc(check.io, T, .update, 1, &t, 1, &q, 1, &f, &l);
+        try trexc(check.io, T, .none, 0, &t, 1, &q, 1, &f, &l);
         try testing.expect(ops.re(T, t[0]) == 3 and ops.re(T, q[0]) == 7);
     }
     var t: [4]f64 = .{ 1, 0, 2, 3 };
     var q: [4]f64 = undefined;
     var f: usize = 0;
     var l: usize = 1;
-    try trexc(check.io, f64, .n, 2, &t, 2, &q, 1, &f, &l);
+    try trexc(check.io, f64, .none, 2, &t, 2, &q, 1, &f, &l);
     try testing.expect(t[0] == 3 and t[3] == 1 and @abs(t[2]) == 2 and t[1] == 0);
-    try testing.expectError(error.LeadingDimensionTooSmall, trexc(check.io, f64, .n, 2, &t, 1, &q, 1, &f, &l));
-    try testing.expectError(error.SliceTooShort, trexc(check.io, f64, .n, 2, t[0..3], 2, &q, 1, &f, &l));
-    try testing.expectError(error.LeadingDimensionTooSmall, trexc(check.io, f64, .v, 2, &t, 2, &q, 1, &f, &l));
+    try testing.expectError(error.LeadingDimensionTooSmall, trexc(check.io, f64, .none, 2, &t, 1, &q, 1, &f, &l));
+    try testing.expectError(error.SliceTooShort, trexc(check.io, f64, .none, 2, t[0..3], 2, &q, 1, &f, &l));
+    try testing.expectError(error.LeadingDimensionTooSmall, trexc(check.io, f64, .update, 2, &t, 2, &q, 1, &f, &l));
     f = 2;
-    try testing.expectError(error.RowOutOfRange, trexc(check.io, f64, .n, 2, &t, 2, &q, 1, &f, &l));
+    try testing.expectError(error.RowOutOfRange, trexc(check.io, f64, .none, 2, &t, 2, &q, 1, &f, &l));
     f = 0;
     l = 2;
-    try testing.expectError(error.RowOutOfRange, trexc(check.io, f64, .n, 2, &t, 2, &q, 1, &f, &l));
+    try testing.expectError(error.RowOutOfRange, trexc(check.io, f64, .none, 2, &t, 2, &q, 1, &f, &l));
 }
 
 /// `I ⊗ T11 - T22ᵀ ⊗ I`, the Sylvester operator `trsen` measures, on
@@ -188,11 +188,11 @@ test "lapack trsen: the selected cluster leads, s against the Kronecker solve, s
             for (0..n) |i| select[i] = (sel >> @intCast(i)) & 1 != 0;
             var wbuf: [16]T = undefined;
             const w: Eigenvalues(T) = if (comptime isComplex(T)) &wbuf else .{ .re = wbuf[0..8], .im = wbuf[8..] };
-            const r = try trsen(al, check.io, T, .b, .v, select[0..n], n, t, n, q, n, w);
-            const s = r.s.?;
-            const sep = r.sep.?;
+            const r = try trsen(al, check.io, T, .both, .update, select[0..n], n, t, n, q, n, w);
+            const s = r.eigenvalue_condition.?;
+            const sep = r.subspace_separation.?;
             try expectSimilar(T, n, t0, t, q);
-            const n1 = r.m;
+            const n1 = r.selected;
             // the selected eigenvalues, in their old order, lead
             var k: usize = 0;
             var got: usize = 0;
@@ -235,7 +235,7 @@ test "lapack trsen: the selected cluster leads, s against the Kronecker solve, s
             @memcpy(kf, kk);
             const sv = try al.alloc(F, nn);
             defer al.free(sv);
-            try svd.gesvd(al, check.io, T, .n, .n, nn, nn, kf, nn, sv, kf[0..0], 1, kf[0..0], 1, null);
+            try svd.gesvd(al, check.io, T, .none, .none, nn, nn, kf, nn, sv, kf[0..0], 1, kf[0..0], 1, null);
             const smin = sv[nn - 1];
             const root = @sqrt(@as(F, @floatFromInt(nn)));
             if (!(sep >= smin / root * (1 - 1e3 * eps) and sep <= thresh * root * smin)) {
@@ -254,17 +254,17 @@ test "lapack trsen: none or all selected, a block-diagonal T, n = 0, bad argumen
         var q: [4]T = undefined;
         var wbuf: [4]T = undefined;
         const w: Eigenvalues(T) = if (comptime isComplex(T)) &wbuf else .{ .re = wbuf[0..2], .im = wbuf[2..] };
-        var r = try trsen(al, check.io, T, .b, .n, &.{ false, true }, 2, &t, 2, &q, 1, w);
-        try testing.expect(r.m == 1 and r.s.? == 1 and r.sep.? == 3);
+        var r = try trsen(al, check.io, T, .both, .none, &.{ false, true }, 2, &t, 2, &q, 1, w);
+        try testing.expect(r.selected == 1 and r.eigenvalue_condition.? == 1 and r.subspace_separation.? == 3);
         try testing.expect(ops.re(T, t[0]) == 4 and ops.re(T, t[3]) == 1);
-        r = try trsen(al, check.io, T, .b, .n, &.{ false, false }, 2, &t, 2, &q, 1, w);
-        try testing.expect(r.m == 0 and r.s.? == 1 and r.sep.? == 4);
-        r = try trsen(al, check.io, T, .v, .n, &.{ true, true }, 2, &t, 2, &q, 1, w);
-        try testing.expect(r.m == 2 and r.s == null and r.sep.? == 4);
-        r = try trsen(al, check.io, T, .b, .n, &.{}, 0, &t, 1, &q, 1, w);
-        try testing.expect(r.m == 0 and r.s.? == 1);
-        r = try trsen(al, check.io, T, .n, .n, &.{ true, false }, 2, &t, 2, &q, 1, w);
-        try testing.expect(r.m == 1 and r.s == null and r.sep == null);
+        r = try trsen(al, check.io, T, .both, .none, &.{ false, false }, 2, &t, 2, &q, 1, w);
+        try testing.expect(r.selected == 0 and r.eigenvalue_condition.? == 1 and r.subspace_separation.? == 4);
+        r = try trsen(al, check.io, T, .subspace, .none, &.{ true, true }, 2, &t, 2, &q, 1, w);
+        try testing.expect(r.selected == 2 and r.eigenvalue_condition == null and r.subspace_separation.? == 4);
+        r = try trsen(al, check.io, T, .both, .none, &.{}, 0, &t, 1, &q, 1, w);
+        try testing.expect(r.selected == 0 and r.eigenvalue_condition.? == 1);
+        r = try trsen(al, check.io, T, .none, .none, &.{ true, false }, 2, &t, 2, &q, 1, w);
+        try testing.expect(r.selected == 1 and r.eigenvalue_condition == null and r.subspace_separation == null);
     }
     var t: [4]f64 = undefined;
     var q: [4]f64 = undefined;
@@ -272,9 +272,9 @@ test "lapack trsen: none or all selected, a block-diagonal T, n = 0, bad argumen
     var wi: [2]f64 = undefined;
     const sel = [_]bool{ true, false };
     const w: Eigenvalues(f64) = .{ .re = &wr, .im = &wi };
-    try testing.expectError(error.LeadingDimensionTooSmall, trsen(al, check.io, f64, .n, .n, &sel, 2, &t, 1, &q, 1, w));
-    try testing.expectError(error.SliceTooShort, trsen(al, check.io, f64, .n, .n, &sel, 2, t[0..3], 2, &q, 1, w));
-    try testing.expectError(error.LeadingDimensionTooSmall, trsen(al, check.io, f64, .n, .v, &sel, 2, &t, 2, &q, 1, w));
-    try testing.expectError(error.SliceTooShort, trsen(al, check.io, f64, .n, .n, sel[0..1], 2, &t, 2, &q, 1, w));
-    try testing.expectError(error.SliceTooShort, trsen(al, check.io, f64, .n, .n, &sel, 2, &t, 2, &q, 1, .{ .re = &wr, .im = wi[0..1] }));
+    try testing.expectError(error.LeadingDimensionTooSmall, trsen(al, check.io, f64, .none, .none, &sel, 2, &t, 1, &q, 1, w));
+    try testing.expectError(error.SliceTooShort, trsen(al, check.io, f64, .none, .none, &sel, 2, t[0..3], 2, &q, 1, w));
+    try testing.expectError(error.LeadingDimensionTooSmall, trsen(al, check.io, f64, .none, .update, &sel, 2, &t, 2, &q, 1, w));
+    try testing.expectError(error.SliceTooShort, trsen(al, check.io, f64, .none, .none, sel[0..1], 2, &t, 2, &q, 1, w));
+    try testing.expectError(error.SliceTooShort, trsen(al, check.io, f64, .none, .none, &sel, 2, &t, 2, &q, 1, .{ .re = &wr, .im = wi[0..1] }));
 }

@@ -12,7 +12,7 @@ const testing = std.testing;
 const Float = ops.Float;
 const isComplex = ops.isComplex;
 const Eigenvalues = schur.Eigenvalues;
-const GeesSelect = schur.GeesSelect;
+const EigenvalueSelector = schur.EigenvalueSelector;
 
 test "hseqr: Zᴴ A Z = T after gehrd and orghr, the lo..hi block, both jobs, real and complex" {
     const al = testing.allocator;
@@ -45,8 +45,8 @@ test "hseqr: Zᴴ A Z = T after gehrd and orghr, the lo..hi block, both jobs, re
             defer al.free(cw);
             const w: Eigenvalues(T) = if (comptime isComplex(T)) cw[0..n] else .{ .re = ev[0..n], .im = ev[n..][0..n] };
             const w2: Eigenvalues(T) = if (comptime isComplex(T)) cw[n..] else .{ .re = ev[2 * n ..][0..n], .im = ev[3 * n ..] };
-            try schur.hseqr(check.io, T, .s, .v, n, lo, hi, t, n, w, z, n, null);
-            try schur.hseqr(check.io, T, .e, .n, n, lo, hi, h2, n, w2, h2[0..0], 0, null);
+            try schur.hseqr(check.io, T, .schur_form, .accumulate, n, lo, hi, t, n, w, z, n, null);
+            try schur.hseqr(check.io, T, .eigenvalues, .none, n, lo, hi, h2, n, w2, h2[0..0], 0, null);
             const nrm = @max(auxiliary.normMax(T, .{ .ptr = a0.ptr, .rows = n, .cols = n, .ld = n }), 1);
             const tol = 128 * std.math.floatEps(F) * @as(F, @floatFromInt(n + 1)) * nrm;
             for (0..n) |j| for (0..n) |i| {
@@ -79,13 +79,13 @@ test "hseqr: Zᴴ A Z = T after gehrd and orghr, the lo..hi block, both jobs, re
     var wr: [2]f64 = undefined;
     var wi: [2]f64 = undefined;
     const w: Eigenvalues(f64) = .{ .re = &wr, .im = &wi };
-    try testing.expectError(error.BlockOutOfRange, schur.hseqr(check.io, f64, .e, .n, 2, 2, 1, &a, 2, w, &a, 1, null));
-    try testing.expectError(error.BlockOutOfRange, schur.hseqr(check.io, f64, .e, .n, 2, 0, 3, &a, 2, w, &a, 1, null));
-    try testing.expectError(error.LeadingDimensionTooSmall, schur.hseqr(check.io, f64, .e, .n, 2, 0, 2, &a, 1, w, &a, 1, null));
-    try testing.expectError(error.LeadingDimensionTooSmall, schur.hseqr(check.io, f64, .s, .i, 2, 0, 2, &a, 2, w, &a, 1, null));
-    try testing.expectError(error.SliceTooShort, schur.hseqr(check.io, f64, .s, .i, 2, 0, 2, &a, 2, w, a[0..3], 2, null));
-    try testing.expectError(error.SliceTooShort, schur.hseqr(check.io, f64, .e, .n, 2, 0, 2, &a, 2, .{ .re = wr[0..1], .im = &wi }, &a, 1, null));
-    try schur.hseqr(check.io, f64, .e, .n, 0, 0, 0, &a, 1, w, &a, 1, null);
+    try testing.expectError(error.BlockOutOfRange, schur.hseqr(check.io, f64, .eigenvalues, .none, 2, 2, 1, &a, 2, w, &a, 1, null));
+    try testing.expectError(error.BlockOutOfRange, schur.hseqr(check.io, f64, .eigenvalues, .none, 2, 0, 3, &a, 2, w, &a, 1, null));
+    try testing.expectError(error.LeadingDimensionTooSmall, schur.hseqr(check.io, f64, .eigenvalues, .none, 2, 0, 2, &a, 1, w, &a, 1, null));
+    try testing.expectError(error.LeadingDimensionTooSmall, schur.hseqr(check.io, f64, .schur_form, .from_identity, 2, 0, 2, &a, 2, w, &a, 1, null));
+    try testing.expectError(error.SliceTooShort, schur.hseqr(check.io, f64, .schur_form, .from_identity, 2, 0, 2, &a, 2, w, a[0..3], 2, null));
+    try testing.expectError(error.SliceTooShort, schur.hseqr(check.io, f64, .eigenvalues, .none, 2, 0, 2, &a, 2, .{ .re = wr[0..1], .im = &wi }, &a, 1, null));
+    try schur.hseqr(check.io, f64, .eigenvalues, .none, 0, 0, 0, &a, 1, w, &a, 1, null);
 }
 
 /// `gees`'s test sort: the left half plane first.
@@ -105,7 +105,7 @@ test "gees: A = Z T Zᴴ, unsorted and the left half plane first, tiny scale, Na
     const al = testing.allocator;
     inline for (.{ f64, types.Complex64, f32, types.Complex32 }) |T| {
         const F = Float(T);
-        const pick: GeesSelect(T) = if (comptime isComplex(T)) &LeftHalf(T).cplx else &LeftHalf(T).real;
+        const pick: EigenvalueSelector(T) = if (comptime isComplex(T)) &LeftHalf(T).cplx else &LeftHalf(T).real;
         for ([_]usize{ 1, 2, 6, 17 }) |n| for ([_]bool{ false, true }) |sort| for ([_]F{ 1, 1e-30 }) |sc| {
             const a0 = try al.alloc(T, n * n);
             defer al.free(a0);
@@ -120,7 +120,7 @@ test "gees: A = Z T Zᴴ, unsorted and the left half plane first, tiny scale, Na
             const cw = try al.alloc(T, n);
             defer al.free(cw);
             const w: Eigenvalues(T) = if (comptime isComplex(T)) cw else .{ .re = ev[0..n], .im = ev[n..] };
-            const sdim = try schur.gees(al, check.io, T, .v, if (sort) pick else null, n, t, n, w, z, n, null);
+            const sdim = try schur.gees(al, check.io, T, .compute, if (sort) pick else null, n, t, n, w, z, n, null);
             const nrm = @max(auxiliary.normMax(T, .{ .ptr = a0.ptr, .rows = n, .cols = n, .ld = n }), std.math.floatMin(F));
             const tol = 256 * std.math.floatEps(F) * @as(F, @floatFromInt(n + 1)) * nrm;
             for (0..n) |j| for (0..n) |i| {
@@ -154,10 +154,10 @@ test "gees: A = Z T Zᴴ, unsorted and the left half plane first, tiny scale, Na
     var wr: [2]f64 = undefined;
     var wi: [2]f64 = undefined;
     const w: Eigenvalues(f64) = .{ .re = &wr, .im = &wi };
-    try testing.expectError(error.NanInA, schur.gees(al, check.io, f64, .v, null, 2, &a, 2, w, &z, 2, null));
-    try testing.expectError(error.LeadingDimensionTooSmall, schur.gees(al, check.io, f64, .n, null, 2, &a, 1, w, &z, 1, null));
-    try testing.expectError(error.LeadingDimensionTooSmall, schur.gees(al, check.io, f64, .v, null, 2, &a, 2, w, &z, 1, null));
-    try testing.expectError(error.SliceTooShort, schur.gees(al, check.io, f64, .v, null, 2, &a, 2, w, z[0..3], 2, null));
-    try testing.expectError(error.SliceTooShort, schur.gees(al, check.io, f64, .n, null, 2, &a, 2, .{ .re = &wr, .im = wi[0..1] }, z[0..0], 0, null));
-    try testing.expectEqual(0, try schur.gees(al, check.io, f64, .n, null, 0, &a, 1, w, z[0..0], 0, null));
+    try testing.expectError(error.NanInA, schur.gees(al, check.io, f64, .compute, null, 2, &a, 2, w, &z, 2, null));
+    try testing.expectError(error.LeadingDimensionTooSmall, schur.gees(al, check.io, f64, .none, null, 2, &a, 1, w, &z, 1, null));
+    try testing.expectError(error.LeadingDimensionTooSmall, schur.gees(al, check.io, f64, .compute, null, 2, &a, 2, w, &z, 1, null));
+    try testing.expectError(error.SliceTooShort, schur.gees(al, check.io, f64, .compute, null, 2, &a, 2, w, z[0..3], 2, null));
+    try testing.expectError(error.SliceTooShort, schur.gees(al, check.io, f64, .none, null, 2, &a, 2, .{ .re = &wr, .im = wi[0..1] }, z[0..0], 0, null));
+    try testing.expectEqual(0, try schur.gees(al, check.io, f64, .none, null, 0, &a, 1, w, z[0..0], 0, null));
 }

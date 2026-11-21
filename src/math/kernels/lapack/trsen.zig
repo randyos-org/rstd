@@ -16,39 +16,40 @@ const Io = std.Io;
 const Float = types.Float;
 const isComplex = types.isComplex;
 const Error = ops.Error;
-const Compq = schur.Compq;
+const ReorderVectors = schur.ReorderVectors;
 const Eigenvalues = schur.Eigenvalues;
 const eigenvaluesHold = schur.eigenvaluesHold;
 const moveComplex = trexc_move.moveComplex;
 const moveReal = trexc_move.moveReal;
 
-/// `JOB`: no condition numbers (`n`), the cluster's (`e`, `s`), the
-/// invariant subspace's (`v`, `sep`), or both (`b`).
-pub const TrsenJob = enum { n, e, v, b };
+/// LAPACK's `JOB`: no condition numbers (`N`), the cluster's (`E`, `S`),
+/// the invariant subspace's (`V`, `SEP`), or both (`B`).
+pub const ConditionJob = enum { none, eigenvalues, subspace, both };
 
 /// What `trsen` returns: a slice too short (`t`, `select` or `w` under
-/// `n`, `q` with `compq` `v`) or a leading dimension too small,
+/// `n`, `q` with `compq` `.update`) or a leading dimension too small,
 /// `SwapRejected` for the reference's `INFO = 1` (real only): a swap was
 /// rejected, `T` part reordered, the eigenvalues written.
 pub const TrsenError = interface.ShapeError || error{SwapRejected} || Allocator.Error || Io.Cancelable;
 
 /// What `trsen` found: the reordered cluster's size (the reference's `m`)
 /// and, as `job` asks, the reciprocal condition numbers of the cluster
-/// (`s`) and of the invariant subspace (`sep`, an estimate), else null.
-pub fn Reordered(comptime T: type) type {
-    return struct { m: usize, s: ?Float(T) = null, sep: ?Float(T) = null };
+/// (`eigenvalue_condition`, the reference's `S`) and of the invariant
+/// subspace (`subspace_separation`, its `SEP`, an estimate), else null.
+pub fn ReorderedSchur(comptime T: type) type {
+    return struct { selected: usize, eigenvalue_condition: ?Float(T) = null, subspace_separation: ?Float(T) = null };
 }
 
 /// `?TRSEN` (`dtrsen.f`, `ztrsen.f`): reorders the `n x n` Schur form `T`
 /// so the eigenvalues `select` picks (`n`; real: either of a pair picks
-/// both) lead it, `T := Zᴴ T Z`, `Q := Q Z` with `compq` `v`. Writes the
+/// both) lead it, `T := Zᴴ T Z`, `Q := Q Z` with `compq` `.update`. Writes the
 /// reordered eigenvalues to `w` and returns their count with the condition
 /// numbers `job` asks for.
-pub fn trsen(allocator: Allocator, io: Io, comptime T: type, job: TrsenJob, compq: Compq, select: []const bool, n: usize, t_in: []T, ldt: usize, q: []T, ldq: usize, w: Eigenvalues(T)) TrsenError!Reordered(T) {
+pub fn trsen(allocator: Allocator, io: Io, comptime T: type, job: ConditionJob, compq: ReorderVectors, select: []const bool, n: usize, t_in: []T, ldt: usize, q: []T, ldq: usize, w: Eigenvalues(T)) TrsenError!ReorderedSchur(T) {
     comptime ops.requireFloat(T, "trsen");
-    const wants = job == .e or job == .b;
-    const wantsp = job == .v or job == .b;
-    const wantq = compq == .v;
+    const wants = job == .eigenvalues or job == .both;
+    const wantsp = job == .subspace or job == .both;
+    const wantq = compq == .update;
     try util.holds(t_in.len, n, n, ldt);
     if (wantq) try util.holds(q.len, n, n, ldq);
     if (select.len < n) return error.SliceTooShort;
@@ -68,11 +69,11 @@ pub fn trsen(allocator: Allocator, io: Io, comptime T: type, job: TrsenJob, comp
             } else if (select[k]) cnt += 1;
         }
     }
-    var r: Reordered(T) = .{ .m = cnt };
+    var r: ReorderedSchur(T) = .{ .selected = cnt };
     defer eigenvalues(T, un, t, lt, w);
     if (cnt == un or cnt == 0) {
-        if (wants) r.s = 1;
-        if (wantsp) r.sep = try norm.matNorm(allocator, T, .o, un, un, t, lt);
+        if (wants) r.eigenvalue_condition = 1;
+        if (wantsp) r.subspace_separation = try norm.matNorm(allocator, T, .one, un, un, t, lt);
         return r;
     }
     // move the selected blocks up, in order
@@ -106,13 +107,13 @@ pub fn trsen(allocator: Allocator, io: Io, comptime T: type, job: TrsenJob, comp
         // s from the solution of T11 X - X T22 = scale T12
         for (0..n2) |j| @memcpy(work[j * n1 ..][0..n1], t[(n1 + j) * lt ..][0..n1]);
         const scale = try ctx.solve(false, work.ptr);
-        const rnorm = try norm.matNorm(allocator, T, .f, n1, n2, work.ptr, n1);
-        r.s = if (rnorm == 0) 1 else scale / (@sqrt(scale * scale / rnorm + rnorm) * @sqrt(rnorm));
+        const rnorm = try norm.matNorm(allocator, T, .frobenius, n1, n2, work.ptr, n1);
+        r.eigenvalue_condition = if (rnorm == 0) 1 else scale / (@sqrt(scale * scale / rnorm + rnorm) * @sqrt(rnorm));
     }
     if (wantsp) {
         var last = Sep(T).Last{ .ctx = ctx };
         const est = try norm.lacn2(allocator, T, Error, nn, work[nn..], work[0..nn], &last, Sep(T).Last.apply);
-        r.sep = last.scale / est;
+        r.subspace_separation = last.scale / est;
     }
     return r;
 }

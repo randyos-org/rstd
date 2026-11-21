@@ -13,6 +13,7 @@ const threaded = @import("threaded.zig");
 const threading = @import("../threading.zig");
 const test_io = @import("../_test/io.zig");
 const types = @import("../types.zig");
+const half_precision = @import("../half_precision.zig");
 const portable = @import("../portable.zig");
 const util = @import("../util.zig");
 const Vtable = @import("../Vtable.zig");
@@ -32,41 +33,8 @@ pub const Error = interface.Error;
 /// What `gemmtHalf`, which allocates nothing, returns.
 pub const HalfError = interface.ArgError || Io.Cancelable;
 
-/// The half-precision gemms: `sbgemm` is bfloat16 in and `f32` out, `bgemm`
-/// bfloat16 throughout, `shgemm` `f16` in and `f32` out.
-pub const HalfGemm = enum {
-    sbgemm,
-    bgemm,
-    shgemm,
-
-    /// Its blocking parameters' gemm.
-    fn gemm(comptime k: HalfGemm) portable.Gemm {
-        return switch (k) {
-            .sbgemm => .sb,
-            .bgemm => .b,
-            .shgemm => .sh,
-        };
-    }
-
-    /// The type of `A` and `B`.
-    pub fn In(comptime k: HalfGemm) type {
-        return if (k == .shgemm) types.HF16 else types.BF16;
-    }
-
-    /// The type of `C`, `alpha` and `beta`.
-    pub fn Out(comptime k: HalfGemm) type {
-        return if (k == .bgemm) types.BF16 else f32;
-    }
-
-    /// The `gemv` of the same types (`sbgemmt`'s kernel).
-    fn gemv(comptime k: HalfGemm) blas.HalfGemv {
-        return switch (k) {
-            .sbgemm => .sbgemv,
-            .bgemm => .bgemv,
-            .shgemm => .shgemv,
-        };
-    }
-};
+/// Which half-precision `gemm` (`half_precision.zig`).
+pub const HalfPrecision = half_precision.HalfPrecision;
 
 /// Points the vtable's half-precision gemm slots at the portable kernels.
 pub const installGeneric = bf16_kernel.installGenericGemm;
@@ -84,7 +52,7 @@ fn toF32(comptime T: type, v: T) f32 {
 /// are `n` and `t`. Arguments are checked as `gemm`'s; `C` is scaled by
 /// `beta` first (a zero `beta` never reads it), and `A` and `B` are not read
 /// for a zero `alpha` or `k`. Above `gemm`'s threshold it threads on `io`.
-pub fn gemmHalf(allocator: Allocator, io: Io, comptime kind: HalfGemm, transa: Trans, transb: Trans, m: isize, n: isize, k: isize, alpha: kind.Out(), a: [*]const kind.In(), lda: isize, b: [*]const kind.In(), ldb: isize, beta: kind.Out(), c: [*]kind.Out(), ldc: isize) Error!void {
+pub fn gemmHalf(allocator: Allocator, io: Io, comptime kind: HalfPrecision, transa: Trans, transb: Trans, m: isize, n: isize, k: isize, alpha: kind.Out(), a: [*]const kind.In(), lda: isize, b: [*]const kind.In(), ldb: isize, beta: kind.Out(), c: [*]kind.Out(), ldc: isize) Error!void {
     try interface.gemmArgs(transa, transb, m, n, k, lda, ldb, ldc);
     const ta = transa.transposed();
     const tb = transb.transposed();
@@ -104,7 +72,7 @@ pub fn gemmHalf(allocator: Allocator, io: Io, comptime kind: HalfGemm, transa: T
 /// never read or written. A zero `alpha` or `k` only scales the triangle by
 /// `beta` (a zero `beta` never reads it), where upstream's `gemv` reads `A`
 /// and `B` regardless. Serial, as the half `gemv`s are; nothing is allocated.
-pub fn gemmtHalf(io: Io, comptime kind: HalfGemm, uplo: Uplo, transa: Trans, transb: Trans, m: isize, k: isize, alpha: kind.Out(), a: [*]const kind.In(), lda: isize, b: [*]const kind.In(), ldb: isize, beta: kind.Out(), c: [*]kind.Out(), ldc: isize) HalfError!void {
+pub fn gemmtHalf(io: Io, comptime kind: HalfPrecision, uplo: Uplo, transa: Trans, transb: Trans, m: isize, k: isize, alpha: kind.Out(), a: [*]const kind.In(), lda: isize, b: [*]const kind.In(), ldb: isize, beta: kind.Out(), c: [*]kind.Out(), ldc: isize) HalfError!void {
     _ = io;
     try interface.gemmtArgs(uplo, transa, transb, m, k, lda, ldb, ldc);
     const ta = transa.transposed();
@@ -118,12 +86,12 @@ pub fn gemmtHalf(io: Io, comptime kind: HalfGemm, uplo: Uplo, transa: Trans, tra
 
 /// `P`, `Q`, `R` and the unrolls from `kind`'s slots, with `Blocking.of`'s
 /// fallbacks for sizes no rule set (mips64 sets none, arm64 no `sh`).
-pub fn blocking(comptime kind: HalfGemm, vt: *const Vtable) Blocking {
+pub fn blocking(comptime kind: HalfPrecision, vt: *const Vtable) Blocking {
     return .fromSlots(vt, comptime kind.gemm());
 }
 
 /// One problem: `kind`'s kernels and the operands.
-fn Problem(comptime kind: HalfGemm) type {
+fn Problem(comptime kind: HalfPrecision) type {
     const I = kind.In();
     const O = kind.Out();
     return struct {
@@ -263,7 +231,7 @@ fn Problem(comptime kind: HalfGemm) type {
 
 /// `C := alpha*op(A)*op(B) + beta*C` with `kind`'s kernels in `vt`; `m`,
 /// `n` positive, arguments checked by the caller. Up to `want` workers.
-pub fn gemm(allocator: Allocator, io: Io, comptime kind: HalfGemm, vt: *const Vtable, ta: bool, tb: bool, m: usize, n: usize, k: usize, alpha: kind.Out(), a: [*]const kind.In(), lda: usize, b: [*]const kind.In(), ldb: usize, beta: kind.Out(), c: [*]kind.Out(), ldc: usize, want: u32) Error!void {
+pub fn gemm(allocator: Allocator, io: Io, comptime kind: HalfPrecision, vt: *const Vtable, ta: bool, tb: bool, m: usize, n: usize, k: usize, alpha: kind.Out(), a: [*]const kind.In(), lda: usize, b: [*]const kind.In(), ldb: usize, beta: kind.Out(), c: [*]kind.Out(), ldc: usize, want: u32) Error!void {
     const O = kind.Out();
     const beta_f = toF32(O, beta);
     if (k == 0 or toF32(O, alpha) == 0) {
@@ -271,7 +239,7 @@ pub fn gemm(allocator: Allocator, io: Io, comptime kind: HalfGemm, vt: *const Vt
         return;
     }
     // `SMALL_MATRIX_OPT`, which upstream builds for `sbgemm` alone of these
-    if (comptime kind == .sbgemm) {
+    if (comptime kind == .bf16_to_f32) {
         if (small_gemm.gemmHalf(vt, ta, tb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc)) return;
     }
     const p: Problem(kind) = .{
@@ -294,7 +262,7 @@ pub fn gemm(allocator: Allocator, io: Io, comptime kind: HalfGemm, vt: *const Vt
 
 /// `sbgemmt.c`'s loop: column `i` of the triangle is `gemv_n` (or `gemv_t`
 /// for `A^T`) of its rows of `op(A)` and column `i` of `op(B)`. `m` positive.
-pub fn gemmt(comptime kind: HalfGemm, vt: *const Vtable, upper: bool, ta: bool, tb: bool, m: usize, k: usize, alpha: kind.Out(), a: [*]const kind.In(), lda: usize, b: [*]const kind.In(), ldb: usize, beta: kind.Out(), c: [*]kind.Out(), ldc: usize) void {
+pub fn gemmt(comptime kind: HalfPrecision, vt: *const Vtable, upper: bool, ta: bool, tb: bool, m: usize, k: usize, alpha: kind.Out(), a: [*]const kind.In(), lda: usize, b: [*]const kind.In(), ldb: usize, beta: kind.Out(), c: [*]kind.Out(), ldc: usize) void {
     const O = kind.Out();
     const pa: [*]kind.In() = @constCast(a);
     const pb: [*]kind.In() = @constCast(b);
@@ -330,7 +298,7 @@ const check = @import("../_test/check.zig");
 const params = @import("gemm/params.zig");
 const zigstd = @import("../../../../zigstd.zig");
 
-const kinds = std.enums.values(HalfGemm);
+const kinds = std.enums.values(HalfPrecision);
 
 fn halfOf(comptime E: type, v: f32) E {
     return bf16_kernel.narrow(E, v);
@@ -342,7 +310,7 @@ fn valOf(comptime E: type, v: E) f32 {
 
 /// Operands of one test problem, `A` and `B` stored with leading dimensions
 /// past their rows, `C` with NaN past its rows (never read nor written).
-fn Case(comptime kind: HalfGemm) type {
+fn Case(comptime kind: HalfPrecision) type {
     const I = kind.In();
     const O = kind.Out();
     return struct {
@@ -391,7 +359,7 @@ fn Case(comptime kind: HalfGemm) type {
 /// (as the beta kernel), then per depth slice the `f32` sum in order and
 /// `C + alpha*sum`, rounded into `O`. The products of half values are exact
 /// in `f32`, so only the sums and the update round.
-fn model(comptime kind: HalfGemm, blk: Blocking, slice: ?usize, cs: Case(kind), ta: bool, tb: bool, k: usize, alpha: f32, beta: f32, i: usize, j: usize, c0: kind.Out()) kind.Out() {
+fn model(comptime kind: HalfPrecision, blk: Blocking, slice: ?usize, cs: Case(kind), ta: bool, tb: bool, k: usize, alpha: f32, beta: f32, i: usize, j: usize, c0: kind.Out()) kind.Out() {
     const O = kind.Out();
     const one = struct {
         fn madd(x: f32, y: f32, z: f32) f32 {
@@ -413,15 +381,15 @@ fn model(comptime kind: HalfGemm, blk: Blocking, slice: ?usize, cs: Case(kind), 
 
 fn sameBits(comptime T: type, x: T, y: T) bool {
     const U = @Int(.unsigned, @bitSizeOf(T));
-    const bx: U = if (T == types.BF16) @backingInt(x) else @bitCast(x);
-    const by: U = if (T == types.BF16) @backingInt(y) else @bitCast(y);
+    const bx: U = if (T == types.BFloat16) @backingInt(x) else @bitCast(x);
+    const by: U = if (T == types.BFloat16) @backingInt(y) else @bitCast(y);
     return bx == by;
 }
 
 /// `kind` on `vt` at `want` workers against `model`, bit for bit, and the
 /// rows past `m` untouched; `slice`: the small path's depth slices, where
 /// it takes the problem.
-fn exact(comptime kind: HalfGemm, vt: *const Vtable, io: Io, slice: ?usize, ta: bool, tb: bool, m: usize, n: usize, k: usize, alpha: f32, beta: f32, want: u32) !void {
+fn exact(comptime kind: HalfPrecision, vt: *const Vtable, io: Io, slice: ?usize, ta: bool, tb: bool, m: usize, n: usize, k: usize, alpha: f32, beta: f32, want: u32) !void {
     const O = kind.Out();
     const al = testing.allocator;
     const cs = try Case(kind).init(al, ta, tb, m, n, k, m * 131 + n * 17 + k);
@@ -485,12 +453,12 @@ test "half gemm: Cooper Lake's small-matrix sbgemm gives the portable bits in it
     // every row block and column tail, and depths past one and two slices
     const deep = [_][3]usize{ .{ 70, 17, 5 }, .{ 15, 8, Cooperlake.slice + 3 }, .{ 33, 2, 2 * Cooperlake.slice + 1 } };
     for (shapes ++ deep) |s| for (scalars) |ab| for ([_]bool{ false, true }) |ta| for ([_]bool{ false, true }) |tb| {
-        try exact(.sbgemm, &vt, check.io, Cooperlake.slice, ta, tb, s[0], s[1], s[2], ab[0], ab[1], 1);
+        try exact(.bf16_to_f32, &vt, check.io, Cooperlake.slice, ta, tb, s[0], s[1], s[2], ab[0], ab[1], 1);
     };
     // Cooper Lake's own permit: 8, 16 or 32 columns up to `256^3`
     params.installCore(&vt, .x86_64, .cooperlake, .{});
-    try exact(.sbgemm, &vt, check.io, Cooperlake.slice, false, true, 21, 16, 9, 1.5, 2, 1);
-    try exact(.sbgemm, &vt, check.io, null, false, true, 21, 15, 9, 1.5, 2, 1);
+    try exact(.bf16_to_f32, &vt, check.io, Cooperlake.slice, false, true, 21, 16, 9, 1.5, 2, 1);
+    try exact(.bf16_to_f32, &vt, check.io, null, false, true, 21, 15, 9, 1.5, 2, 1);
 }
 
 test "half gemm: the same bits at 1 to 9 workers, on every Io" {
@@ -509,12 +477,12 @@ test "half gemm: the same bits at 1 to 9 workers, on every Io" {
 test "half gemm: a vector tile's lanes give the scalar bits, special values included" {
     // `widen` against `fromBf16` on every class: zeros, denormals, NaNs
     const bits = [_]u16{ 0x0000, 0x8000, 0x0001, 0x8075, 0x3f80, 0xc049, 0x7f80, 0xff80, 0x7f81, 0xffc1, 0x0080, 0x7f7f, 0x1234, 0xabcd, 0x0100, 0x8100 };
-    var h: [bits.len]types.BF16 = undefined;
+    var h: [bits.len]types.BFloat16 = undefined;
     for (&h, bits) |*d, s| d.* = @fromBackingInt(@intCast(s));
     inline for (.{ 2, 4, 8, 16 }) |n| {
         var at: usize = 0;
         while (at + n <= bits.len) : (at += n) {
-            const v: [n]f32 = bf16_kernel.widen(types.BF16, n, h[at..].ptr);
+            const v: [n]f32 = bf16_kernel.widen(types.BFloat16, n, h[at..].ptr);
             for (0..n) |l| try testing.expectEqual(@as(u32, @bitCast(bf.fromBf16(h[at + l]))), @as(u32, @bitCast(v[l])));
         }
     }
@@ -590,7 +558,7 @@ test "interface: half gemm on a problem past the stack, at the global vtable" {
         try gemmHalf(al, check.io, kind, .n, .t, m, n, k, halfOf(O, 0.75), cs.a.ptr, @intCast(cs.lda), cs.b.ptr, @intCast(cs.ldb), halfOf(O, -1), cs.c.ptr, @intCast(cs.ldc));
         // `bgemm` rounds to bfloat16 per depth slice: 8 bits each, at
         // most `k` slices; `f32` out by the sums alone
-        const rel: f32 = if (O == types.BF16) 0.004 * @as(f32, @floatFromInt(k)) else 2e-7 * @as(f32, @floatFromInt(k));
+        const rel: f32 = if (O == types.BFloat16) 0.004 * @as(f32, @floatFromInt(k)) else 2e-7 * @as(f32, @floatFromInt(k));
         for (0..n) |j| for (0..m) |i| {
             var want: f64 = -@as(f64, valOf(O, orig[i + j * cs.ldc]));
             var mag: f64 = @abs(want);
@@ -636,9 +604,9 @@ test "interface: gemmtHalf gives gemvHalf's bits per column, and leaves the othe
                         v.* = if (ab[1] == 0) halfOf(O, 0) else halfOf(O, ab[1] * valOf(O, v.*));
                     };
                 } else if (ta) {
-                    try l2.gemvHalf(check.io, comptime kind.gemv(), .t, @intCast(k), @intCast(len), alpha, cs.a.ptr + r0 * cs.lda, @intCast(cs.lda), bb, incb, beta, col, 1);
+                    try l2.gemvHalf(check.io, kind, .t, @intCast(k), @intCast(len), alpha, cs.a.ptr + r0 * cs.lda, @intCast(cs.lda), bb, incb, beta, col, 1);
                 } else {
-                    try l2.gemvHalf(check.io, comptime kind.gemv(), .n, @intCast(len), @intCast(k), alpha, cs.a.ptr + r0, @intCast(cs.lda), bb, incb, beta, col, 1);
+                    try l2.gemvHalf(check.io, kind, .n, @intCast(len), @intCast(k), alpha, cs.a.ptr + r0, @intCast(cs.lda), bb, incb, beta, col, 1);
                 }
             }
             for (want, cs.c, 0..) |w, g, at| {

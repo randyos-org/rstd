@@ -29,7 +29,7 @@ pub const TrsylError = interface.TransError || error{UnsupportedSign} || interfa
 /// What `trsyl` found: `scale`, and `perturbed` for the reference's
 /// `INFO = 1` (`A` and `-isgn B` have close or common eigenvalues, so
 /// perturbed values were used); `C` is written either way.
-pub const Solved = sylvester.Solved;
+pub const SylvesterSolution = sylvester.SylvesterSolution;
 
 /// `?TRSYL` by ReLAPACK's recursion (`relapack/src/dtrsyl.c`, `ztrsyl.c`
 /// and the rest; OpenBLAS v0.3.34-317): `op(A) X + isgn X op(B) = scale C`
@@ -46,7 +46,7 @@ pub const Solved = sylvester.Solved;
 /// The reference wins where ReLAPACK, solving the top half first (`op(A)`
 /// transposed), rescales the bottom half by the second solve's `scale`; the
 /// top half, solved first, takes it here.
-pub fn trsyl(allocator: Allocator, io: Io, comptime T: type, trana: Trans, tranb: Trans, isgn: isize, m: usize, n: usize, a: []const T, lda: usize, b: []const T, ldb: usize, c: []T, ldc: usize) TrsylError!Solved(Float(T)) {
+pub fn trsyl(allocator: Allocator, io: Io, comptime T: type, trana: Trans, tranb: Trans, isgn: isize, m: usize, n: usize, a: []const T, lda: usize, b: []const T, ldb: usize, c: []T, ldc: usize) TrsylError!SylvesterSolution(Float(T)) {
     comptime ops.requireFloat(T, "trsyl");
     const ta = sylTrans(T, trana) orelse return error.UnsupportedTranspose;
     const tb = sylTrans(T, tranb) orelse return error.UnsupportedTranspose;
@@ -70,14 +70,14 @@ fn sylTrans(comptime T: type, t: Trans) ?bool {
 }
 
 /// `RELAPACK_?trsyl_rec`.
-fn trsylRec(al: Allocator, io: Io, comptime T: type, ta: bool, tb: bool, isgn: isize, m: usize, n: usize, a: [*]const T, lda: usize, b: [*]const T, ldb: usize, c: [*]T, ldc: usize) Error!Solved(Float(T)) {
+fn trsylRec(al: Allocator, io: Io, comptime T: type, ta: bool, tb: bool, isgn: isize, m: usize, n: usize, a: [*]const T, lda: usize, b: [*]const T, ldb: usize, c: [*]T, ldc: usize) Error!SylvesterSolution(Float(T)) {
     if (m <= relapack.crossover and n <= relapack.crossover) return trsy2(T, ta, tb, isgn, m, n, a, lda, b, ldb, c, ldc);
     const minus = scalar(T, -1);
     const msgn = scalar(T, @floatFromInt(-isgn));
     const opa: Trans = if (ta) relapack.ctrans(T) else .n;
     const opb: Trans = if (tb) relapack.ctrans(T) else .n;
-    var r1: Solved(Float(T)) = undefined;
-    var r2: Solved(Float(T)) = undefined;
+    var r1: SylvesterSolution(Float(T)) = undefined;
+    var r2: SylvesterSolution(Float(T)) = undefined;
     if (m > n) {
         var m1 = relapack.split(T, m);
         // never inside a 2 x 2 block

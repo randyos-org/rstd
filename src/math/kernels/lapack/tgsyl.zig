@@ -16,7 +16,7 @@ const Float = types.Float;
 const isComplex = types.isComplex;
 const Trans = types.Trans;
 const scalar = ops.scalar;
-const Solved = sylvester.Solved;
+const SylvesterSolution = sylvester.SylvesterSolution;
 const scaleBlock = sylvester.scaleBlock;
 const Dif = sylvester.Dif;
 const tgsy2 = sylvester.tgsy2;
@@ -32,8 +32,8 @@ pub const TgsylError = interface.TransError || error{UnsupportedJob} || interfac
 /// transposed solve), and `perturbed` for the reference's `INFO > 0`
 /// (`(A, D)` and `(B, E)` have common or close eigenvalues, so perturbed
 /// values were used); `C` and `F` are written either way.
-pub fn SolvedWithDif(comptime F: type) type {
-    return struct { scale: F, dif: ?F = null, perturbed: bool };
+pub fn GeneralizedSylvesterSolution(comptime F: type) type {
+    return struct { scale: F, separation: ?F = null, perturbed: bool };
 }
 
 /// `?TGSYL` by ReLAPACK's recursion (`relapack/src/dtgsyl.c` and the rest):
@@ -46,7 +46,7 @@ pub fn SolvedWithDif(comptime F: type) type {
 /// null vectors), leaving that estimate's `R` and `L` in `C` and `F`; 1 and
 /// 2 do both. An empty `m` or `n`, which the reference refuses, solves
 /// nothing.
-pub fn tgsyl(allocator: Allocator, io: Io, comptime T: type, trans: Trans, ijob: usize, m: usize, n: usize, a: []const T, lda: usize, b: []const T, ldb: usize, c: []T, ldc: usize, d: []const T, ldd: usize, e: []const T, lde: usize, f: []T, ldf: usize) TgsylError!SolvedWithDif(Float(T)) {
+pub fn tgsyl(allocator: Allocator, io: Io, comptime T: type, trans: Trans, ijob: usize, m: usize, n: usize, a: []const T, lda: usize, b: []const T, ldb: usize, c: []T, ldc: usize, d: []const T, ldd: usize, e: []const T, lde: usize, f: []T, ldf: usize) TgsylError!GeneralizedSylvesterSolution(Float(T)) {
     comptime ops.requireFloat(T, "tgsyl");
     const F = Float(T);
     // `N`, or `T` for real and `C` for complex, as `dtgsyl.f` and `ztgsyl.f`
@@ -99,7 +99,7 @@ pub fn tgsyl(allocator: Allocator, io: Io, comptime T: type, trans: Trans, ijob:
             scale = scale2;
         }
     }
-    return .{ .scale = scale, .dif = dif, .perturbed = perturbed };
+    return .{ .scale = scale, .separation = dif, .perturbed = perturbed };
 }
 
 /// `tgsyl`'s six matrices, as one recursion level sees them.
@@ -155,13 +155,13 @@ fn copyBlock(comptime T: type, m: usize, n: usize, src: [*]const T, lds: usize, 
 
 /// `RELAPACK_?tgsyl_rec`: the halves of the larger side, `dif`'s sums
 /// carried through.
-fn tgsylRec(al: Allocator, io: Io, comptime T: type, ifunc: u2, m: usize, n: usize, p: Gsyl(T), acc: *Dif(Float(T))) Error!Solved(Float(T)) {
+fn tgsylRec(al: Allocator, io: Io, comptime T: type, ifunc: u2, m: usize, n: usize, p: Gsyl(T), acc: *Dif(Float(T))) Error!SylvesterSolution(Float(T)) {
     if (m <= relapack.crossover and n <= relapack.crossover) return tgsy2(al, io, T, p.tr, ifunc, m, n, p.a, p.lda, p.b, p.ldb, p.c, p.ldc, p.d, p.ldd, p.e, p.lde, p.f, p.ldf, acc);
     const one = scalar(T, 1);
     const minus = scalar(T, -1);
     const ct = relapack.ctrans(T);
-    var r1: Solved(Float(T)) = undefined;
-    var r2: Solved(Float(T)) = undefined;
+    var r1: SylvesterSolution(Float(T)) = undefined;
+    var r2: SylvesterSolution(Float(T)) = undefined;
     if (m > n) {
         var m1 = relapack.split(T, m);
         // never inside a 2 x 2 block

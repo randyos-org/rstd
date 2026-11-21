@@ -157,7 +157,7 @@ pub fn Fixed(comptime c: usize) type {
         }
 
         fn extreme(comptime which: blas.Extreme, x: anytype) @TypeOf(x.ptr[0]) {
-            return if (which == .max) vector.max(x.gather(c)) else vector.min(x.gather(c));
+            return if (which == .largest) vector.max(x.gather(c)) else vector.min(x.gather(c));
         }
     };
 }

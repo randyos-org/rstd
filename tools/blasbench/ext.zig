@@ -1186,7 +1186,7 @@ const Gesvd = struct {
     pub const has_rstd = @hasDecl(lapack, "gesvd");
     pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
         const n = w.in();
-        try lapack.gesvd(rstd_alloc, libs.rstd_io, Num(p), .s, .s, w.n, w.n, libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), w.n, w.s[0..w.n], libs.matrix(Num(p), cast(p, w.u.ptr), n, n, n), w.n, libs.matrix(Num(p), cast(p, w.vt.ptr), n, n, n), w.n, null);
+        try lapack.gesvd(rstd_alloc, libs.rstd_io, Num(p), .leading, .leading, w.n, w.n, libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), w.n, w.s[0..w.n], libs.matrix(Num(p), cast(p, w.u.ptr), n, n, n), w.n, libs.matrix(Num(p), cast(p, w.vt.ptr), n, n, n), w.n, null);
     }
     pub fn residual(comptime p: Prec, w: *const Work(p), i: usize, j: usize) ?[2]f64 {
         return svdAt(p, w, i, j);
@@ -1220,7 +1220,7 @@ const Gesdd = struct {
     pub const has_rstd = @hasDecl(lapack, "gesdd");
     pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
         const n = w.in();
-        try lapack.gesdd(rstd_alloc, libs.rstd_io, Num(p), .s, w.n, w.n, libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), w.n, w.s[0..w.n], libs.matrix(Num(p), cast(p, w.u.ptr), n, n, n), w.n, libs.matrix(Num(p), cast(p, w.vt.ptr), n, n, n), w.n);
+        try lapack.gesdd(rstd_alloc, libs.rstd_io, Num(p), .leading, w.n, w.n, libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), w.n, w.s[0..w.n], libs.matrix(Num(p), cast(p, w.u.ptr), n, n, n), w.n, libs.matrix(Num(p), cast(p, w.vt.ptr), n, n, n), w.n);
     }
     pub fn residual(comptime p: Prec, w: *const Work(p), i: usize, j: usize) ?[2]f64 {
         return svdAt(p, w, i, j);
@@ -1321,7 +1321,7 @@ const SyevdN = struct {
     pub const has_rstd = @hasDecl(lapack, "syevd");
     pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
         const n = w.in();
-        try lapack.syevd(rstd_alloc, libs.rstd_io, Num(p), .n, .u, w.n, libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), w.n, w.s[0..w.n]);
+        try lapack.syevd(rstd_alloc, libs.rstd_io, Num(p), .none, .u, w.n, libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), w.n, w.s[0..w.n]);
     }
 };
 

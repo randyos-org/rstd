@@ -44,10 +44,10 @@ pub fn matrixNorm(allocator: Allocator, io: Io, a: anytype, which: MatrixNorm) M
     const m = ca.rows;
     const n = ca.cols;
     if (m == 0 or n == 0) return 0;
-    const kind: lapack.Norm = switch (which) {
-        .one => .o,
-        .inf => .i,
-        .fro => .f,
+    const kind: lapack.NormType = switch (which) {
+        .one => .one,
+        .inf => .infinity,
+        .fro => .frobenius,
         .two => {
             const s = try singularValues(allocator, io, ca);
             defer allocator.free(s);
@@ -116,7 +116,7 @@ pub fn svd(allocator: Allocator, io: Io, a: anytype, mode: SvdMode) SvdError!Svd
     defer f.deinit(allocator);
     const vt = try allocator.alloc(T, vc * n);
     defer allocator.free(vt);
-    lapack.gesdd(allocator, io, T, if (mode == .full) .a else .s, m, n, f.data, m, s, u.data, m, vt, vc) catch |e| return svdError(e);
+    lapack.gesdd(allocator, io, T, if (mode == .full) .all else .leading, m, n, f.data, m, s, u.data, m, vt, vc) catch |e| return svdError(e);
     for (0..n) |j| for (0..vc) |i| {
         v.data[j + i * n] = ops.conj(T, vt[i + j * vc]);
     };
@@ -133,7 +133,7 @@ pub fn singularValues(allocator: Allocator, io: Io, a: anytype) SvdError![]Real(
     if (s.len == 0) return s;
     const f = try copyOf(T, allocator, a);
     defer f.deinit(allocator);
-    lapack.gesvd(allocator, io, T, .n, .n, m, n, f.data, m, s, f.data[0..0], 1, f.data[0..0], 1, null) catch |e| return svdError(e);
+    lapack.gesvd(allocator, io, T, .none, .none, m, n, f.data, m, s, f.data[0..0], 1, f.data[0..0], 1, null) catch |e| return svdError(e);
     return s;
 }
 

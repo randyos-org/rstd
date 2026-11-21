@@ -71,34 +71,34 @@ Each type the kernel layer defines or takes, after the moves; the high-level opt
 | Type | Definition | Today | Module | v0.1.0 |
 | --- | --- | --- | --- | --- |
 | `Strided(T)`, `ConstStrided(T)` | `struct { data: []T, n: usize, stride: isize }` (`[]const T` for `ConstStrided`): `n` elements, `stride` apart, negative backward | same | `kernels.blas` | yes |
-| `BFloat16` | `enum(u16) { _ }`: a bfloat16's bits | `BF16` | `kernels.blas` | yes |
+| `BFloat16` | `enum(u16) { _ }`: a bfloat16's bits | same | `kernels.blas` | yes |
 | `Trans` | `enum { n, t, r, c, o, u, s, d }`: none, transpose, conjugate, conjugate transpose; the rest OpenBLAS's conjugated-`x` letters | same | `kernels.blas` | yes |
 | `Uplo` | `enum { u, l, v, m }`: upper, lower; `v`, `m` OpenBLAS's reversed forms | same | `kernels.blas` | yes |
 | `Diag` | `enum { u, n }`: unit, non-unit | same | `kernels.blas` | yes |
 | `Side` | `enum { l, r }`: left, right | same | `kernels.blas` | yes |
-| `Extreme` | `enum { largest_magnitude, smallest_magnitude, largest, smallest }`: by magnitude (`\|re\| + \|im\|`) or by value | `Extreme { amax, amin, max, min }` | `kernels.blas` | yes |
+| `Extreme` | `enum { largest_magnitude, smallest_magnitude, largest, smallest }`: by magnitude (`\|re\| + \|im\|`) or by value | same | `kernels.blas` | yes |
 | `Summation` | `enum { plain, compensated, fast }`: `f32` in `f64`; Neumaier's; `f32` in `f32` lanes | same | `kernels.blas` | yes |
-| `HalfPrecision` | `enum { bf16_to_f32, bf16, f16_to_f32 }`: bfloat16 in, `f32` out; bfloat16 in and out; `f16` in, `f32` out | `HalfGemv { sbgemv, bgemv, shgemv }`, `HalfGemm { sbgemm, bgemm, shgemm }` | `kernels.blas` | yes |
-| `GemmGroup(In, Out)` | `struct { transa: Trans = .n, transb: Trans = .n, m: usize, n: usize, k: usize, alpha: Out, a: []const []const In, lda: usize, b: []const []const In, ldb: usize, beta: Out, c: []const []Out, ldc: usize }`: products of one shape for `gemmBatch` | `Group` | `kernels.blas` | yes |
+| `HalfPrecision` | `enum { bf16_to_f32, bf16, f16_to_f32 }`: bfloat16 in, `f32` out; bfloat16 in and out; `f16` in, `f32` out | same | `kernels.blas` | yes |
+| `GemmGroup(In, Out)` | `struct { transa: Trans = .n, transb: Trans = .n, m: usize, n: usize, k: usize, alpha: Out, a: []const []const In, lda: usize, b: []const []const In, ldb: usize, beta: Out, c: []const []Out, ldc: usize }`: products of one shape for `gemmBatch` | same | `kernels.blas` | yes |
 | `Pivot` | `packed struct(usize) { row: Row, block: enum(u1) { one, two } }`, `Row` the unsigned integer one bit narrower than `usize` (`u63` on 64-bit): a Bunch-Kaufman pivot | same | `kernels.lapack` | yes |
-| `GeneralizedProblem` | `enum { ax_equals_lambda_bx, abx_equals_lambda_x, bax_equals_lambda_x }`: `Ax = λBx`, `ABx = λx`, `BAx = λx` | `Problem { ax_lbx, abx_lx, bax_lx }` | `kernels.lapack` | yes |
-| `VectorJob` | `enum { none, compute }`: eigenvalues or singular values only, or their vectors too | `Jobz { n, v }` | `kernels.lapack` | yes |
-| `SingularVectorJob` | `enum { all, leading, overwrite, none }`: all of `U` or `Vᴴ`, the leading `min(m, n)`, those written over `A`, none | `Job { a, s, o, n }` | `kernels.lapack` | yes |
-| `NormType` | `enum { max_abs, one, infinity, frobenius }` | `Norm { m, o, i, f }` | `kernels.lapack` | yes |
+| `GeneralizedProblem` | `enum { ax_equals_lambda_bx, abx_equals_lambda_x, bax_equals_lambda_x }`: `Ax = λBx`, `ABx = λx`, `BAx = λx` | same | `kernels.lapack` | yes |
+| `VectorJob` | `enum { none, compute }`: eigenvalues or singular values only, or their vectors too | same | `kernels.lapack` | yes |
+| `SingularVectorJob` | `enum { all, leading, overwrite, none }`: all of `U` or `Vᴴ`, the leading `min(m, n)`, those written over `A`, none | same | `kernels.lapack` | yes |
+| `NormType` | `enum { max_abs, one, infinity, frobenius }` | same | `kernels.lapack` | yes |
 | `Eigenvalues(T)` | `[]T` for complex `T`; `struct { re: []T, im: []T }` for real | same | `kernels.lapack` | yes |
-| `EigenvalueSelector(T)` | `*const fn (T) bool` for complex; `*const fn (Float(T), Float(T)) bool` for real: which eigenvalues `gees` sorts first | `GeesSelect` | `kernels.lapack` | yes |
+| `EigenvalueSelector(T)` | `*const fn (T) bool` for complex; `*const fn (Float(T), Float(T)) bool` for real: which eigenvalues `gees` sorts first | same | `kernels.lapack` | yes |
 | `PairSelector(T)` | `*const fn (T, T) bool` for complex; `*const fn (Float(T), Float(T), Float(T)) bool` for real (`α_re`, `α_im`, `β`): `gges`'s | none | `kernels.lapack` | backlog (#623) |
-| `SchurJob` | `enum { eigenvalues, schur_form }` | `HseqrJob { e, s }` | `kernels.lapack` | yes |
-| `SchurVectors` | `enum { none, from_identity, accumulate }`: Schur vectors not computed, computed from the identity, or applied to the given `Z` | `Compz { n, i, v }` | `kernels.lapack` | yes |
-| `ReorderVectors` | `enum { none, update }`: whether reordering a Schur form updates `Q` | `Compq { n, v }` | `kernels.lapack` | yes |
-| `EigenvectorSide` | `enum { right, left, both }` | `TrevcSide { r, l, b }` | `kernels.lapack` | yes |
-| `EigenvectorSelection` | `enum { all, back_transformed, selected }` | `Howmny { a, b, s }` | `kernels.lapack` | yes |
-| `Balancing` | `enum { none, permute, scale, both }` | `BalanceJob { n, p, s, b }` | `kernels.lapack` | yes |
-| `BalancedRange` | `struct { lo: usize, hi: usize }`: the rows and columns balancing left to reduce | `BalanceBlock` | `kernels.lapack` | yes |
-| `ConditionJob` | `enum { none, eigenvalues, subspace, both }`: which condition numbers reordering computes | `TrsenJob { n, e, v, b }` | `kernels.lapack` | yes |
-| `ReorderedSchur(T)` | `struct { selected: usize, eigenvalue_condition: ?Float(T) = null, subspace_separation: ?Float(T) = null }` | `Reordered { m, s, sep }` | `kernels.lapack` | yes |
-| `SylvesterSolution(F)` | `struct { scale: F, perturbed: bool }`: `X` was scaled by `scale`; `perturbed` when eigenvalues were nudged apart | `Solved` | `kernels.lapack` | yes |
-| `GeneralizedSylvesterSolution(F)` | `struct { scale: F, separation: ?F = null, perturbed: bool }` | `SolvedWithDif { scale, dif, perturbed }` | `kernels.lapack` | yes |
+| `SchurJob` | `enum { eigenvalues, schur_form }` | same | `kernels.lapack` | yes |
+| `SchurVectors` | `enum { none, from_identity, accumulate }`: Schur vectors not computed, computed from the identity, or applied to the given `Z` | same | `kernels.lapack` | yes |
+| `ReorderVectors` | `enum { none, update }`: whether reordering a Schur form updates `Q` | same | `kernels.lapack` | yes |
+| `EigenvectorSide` | `enum { right, left, both }` | same | `kernels.lapack` | yes |
+| `EigenvectorSelection` | `enum { all, back_transformed, selected }` | same | `kernels.lapack` | yes |
+| `Balancing` | `enum { none, permute, scale, both }` | same | `kernels.lapack` | yes |
+| `BalancedRange` | `struct { lo: usize, hi: usize }`: the rows and columns balancing left to reduce | same | `kernels.lapack` | yes |
+| `ConditionJob` | `enum { none, eigenvalues, subspace, both }`: which condition numbers reordering computes | same | `kernels.lapack` | yes |
+| `ReorderedSchur(T)` | `struct { selected: usize, eigenvalue_condition: ?Float(T) = null, subspace_separation: ?Float(T) = null }` | same | `kernels.lapack` | yes |
+| `SylvesterSolution(F)` | `struct { scale: F, perturbed: bool }`: `X` was scaled by `scale`; `perturbed` when eigenvalues were nudged apart | same | `kernels.lapack` | yes |
+| `GeneralizedSylvesterSolution(F)` | `struct { scale: F, separation: ?F = null, perturbed: bool }` | same | `kernels.lapack` | yes |
 | `SpectrumRange(F)` | `union(enum) { all, values: struct { lo: F, hi: F }, indices: struct { first: usize, last: usize } }`: which eigenvalues or singular values | none | `kernels.lapack` | backlog (#623) |
 | `FactorizationInput` | `enum { factor, factored, equilibrate_and_factor }`: `gesvx` factors `A`, takes its given factor, or equilibrates first | none | `kernels.lapack` | backlog (#623) |
 | `Equilibration` | `enum { none, rows, columns, both }`: what `gesvx` scaled | none | `kernels.lapack` | backlog (#623) |

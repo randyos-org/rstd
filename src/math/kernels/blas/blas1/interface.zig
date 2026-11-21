@@ -19,7 +19,7 @@ const half = @import("interface_bf16.zig");
 
 const Io = std.Io;
 const BlasLong = types.BlasLong;
-const BF16 = types.BF16;
+const BFloat16 = types.BFloat16;
 const XDouble = types.XDouble;
 
 const isComplex = types.isComplex;

@@ -13,7 +13,7 @@ const Allocator = std.mem.Allocator;
 const Float = types.Float;
 const isComplex = types.isComplex;
 const Trans = types.Trans;
-const Norm = norm.Norm;
+const NormType = norm.NormType;
 const gecon = gecon_estimate.gecon;
 const lacn2 = lacn2_estimate.lacn2;
 const lange = norm.lange;
@@ -35,20 +35,20 @@ test "lapack norm: lange's four norms on a known 2 x 3, NaN, empty, bad argument
         // lda 3, columns (1, -2), (3 + 4i, 0), (-6, 0); complex (3, 4) has modulus 5
         const a = [_]T{ lcheck.cplx(T, 1, 0), lcheck.cplx(T, -2, 0), lcheck.cplx(T, 9, 9), lcheck.cplx(T, 3, if (isComplex(T)) 4 else 0), lcheck.cplx(T, 0, 0), lcheck.cplx(T, 9, 9), lcheck.cplx(T, -6, 0), lcheck.cplx(T, 0, 0) };
         const c2: F = if (comptime isComplex(T)) 5 else 3;
-        try testing.expectEqual(@as(F, 6), try lange(al, check.io, T, .m, 2, 3, &a, 3));
-        try testing.expectEqual(@as(F, 6), try lange(al, check.io, T, .o, 2, 3, &a, 3));
-        try testing.expectEqual(1 + c2 + 6, try lange(al, check.io, T, .i, 2, 3, &a, 3));
-        const fro = try lange(al, check.io, T, .f, 2, 3, &a, 3);
+        try testing.expectEqual(@as(F, 6), try lange(al, check.io, T, .max_abs, 2, 3, &a, 3));
+        try testing.expectEqual(@as(F, 6), try lange(al, check.io, T, .one, 2, 3, &a, 3));
+        try testing.expectEqual(1 + c2 + 6, try lange(al, check.io, T, .infinity, 2, 3, &a, 3));
+        const fro = try lange(al, check.io, T, .frobenius, 2, 3, &a, 3);
         try testing.expectApproxEqRel(@sqrt(41 + c2 * c2), fro, 4 * std.math.floatEps(F));
         var b = a;
         b[1] = lcheck.poisoned(T);
-        for ([_]Norm{ .m, .o, .i, .f }) |nm| try testing.expect(std.math.isNan(try lange(al, check.io, T, nm, 2, 3, &b, 3)));
-        try testing.expectEqual(@as(F, 0), try lange(testing.failing_allocator, check.io, T, .i, 0, 3, &b, 1));
-        try testing.expectEqual(@as(F, 0), try lange(testing.failing_allocator, check.io, T, .f, 2, 0, &b, 2));
+        for ([_]NormType{ .max_abs, .one, .infinity, .frobenius }) |nm| try testing.expect(std.math.isNan(try lange(al, check.io, T, nm, 2, 3, &b, 3)));
+        try testing.expectEqual(@as(F, 0), try lange(testing.failing_allocator, check.io, T, .infinity, 0, 3, &b, 1));
+        try testing.expectEqual(@as(F, 0), try lange(testing.failing_allocator, check.io, T, .frobenius, 2, 0, &b, 2));
     }
     var x = [_]f64{ 0, 0, 0 };
-    try testing.expectError(error.LeadingDimensionTooSmall, lange(al, check.io, f64, .m, 2, 1, &x, 1));
-    try testing.expectError(error.SliceTooShort, lange(al, check.io, f64, .m, 2, 2, &x, 2));
+    try testing.expectError(error.LeadingDimensionTooSmall, lange(al, check.io, f64, .max_abs, 2, 1, &x, 1));
+    try testing.expectError(error.SliceTooShort, lange(al, check.io, f64, .max_abs, 2, 2, &x, 2));
 }
 
 test "lapack norm: lange's Frobenius norm neither overflows nor underflows (Blue's lassq)" {
@@ -63,7 +63,7 @@ test "lapack norm: lange's Frobenius norm neither overflows nor underflows (Blue
             for (&a, 0..) |*v, i| v.* = ops.scalar(T, s * @as(F, @floatFromInt(i % 2 + 1)));
             // 4 (1 + 4) s squared
             const want = @sqrt(@as(F, 20)) * s;
-            const got = try lange(al, check.io, T, .f, 4, 2, &a, 4);
+            const got = try lange(al, check.io, T, .frobenius, 4, 2, &a, 4);
             try testing.expect(std.math.isFinite(got) and got > 0);
             // denormal entries carry few bits
             const tol: F = if (s == tiny) 0.15 else 8 * std.math.floatEps(F);
@@ -71,7 +71,7 @@ test "lapack norm: lange's Frobenius norm neither overflows nor underflows (Blue
         }
         // a big and a small entry together
         var c = [_]T{ ops.scalar(T, big), ops.scalar(T, tiny), ops.scalar(T, 1) };
-        try testing.expectEqual(big, try lange(al, check.io, T, .f, 3, 1, &c, 3));
+        try testing.expectEqual(big, try lange(al, check.io, T, .frobenius, 3, 1, &c, 3));
     }
 }
 
@@ -98,7 +98,7 @@ fn geconCase(comptime T: type, al: Allocator, n: usize, grade: Float(T), seed: u
     @memset(inv, ops.zero(T));
     for (0..n) |i| inv[i * (n + 1)] = ops.one(T);
     try lu.getrs(al, check.io, T, .n, n, n, f, n, ipiv, inv, n);
-    for ([_]Norm{ .o, .i }) |nm| {
+    for ([_]NormType{ .one, .infinity }) |nm| {
         const anorm = try lange(al, check.io, T, nm, n, n, a, n);
         const ainvnm = try lange(al, check.io, T, nm, n, n, inv, n);
         const rcondc = (1 / anorm) / ainvnm;
@@ -128,23 +128,23 @@ test "lapack gecon: n = 0, anorm = 0, 1 x 1, a zero pivot, NaN and infinite anor
     inline for (test_types) |T| {
         const F = Float(T);
         const a = [_]T{ lcheck.cplx(T, 2, 0), lcheck.cplx(T, 1, 0), lcheck.cplx(T, 0, 0), lcheck.cplx(T, 3, 0) };
-        try testing.expectEqual(@as(F, 1), try gecon(al, check.io, T, .o, 0, &a, 1, 1));
-        try testing.expectEqual(@as(F, 0), try gecon(al, check.io, T, .o, 2, &a, 2, 0));
+        try testing.expectEqual(@as(F, 1), try gecon(al, check.io, T, .one, 0, &a, 1, 1));
+        try testing.expectEqual(@as(F, 0), try gecon(al, check.io, T, .one, 2, &a, 2, 0));
         // 1 x 1: exact
-        try testing.expectEqual(@as(F, 1), try gecon(al, check.io, T, .i, 1, &a, 1, 2));
+        try testing.expectEqual(@as(F, 1), try gecon(al, check.io, T, .infinity, 1, &a, 1, 2));
         // U singular: the overflowing solve stops at 0
         const s = [_]T{ lcheck.cplx(T, 2, 0), lcheck.cplx(T, 0.5, 0), lcheck.cplx(T, 1, 0), lcheck.cplx(T, 0, 0) };
-        for ([_]Norm{ .o, .i }) |nm| try testing.expectEqual(@as(F, 0), try gecon(al, check.io, T, nm, 2, &s, 2, 3));
-        try testing.expectError(error.NormOutOfRange, gecon(al, check.io, T, .o, 2, &a, 2, std.math.nan(F)));
-        try testing.expectError(error.NormOutOfRange, gecon(al, check.io, T, .o, 2, &a, 2, std.math.inf(F)));
+        for ([_]NormType{ .one, .infinity }) |nm| try testing.expectEqual(@as(F, 0), try gecon(al, check.io, T, nm, 2, &s, 2, 3));
+        try testing.expectError(error.NormOutOfRange, gecon(al, check.io, T, .one, 2, &a, 2, std.math.nan(F)));
+        try testing.expectError(error.NormOutOfRange, gecon(al, check.io, T, .one, 2, &a, 2, std.math.inf(F)));
         // an anorm so small the estimate overflows: the reference's INFO = 1
-        try testing.expectError(error.EstimateFailed, gecon(al, check.io, T, .o, 1, &a, 1, std.math.floatTrueMin(F)));
+        try testing.expectError(error.EstimateFailed, gecon(al, check.io, T, .one, 1, &a, 1, std.math.floatTrueMin(F)));
     }
     const x = [_]f64{ 1, 0, 0 };
-    try testing.expectError(error.UnsupportedNorm, gecon(al, check.io, f64, .f, 1, &x, 1, 1));
-    try testing.expectError(error.LeadingDimensionTooSmall, gecon(al, check.io, f64, .o, 2, &x, 1, 1));
-    try testing.expectError(error.SliceTooShort, gecon(al, check.io, f64, .o, 2, &x, 2, 1));
-    try testing.expectError(error.NormOutOfRange, gecon(al, check.io, f64, .o, 1, &x, 1, -1));
+    try testing.expectError(error.UnsupportedNorm, gecon(al, check.io, f64, .frobenius, 1, &x, 1, 1));
+    try testing.expectError(error.LeadingDimensionTooSmall, gecon(al, check.io, f64, .one, 2, &x, 1, 1));
+    try testing.expectError(error.SliceTooShort, gecon(al, check.io, f64, .one, 2, &x, 2, 1));
+    try testing.expectError(error.NormOutOfRange, gecon(al, check.io, f64, .one, 1, &x, 1, -1));
 }
 
 /// `latrs` on an `n x n` triangle with diagonal `d`: `scale` in [0, 1], `x`

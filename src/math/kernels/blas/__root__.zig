@@ -41,8 +41,7 @@ pub const Uplo = types.Uplo;
 pub const Diag = types.Diag;
 pub const Side = types.Side;
 pub const Extreme = l1.Extreme;
-pub const HalfGemv = l2.HalfGemv;
-pub const HalfGemm = blas3.half.HalfGemm;
+pub const HalfPrecision = l2.HalfPrecision;
 
 /// Level 1, two vectors: counts that disagree, or `error.Canceled`.
 pub const Level1Error = l1.PairError;
@@ -59,7 +58,7 @@ pub const GemmtHalfError = l3api.HalfError;
 /// The batched gemms: `Level3Error` and `error.LengthMismatch`.
 pub const BatchError = l3api.BatchError;
 /// One group of `gemmBatch` or `gemmHalfBatch`, by input and output type.
-pub const GemmGroup = l3api.Group;
+pub const GemmGroup = l3api.GemmGroup;
 /// `laswp`: a row or pivot outside the matrix, a slice too short or a leading
 /// dimension too small.
 pub const LaswpError = ext.api.LaswpError;

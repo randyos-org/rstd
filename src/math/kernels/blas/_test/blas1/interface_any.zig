@@ -68,9 +68,9 @@ fn anyFloat(comptime T: type) !void {
     const norm = reference.sqrtW(ssq);
     try reference.expectNear(Float(T), norm, try nrm2(check.io, T, n, &x, 2), ulps + reference.rootUlps(Float(T)), norm);
     try reference.expectNear(Float(T), s1, try asum(check.io, T, n, &x, 2), ulps, s1);
-    try reference.expectNear(Float(T), reference.abs1(wx[best]), try extreme(check.io, T, .amax, n, &x, 2), 4, s1);
+    try reference.expectNear(Float(T), reference.abs1(wx[best]), try extreme(check.io, T, .largest_magnitude, n, &x, 2), 4, s1);
     // the first of near-equal keys may differ; its key must be the largest
-    const at = try index(check.io, T, .amax, n, &x, 2);
+    const at = try index(check.io, T, .largest_magnitude, n, &x, 2);
     try reference.expectNear(Float(T), reference.abs1(wx[best]), @floatCast(reference.abs1(wx[@intCast(at - 1)])), 4, reference.abs1(wx[best]));
 
     // updates, element by element

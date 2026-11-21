@@ -264,7 +264,7 @@ test "stebr: syevd's values alone give one worker's bits at any worker count" {
         // the same chunks for every run, one worker's too: the reduction's
         // `symv` folds partials by chunk, whose count follows the size alone
         threading.test_serial_max = 4096;
-        try evd.syevd(al, io, f64, .n, .l, n, a, n, outs[c]);
+        try evd.syevd(al, io, f64, .none, .l, n, a, n, outs[c]);
     }
     try test_io.expectSameBytes(outs);
 }

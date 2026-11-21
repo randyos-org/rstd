@@ -11,7 +11,7 @@ const util = @import("../util.zig");
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
 const Trans = types.Trans;
-const HalfGemm = half.HalfGemm;
+const HalfPrecision = half.HalfPrecision;
 
 /// What the batched routines return: `gemm`'s errors, and `InvalidCount`
 /// for a group whose `a`, `b` and `c` differ in length.
@@ -21,7 +21,7 @@ pub const Error = interface.Error || error{InvalidCount};
 /// `a[i]`, `b[i]`, `c[i]`, all with these sizes, scalars and leading
 /// dimensions. `In` is the type of `A` and `B`, `Out` that of `C` and the
 /// scalars.
-pub fn Group(comptime In: type, comptime Out: type) type {
+pub fn GemmGroup(comptime In: type, comptime Out: type) type {
     return struct {
         transa: Trans = .n,
         transb: Trans = .n,
@@ -46,14 +46,14 @@ fn checkOne(transa: Trans, transb: Trans, m: isize, n: isize, k: isize, lda: isi
 }
 
 /// The routine one problem runs: `gemm` over `T`, or a half gemm.
-fn Runner(comptime In: type, comptime Out: type, comptime kind: ?HalfGemm) type {
+fn Runner(comptime In: type, comptime Out: type, comptime kind: ?HalfPrecision) type {
     return struct {
         fn one(allocator: Allocator, io: Io, transa: Trans, transb: Trans, m: isize, n: isize, k: isize, alpha: Out, a: [*]const In, lda: isize, b: [*]const In, ldb: isize, beta: Out, c: [*]Out, ldc: isize) interface.Error!void {
             if (comptime kind) |h| return half.gemmHalf(allocator, io, h, transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc);
             return interface.gemm(allocator, io, In, transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc);
         }
 
-        fn groups(allocator: Allocator, io: Io, gs: []const Group(In, Out)) Error!void {
+        fn groups(allocator: Allocator, io: Io, gs: []const GemmGroup(In, Out)) Error!void {
             for (gs) |g| {
                 try checkOne(g.transa, g.transb, g.m, g.n, g.k, g.lda, g.ldb, g.ldc, @sizeOf(In), @sizeOf(Out));
                 if (g.b.len != g.a.len or g.c.len != g.a.len) return error.InvalidCount;
@@ -78,7 +78,7 @@ fn Runner(comptime In: type, comptime Out: type, comptime kind: ?HalfGemm) type 
 
 /// `?GEMM_BATCH` (`interface/gemm_batch.c`): each group's problems, after
 /// every group is checked.
-pub fn gemmBatch(allocator: Allocator, io: Io, comptime T: type, groups: []const Group(T, T)) Error!void {
+pub fn gemmBatch(allocator: Allocator, io: Io, comptime T: type, groups: []const GemmGroup(T, T)) Error!void {
     return Runner(T, T, null).groups(allocator, io, groups);
 }
 
@@ -92,12 +92,12 @@ pub fn gemmBatchStrided(allocator: Allocator, io: Io, comptime T: type, transa: 
 
 /// `SBGEMM_BATCH`, and the same for `bgemm` and `shgemm`: `gemmBatch` over
 /// `gemmHalf`.
-pub fn gemmHalfBatch(allocator: Allocator, io: Io, comptime kind: HalfGemm, groups: []const Group(kind.In(), kind.Out())) Error!void {
+pub fn gemmHalfBatch(allocator: Allocator, io: Io, comptime kind: HalfPrecision, groups: []const GemmGroup(kind.In(), kind.Out())) Error!void {
     return Runner(kind.In(), kind.Out(), kind).groups(allocator, io, groups);
 }
 
 /// `SBGEMM_BATCH_STRIDED`, and the same for `bgemm` and `shgemm`.
-pub fn gemmHalfBatchStrided(allocator: Allocator, io: Io, comptime kind: HalfGemm, transa: Trans, transb: Trans, m: isize, n: isize, k: isize, alpha: kind.Out(), a: [*]const kind.In(), lda: isize, stride_a: isize, b: [*]const kind.In(), ldb: isize, stride_b: isize, beta: kind.Out(), c: [*]kind.Out(), ldc: isize, stride_c: isize, count: isize) Error!void {
+pub fn gemmHalfBatchStrided(allocator: Allocator, io: Io, comptime kind: HalfPrecision, transa: Trans, transb: Trans, m: isize, n: isize, k: isize, alpha: kind.Out(), a: [*]const kind.In(), lda: isize, stride_a: isize, b: [*]const kind.In(), ldb: isize, stride_b: isize, beta: kind.Out(), c: [*]kind.Out(), ldc: isize, stride_c: isize, count: isize) Error!void {
     return Runner(kind.In(), kind.Out(), kind).strided(allocator, io, transa, transb, m, n, k, alpha, a, lda, stride_a, b, ldb, stride_b, beta, c, ldc, stride_c, count);
 }
 
@@ -109,7 +109,7 @@ const bf16_kernel = @import("../ext/bf16/kernel.zig");
 
 fn val(comptime T: type, v: f32) T {
     if (comptime types.isComplex(T)) return .init(@floatCast(v), @floatCast(v / 2));
-    if (T == types.BF16 or T == types.HF16) return bf16_kernel.narrow(T, v);
+    if (T == types.BFloat16 or T == types.HF16) return bf16_kernel.narrow(T, v);
     return @floatCast(v);
 }
 
@@ -118,7 +118,7 @@ fn sameBits(comptime T: type, x: T, y: T) bool {
 }
 
 /// Two groups, of 3 and 2 problems, against each problem's own call.
-fn groupsCase(comptime In: type, comptime Out: type, comptime kind: ?HalfGemm) !void {
+fn groupsCase(comptime In: type, comptime Out: type, comptime kind: ?HalfPrecision) !void {
     const R = Runner(In, Out, kind);
     const al = testing.allocator;
     const m = 5;
@@ -140,7 +140,7 @@ fn groupsCase(comptime In: type, comptime Out: type, comptime kind: ?HalfGemm) !
     try R.one(al, check.io, .n, .n, m, n, k, val(Out, 1.5), &a[2], m, &b[2], k, val(Out, 0.5), &want[2], m);
     try R.one(al, check.io, .t, .t, 4, 4, 5, val(Out, -1), &a[3], 5, &b[3], 4, val(Out, 0), &want[3], 5);
     try R.one(al, check.io, .t, .t, 4, 4, 5, val(Out, -1), &a[4], 5, &b[4], 4, val(Out, 0), &want[4], 5);
-    const gs = [_]Group(In, Out){
+    const gs = [_]GemmGroup(In, Out){
         .{ .m = m, .n = n, .k = k, .alpha = val(Out, 1.5), .a = &.{ &a[0], &a[1], &a[2] }, .lda = m, .b = &.{ &b[0], &b[1], &b[2] }, .ldb = k, .beta = val(Out, 0.5), .c = &.{ &c[0], &c[1], &c[2] }, .ldc = m },
         .{ .transa = .t, .transb = .t, .m = 4, .n = 4, .k = 5, .alpha = val(Out, -1), .a = &.{ &a[3], &a[4] }, .lda = 5, .b = &.{ &b[3], &b[4] }, .ldb = 4, .beta = val(Out, 0), .c = &.{ &c[3], &c[4] }, .ldc = 5 },
     };
@@ -173,5 +173,5 @@ fn groupsCase(comptime In: type, comptime Out: type, comptime kind: ?HalfGemm) !
 
 test "gemm batches: groups and strides give each problem's own gemm bits, and check every group first" {
     inline for (check.sd_types) |T| try groupsCase(T, T, null);
-    inline for (std.enums.values(HalfGemm)) |kind| try groupsCase(kind.In(), kind.Out(), kind);
+    inline for (std.enums.values(HalfPrecision)) |kind| try groupsCase(kind.In(), kind.Out(), kind);
 }

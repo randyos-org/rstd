@@ -73,7 +73,7 @@ fn level1Bits(comptime T: type, al: std.mem.Allocator, io: Io, inc: [2]isize, x0
 }
 
 fn extremeBits(comptime T: type, io: Io, x: [*]T, inc: isize, out: *std.ArrayList(u8), al: std.mem.Allocator) !void {
-    const whiches = if (comptime isComplex(T)) .{ Extreme.amax, Extreme.amin } else .{ Extreme.amax, Extreme.amin, Extreme.max, Extreme.min };
+    const whiches = if (comptime isComplex(T)) .{ Extreme.largest_magnitude, Extreme.smallest_magnitude } else .{ Extreme.largest_magnitude, Extreme.smallest_magnitude, Extreme.largest, Extreme.smallest };
     inline for (whiches) |w| {
         try bitwise.appendBits(al, out, try extreme(io, T, w, threaded_n, x, inc));
         try bitwise.appendBits(al, out, try index(io, T, w, threaded_n, x, inc));
@@ -82,7 +82,7 @@ fn extremeBits(comptime T: type, io: Io, x: [*]T, inc: isize, out: *std.ArrayLis
 
 /// The extremes over chunks against one kernel call: the fold is exact.
 fn expectExtremesExact(comptime T: type, io: Io, x: [*]T, inc: isize) !void {
-    const whiches = if (comptime isComplex(T)) .{ Extreme.amax, Extreme.amin } else .{ Extreme.amax, Extreme.amin, Extreme.max, Extreme.min };
+    const whiches = if (comptime isComplex(T)) .{ Extreme.largest_magnitude, Extreme.smallest_magnitude } else .{ Extreme.largest_magnitude, Extreme.smallest_magnitude, Extreme.largest, Extreme.smallest };
     inline for (whiches) |w| {
         const v = portable.fetch(T, comptime w.op(), blas.vtable)(threaded_n, raw(T, x), inc);
         const i = portable.fetch(T, comptime w.indexOp(), blas.vtable)(threaded_n, raw(T, x), inc);
@@ -165,7 +165,7 @@ fn stressBits(comptime T: type, al: std.mem.Allocator, io: Io, x: []T, y0: []con
     try axpy(io, T, stress_n, scalarOf(T, 1.25, -0.75), x.ptr, 2, y.ptr, -3);
     try bitwise.appendBits(al, out, y);
     try bitwise.appendBits(al, out, try dot(io, T, stress_n, x.ptr, 2, y.ptr, -3));
-    try bitwise.appendBits(al, out, try index(io, T, .amax, stress_n, x.ptr, 2));
+    try bitwise.appendBits(al, out, try index(io, T, .largest_magnitude, stress_n, x.ptr, 2));
 }
 
 test "interface: race stress: threaded level 1 keeps one worker's bits and its guard bands, round after round" {

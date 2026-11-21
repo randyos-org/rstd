@@ -183,5 +183,5 @@ pub fn workers(size_max: u64) u32 {
     return @min(w, threading.chunks_max);
 }
 
-/// `JOBZ`, `JOBVL`, `JOBVR`, `JOBVS`: vectors (`v`) or not (`n`).
-pub const Jobz = enum { n, v };
+/// LAPACK's `JOBZ`, `JOBVL`, `JOBVR`, `JOBVS`: vectors (`V`) or not (`N`).
+pub const VectorJob = enum { none, compute };

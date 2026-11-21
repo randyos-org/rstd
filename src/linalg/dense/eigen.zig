@@ -63,7 +63,7 @@ pub fn eig(allocator: Allocator, io: Io, a: anytype, want_vectors: bool) EigErro
     if (ca.rows != ca.cols) return error.NotSquare;
     const n = ca.rows;
     const ld = @max(n, 1);
-    const jobz: lapack.Jobz = if (want_vectors) .v else .n;
+    const jobz: lapack.VectorJob = if (want_vectors) .compute else .none;
     const f = try copyOf(T, allocator, ca);
     if (isHermitian(ca)) {
         errdefer f.deinit(allocator);
@@ -81,13 +81,13 @@ pub fn eig(allocator: Allocator, io: Io, a: anytype, want_vectors: bool) EigErro
     const pr: []T = if (vr) |x| x.data else &none;
     if (comptime isComplex(T)) {
         errdefer if (vr) |x| x.deinit(allocator);
-        lapack.geev(allocator, io, T, .n, jobz, n, f.data, ld, w, &none, 1, pr, ld, null) catch |e| return svdError(e);
+        lapack.geev(allocator, io, T, .none, jobz, n, f.data, ld, w, &none, 1, pr, ld, null) catch |e| return svdError(e);
         return .{ .general = .{ .values = w, .vectors = vr } };
     }
     defer if (vr) |x| x.deinit(allocator);
     const wr = try allocator.alloc(T, 2 * n);
     defer allocator.free(wr);
-    lapack.geev(allocator, io, T, .n, jobz, n, f.data, ld, .{ .re = wr[0..n], .im = wr[n..] }, &none, 1, pr, ld, null) catch |e| return svdError(e);
+    lapack.geev(allocator, io, T, .none, jobz, n, f.data, ld, .{ .re = wr[0..n], .im = wr[n..] }, &none, 1, pr, ld, null) catch |e| return svdError(e);
     for (w, wr[0..n], wr[n..]) |*d, re, im| d.* = .init(re, im);
     const x = vr orelse return .{ .general = .{ .values = w, .vectors = null } };
     // `v(:, j) ± i v(:, j + 1)` for a pair, `wi(j) > 0` first

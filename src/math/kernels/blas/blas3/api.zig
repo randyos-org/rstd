@@ -22,7 +22,7 @@ const Diag = types.Diag;
 const Side = types.Side;
 const holds = util.holds;
 
-pub const HalfGemm = half.HalfGemm;
+pub const HalfPrecision = half.HalfPrecision;
 
 /// A level-3 routine's bad input: a slice too short for its matrix, a leading
 /// dimension below its rows; and `error.OutOfMemory` and `error.Canceled`.
@@ -103,7 +103,7 @@ pub fn gemmt(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, transa:
 
 /// `gemm` in half precision: `kind` picks bfloat16 or `f16` in, `f32` or
 /// bfloat16 out.
-pub fn gemmHalf(allocator: Allocator, io: Io, comptime kind: HalfGemm, transa: Trans, transb: Trans, m: usize, n: usize, k: usize, alpha: kind.Out(), a: []const kind.In(), lda: usize, b: []const kind.In(), ldb: usize, beta: kind.Out(), c: []kind.Out(), ldc: usize) Error!void {
+pub fn gemmHalf(allocator: Allocator, io: Io, comptime kind: HalfPrecision, transa: Trans, transb: Trans, m: usize, n: usize, k: usize, alpha: kind.Out(), a: []const kind.In(), lda: usize, b: []const kind.In(), ldb: usize, beta: kind.Out(), c: []kind.Out(), ldc: usize) Error!void {
     try holdsOp(a.len, transa, m, k, lda);
     try holdsOp(b.len, transb, k, n, ldb);
     try holds(c.len, m, n, ldc);
@@ -111,7 +111,7 @@ pub fn gemmHalf(allocator: Allocator, io: Io, comptime kind: HalfGemm, transa: T
 }
 
 /// `gemmt` in half precision.
-pub fn gemmtHalf(io: Io, comptime kind: HalfGemm, uplo: Uplo, transa: Trans, transb: Trans, m: usize, k: usize, alpha: kind.Out(), a: []const kind.In(), lda: usize, b: []const kind.In(), ldb: usize, beta: kind.Out(), c: []kind.Out(), ldc: usize) HalfError!void {
+pub fn gemmtHalf(io: Io, comptime kind: HalfPrecision, uplo: Uplo, transa: Trans, transb: Trans, m: usize, k: usize, alpha: kind.Out(), a: []const kind.In(), lda: usize, b: []const kind.In(), ldb: usize, beta: kind.Out(), c: []kind.Out(), ldc: usize) HalfError!void {
     try holdsOp(a.len, transa, m, k, lda);
     try holdsOp(b.len, transb, k, m, ldb);
     try holds(c.len, m, m, ldc);
@@ -211,7 +211,7 @@ pub fn trsm(allocator: Allocator, io: Io, comptime T: type, side: Side, uplo: Up
 
 /// One group of `gemmBatch` or `gemmHalfBatch`: one shape and scalars, and
 /// one `A`, `B` and `C` per problem, the three lists as long.
-pub fn Group(comptime In: type, comptime Out: type) type {
+pub fn GemmGroup(comptime In: type, comptime Out: type) type {
     return struct {
         transa: Trans = .n,
         transb: Trans = .n,
@@ -231,7 +231,7 @@ pub fn Group(comptime In: type, comptime Out: type) type {
 
 /// `groups` as the core's, every matrix checked; the pointer lists are one
 /// allocation, which the caller frees.
-fn coreGroups(comptime In: type, comptime Out: type, allocator: Allocator, groups: []const Group(In, Out)) BatchError!struct { []batch.Group(In, Out), [][*]const In, [][*]Out } {
+fn coreGroups(comptime In: type, comptime Out: type, allocator: Allocator, groups: []const GemmGroup(In, Out)) BatchError!struct { []batch.GemmGroup(In, Out), [][*]const In, [][*]Out } {
     var problems: usize = 0;
     for (groups) |g| {
         if (g.b.len != g.a.len or g.c.len != g.a.len) return error.LengthMismatch;
@@ -242,7 +242,7 @@ fn coreGroups(comptime In: type, comptime Out: type, allocator: Allocator, group
         }
         problems += g.a.len;
     }
-    const out = try allocator.alloc(batch.Group(In, Out), groups.len);
+    const out = try allocator.alloc(batch.GemmGroup(In, Out), groups.len);
     errdefer allocator.free(out);
     const ins = try allocator.alloc([*]const In, 2 * problems);
     errdefer allocator.free(ins);
@@ -266,7 +266,7 @@ fn coreGroups(comptime In: type, comptime Out: type, allocator: Allocator, group
 
 /// Many `gemm`s, by group: each group one shape and scalars over its lists of
 /// matrices, the problems spread over `io`.
-pub fn gemmBatch(allocator: Allocator, io: Io, comptime T: type, groups: []const Group(T, T)) BatchError!void {
+pub fn gemmBatch(allocator: Allocator, io: Io, comptime T: type, groups: []const GemmGroup(T, T)) BatchError!void {
     const g, const ins, const outs = try coreGroups(T, T, allocator, groups);
     defer allocator.free(g);
     defer allocator.free(ins);
@@ -275,7 +275,7 @@ pub fn gemmBatch(allocator: Allocator, io: Io, comptime T: type, groups: []const
 }
 
 /// `gemmBatch` in half precision.
-pub fn gemmHalfBatch(allocator: Allocator, io: Io, comptime kind: HalfGemm, groups: []const Group(kind.In(), kind.Out())) BatchError!void {
+pub fn gemmHalfBatch(allocator: Allocator, io: Io, comptime kind: HalfPrecision, groups: []const GemmGroup(kind.In(), kind.Out())) BatchError!void {
     const g, const ins, const outs = try coreGroups(kind.In(), kind.Out(), allocator, groups);
     defer allocator.free(g);
     defer allocator.free(ins);
@@ -305,7 +305,7 @@ pub fn gemmBatchStrided(allocator: Allocator, io: Io, comptime T: type, transa: 
 }
 
 /// `gemmBatchStrided` in half precision.
-pub fn gemmHalfBatchStrided(allocator: Allocator, io: Io, comptime kind: HalfGemm, transa: Trans, transb: Trans, m: usize, n: usize, k: usize, alpha: kind.Out(), a: []const kind.In(), lda: usize, stride_a: usize, b: []const kind.In(), ldb: usize, stride_b: usize, beta: kind.Out(), c: []kind.Out(), ldc: usize, stride_c: usize, count: usize) Error!void {
+pub fn gemmHalfBatchStrided(allocator: Allocator, io: Io, comptime kind: HalfPrecision, transa: Trans, transb: Trans, m: usize, n: usize, k: usize, alpha: kind.Out(), a: []const kind.In(), lda: usize, stride_a: usize, b: []const kind.In(), ldb: usize, stride_b: usize, beta: kind.Out(), c: []kind.Out(), ldc: usize, stride_c: usize, count: usize) Error!void {
     const sa = stored(transa, m, k);
     const sb = stored(transb, k, n);
     try holdsStrided(a.len, sa[0], sa[1], lda, stride_a, count);
@@ -359,14 +359,14 @@ test "api: gemmBatch is each problem's gemm, and mismatched lists are an error" 
     const as = [_][]const f64{ &a[0], &a[1] };
     const bs = [_][]const f64{ &b[0], &b[1] };
     const cs = [_][]f64{ &c[0], &c[1] };
-    const g = [_]Group(f64, f64){.{ .m = 2, .n = 2, .k = 2, .alpha = 1, .a = &as, .lda = 2, .b = &bs, .ldb = 2, .beta = 0, .c = &cs, .ldc = 2 }};
+    const g = [_]GemmGroup(f64, f64){.{ .m = 2, .n = 2, .k = 2, .alpha = 1, .a = &as, .lda = 2, .b = &bs, .ldb = 2, .beta = 0, .c = &cs, .ldc = 2 }};
     try gemmBatch(al, check.io, f64, &g);
     for (0..2) |i| {
         var want: [4]f64 = @splat(0);
         try iface.gemm(al, check.io, f64, .n, .n, 2, 2, 2, 1, &a[i], 2, &b[i], 2, 0, &want, 2);
         try testing.expectEqualSlices(f64, &want, &c[i]);
     }
-    const short = [_]Group(f64, f64){.{ .m = 2, .n = 2, .k = 2, .alpha = 1, .a = &as, .lda = 2, .b = bs[0..1], .ldb = 2, .beta = 0, .c = &cs, .ldc = 2 }};
+    const short = [_]GemmGroup(f64, f64){.{ .m = 2, .n = 2, .k = 2, .alpha = 1, .a = &as, .lda = 2, .b = bs[0..1], .ldb = 2, .beta = 0, .c = &cs, .ldc = 2 }};
     try testing.expectError(error.LengthMismatch, gemmBatch(al, check.io, f64, &short));
     // two A 4 apart, one B (stride 0); C one element short of its second matrix
     const af: [8]f64 = @bitCast(a);

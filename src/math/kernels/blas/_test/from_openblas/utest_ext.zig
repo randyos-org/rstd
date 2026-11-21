@@ -42,10 +42,10 @@ fn vecCases(comptime T: type, comptime what: Reduce, cases: []const VecCase) !vo
         for (buf[0..c.x.len], c.x) |*b, v| b.* = @floatCast(v);
         const x: [*]T = @ptrCast(&buf);
         const got: f64 = switch (what) {
-            .amin => try l1.extreme(ob.io, T, .amin, c.n, x, c.inc),
-            .amax => try l1.extreme(ob.io, T, .amax, c.n, x, c.inc),
+            .amin => try l1.extreme(ob.io, T, .smallest_magnitude, c.n, x, c.inc),
+            .amax => try l1.extreme(ob.io, T, .largest_magnitude, c.n, x, c.inc),
             .sum => try l1.sum(ob.io, T, c.n, x, c.inc),
-            .iamin => @floatFromInt(try l1.index(ob.io, T, .amin, c.n, x, c.inc)),
+            .iamin => @floatFromInt(try l1.index(ob.io, T, .smallest_magnitude, c.n, x, c.inc)),
         };
         const t: f64 = if (what == .iamin) 0 else tol(T, single_eps, double_eps);
         if (@abs(got - c.want) <= t) continue;
@@ -884,12 +884,12 @@ test "utest_ext: gemmt against gemm's triangle, and its bad arguments" {
 const BgemmCase = struct { name: []const u8, ta: u8, tb: u8, m: isize, n: isize, k: isize, alpha: f32, beta: f32, lda: isize, ldb: isize, ldc: isize };
 
 /// `test_bgemm.c`'s `float_to_bf16`: the high half of the bits, truncated.
-fn truncBf16(v: f32) blas.types.BF16 {
+fn truncBf16(v: f32) blas.types.BFloat16 {
     return @fromBackingInt(@as(u16, @intCast(@as(u32, @bitCast(v)) >> 16)));
 }
 
 /// `test_bgemm.c`'s `bf16_to_float`: the bits widened, nothing flushed.
-fn bitsF32(v: blas.types.BF16) f32 {
+fn bitsF32(v: blas.types.BFloat16) f32 {
     return @bitCast(@as(u32, @backingInt(v)) << 16);
 }
 
@@ -897,18 +897,18 @@ fn bitsF32(v: blas.types.BF16) f32 {
 /// scalars, the largest `|bgemm - sbgemm| / (|sbgemm| + 1)` within `BGEMM_TOL`.
 fn bgemmCase(c: BgemmCase, r: std.Random) !void {
     const al = testing.allocator;
-    const BF16 = blas.types.BF16;
+    const BFloat16 = blas.types.BFloat16;
     const ta = transposedLetter(c.ta);
     const a_cols: usize = @intCast(if (ta) c.m else c.k);
     const b_cols: usize = @intCast(if (transposedLetter(c.tb)) c.k else c.n);
     const n: usize = @intCast(c.n);
     const m: usize = @intCast(c.m);
     const ldc: usize = @intCast(c.ldc);
-    const a = try al.alloc(BF16, a_cols * @as(usize, @intCast(c.lda)));
+    const a = try al.alloc(BFloat16, a_cols * @as(usize, @intCast(c.lda)));
     defer al.free(a);
-    const b = try al.alloc(BF16, b_cols * @as(usize, @intCast(c.ldb)));
+    const b = try al.alloc(BFloat16, b_cols * @as(usize, @intCast(c.ldb)));
     defer al.free(b);
-    const cb = try al.alloc(BF16, n * ldc);
+    const cb = try al.alloc(BFloat16, n * ldc);
     defer al.free(cb);
     const cs = try al.alloc(f32, n * ldc);
     defer al.free(cs);
@@ -920,8 +920,8 @@ fn bgemmCase(c: BgemmCase, r: std.Random) !void {
     }
     const alpha = truncBf16(c.alpha);
     const beta = truncBf16(c.beta);
-    try l3.gemmHalf(al, ob.io, .sbgemm, transOf(c.ta), transOf(c.tb), c.m, c.n, c.k, bitsF32(alpha), a.ptr, c.lda, b.ptr, c.ldb, bitsF32(beta), cs.ptr, c.ldc);
-    try l3.gemmHalf(al, ob.io, .bgemm, transOf(c.ta), transOf(c.tb), c.m, c.n, c.k, alpha, a.ptr, c.lda, b.ptr, c.ldb, beta, cb.ptr, c.ldc);
+    try l3.gemmHalf(al, ob.io, .bf16_to_f32, transOf(c.ta), transOf(c.tb), c.m, c.n, c.k, bitsF32(alpha), a.ptr, c.lda, b.ptr, c.ldb, bitsF32(beta), cs.ptr, c.ldc);
+    try l3.gemmHalf(al, ob.io, .bf16, transOf(c.ta), transOf(c.tb), c.m, c.n, c.k, alpha, a.ptr, c.lda, b.ptr, c.ldb, beta, cb.ptr, c.ldc);
     var worst: f32 = 0;
     for (0..n) |j| for (0..m) |i| {
         const want = cs[j * ldc + i];
