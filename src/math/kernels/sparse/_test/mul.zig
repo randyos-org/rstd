@@ -2,13 +2,13 @@
 //! at any worker count.
 
 const std = @import("std");
-const matrix = @import("../../matrix.zig");
-const types = @import("../../../math/kernels/blas/types.zig");
-const ops = @import("../../../math/kernels/lapack/ops.zig");
-const blas = @import("../../../math/kernels/blas/__root__.zig");
-const threading = @import("../../../math/kernels/blas/threading.zig");
-const check = @import("../../../math/kernels/blas/_test/check.zig");
-const test_io = @import("../../../math/kernels/blas/_test/io.zig");
+const matrix = @import("../../../../linalg/matrix.zig");
+const types = @import("../../blas/types.zig");
+const ops = @import("../../lapack/ops.zig");
+const blas = @import("../../blas/__root__.zig");
+const threading = @import("../../blas/threading.zig");
+const check = @import("../../blas/_test/check.zig");
+const test_io = @import("../../blas/_test/io.zig");
 const sparse = @import("../__root__.zig");
 const util = @import("util.zig");
 
@@ -34,7 +34,7 @@ fn checkMulVec(comptime T: type, io: Io, p: util.Pair(T), seed: u64) !void {
     defer al.free(y0);
     // NaN where beta zero must not read
     const nan = check.val(T, std.math.nan(f64), 0);
-    var r = try p.s.toCsr(al);
+    var r = try p.s.toCompressedRows(al);
     defer r.deinit(al);
     const want = try al.alloc(T, y0.len);
     defer al.free(want);
@@ -110,7 +110,7 @@ test "mulVec: dimension checks and empty shapes" {
     // no columns: y := beta y; no rows: nothing
     var e = try sparse.Triplets(f64).init(4, 0);
     defer e.deinit(al);
-    var a = try e.toCsc(al);
+    var a = try e.toCompressedColumns(al);
     defer a.deinit(al);
     try a.mulVec(al, check.io, .n, 1, x[0..0], 2, &y);
     try testing.expectEqualSlices(f64, &.{ 2, 2, 2, 2 }, &y);
@@ -133,17 +133,25 @@ test "mulDense against dense loops" {
             check.fill(T, b.data, k);
             const want = try util.mulDense(T, al, p.d, b);
             defer want.deinit(al);
-            const got = try p.s.mulDense(al, check.io, b.constView());
-            defer got.deinit(al);
-            try testing.expectEqual(want.rows, got.rows);
-            try testing.expectEqual(want.cols, got.cols);
-            try check.expectCloseSlices(T, want.data, got.data, util.tol(T, s[1], 1));
+            // C at a leading dimension one past its rows, stale values in it
+            const ldc = s[0] + 1;
+            const got = try util.vec(T, al, ldc * s[2], k + 90);
+            defer al.free(got);
+            const pad = try al.dupe(T, got);
+            defer al.free(pad);
+            try p.s.mulDense(al, check.io, b.data, @max(s[1], 1), s[2], got, ldc);
+            for (0..s[2]) |j| {
+                try check.expectCloseSlices(T, want.data[j * s[0] ..][0..s[0]], got[j * ldc ..][0..s[0]], util.tol(T, s[1], 1));
+                try testing.expectEqual(pad[j * ldc + s[0]], got[j * ldc + s[0]]);
+            }
         }
         var p = try util.random(T, al, 3, 4, 500, 9);
         defer p.deinit(al);
-        const b: matrix.Mat(T) = try .zeros(al, 3, 2);
-        defer b.deinit(al);
-        try testing.expectError(error.DimensionMismatch, p.s.mulDense(al, check.io, b.constView()));
+        var b: [8]T = undefined;
+        var c: [6]T = undefined;
+        try testing.expectError(error.DimensionMismatch, p.s.mulDense(al, check.io, &b, 3, 2, &c, 3));
+        try testing.expectError(error.DimensionMismatch, p.s.mulDense(al, check.io, &b, 4, 2, c[0..5], 3));
+        try testing.expectError(error.DimensionMismatch, p.s.mulDense(al, check.io, &b, 4, 2, &c, 2));
     }
 }
 
@@ -179,9 +187,7 @@ test "mulVec and mulDense: one worker's bits at any worker count" {
             try p.s.mulVec(al, io, .n, alpha, x, beta, o[0..m]);
             @memcpy(o[m..][0..n], y0);
             try p.s.mulVec(al, io, .c, alpha, x, beta, o[m..][0..n]);
-            const d = try p.s.mulDense(al, io, b.constView());
-            defer d.deinit(al);
-            @memcpy(o[m + n ..], d.data);
+            try p.s.mulDense(al, io, b.data, n, 3, o[m + n ..], m);
         }
         try test_io.expectSameBytes(outs);
         // and right

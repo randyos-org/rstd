@@ -1,10 +1,9 @@
 //! `spgemm`, its symbolic and numeric passes, against dense loops.
 
 const std = @import("std");
-const matrix = @import("../../matrix.zig");
-const types = @import("../../../math/kernels/blas/types.zig");
-const ops = @import("../../../math/kernels/lapack/ops.zig");
-const check = @import("../../../math/kernels/blas/_test/check.zig");
+const types = @import("../../blas/types.zig");
+const ops = @import("../../lapack/ops.zig");
+const check = @import("../../blas/_test/check.zig");
 const sparse = @import("../__root__.zig");
 const util = @import("util.zig");
 
@@ -25,7 +24,7 @@ test "spgemm against dense loops" {
             try testing.expectEqual(b.s.cols, c.cols);
             const want = try util.mulDense(T, al, a.d, b.d);
             defer want.deinit(al);
-            const got = try c.toDense(al);
+            const got = try util.dense(T, al, c);
             defer got.deinit(al);
             try check.expectCloseSlices(T, want.data, got.data, util.tol(T, s[1], 1));
             // the pattern is the Boolean product's: no entry without a path
@@ -54,9 +53,9 @@ test "spgemm: the numeric pass reuses the symbolic pattern" {
         // new values, same patterns
         for (a.s.value, 0..) |*v, k| v.* = check.val(T, @floatFromInt(k % 5), 1);
         for (b.s.value, 0..) |*v, k| v.* = check.val(T, @floatFromInt(k % 3), -1);
-        const ad = try a.s.toDense(al);
+        const ad = try util.dense(T, al, a.s);
         defer ad.deinit(al);
-        const bd = try b.s.toDense(al);
+        const bd = try util.dense(T, al, b.s);
         defer bd.deinit(al);
         try a.s.spgemmNumeric(al, b.s, c);
         const want = try util.mulDense(T, al, ad, bd);
@@ -83,12 +82,12 @@ test "spgemm: dimension and pattern checks" {
     var t = try sparse.Triplets(f64).init(6, 5);
     defer t.deinit(al);
     for (0..6) |i| for (0..5) |j| try t.append(al, i, j, 1);
-    var full = try t.toCsc(al);
+    var full = try t.toCompressedColumns(al);
     defer full.deinit(al);
     var bt = try sparse.Triplets(f64).init(5, 4);
     defer bt.deinit(al);
     for (0..4) |j| try bt.append(al, j, j, 1);
-    var diag = try bt.toCsc(al);
+    var diag = try bt.toCompressedColumns(al);
     defer diag.deinit(al);
     var cd = try a.s.spgemmSymbolic(al, diag);
     defer cd.deinit(al);

@@ -5,7 +5,7 @@
 //! them; the numeric pass sums into `C`'s own slots, `k` ascending.
 
 const std = @import("std");
-const ops = @import("../../math/kernels/lapack/ops.zig");
+const ops = @import("../lapack/ops.zig");
 const util = @import("util.zig");
 const csc = @import("csc.zig");
 
@@ -14,7 +14,7 @@ const Allocator = std.mem.Allocator;
 /// No row: unmarked, in the symbolic and numeric scratch.
 const none = std.math.maxInt(u32);
 
-pub fn symbolic(comptime T: type, a: csc.Csc(T), allocator: Allocator, b: csc.Csc(T)) csc.SpgemmError!csc.Csc(T) {
+pub fn symbolic(comptime T: type, a: csc.CompressedColumns(T), allocator: Allocator, b: csc.CompressedColumns(T)) csc.SpgemmError!csc.CompressedColumns(T) {
     if (a.cols != b.rows) return error.DimensionMismatch;
     const mark = try allocator.alloc(u32, a.rows);
     defer allocator.free(mark);
@@ -44,7 +44,7 @@ pub fn symbolic(comptime T: type, a: csc.Csc(T), allocator: Allocator, b: csc.Cs
     return .{ .rows = a.rows, .cols = b.cols, .col_start = col_start, .row = row, .value = value };
 }
 
-pub fn numeric(comptime T: type, a: csc.Csc(T), allocator: Allocator, b: csc.Csc(T), c: csc.Csc(T)) csc.NumericError!void {
+pub fn numeric(comptime T: type, a: csc.CompressedColumns(T), allocator: Allocator, b: csc.CompressedColumns(T), c: csc.CompressedColumns(T)) csc.NumericError!void {
     if (a.cols != b.rows or c.rows != a.rows or c.cols != b.cols) return error.DimensionMismatch;
     // `slot[i]`: row `i`'s place in `c.value` for the column at hand
     const slot = try allocator.alloc(u32, a.rows);
@@ -70,7 +70,7 @@ pub fn numeric(comptime T: type, a: csc.Csc(T), allocator: Allocator, b: csc.Csc
     }
 }
 
-pub fn spgemm(comptime T: type, a: csc.Csc(T), allocator: Allocator, b: csc.Csc(T)) csc.SpgemmError!csc.Csc(T) {
+pub fn spgemm(comptime T: type, a: csc.CompressedColumns(T), allocator: Allocator, b: csc.CompressedColumns(T)) csc.SpgemmError!csc.CompressedColumns(T) {
     var c = try symbolic(T, a, allocator, b);
     errdefer c.deinit(allocator);
     numeric(T, a, allocator, b, c) catch |e| return switch (e) {

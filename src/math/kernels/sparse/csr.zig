@@ -1,8 +1,9 @@
-//! `Csr(T)`, the row-major twin: a `Csc` of `A` is a `Csr` of `Aᵀ`, the same
-//! arrays, so each routine here is the `Csc` one on that view.
+//! `CompressedRows(T)`, the row-major twin: compressed columns of `A` are
+//! compressed rows of `Aᵀ`, the same arrays, so each routine here is the
+//! `CompressedColumns` one on that view.
 
 const std = @import("std");
-const types = @import("../../math/kernels/blas/types.zig");
+const types = @import("../blas/types.zig");
 const csc = @import("csc.zig");
 const vector = @import("vector.zig");
 
@@ -12,7 +13,7 @@ const Trans = types.Trans;
 
 /// `value[k]` at column `col[k]`, for `k` in row `i`'s
 /// `row_start[i] .. row_start[i + 1]`.
-pub fn Csr(comptime T: type) type {
+pub fn CompressedRows(comptime T: type) type {
     return struct {
         rows: u32,
         cols: u32,
@@ -35,24 +36,24 @@ pub fn Csr(comptime T: type) type {
         }
 
         /// The CSC of `Aᵀ`: the same arrays, no copy.
-        pub fn asCscOfTranspose(self: Self) csc.Csc(T) {
+        pub fn asColumnsOfTranspose(self: Self) csc.CompressedColumns(T) {
             return .{ .rows = self.cols, .cols = self.rows, .col_start = self.row_start, .row = self.col, .value = self.value };
         }
 
         /// The CSC of `A`, a copy.
-        pub fn toCsc(self: Self, allocator: Allocator) Allocator.Error!csc.Csc(T) {
-            return self.asCscOfTranspose().transpose(allocator);
+        pub fn toCompressedColumns(self: Self, allocator: Allocator) Allocator.Error!csc.CompressedColumns(T) {
+            return self.asColumnsOfTranspose().transpose(allocator);
         }
 
         /// Row `i`, `cols` long, sharing the matrix's arrays.
-        pub fn row(self: Self, i: usize) vector.Vector(T) {
-            return self.asCscOfTranspose().col(i);
+        pub fn row(self: Self, i: usize) vector.SparseVector(T) {
+            return self.asColumnsOfTranspose().col(i);
         }
 
-        /// `y := alpha op(A) x + beta y`, as `Csc.mulVec`: each row's sum
-        /// whole without a transpose, per-chunk partials with one.
+        /// `y := alpha op(A) x + beta y`, as `CompressedColumns.mulVec`: each
+        /// row's sum whole without a transpose, per-chunk partials with one.
         pub fn mulVec(self: Self, allocator: Allocator, io: Io, trans: Trans, alpha: T, x: []const T, beta: T, y: []T) csc.MulError!void {
-            return self.asCscOfTranspose().mulVec(allocator, io, flipped(trans), alpha, x, beta, y);
+            return self.asColumnsOfTranspose().mulVec(allocator, io, flipped(trans), alpha, x, beta, y);
         }
     };
 }

@@ -4,8 +4,8 @@
 //! `x_j` gathers its column's dot. Serial: each step needs the last. The
 //! diagonal is found by row, so entries off the triangle are skipped.
 
-const types = @import("../../math/kernels/blas/types.zig");
-const ops = @import("../../math/kernels/lapack/ops.zig");
+const types = @import("../blas/types.zig");
+const ops = @import("../lapack/ops.zig");
 const util = @import("util.zig");
 const csc = @import("csc.zig");
 
@@ -15,7 +15,7 @@ const Diag = types.Diag;
 
 /// `error.Singular`, before `x` is touched, for a zero or missing diagonal
 /// entry when `diag` is `n`.
-pub fn solve(comptime T: type, a: csc.Csc(T), uplo: Uplo, trans: Trans, diag: Diag, x: []T) csc.TriSolveError!void {
+pub fn solve(comptime T: type, a: csc.CompressedColumns(T), uplo: Uplo, trans: Trans, diag: Diag, x: []T) csc.TriSolveError!void {
     if (uplo.isRev()) return error.InvalidUplo;
     if (trans.conjX()) return error.InvalidTrans;
     if (a.rows != a.cols or x.len < a.cols) return error.DimensionMismatch;
@@ -37,7 +37,7 @@ pub fn solve(comptime T: type, a: csc.Csc(T), uplo: Uplo, trans: Trans, diag: Di
 }
 
 /// Column `j`'s diagonal entry's index in `a.value`, if stored.
-fn diagAt(comptime T: type, a: csc.Csc(T), j: usize) ?usize {
+fn diagAt(comptime T: type, a: csc.CompressedColumns(T), j: usize) ?usize {
     const s = a.col_start[j];
     const rows = a.row[s..a.col_start[j + 1]];
     const d = util.lowerBound(rows, j);
@@ -46,7 +46,7 @@ fn diagAt(comptime T: type, a: csc.Csc(T), j: usize) ?usize {
 
 fn Solve(comptime T: type, comptime trans: Trans) type {
     return struct {
-        a: csc.Csc(T),
+        a: csc.CompressedColumns(T),
         unit: bool,
         x: []T,
 

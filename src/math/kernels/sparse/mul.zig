@@ -7,10 +7,9 @@
 //! do too, at any worker count.
 
 const std = @import("std");
-const matrix = @import("../matrix.zig");
-const types = @import("../../math/kernels/blas/types.zig");
-const threading = @import("../../math/kernels/blas/threading.zig");
-const ops = @import("../../math/kernels/lapack/ops.zig");
+const types = @import("../blas/types.zig");
+const threading = @import("../blas/threading.zig");
+const ops = @import("../lapack/ops.zig");
 const util = @import("util.zig");
 const csc = @import("csc.zig");
 
@@ -27,7 +26,7 @@ const family: threading.Family = .gemv;
 /// (issue #547; the M6 and Zen 3).
 pub const four_min = 8;
 
-pub fn mulVec(comptime T: type, a: csc.Csc(T), allocator: Allocator, io: Io, trans: Trans, alpha: T, x: []const T, beta: T, y: []T) csc.MulError!void {
+pub fn mulVec(comptime T: type, a: csc.CompressedColumns(T), allocator: Allocator, io: Io, trans: Trans, alpha: T, x: []const T, beta: T, y: []T) csc.MulError!void {
     const tr = trans.transposed();
     if (x.len < @as(usize, if (tr) a.rows else a.cols) or y.len < @as(usize, if (tr) a.cols else a.rows)) return error.DimensionMismatch;
     switch (trans) {
@@ -41,7 +40,7 @@ pub fn mulVec(comptime T: type, a: csc.Csc(T), allocator: Allocator, io: Io, tra
 /// `y := alpha op(A) x + beta y` for one `trans`, known at compile time.
 fn Gemv(comptime T: type, comptime trans: Trans) type {
     return struct {
-        a: csc.Csc(T),
+        a: csc.CompressedColumns(T),
         alpha: T,
         x: []const T,
         beta: T,
@@ -157,7 +156,7 @@ fn Gemv(comptime T: type, comptime trans: Trans) type {
 
 /// `a`'s columns in up to `want` chunks of about equal nonzeros, empty ones
 /// dropped; one empty chunk without columns.
-fn split(comptime T: type, a: csc.Csc(T), want: usize) threading.Chunks {
+fn split(comptime T: type, a: csc.CompressedColumns(T), want: usize) threading.Chunks {
     const c = std.math.clamp(want, 1, threading.chunks_max);
     const nnz: u64 = a.nonzeros();
     var r: threading.Chunks = .{ .count = 0, .bounds = undefined };
@@ -178,32 +177,33 @@ fn split(comptime T: type, a: csc.Csc(T), want: usize) threading.Chunks {
 
 /// `C := A B`, each column of `C` scattered whole, so the chunks of `B`'s
 /// columns cannot change a bit.
-pub fn mulDense(comptime T: type, a: csc.Csc(T), allocator: Allocator, io: Io, b: matrix.ConstView(T)) csc.MulError!matrix.Mat(T) {
-    if (b.rows != a.cols) return error.DimensionMismatch;
-    const c: matrix.Mat(T) = try .zeros(allocator, a.rows, b.cols);
-    errdefer c.deinit(allocator);
+pub fn mulDense(comptime T: type, a: csc.CompressedColumns(T), allocator: Allocator, io: Io, b: []const T, ldb: usize, cols: usize, c: []T, ldc: usize) csc.MulError!void {
+    _ = allocator;
+    if (!util.denseFits(b.len, ldb, a.cols, cols) or !util.denseFits(c.len, ldc, a.rows, cols)) return error.DimensionMismatch;
     const D = struct {
-        a: csc.Csc(T),
-        b: matrix.ConstView(T),
-        c: matrix.Mat(T),
+        a: csc.CompressedColumns(T),
+        b: []const T,
+        ldb: usize,
+        c: []T,
+        ldc: usize,
 
-        fn cols(d: @This(), ch: Chunk) void {
+        fn columns(d: @This(), ch: Chunk) void {
             const m: usize = d.a.rows;
             for (ch.start..ch.end) |q| {
-                const out = d.c.data[q * m ..][0..m];
-                for (d.b.col(q), 0..) |bj, j| {
+                const out = util.denseCol(d.c, d.ldc, q, m);
+                @memset(out, ops.zero(T));
+                for (util.denseCol(d.b, d.ldb, q, d.a.cols), 0..) |bj, j| {
                     for (d.a.col_start[j]..d.a.col_start[j + 1]) |k| out[d.a.row[k]] = ops.add(T, out[d.a.row[k]], ops.mul(T, d.a.value[k], bj));
                 }
             }
         }
     };
-    const d: D = .{ .a = a, .b = b, .c = c };
-    const work = threading.product(&.{ a.nonzeros(), b.cols });
+    const d: D = .{ .a = a, .b = b, .ldb = ldb, .c = c, .ldc = ldc };
+    const work = threading.product(&.{ a.nonzeros(), cols });
     if (threading.serial(family, T, work)) {
-        d.cols(.{ .index = 0, .start = 0, .end = b.cols });
+        d.columns(.{ .index = 0, .start = 0, .end = cols });
     } else {
-        const p = threading.plan(family, T, work, b.cols, .even, 1);
-        try threading.forEach(io, &p, d, D.cols);
+        const p = threading.plan(family, T, work, cols, .even, 1);
+        try threading.forEach(io, &p, d, D.columns);
     }
-    return c;
 }
