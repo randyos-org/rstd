@@ -365,8 +365,9 @@ jobs:
           - { name: 'aarch64-linux-gnu, tsan', tier: 2, runner: ubuntu-24.04-arm, args: -Drstd-tsan }
           - { name: aarch64-linux-musl, tier: 2, runner: ubuntu-24.04-arm, args: -Dtarget=aarch64-linux-musl }
           # the SVE and SME cores under qemu-user's `max` CPU, on an x86_64
-          # runner so that it emulates; not in the linux-aarch64-sve rig's VMs (issue #653)
-          - { name: 'aarch64-linux-musl, sve', tier: 2, runner: ubuntu-24.04, args: -Dtarget=aarch64-linux-musl -Dcpu=neoverse_v1 -fqemu, qemu: true, qemu_cpu: 'max,pauth-impdef=on', core: armv9sme }
+          # runner so that it emulates, not in the linux-aarch64-sve rig's VMs
+          # (issue #653); every core linked, or the build stops at -Dcpu's
+          - { name: 'aarch64-linux-musl, sve', tier: 2, runner: ubuntu-24.04, args: -Dtarget=aarch64-linux-musl -Dcpu=neoverse_v1 -Dblas-cores=all -fqemu, qemu: true, qemu_cpu: 'max,pauth-impdef=on', core: armv9sme, swap: true }
           - { name: aarch64-macos, tier: 2, runner: macos-15 }
           - { name: x86_64-macos, tier: 2, runner: macos-15-intel }
     steps: &test-steps
