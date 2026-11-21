@@ -284,6 +284,7 @@ jobs:
           - name: zfls's targets
             zig: 0.17.1
             run: zig build rstd-check-zig017 -Dtest-host-off
+            swap: true
           - name: zig fmt
             zig: 0.17.1
             run: zig fmt --check build build.zig build.zig.zon src tools test
@@ -305,6 +306,17 @@ jobs:
 
       - if: ${{ matrix.zig == 'latest' }}
         uses: randyos-org/zig-toolchain/setup@main
+
+      # four test compiles at once can pass the runner's 16 GB, and the
+      # runner is killed without a word from Zig (issue #664, as #268)
+      - name: Swap
+        if: ${{ matrix.swap }}
+        run: |
+          sudo fallocate -l 12G /mnt/rstd-swap
+          sudo chmod 600 /mnt/rstd-swap
+          sudo mkswap /mnt/rstd-swap
+          sudo swapon /mnt/rstd-swap
+          free -h
 
       # Downloads (lazy ones too) are retried: a dropped connection to a
       # package host should not fail the run; 0.17 spells it `--fetch=all`,
