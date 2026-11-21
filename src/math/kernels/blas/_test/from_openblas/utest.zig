@@ -1,5 +1,5 @@
 //! OpenBLAS's unit tests (`utest/test_*.c`, `test_potrs.c` and
-//! `test_kernel_regress.c` through `rstd.linalg.lapack`), OpenBLAS v0.3.34-317,
+//! `test_kernel_regress.c` through `rstd.math.kernels.lapack`), OpenBLAS v0.3.34-317,
 //! with the sources' inputs and expected values; an expected infinity must be exact.
 
 const std = @import("std");

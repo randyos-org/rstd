@@ -4,15 +4,15 @@ const sysinfo = @import("builtin");
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
-const blas = @import("../../math/kernels/blas/__root__.zig");
-const ext = @import("../../math/kernels/blas/ext/interface.zig");
-const l3 = @import("../../math/kernels/blas/blas3/core.zig");
-const l2 = @import("../../math/kernels/blas/blas2/core.zig");
-const l1 = @import("../../math/kernels/blas/blas1/interface.zig");
-const lapack = @import("../../math/kernels/lapack/__root__.zig");
+const blas = @import("../../kernels/blas/__root__.zig");
+const ext = @import("../../kernels/blas/ext/interface.zig");
+const l3 = @import("../../kernels/blas/blas3/core.zig");
+const l2 = @import("../../kernels/blas/blas2/core.zig");
+const l1 = @import("../../kernels/blas/blas1/interface.zig");
+const lapack = @import("../../kernels/lapack/__root__.zig");
 const vector = @import("../vector.zig");
 const matrix = @import("../matrix.zig");
-const ops = @import("../../math/kernels/lapack/ops.zig");
+const ops = @import("../../kernels/lapack/ops.zig");
 
 const View = matrix.View;
 const ConstView = matrix.ConstView;
@@ -41,10 +41,10 @@ pub fn dot(io: Io, x: anytype, y: anytype) VectorError!ElementOf(@TypeOf(x)) {
     const sx = try strided(constOf(x));
     const sy = try strided(constOf(y));
     if (sx.n != sy.n) return error.DimensionMismatch;
-    return dotWith(pathOf(&.{sx.n}), io, sx, sy);
+    return dotOn(pathOf(&.{sx.n}), io, sx, sy);
 }
 
-pub fn dotWith(path: Path, io: Io, sx: anytype, sy: @TypeOf(sx)) Io.Cancelable!@TypeOf(sx.ptr[0]) {
+pub fn dotOn(path: Path, io: Io, sx: anytype, sy: @TypeOf(sx)) Io.Cancelable!@TypeOf(sx.ptr[0]) {
     const T = @TypeOf(sx.ptr[0]);
     if (sx.n == 0) return ops.zero(T);
     if (path == .fixed) return fixed(T, "dot", sx.n, .{ sx, sy });
@@ -56,10 +56,10 @@ pub fn dotWith(path: Path, io: Io, sx: anytype, sy: @TypeOf(sx)) Io.Cancelable!@
 /// normalizes): `linalg.vector.length` up to the inline limit, else `nrm2`.
 pub fn norm(io: Io, x: anytype) VectorError!Real(ElementOf(@TypeOf(x))) {
     const s = try strided(constOf(x));
-    return normWith(pathOf(&.{s.n}), io, s);
+    return normOn(pathOf(&.{s.n}), io, s);
 }
 
-pub fn normWith(path: Path, io: Io, s: anytype) Io.Cancelable!Real(@TypeOf(s.ptr[0])) {
+pub fn normOn(path: Path, io: Io, s: anytype) Io.Cancelable!Real(@TypeOf(s.ptr[0])) {
     const T = @TypeOf(s.ptr[0]);
     if (s.n == 0) return 0;
     if (path == .fixed) return fixed(Real(T), "length", s.n, .{s});
@@ -70,10 +70,10 @@ pub fn normWith(path: Path, io: Io, s: anytype) Io.Cancelable!Real(@TypeOf(s.ptr
 /// real and imaginary parts apart for complex.
 pub fn sum(io: Io, x: anytype) VectorError!ElementOf(@TypeOf(x)) {
     const s = try strided(constOf(x));
-    return sumWith(pathOf(&.{s.n}), io, s);
+    return sumOn(pathOf(&.{s.n}), io, s);
 }
 
-pub fn sumWith(path: Path, io: Io, s: anytype) Io.Cancelable!@TypeOf(s.ptr[0]) {
+pub fn sumOn(path: Path, io: Io, s: anytype) Io.Cancelable!@TypeOf(s.ptr[0]) {
     const T = @TypeOf(s.ptr[0]);
     if (s.n == 0) return ops.zero(T);
     if (path == .fixed) return fixed(T, "sum", s.n, .{s});
@@ -102,10 +102,10 @@ pub fn extreme(comptime which: blas.Extreme, io: Io, x: anytype) VectorError!Ele
     const T = ElementOf(@TypeOf(x));
     if (comptime isComplex(T)) @compileError("max and min order real elements only");
     const s = try strided(constOf(x));
-    return extremeWith(which, pathOf(&.{s.n}), io, s);
+    return extremeOn(which, pathOf(&.{s.n}), io, s);
 }
 
-pub fn extremeWith(comptime which: blas.Extreme, path: Path, io: Io, s: anytype) Io.Cancelable!@TypeOf(s.ptr[0]) {
+pub fn extremeOn(comptime which: blas.Extreme, path: Path, io: Io, s: anytype) Io.Cancelable!@TypeOf(s.ptr[0]) {
     const T = @TypeOf(s.ptr[0]);
     if (s.n == 0) return 0;
     if (path == .fixed) return fixed(T, "extreme", s.n, .{ which, s });

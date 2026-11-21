@@ -53,7 +53,7 @@ Rules and lessons for agents. The RandyOS repo's `CLAUDE.md` applies too when rs
 ## Toolchain traps
 
 - The user's local Zig is an experimental build (0.18 dev with the fork-only `@Matrix`). A compiler crash or odd codegen there may be its bug: stop and report it with the traceback; never work around it in rstd.
-- `@Matrix` exists only in that build: it lives in `src/linalg/_matrix/native.zig`, chosen as the `rstd_matrix` module when the compiler has it, else `fallback.zig`. Zfls builds rstd on Zig 0.17, as CI does: build-script changes must pass `zig build -h` on 0.18 and 0.17.
+- `@Matrix` exists only in that build: it lives in `src/math/linalg/_matrix/native.zig`, chosen as the `rstd_matrix` module when the compiler has it, else `fallback.zig`. Zfls builds rstd on Zig 0.17, as CI does: build-script changes must pass `zig build -h` on 0.18 and 0.17.
 - `**` array repetition is gone; use `@splat`. The error only says "whitespace on one side".
 - `zig fmt` may rewrite `@intFromEnum` to `@backingInt` on backed enums: reread the diff and retest after formatting.
 - Zig 0.18 exits 0 on inline-asm errors, silently dropping the line: read the output for `error: <inline asm>` even at exit 0.

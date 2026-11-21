@@ -2,7 +2,7 @@
 
 const std = @import("std");
 const blas_types = @import("../kernels/blas/types.zig");
-const matrix = @import("../../linalg/matrix.zig");
+const matrix = @import("../linalg/matrix.zig");
 const l3 = @import("../kernels/blas/blas3/interface.zig");
 const util = @import("util.zig");
 

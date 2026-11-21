@@ -1,13 +1,13 @@
 # rstd design
 
 This document specifies rstd's modules beyond linear algebra's own (that is in
-[`src/linalg/design.md`](src/linalg/design.md)): statistics, sorting and sets, the FFT, signal
-processing, and the N-d arrays and sparse matrices that extend `rstd.linalg`. It describes the
+[`src/math/linalg/design.md`](src/math/linalg/design.md)): statistics, sorting and sets, the FFT, signal
+processing, and the N-d arrays and sparse matrices that extend `rstd.math.linalg`. It describes the
 code as it is, and says "Planned" where it is not. The work left is in [the issues](https://github.com/randyos-org/rstd/issues).
 
 ## Requirements
 
-Shared with the public `rstd.linalg` layer ([`design.md`](src/linalg/design.md), "Operations over
+Shared with the public `rstd.math.linalg` layer ([`design.md`](src/math/linalg/design.md), "Operations over
 views"):
 
 - `(allocator, io, ...)` where a function allocates, `(io, ...)` where it only calls the BLAS;
@@ -212,7 +212,7 @@ In `src/math/signal/`, built on `rstd.math.kernels.fft`, for audio first:
 
 ### Planned: N-d arrays
 
-In `rstd.linalg` beside `Mat(T)`, in two kinds, as the public layer's `StaticMat` and
+In `rstd.math.linalg` beside `Mat(T)`, in two kinds, as the public layer's `StaticMat` and
 `Mat`:
 
 - **`StaticArray`:** the shape, and so the rank, is comptime. It's a value with no allocator,
@@ -266,7 +266,7 @@ pub fn sumDim(allocator, io, v, dim: u8) error{ ... }!Array(T) // and prod, max,
 
 ### Sparse matrices
 
-In `rstd.linalg.sparse`, with 0-based indices. The kernels landed in T150 ([#84](https://github.com/randyos-org/rstd/issues/84)); the iterative solvers are stubs (N2), and [`src/linalg/sparse/`](src/linalg/sparse/__root__.zig) is the reference.
+In `rstd.math.linalg.sparse`, with 0-based indices. The kernels landed in T150 ([#84](https://github.com/randyos-org/rstd/issues/84)); the iterative solvers are stubs (N2), and [`src/math/linalg/sparse/`](src/math/linalg/sparse/__root__.zig) is the reference.
 
 ```zig
 pub fn Csc(comptime T: type) type; // rows, cols: u32, col_start: []u32, row: []u32, value: []T
@@ -309,7 +309,7 @@ pub fn gmres(allocator, io, comptime T, a, b, x, options, restart: usize) SolveE
 By the user, 2026-10-31:
 
 - `rstd.stats`, `rstd.sort` and `rstd.fft` are top-level modules (stats and the FFT moved under `rstd.math` in #613 and #611); N-d arrays and sparse matrices
-  go in `rstd.linalg`.
+  go in `rstd.math.linalg`.
 - Broadcasting needs equal ranks; MATLAB's implicit expansion is the fallback if padding is ever
   added.
 - Sparse indices are `u32` throughout.
@@ -334,7 +334,7 @@ By the user, 2026-10-31:
 - pffft is C intrinsics behind a macro layer, so its faithful port maps each macro to the
   `@Vector` or `@shuffle` form that emits the same instruction, in pffft's order, without fused
   multiply-adds pffft lacks; checked by reading the code generated and by matching pffft's bits.
-  The port is a chance to improve `rstd.linalg`'s APIs for such code: its
+  The port is a chance to improve `rstd.math.linalg`'s APIs for such code: its
   vector primitives (interleave, transpose, half-swap) go in the `Vec` and `StaticMat` code that
   linalg's M7 redesigns around `@Matrix`, which also decides the N-d arrays' fixed-size kind.
 - Kernels per platform: pffft's own first (SSE on x86_64, NEON on aarch64 and the Pi 3's 32-bit

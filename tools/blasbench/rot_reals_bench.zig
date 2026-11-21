@@ -11,7 +11,7 @@ const bench = @import("bench.zig");
 const bb = @import("blas_bench.zig");
 const libs = @import("libs.zig");
 
-const blas = rstd.linalg.blas;
+const blas = rstd.math.kernels.blas;
 
 const timing: bench.Timing = .{ .min_ns = 20 * std.time.ns_per_ms, .batches = 15 };
 const sizes = [_]usize{ 1000, 2000, 4096, 10_000, 100_000, 1_000_000 };

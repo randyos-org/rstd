@@ -2,7 +2,7 @@
 //! rgl backends, and by the public render.zig API.
 
 const zigstd = @import("../zigstd.zig");
-const vector = @import("../linalg/__root__.zig").vector;
+const vector = @import("../math/linalg/__root__.zig").vector;
 
 const V2f32 = vector.V2f32;
 

@@ -355,12 +355,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ---
 
-matlab88 (src/linalg/ref/matlab88/: Cleve Moler's Fortran MATLAB, "Version of 05/25/82",
+matlab88 (src/math/linalg/ref/matlab88/: Cleve Moler's Fortran MATLAB, "Version of 05/25/82",
 with the LINPACK and EISPACK routines it is built on)
 
-Public domain. The ported source, src/linalg/ref/matlab88/matlab88.f90, carries
+Public domain. The ported source, src/math/linalg/ref/matlab88/matlab88.f90, carries
 no copyright notice, nor do the LINPACK and EISPACK routines in it; its
-distributor's note, src/linalg/ref/matlab88/readme.txt, states: "The package is
+distributor's note, src/math/linalg/ref/matlab88/readme.txt, states: "The package is
 public domain, but of course postage and reproduction cost money. [...] Please
 feel free to distribute the package."
 

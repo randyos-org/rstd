@@ -1,5 +1,5 @@
 #!/bin/bash
-# Settings for the Apple silicon Mac that runs the rigs and timings over ssh: headless, logged in, waking on ssh, indexing stopped (src/linalg/
+# Settings for the Apple silicon Mac that runs the rigs and timings over ssh: headless, logged in, waking on ssh, indexing stopped (src/math/linalg/
 # design.md, "Timing on a host macOS keeps busy"). Run as the rigs' account: `bash configure_mac_host_arm.sh [--check]`; steps a script cannot take say
 # what to do by hand. Running it again is harmless.
 

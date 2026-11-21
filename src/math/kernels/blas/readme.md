@@ -10,7 +10,7 @@ Fortran-named (`dgemv_`) entry points, no row-major mapping layer and no global 
 routines are Zig functions over column-major data in the Fortran argument order; bad arguments
 return named errors.
 
-How the code is structured, and why, is in [`design.md`](../../../linalg/design.md).
+How the code is structured, and why, is in [`design.md`](../../linalg/design.md).
 
 ## Supported
 
@@ -40,7 +40,7 @@ How the code is structured, and why, is in [`design.md`](../../../linalg/design.
   (`gemvHalf`), `sbgemm`, `bgemm`, `shgemm` (`gemmHalf`) and `sbgemmt` (`gemmtHalf`).
 - **Extensions:** `geadd`, `omatcopy` and `imatcopy` (column-major), LAPACK's `laswp`, and the
   batched gemms (`gemmBatch`, `gemmBatchStrided`, and `gemmHalfBatch`, `gemmHalfBatchStrided`).
-- **LAPACK** (`rstd.linalg.lapack`): `potrs`, and `potrf`, `potf2` and `pbtrf`, which return
+- **LAPACK** (`rstd.math.kernels.lapack`): `potrs`, and `potrf`, `potf2` and `pbtrf`, which return
   `error.NotPositiveDefinite` for a leading minor that is not positive definite, a NaN pivot
   included; `sytrf`, `hetrf` and their rook forms, which return the first row of an exactly zero
   block of `D` (0-based), or null; `getrs`; `getrf` and `gbtrf`, which
@@ -74,7 +74,7 @@ Every target compiles, with the portable kernels at least. Per-core kernels exis
 cores; which OpenBLAS source each core uses, and what rstd serves in its place, is in the
 generated `coverage.md` files (every `blas1/<routine>/` and `blas3/<routine>/`, and `blas2/`),
 and which routines each architecture covers is in
-[`design.md`](../../../linalg/design.md#coverage-by-architecture).
+[`design.md`](../../linalg/design.md#coverage-by-architecture).
 
 | Architecture | Cores |
 | --- | --- |
@@ -114,7 +114,7 @@ are targets at all.
 
 Each routine takes its element type as a comptime parameter. Sizes, strides and leading
 dimensions are `isize`; a negative stride names the vector's last element first, as in the
-reference. Every routine is `rstd.linalg.blas.<routine>` and takes `(allocator, io, T, ...)`,
+reference. Every routine is `rstd.math.kernels.blas.<routine>` and takes `(allocator, io, T, ...)`,
 or `(io, T, ...)` when it needs no scratch space beyond a small stack buffer. Routines that
 thread run their workers on `io` ([`threading.md`](threading.md)). `rotg`,
 `zrotg`, `rotmg` and `cabs1` work on scalars only and take neither.
@@ -132,7 +132,7 @@ Transposes, triangles, diagonals and sides are the letter enums `blas.Trans`, `U
 `Side`, shared by every level.
 
 ```zig
-const blas = rstd.linalg.blas;
+const blas = rstd.math.kernels.blas;
 
 // C := A * B, all f64, column-major
 try blas.gemm(allocator, io, f64, .n, .n, m, n, k, 1.0, a, lda, b, ldb, 0.0, c, ldc);
@@ -181,7 +181,7 @@ back to the portable kernels, and the next call selects again; no kernel call ma
   memory, nor on the thread count ([`threading.md`](threading.md)).
 - **Denormals.** Rstd never changes the floating-point environment, and denormals are honored on
   every core: where a vector unit flushes them (ARMv7 NEON, pre-VSX AltiVec), `f32` stays out of
-  its lanes ([`design.md`](../../../linalg/design.md#denormals-and-the-floating-point-environment)).
+  its lanes ([`design.md`](../../linalg/design.md#denormals-and-the-floating-point-environment)).
 - **Triangular solves.** `trsv`, `tbsv`, `tpsv` and `trsm` divide by the diagonal, complex by
   Smith's algorithm (`util.cdiv`), as Reference-LAPACK master does; OpenBLAS multiplies by a
   reciprocal, infinite for a denormal diagonal element. Level 2 and level 3 give the same
@@ -195,7 +195,7 @@ back to the portable kernels, and the next call selects again; no kernel call ma
 Some slots never take a converted kernel (`vector.routed`), so their assembly is not converted:
 every core runs the portable or `@Vector` kernels there, so what they do beyond rounding does not
 depend on the core ([`comparisons.md`](comparisons.md), X1). Where the `@Vector` kernels go is in
-[`design.md`](../../../linalg/design.md#vector-level-1-and-level-2-kernels).
+[`design.md`](../../linalg/design.md#vector-level-1-and-level-2-kernels).
 
 - **`nrm2`:** `s` and `c` sum the squares in `f64`, where each is exact and none overflows or
   underflows, and round the root once; `d` and `z` take Blue's algorithm, as Reference-LAPACK
@@ -223,7 +223,7 @@ depend on the core ([`comparisons.md`](comparisons.md), X1). Where the `@Vector`
   infinities. The interface returns first, as the reference does, but the triangular and banded
   drivers call the kernel with `-x(j)`, which may be zero; kernels that returned at once made
   `trsv` and `tbsv` propagate NaN otherwise on some cores, and are patched or ported without
-  that return ([`design.md`](../../../linalg/design.md#fixes-to-upstream-sources)).
+  that return ([`design.md`](../../linalg/design.md#fixes-to-upstream-sources)).
 
 ### bfloat16 and half precision
 
@@ -266,7 +266,7 @@ instead ([`threading.md`](threading.md#vendor-backends)). Rstd's checks come fir
 everywhere. Where its results differ from the reference's on special values, those calls run
 rstd's kernels instead, so [one contract](#one-contract-on-every-core) holds there too.
 `RSTD_BLAS_ACCELERATE=0` at init, or `blas.useAccelerate(false)`, turns it off. Which routines
-and quirks are in [`design.md`](../../../linalg/design.md#apple-accelerate).
+and quirks are in [`design.md`](../../linalg/design.md#apple-accelerate).
 
 ## Build options
 
@@ -295,7 +295,7 @@ runs the closest linked core's kernels, or the portable ones.
 `OMP_NUM_THREADS`, `OMP_ADAPTIVE`, `OPENBLAS_THREAD_TIMEOUT`, `GOTO_DEBUG` and
 `OPENBLAS_MAIN_FREE`/`GOTOBLAS_MAIN_FREE` are not read: rstd has no OpenMP, thread pool, debug
 prints or NUMA buffers. Values longer than 64
-bytes are ignored. Details are in [`design.md`](../../../linalg/design.md#configuration).
+bytes are ignored. Details are in [`design.md`](../../linalg/design.md#configuration).
 
 ## Tests
 
@@ -318,11 +318,11 @@ Test names follow the file's path (`math.kernels.blas._test.blas1.edge.test...`)
 a file. The qemu rigs' QEMU runs on another machine, `-Dtest-host=<ssh alias>` (`macmini-m6` by
 default when rstd is the root project; `-Dtest-host-off` runs it here). `-Dfail-fast` ends a rig
 at its first failing test. Rig logs are in `.zig-cache/qemu-test-<machine>.log`. What each rig
-covers, and how the tests are built, is in [`design.md`](../../../linalg/design.md#verification).
+covers, and how the tests are built, is in [`design.md`](../../linalg/design.md#verification).
 
 ## Further reading
 
-- [`design.md`](../../../linalg/design.md): structure, core selection, kernel provenance and the fixes to
+- [`design.md`](../../linalg/design.md): structure, core selection, kernel provenance and the fixes to
   upstream sources, Accelerate, testing.
 - [`threading.md`](threading.md): the threading design, the `io: Io` API and its guardrails.
 - [`comparisons.md`](comparisons.md): the numerical design decisions against BLIS, the reference

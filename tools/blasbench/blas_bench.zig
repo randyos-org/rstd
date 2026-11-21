@@ -20,7 +20,7 @@ const potrf_bench = @import("potrf_bench.zig");
 const inline_bench = @import("inline_bench.zig");
 const rot_reals_bench = @import("rot_reals_bench.zig");
 
-const blas = rstd.linalg.blas;
+const blas = rstd.math.kernels.blas;
 const Vtable = blas.Vtable;
 const os_tag = sysinfo.target.os.tag;
 

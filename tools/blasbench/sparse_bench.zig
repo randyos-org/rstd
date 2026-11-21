@@ -13,7 +13,7 @@ const bb = @import("blas_bench.zig");
 const libs = @import("libs.zig");
 const sg = @import("sparse_gather.zig");
 
-const blas = rstd.linalg.blas;
+const blas = rstd.math.kernels.blas;
 const CompressedColumns = rstd.math.kernels.sparse.CompressedColumns(f64);
 const fail = libs.fail;
 

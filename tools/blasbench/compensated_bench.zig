@@ -10,7 +10,7 @@ const bench = @import("bench.zig");
 const bb = @import("blas_bench.zig");
 const libs = @import("libs.zig");
 
-const blas = rstd.linalg.blas;
+const blas = rstd.math.kernels.blas;
 const Summation = blas.Summation;
 const fail = libs.fail;
 

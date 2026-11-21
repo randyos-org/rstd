@@ -1,4 +1,4 @@
-//! `A x` and `Aᵀ y` on CSC (src/linalg/design.md, "Sparse matrices", Threads),
+//! `A x` and `Aᵀ y` on CSC (src/math/linalg/design.md, "Sparse matrices", Threads),
 //! and `A B` with `B` dense. `A x` scatters one column at a time; threaded,
 //! its columns split into chunks of about equal nonzeros, each chunk's sum
 //! in a partial vector over the rows it reaches, added to `y` in chunk order

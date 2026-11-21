@@ -1,5 +1,5 @@
-//! `rstd.linalg`'s run-time-shape functions (design.md, "Operations over
-//! views"), re-exported flat at `rstd.linalg`. Each operand is a `View` or
+//! `rstd.math.linalg`'s run-time-shape functions (design.md, "Operations over
+//! views"), re-exported flat at `rstd.math.linalg`. Each operand is a `View` or
 //! `ConstView`, a `Mat`, a pointer to a `StaticMat` or a slice (a column),
 //! in any mix; a vector is a view of one column or one row. Shapes at or
 //! below the inline limit take the fixed-size forms' operation order, so a

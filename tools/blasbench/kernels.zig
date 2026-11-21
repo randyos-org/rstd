@@ -9,7 +9,7 @@ const bb = @import("blas_bench.zig");
 const libs = @import("libs.zig");
 const obx86 = @import("obx86.zig");
 
-const blas = rstd.linalg.blas;
+const blas = rstd.math.kernels.blas;
 const Vtable = blas.Vtable;
 
 const clock = bb.clock;

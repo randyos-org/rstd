@@ -1,12 +1,12 @@
-//! `rstd.linalg`'s fixed-size vector math (design.md, "Planned: the public
-//! `rstd.linalg` layer"): free functions over a `Vec(N, T)` or an `[N]T`, `T`
+//! `rstd.math.linalg`'s fixed-size vector math (design.md, "Planned: the public
+//! `rstd.math.linalg` layer"): free functions over a `Vec(N, T)` or an `[N]T`, `T`
 //! a float or, for arrays, its `std.math.Complex` (interleaved), inferring `N`
 //! and `T`. All inline; shaderlib re-exports them under GLSL names.
 
 const std = @import("std");
 const sysinfo = @import("builtin");
-const fma = @import("../math/kernels/blas/fma.zig");
-const types = @import("../math/kernels/blas/types.zig");
+const fma = @import("../kernels/blas/fma.zig");
+const types = @import("../kernels/blas/types.zig");
 
 /// SPIR-V (rgl's shaders) has no f64, which `length`'s `hypot` fallback
 /// needs; shader inputs never near its extremes, so `length` skips it there.
@@ -429,7 +429,7 @@ inline fn extreme(comptime largest: bool, v: anytype) Elem(@TypeOf(v)) {
     return best;
 }
 
-const zigstd = @import("../zigstd.zig");
+const zigstd = @import("../../zigstd.zig");
 
 test "dot sanity" {
     const ret = dot(V3f32{ 1, 2, 3 }, V3f32{ 4, 5, 6 });
@@ -538,7 +538,7 @@ const Before = struct {
     }
 };
 
-const expectSameBits = @import("../math/kernels/blas/_test/bitwise.zig").expectSameBits;
+const expectSameBits = @import("../kernels/blas/_test/bitwise.zig").expectSameBits;
 
 fn expectAsBefore(comptime T: type, comptime n: comptime_int, random: std.Random) !void {
     const scales = [_]f64{ 1, 1e-3, 1e3, 1e30, 1e-30, 1e200, 1e-200 };

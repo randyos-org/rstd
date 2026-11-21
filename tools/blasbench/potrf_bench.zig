@@ -10,8 +10,8 @@ const bench = @import("bench.zig");
 const bb = @import("blas_bench.zig");
 const libs = @import("libs.zig");
 
-const blas = rstd.linalg.blas;
-const lapack = rstd.linalg.lapack;
+const blas = rstd.math.kernels.blas;
+const lapack = rstd.math.kernels.lapack;
 const fail = libs.fail;
 
 const timing: bench.Timing = .{ .min_ns = 20 * std.time.ns_per_ms, .batches = 9 };

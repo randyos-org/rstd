@@ -25,7 +25,7 @@ For what each tier promises, how each platform is tested, and the untested cores
 ## Documentation
 
 - [`design.md`](design.md): statistics, sorting and sets, the FFT, signal processing, N-d arrays and sparse matrices.
-- [`src/linalg/design.md`](src/linalg/design.md): linear algebra's design and decisions; [`src/math/kernels/blas/readme.md`](src/math/kernels/blas/readme.md), the BLAS's contract.
+- [`src/math/linalg/design.md`](src/math/linalg/design.md): linear algebra's design and decisions; [`src/math/kernels/blas/readme.md`](src/math/kernels/blas/readme.md), the BLAS's contract.
 - [`support.md`](support.md): platforms and BLAS cores by tier.
 
 ## Issues

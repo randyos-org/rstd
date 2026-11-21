@@ -10,8 +10,8 @@ const bb = @import("blas_bench.zig");
 const kernels = @import("kernels.zig");
 const ext = @import("ext.zig");
 
-const blas = rstd.linalg.blas;
-const lapack = rstd.linalg.lapack;
+const blas = rstd.math.kernels.blas;
+const lapack = rstd.math.kernels.lapack;
 const Dll = rstd.dll.Dll;
 const os_tag = sysinfo.target.os.tag;
 

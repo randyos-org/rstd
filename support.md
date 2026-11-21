@@ -4,14 +4,14 @@ Which platforms rstd supports, and how far, in the style of Zig's support table
 (<https://ziglang.org/download/0.14.0/release-notes.html#Support-Table>). The tiers follow rstd's
 consumers, RandyOS and zfls (user, 2026-10-30). Each tier includes the guarantees of the tiers
 after it. Rig names are `zig build` steps: `qemu-test-<rig>` unless named in full
-([`design.md`](src/linalg/design.md#rigs) has the rigs and their machines).
+([`design.md`](src/math/linalg/design.md#rigs) has the rigs and their machines).
 
 ## Tiers
 
 - **Tier 1: required first.** Everything implemented works and is tested. Bugs block the MVP and every release, and go in the current milestone (the open `dev` to `main` pull request's list of issues). Every kernel object the platform links runs the per-core tests, or is listed below as untested with its item.
 - **Tier 2: required, after tier 1.** RandyOS's and zfls's other platforms. Bugs are required fixes, also for the MVP, and go in the current milestone too. Tested on a rig or machine where one exists; untested cores and paths are listed with their items.
 - **Tier 3: best effort.** Every other platform with a rig. The rigs run in each sweep for the record, and CI keeps the tier 3 and 4 legs, the tier 3 rigs among them, but skips them for now: work is on tiers 1 and 2 only (user, 2026-11-20), and a run started by hand runs them on request (`.github/workflows/ci.yml`); failures go to issues labeled `backlog`, as do tier 4's, tuning, optional and Blocked work. Choices no rig can check follow OpenBLAS and BLIS where they agree
-  ([`design.md`](src/linalg/design.md#settled-decisions), "Target platforms come first").
+  ([`design.md`](src/math/linalg/design.md#settled-decisions), "Target platforms come first").
 - **Tier 4: unsupported or blocked.** No rig, blocked upstream, or not worth its upkeep. Every
   target compiles with the portable kernels at least; nothing more is promised. Each entry cites
   its item.
@@ -56,7 +56,7 @@ after it. Rig names are `zig build` steps: `qemu-test-<rig>` unless named in ful
 
 Notes:
 
-- **SPIR-V** (`rstd.linalg` under SPIR-V, rgl's shaders, shaderlib) waited for the CPU BLAS
+- **SPIR-V** (`rstd.math.linalg` under SPIR-V, rgl's shaders, shaderlib) waited for the CPU BLAS
   MVP; S1 and S2 ([#51](https://github.com/randyos-org/rstd/issues/51)) made shaderlib the shaders' one API over `linalg`, and [#353](https://github.com/randyos-org/rstd/issues/353) validates and runs them. The bit guarantees (same bits
   for any thread count, one contract on every core, the first-NaN rule) are the CPU's only;
   under SPIR-V, Vulkan's precision rules apply (design.md, Settled decisions).

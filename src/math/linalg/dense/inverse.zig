@@ -4,15 +4,15 @@ const sysinfo = @import("builtin");
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
-const blas = @import("../../math/kernels/blas/__root__.zig");
-const ext = @import("../../math/kernels/blas/ext/interface.zig");
-const l3 = @import("../../math/kernels/blas/blas3/core.zig");
-const l2 = @import("../../math/kernels/blas/blas2/core.zig");
-const l1 = @import("../../math/kernels/blas/blas1/interface.zig");
-const lapack = @import("../../math/kernels/lapack/__root__.zig");
+const blas = @import("../../kernels/blas/__root__.zig");
+const ext = @import("../../kernels/blas/ext/interface.zig");
+const l3 = @import("../../kernels/blas/blas3/core.zig");
+const l2 = @import("../../kernels/blas/blas2/core.zig");
+const l1 = @import("../../kernels/blas/blas1/interface.zig");
+const lapack = @import("../../kernels/lapack/__root__.zig");
 const vector = @import("../vector.zig");
 const matrix = @import("../matrix.zig");
-const ops = @import("../../math/kernels/lapack/ops.zig");
+const ops = @import("../../kernels/lapack/ops.zig");
 
 const View = matrix.View;
 const ConstView = matrix.ConstView;
@@ -47,10 +47,10 @@ pub fn det(allocator: Allocator, io: Io, a: anytype) DetError!ElementOf(@TypeOf(
     const ca = constOf(a);
     if (ca.rows != ca.cols) return error.NotSquare;
     const n = ca.rows;
-    return detWith(pathOf(&.{n}), allocator, io, ca);
+    return detOn(pathOf(&.{n}), allocator, io, ca);
 }
 
-pub fn detWith(path: Path, allocator: Allocator, io: Io, ca: anytype) (Allocator.Error || Io.Cancelable)!@TypeOf(ca).Element {
+pub fn detOn(path: Path, allocator: Allocator, io: Io, ca: anytype) (Allocator.Error || Io.Cancelable)!@TypeOf(ca).Element {
     const T = @TypeOf(ca).Element;
     const n = ca.rows;
     if (n == 0) return ops.one(T);
@@ -87,7 +87,7 @@ pub fn inv(allocator: Allocator, io: Io, a: anytype) InvError!Mat(ElementOf(@Typ
     if (ca.rows != ca.cols) return error.NotSquare;
     const r = try Mat(ElementOf(@TypeOf(a))).init(allocator, ca.rows, ca.cols);
     errdefer r.deinit(allocator);
-    try invWith(pathOf(&.{ca.rows}), allocator, io, r.view(), ca);
+    try invOn(pathOf(&.{ca.rows}), allocator, io, r.view(), ca);
     return r;
 }
 
@@ -97,10 +97,10 @@ pub fn invInto(allocator: Allocator, io: Io, out: anytype, a: anytype) (InvError
     const ca = constOf(a);
     if (ca.rows != ca.cols) return error.NotSquare;
     if (o.rows != ca.rows or o.cols != ca.cols) return error.DimensionMismatch;
-    return invWith(pathOf(&.{ca.rows}), allocator, io, o, ca);
+    return invOn(pathOf(&.{ca.rows}), allocator, io, o, ca);
 }
 
-pub fn invWith(path: Path, allocator: Allocator, io: Io, o: anytype, a: ConstView(@TypeOf(o).Element)) (error{Singular} || Allocator.Error || Io.Cancelable)!void {
+pub fn invOn(path: Path, allocator: Allocator, io: Io, o: anytype, a: ConstView(@TypeOf(o).Element)) (error{Singular} || Allocator.Error || Io.Cancelable)!void {
     const T = @TypeOf(o).Element;
     const n = a.rows;
     if (n == 0) return;
@@ -126,7 +126,7 @@ pub fn solve(allocator: Allocator, io: Io, a: anytype, b: anytype) SolveError!Ma
     if (cb.rows != ca.rows) return error.DimensionMismatch;
     const r = try Mat(ElementOf(@TypeOf(a))).init(allocator, ca.cols, cb.cols);
     errdefer r.deinit(allocator);
-    try solveWith(pathOf(&.{ ca.rows, cb.cols }), allocator, io, r.view(), ca, cb);
+    try solveOn(pathOf(&.{ ca.rows, cb.cols }), allocator, io, r.view(), ca, cb);
     return r;
 }
 
@@ -136,7 +136,7 @@ pub fn solveInto(allocator: Allocator, io: Io, out: anytype, a: anytype, b: anyt
     const ca = constOf(a);
     const cb = constOf(b);
     if (cb.rows != ca.rows or o.rows != ca.cols or o.cols != cb.cols) return error.DimensionMismatch;
-    return solveWith(pathOf(&.{ ca.rows, cb.cols }), allocator, io, o, ca, cb);
+    return solveOn(pathOf(&.{ ca.rows, cb.cols }), allocator, io, o, ca, cb);
 }
 
 pub const Structure = enum { upper, lower, hermitian, general };
@@ -164,7 +164,7 @@ pub fn structureOf(a: anytype) Structure {
     return if (isHermitian(a)) .hermitian else .general;
 }
 
-pub fn solveWith(path: Path, allocator: Allocator, io: Io, o: anytype, a: ConstView(@TypeOf(o).Element), b: ConstView(@TypeOf(o).Element)) SolveError!void {
+pub fn solveOn(path: Path, allocator: Allocator, io: Io, o: anytype, a: ConstView(@TypeOf(o).Element), b: ConstView(@TypeOf(o).Element)) SolveError!void {
     const T = @TypeOf(o).Element;
     const n = a.cols;
     if (a.rows != n) return leastSquares(allocator, io, o, a, b);
