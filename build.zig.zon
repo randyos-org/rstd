@@ -44,23 +44,23 @@
             .lazy = true,
         },
         .debian_netboot_amd64 = .{
-            .url = "https://deb.debian.org/debian/dists/trixie/main/installer-amd64/20250803+deb13u7/images/netboot/netboot.tar.gz",
-            .hash = "N-V-__8AAHk0iAORDawnDVweOxTXYqxa6CP4pg0bt3O96Yr0",
+            .url = "https://deb.debian.org/debian/dists/trixie/main/installer-amd64/20250803+deb13u8/images/netboot/netboot.tar.gz",
+            .hash = "N-V-__8AAAJOiQPrNqumKoJYrZ3ynfjgp-smKyFA7fdJ42mx",
             .lazy = true,
         },
         .debian_netboot_armhf = .{
-            .url = "https://deb.debian.org/debian/dists/trixie/main/installer-armhf/20250803+deb13u7/images/netboot/netboot.tar.gz",
-            .hash = "N-V-__8AAKhLRQRIQiqWgh8o9GAvkzj2dO5berJQbiljpYIa",
+            .url = "https://deb.debian.org/debian/dists/trixie/main/installer-armhf/20250803+deb13u8/images/netboot/netboot.tar.gz",
+            .hash = "N-V-__8AAEwFRgS9OPO3qOkUiOX_EXjEZ3JHt_790KjGQWtE",
             .lazy = true,
         },
         .debian_netboot_riscv64 = .{
-            .url = "https://deb.debian.org/debian/dists/trixie/main/installer-riscv64/20250803+deb13u7/images/netboot/netboot.tar.gz",
-            .hash = "N-V-__8AACySyARjh_Xnw5gzJNOwYW1TWg6kK7H_ZPsDyNmb",
+            .url = "https://deb.debian.org/debian/dists/trixie/main/installer-riscv64/20250803+deb13u8/images/netboot/netboot.tar.gz",
+            .hash = "N-V-__8AAIeGngRAm01Fr0NE81p-hafjddQRjDvQmO7r3jbL",
             .lazy = true,
         },
         .debian_netboot_ppc64el = .{
-            .url = "https://deb.debian.org/debian/dists/trixie/main/installer-ppc64el/20250803+deb13u7/images/netboot/netboot.tar.gz",
-            .hash = "N-V-__8AAJ40ZgQ-s_-r8DXsEHoApUx9VY_olOhfIADCHR63",
+            .url = "https://deb.debian.org/debian/dists/trixie/main/installer-ppc64el/20250803+deb13u8/images/netboot/netboot.tar.gz",
+            .hash = "N-V-__8AABagZgQZBgZqEbp9_n5T4h0t-t5Pu4GgVnsyYPiQ",
             .lazy = true,
         },
         // Debian 12's: 13 has no i386 installer
