@@ -28,7 +28,7 @@ How the code is structured, and why, is in [`design.md`](../../linalg/design.md)
 
 - **Level 1:** `copy`, `swap`, `scal`, `dot`, `dotc`, `dsdot`, `sdsdot`, `nrm2`, `asum`, `sum`,
   the index and value extremes (`i?amax`, `i?amin`, `i?max`, `i?min`, `?amax`, `?amin`, `?max`,
-  `?min`), `rot`, `rotm`, `rotg`, `zrotg`, `rotmg`, `axpy`, `axpyc`, `axpby`, `cabs1`. `sumWith`, `asumWith`, `dotWith` and `dotcWith` take a `Summation`, each giving one worker's bits at any worker count: `.plain`, the default, as the kernels sum; `.compensated` (Neumaier's, portable; `blas1/compensated.zig`); or `.fast`, `f32` and `Complex(f32)` in `f32` lanes for speed (portable; `blas1/fast.zig`). What each promises: [`comparisons.md`](comparisons.md#1-reductions-sdot-dsdot-summation-order).
+  `?min`), `rot`, `rotm`, `rotg`, `zrotg`, `rotmg`, `axpy`, `axpyc`, `axpby`, `cabs1`. `sumWith`, `asumWith`, `dotWith` and `dotcWith` take a `Summation`, each giving one worker's bits at any worker count: `.plain`, the default, `f32` in `f64` on every core; `.compensated` (Neumaier's, portable; `blas1/compensated.zig`); or `.fast`, `f32` and `Complex(f32)` in `f32` lanes for speed: `asum`, `sum` and complex `dot` on the core's own kernels, OpenBLAS's where it has one ([#584](https://github.com/randyos-org/rstd/issues/584)), real `dot` portable (`blas1/fast.zig`). What each promises: [`comparisons.md`](comparisons.md#1-reductions-sdot-dsdot-summation-order).
 - **Level 2:** `gemv`, `ger`, `gerc`, `symv`, `hemv`, `trmv`, `trsv`, `tbmv`, `tbsv`, `tpmv`,
   `tpsv`, `gbmv`, `sbmv`, `hbmv`, `spmv`, `hpmv`, `spr`, `spr2`, `syr`, `syr2`, `hpr`, `hpr2`,
   `her`, `her2`, including OpenBLAS's complex symmetric forms and `hemv`'s and `hbmv`'s
@@ -213,6 +213,10 @@ depend on the core ([`comparisons.md`](comparisons.md), X1). Where the `@Vector`
   Upstream's sum in `f32` on most cores and in the x87's `f80` on x86, so the error of the same
   `sdot` differed by core by far more than its last bits; its x86_64 `dsdot` sums 32 products at
   a time in `f32`.
+- **`.plain` single-precision `asum`, `sum` and complex `dot`:** summed in `f64` and rounded once
+  on every core, by the `@Vector` kernels or the portable ones in rstd's `*_wide_k` slots
+  ([#584](https://github.com/randyos-org/rstd/issues/584)). The cores' own `f32`-lane kernels,
+  OpenBLAS's where converted, stay in the standard slots for `Summation.fast`.
 - **No address dependence.** x86_64's reductions whose converted kernels peel elements until an
   operand is aligned (`vector.peels`: `asum_sse.S`, `asum_sse2.S`, `asum_atom.S`, `zasum_*.S`,
   `zsum_sse*.S`, `dot_sse2.S`, `dot_atom.S`, `ddot_bulldozer.S`, `zdot_*.S` and `dgemv_n*.S`)

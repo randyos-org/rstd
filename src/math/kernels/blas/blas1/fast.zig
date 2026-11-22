@@ -1,6 +1,7 @@
-//! `Summation.fast`: `sum`, `asum` and `dot` of `f32` and `Complex(f32)`
-//! added in `f32` lanes, as OpenBLAS's kernels add them: speed over accuracy.
-//! Portable `@Vector` code for the build's target, the same on every core.
+//! `Summation.fast`'s portable part: the real `dot` of `f32` added in `f32`
+//! lanes, and the lane sums `kernels.stats` builds on. `asum`, `sum` and
+//! complex `dot` take the core's own kernels instead (issue #584). Portable
+//! `@Vector` code for the build's target, the same on every core.
 //! Chunked as the plain sums are, the chunks' sums folded in chunk order in
 //! `f64`, so the bits depend on neither the worker count nor the order (T198).
 
@@ -14,7 +15,6 @@ const core = @import("interface.zig");
 const Io = std.Io;
 const Float = types.Float;
 const isComplex = types.isComplex;
-const abs = util.abs;
 const mulAdd = shared.mulAdd;
 
 /// Whether `.fast` adds `T` in its own lanes: `f32` and its `Complex`, where
@@ -31,8 +31,6 @@ const N = @Vector(L, F);
 /// Floats a step in each of two sums: four native vectors.
 pub const W = 4 * L;
 const V = @Vector(W, F);
-/// The complex dot's four sums take half as many, to fit the registers.
-const H = @Vector(W / 2, F);
 /// Four strided floats.
 const G = @Vector(4, F);
 
@@ -60,26 +58,6 @@ fn halved(comptime n: comptime_int, v: anytype) @Vector(n, F) {
     const lo = @shuffle(F, v, undefined, std.simd.iota(i32, h));
     const hi = @shuffle(F, v, undefined, std.simd.iota(i32, h) + @as(@Vector(h, i32), @splat(h)));
     return halved(n, lo + hi);
-}
-
-/// `|v|` for `asum`, else `v`.
-inline fn term(comptime absolute: bool, v: anytype) @TypeOf(v) {
-    return if (absolute) abs(v) else v;
-}
-
-/// The term map of `sum` and `asum`: one sum of `term(absolute, x)`.
-fn Terms(comptime absolute: bool) type {
-    return struct {
-        pub const k = 1;
-
-        pub inline fn add(_: @This(), comptime Vt: type, acc: *[k]Vt, v: Vt) void {
-            acc[0] += term(absolute, v);
-        }
-
-        pub inline fn addOne(_: @This(), s: anytype, lane: usize, v: F) void {
-            s[0][lane] += term(absolute, v);
-        }
-    };
 }
 
 /// `map`'s `k` sums of `len` floats at `x`, `x` at an even float, so a lane's
@@ -125,16 +103,6 @@ pub fn stridedSums(comptime keep: comptime_int, comptime w: comptime_int, map: a
     return s;
 }
 
-/// The sum of `len` floats (`|x|` for `absolute`), `laneSums`' order.
-fn floats(comptime absolute: bool, len: usize, x: [*]const F) F {
-    return laneSums(1, Terms(absolute){}, len, x)[0][0];
-}
-
-/// `floats` of `n` strided elements, `stridedSums`' order.
-fn stridedFloats(comptime absolute: bool, comptime w: comptime_int, n: usize, x: [*]const F, inc: isize) F {
-    return stridedSums(1, w, Terms(absolute){}, n, x, inc)[0][0];
-}
-
 /// The real dot of `len` floats, in `floats`' order, each product fused
 /// where an instruction does it.
 fn dotFloats(len: usize, x: [*]const F, y: [*]const F) F {
@@ -163,158 +131,46 @@ fn dotStrided(n: usize, x: [*]const F, incx: isize, y: [*]const F, incy: isize) 
     return s;
 }
 
-/// A complex dot's four sums: `xr yr`, `xi yi`, `xr yi`, `xi yr`.
-const Parts = [4]F;
+/// The vectors from element 0 at their strides.
+const Ctx = struct {
+    x: [*]const F,
+    incx: isize,
+    y: [*]const F,
+    incy: isize,
 
-/// `(re, im)` pairs as `(im, re)`.
-inline fn swapped(comptime T: type, v: T) T {
-    const n = @typeInfo(T).vector.len;
-    const mask = comptime blk: {
-        var m: [n]i32 = undefined;
-        for (&m, 0..) |*e, k| e.* = @intCast(k ^ 1);
-        break :blk m;
-    };
-    return @shuffle(F, v, undefined, mask);
-}
-
-/// `Parts` from `x*y` sums `a` and `x*swapped(y)` sums `b`: each halved to
-/// its even and odd lanes.
-fn parts(a: anytype, b: @TypeOf(a)) Parts {
-    const p = halved(2, a);
-    const q = halved(2, b);
-    return .{ p[0], p[1], q[0], q[1] };
-}
-
-inline fn one(p: *Parts, xr: F, xi: F, yr: F, yi: F) void {
-    p[0] = mulAdd(F, xr, yr, p[0]);
-    p[1] = mulAdd(F, xi, yi, p[1]);
-    p[2] = mulAdd(F, xr, yi, p[2]);
-    p[3] = mulAdd(F, xi, yr, p[3]);
-}
-
-/// `Parts` of `n` complex elements at unit strides: `x*y` and `x*swapped(y)`
-/// in two pairs of sums of `W / 2` floats, a last `W / 2` into the first,
-/// then `parts`, and the elements left in order.
-fn cdotFloats(n: usize, x: [*]const F, y: [*]const F) Parts {
-    const len = 2 * n;
-    const l = W / 2;
-    var a: [2]H = @splat(@splat(0));
-    var b: [2]H = @splat(@splat(0));
-    var i: usize = 0;
-    while (i + 2 * l <= len) : (i += 2 * l) {
-        inline for (0..2) |q| {
-            const xv = load(H, x + i + q * l);
-            const yv = load(H, y + i + q * l);
-            a[q] = mulAdd(H, xv, yv, a[q]);
-            b[q] = mulAdd(H, xv, swapped(H, yv), b[q]);
-        }
+    fn from(p: [*]const F, i: usize, inc: isize) [*]const F {
+        return @ptrCast(util.at(F, @constCast(p), @as(i64, @intCast(i)) * inc));
     }
-    if (i + l <= len) {
-        const xv = load(H, x + i);
-        const yv = load(H, y + i);
-        a[0] = mulAdd(H, xv, yv, a[0]);
-        b[0] = mulAdd(H, xv, swapped(H, yv), b[0]);
-        i += l;
-    }
-    var p = parts(a[0] + a[1], b[0] + b[1]);
-    while (i < len) : (i += 2) one(&p, x[i], x[i + 1], y[i], y[i + 1]);
-    return p;
-}
 
-fn cdotStrided(n: usize, x: [*]const F, incx: isize, y: [*]const F, incy: isize) Parts {
-    var a: G = @splat(0);
-    var b: G = @splat(0);
-    var i: usize = 0;
-    while (i + 2 <= n) : (i += 2) {
-        const xv = gather(2, x, incx, i);
-        const yv = gather(2, y, incy, i);
-        a = mulAdd(G, xv, yv, a);
-        b = mulAdd(G, xv, swapped(G, yv), b);
-    }
-    var p = parts(a, b);
-    if (i < n) one(&p, flt(2, x, incx, i, 0), flt(2, x, incx, i, 1), flt(2, y, incy, i, 0), flt(2, y, incy, i, 1));
-    return p;
-}
-
-/// A chunk's result, widened for the fold; `im` unused for real `T`.
-const Part = struct {
-    re: f64 = 0,
-    im: f64 = 0,
-
-    // rounded to `f64`, so the bits do not hang on an x87 register
-    fn merge(a: Part, b: Part) Part {
-        return .{ .re = util.rounded(f64, a.re + b.re), .im = util.rounded(f64, a.im + b.im) };
+    /// A chunk's dot, widened for the fold.
+    fn part(c: Ctx, ch: threading.Chunk) f64 {
+        const n = ch.end - ch.start;
+        const x = from(c.x, ch.start, c.incx);
+        const y = from(c.y, ch.start, c.incy);
+        return if (c.incx == 1 and c.incy == 1) dotFloats(n, x, y) else dotStrided(n, x, c.incx, y, c.incy);
     }
 };
 
-const Op = enum { sum, asum, dot, dotc };
-
-/// The vectors from element 0 at their strides, and the op.
-fn Ctx(comptime T: type, comptime op: Op) type {
-    return struct {
-        x: [*]const T,
-        incx: isize,
-        y: [*]const T,
-        incy: isize,
-
-        const w = if (isComplex(T)) 2 else 1;
-
-        fn from(p: [*]const T, i: usize, inc: isize) [*]const F {
-            return @ptrCast(util.at(T, @constCast(p), @as(i64, @intCast(i)) * inc));
-        }
-
-        fn part(c: @This(), ch: threading.Chunk) Part {
-            const n = ch.end - ch.start;
-            const x = from(c.x, ch.start, c.incx);
-            switch (op) {
-                .sum, .asum => {
-                    const a = op == .asum;
-                    return .{ .re = if (c.incx == 1) floats(a, w * n, x) else stridedFloats(a, w, n, x, c.incx) };
-                },
-                .dot, .dotc => {
-                    const y = from(c.y, ch.start, c.incy);
-                    const unit = c.incx == 1 and c.incy == 1;
-                    if (comptime !isComplex(T)) return .{ .re = if (unit) dotFloats(n, x, y) else dotStrided(n, x, c.incx, y, c.incy) };
-                    const p = if (unit) cdotFloats(n, x, y) else cdotStrided(n, x, c.incx, y, c.incy);
-                    if (op == .dotc) return .{ .re = p[0] + p[1], .im = p[2] - p[3] };
-                    return .{ .re = p[0] - p[1], .im = p[2] + p[3] };
-                },
-            }
-        }
-    };
+// rounded to `f64`, so the bits do not hang on an x87 register
+fn merge(a: f64, b: f64) f64 {
+    return util.rounded(f64, a + b);
 }
 
-fn reduce(io: Io, comptime T: type, comptime op: Op, comptime family: threading.Family, n: usize, ctx: Ctx(T, op)) Io.Cancelable!Part {
-    comptime std.debug.assert(serves(T));
-    const C = Ctx(T, op);
-    if (threading.serial(family, T, n)) return C.part(ctx, .{ .index = 0, .start = 0, .end = n });
-    const p = threading.plan(family, T, n, n, .even, core.quantum);
-    return threading.reduce(io, &p, Part, ctx, C.part, Part.merge);
-}
-
-/// `sum` in `f32` lanes: the sum of `x`, of `re + im` for complex.
-pub fn sum(io: Io, comptime T: type, n: usize, x: [*]const T, incx: isize) Io.Cancelable!Float(T) {
+/// The real `dot` of `f32` in `f32` lanes. Complex `.fast` and `asum`
+/// and `sum` take the core's own kernels (`interface.zig`, issue #584).
+pub fn dot(io: Io, n: usize, x: [*]const F, incx: isize, y: [*]const F, incy: isize) Io.Cancelable!F {
+    comptime std.debug.assert(serves(F));
     if (n == 0) return 0;
-    const r = try reduce(io, T, .sum, .asum, n, .{ .x = x, .incx = incx, .y = x, .incy = incx });
-    return @floatCast(r.re);
-}
-
-/// `asum` in `f32` lanes: the sum of `|x|`, of `|re| + |im|` for complex.
-pub fn asum(io: Io, comptime T: type, n: usize, x: [*]const T, incx: isize) Io.Cancelable!Float(T) {
-    if (n == 0) return 0;
-    const r = try reduce(io, T, .asum, .asum, n, .{ .x = x, .incx = incx, .y = x, .incy = incx });
-    return @floatCast(r.re);
-}
-
-/// `dot` (`conj` for `dotc`) in `f32` lanes.
-pub fn dot(io: Io, comptime T: type, comptime conj: bool, n: usize, x: [*]const T, incx: isize, y: [*]const T, incy: isize) Io.Cancelable!T {
-    if (n == 0) return if (comptime isComplex(T)) .init(0, 0) else 0;
-    const r = try reduce(io, T, if (conj) .dotc else .dot, .dot, n, .{ .x = x, .incx = incx, .y = y, .incy = incy });
-    if (comptime isComplex(T)) return .init(@floatCast(r.re), @floatCast(r.im));
-    return @floatCast(r.re);
+    const ctx: Ctx = .{ .x = x, .incx = incx, .y = y, .incy = incy };
+    if (threading.serial(.dot, F, n)) return @floatCast(ctx.part(.{ .index = 0, .start = 0, .end = n }));
+    const p = threading.plan(.dot, F, n, n, .even, core.quantum);
+    return @floatCast(try threading.reduce(io, &p, f64, ctx, Ctx.part, merge));
 }
 
 // ---- tests ----
+
+/// The ops the tests take through the API's `.fast`.
+const Op = enum { sum, asum, dot, dotc };
 
 const testing = std.testing;
 const api = @import("api.zig");

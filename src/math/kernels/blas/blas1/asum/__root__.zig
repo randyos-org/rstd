@@ -43,6 +43,8 @@ pub fn Portable(comptime T: type) type {
     const w = if (types.isComplex(T)) 2 else 1;
     return struct {
         pub const asum_k = &Asum(F, w).k;
+        // already `f64` for `f32`, as `.plain` wants (issue #584)
+        pub const asum_wide_k = asum_k;
     };
 }
 
@@ -52,6 +54,8 @@ pub fn installGeneric(vt: *Vtable) void {
     vt.dasum_k = dasum_generic;
     vt.qasum_k = qasum_generic;
     vt.casum_k = casum_generic;
+    vt.sasum_wide_k = sasum_generic;
+    vt.casum_wide_k = casum_generic;
     vt.zasum_k = zasum_generic;
     vt.xasum_k = xasum_generic;
 }
@@ -85,12 +89,25 @@ fn checkAsum(comptime T: type, kern: anytype) !void {
     }
 }
 
+/// 4096 thirds sum exactly in `f64`, so a wide slot that rounds once gives
+/// their sum rounded once; `f32` lanes round at every add.
+fn roundsOnce(vt: *const Vtable) !void {
+    var x: [4096]f32 = @splat(1.0 / 3.0);
+    const want: f32 = @floatCast(@as(f64, x.len) * x[0]);
+    try zigstd.testExpectEqual(want, vt.sasum_wide_k.?(x.len, &x, 1));
+    try zigstd.testExpectEqual(want, vt.casum_wide_k.?(x.len / 2, &x, 1));
+}
+
 fn checkAll(vt: *const Vtable) !void {
     var failed: ?anyerror = null;
     check.keep(&failed, checkAsum(f32, vt.sasum_k.?));
     check.keep(&failed, checkAsum(f64, vt.dasum_k.?));
     check.keep(&failed, checkAsum(std.math.Complex(f32), vt.casum_k.?));
     check.keep(&failed, checkAsum(std.math.Complex(f64), vt.zasum_k.?));
+    // `.plain`'s own slots: as close, and rounded once (issue #584)
+    check.keep(&failed, checkAsum(f32, vt.sasum_wide_k.?));
+    check.keep(&failed, checkAsum(std.math.Complex(f32), vt.casum_wide_k.?));
+    check.keep(&failed, roundsOnce(vt));
     if (failed) |e| return e;
 }
 

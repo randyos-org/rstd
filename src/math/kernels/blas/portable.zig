@@ -52,10 +52,10 @@ fn Module(comptime op: Op) type {
         .copy_k => blas1.copy,
         .swap_k => blas1.swap,
         .scal_k => blas1.scal,
-        .dot_k, .dotu_k, .dotc_k => blas1.dot,
+        .dot_k, .dotu_k, .dotc_k, .dotu_wide_k, .dotc_wide_k => blas1.dot,
         .nrm2_k => blas1.nrm2,
-        .asum_k => blas1.asum,
-        .sum_k => blas1.sum,
+        .asum_k, .asum_wide_k => blas1.asum,
+        .sum_k, .sum_wide_k => blas1.sum,
         .amax_k, .amin_k, .max_k, .min_k, .iamax_k, .iamin_k, .imax_k, .imin_k => extremum,
         .rot_k => blas1.rot,
         .rotm_k => blas1.rotm,
@@ -77,6 +77,10 @@ pub const letter = slots.letter;
 /// run the portable kernel there: `axpby`, `geadd`, `omatcopy` and
 /// `imatcopy` exist for `s`, `d`, `c`, `z` only.
 const no_extended_slot: std.EnumSet(Op) = .initMany(&.{ .axpby_k, .geadd_k, .omatcopy_k_cn, .omatcopy_k_ct, .omatcopy_k_cnc, .omatcopy_k_ctc, .imatcopy_k_cn, .imatcopy_k_ct, .imatcopy_k_cnc, .imatcopy_k_ctc });
+
+/// rstd's ops with slots for `s` and `c` only (issue #584), which run the
+/// portable kernel at other precisions.
+const single_only: std.EnumSet(Op) = .initMany(&.{ .asum_wide_k, .sum_wide_k, .dotu_wide_k, .dotc_wide_k });
 
 /// gemv's op for `t` (`gemv_n` to `gemv_d`).
 pub fn gemvOp(t: types.Trans) Op {
@@ -112,6 +116,7 @@ pub fn slot(comptime T: type, comptime op: Op) ?[]const u8 {
         const prec = Prec.from(l);
         const name = slotName(prec, op);
         if (@hasField(Vtable, name)) break :blk name;
+        if (prec.real() != .s and single_only.contains(op)) break :blk null;
         if (prec.real() == .q and no_extended_slot.contains(op)) break :blk null;
         @compileError("no vtable slot " ++ name ++ " for " ++ @typeName(T));
     };

@@ -372,10 +372,11 @@ fn everyRoutine(comptime T: type, on_: bool) !void {
     try l1.scal(io, T, n, al1, &x, 1);
     try p.saw(true, "scal");
     _ = try l1.dot(io, T, n, &x, 1, &y, 1);
-    try p.saw(T != f32 or (x86_64 and !accel.rosetta()), "dot");
+    // `.plain`'s complex `f32` sums in rstd's `f64` slot (issue #584)
+    try p.saw(T != Complex32 and (T != f32 or (x86_64 and !accel.rosetta())), "dot");
     if (cx) {
         _ = try l1.dotc(io, T, n, &x, 1, &y, 1);
-        try p.saw(true, "dotc");
+        try p.saw(T != Complex32, "dotc");
         try l1.axpyc(io, T, n, al1, &x, 1, &y, 1);
         try p.saw(false, "axpyc");
         // `alpha` has a zero imaginary part, a quirk on arm64 only
@@ -397,7 +398,7 @@ fn everyRoutine(comptime T: type, on_: bool) !void {
     _ = try l1.nrm2(io, T, n, &x, -1);
     try p.saw(false, "nrm2, a negative stride");
     _ = try l1.asum(io, T, n, &x, 1);
-    try p.saw(true, "asum");
+    try p.saw(Float(T) != f32, "asum");
     _ = try l1.sum(io, T, n, &x, 1);
     try p.saw(false, "sum");
     _ = try l1.index(io, T, .largest_magnitude, n, &x, 1);
@@ -994,13 +995,17 @@ test "Accelerate's level-1 results match rstd's kernels on special values, strid
 }
 
 /// Whether a level-1 call at stride `inc` stays off Accelerate whatever
-/// `sends` says: `cblas_dsdot` under Rosetta 2, and the strides `nrm2`, `asum`
-/// and `scal` (a quick return) leave out.
+/// `sends` says: `cblas_dsdot` under Rosetta 2, the strides `nrm2`, `asum`
+/// and `scal` (a quick return) leave out, and `.plain`'s single-precision
+/// `asum` and complex `dot`, summed in rstd's `f64` slots (issue #584).
 fn kept1(comptime T: type, r: R1, inc: isize) bool {
     return switch (r) {
-        .dot, .dsdot => T == f32 and accel.rosetta(),
+        .dot => (T == f32 and accel.rosetta()) or T == Complex32,
+        .dsdot => T == f32 and accel.rosetta(),
+        .dotc => T == Complex32,
         .nrm2 => inc <= 0 or (Float(T) == f32 and accel.rosetta()),
-        .asum, .scal => inc <= 0,
+        .asum => inc <= 0 or Float(T) == f32,
+        .scal => inc <= 0,
         .iamax => true,
         else => false,
     };
@@ -1053,7 +1058,8 @@ test "level-1 calls go to Accelerate by routine, letter and stride as `sends` ha
     try expect1(Complex32, .rot, 2, false);
     try expect1(Complex64, .rot, 2, true);
     try expect1(f64, .scal, 2, true);
-    try expect1(f32, .asum, 2, true);
+    // `.plain`'s, in rstd's `f64` slot (issue #584)
+    try expect1(f32, .asum, 2, false);
 }
 
 test "quirk cases run rstd's kernels, and the Hermitian diagonal comes out real" {
