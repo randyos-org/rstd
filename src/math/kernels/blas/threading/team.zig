@@ -6,6 +6,7 @@ const sysinfo = @import("builtin");
 const FpState = @import("../FpState.zig");
 const Qos = @import("Qos.zig");
 const Tasks = @import("tasks.zig").Tasks;
+const TeamIo = @import("TeamIo.zig");
 
 const Io = std.Io;
 
@@ -19,6 +20,37 @@ pub fn team(io: Io, job: anytype, want: u32) Io.Cancelable!void {
         return job.work(io, 0, null);
     }
     const Job = @TypeOf(job.*);
+    // a caller's `Team`: its resident workers, started once, run the job
+    if (TeamIo.of(io)) |t| if (t.begin(want)) |take| {
+        defer t.end();
+        const Run = struct {
+            job: *Job,
+            fp: FpState,
+            mine: Lent,
+            io: Io,
+            active: u32,
+
+            fn worker(p: *anyopaque, wio: Io, i: u32) void {
+                const r: *@This() = @ptrCast(@alignCast(p));
+                if (i >= r.active) return;
+                var lent: Lent = .{ .want = r.fp };
+                lent.take();
+                defer lent.give();
+                r.job.work(wio, i, &lent) catch wio.recancel();
+            }
+
+            fn caller(p: *anyopaque) Io.Cancelable!void {
+                const r: *@This() = @ptrCast(@alignCast(p));
+                return r.job.work(r.io, 0, &r.mine);
+            }
+        };
+        const fp: FpState = .capture();
+        var run: Run = .{ .job = job, .fp = fp, .mine = .{ .want = fp }, .io = io, .active = 1 };
+        // the caller keeps its state where it resumed
+        defer run.mine.take();
+        run.active = job.plan(take);
+        return t.go(run.active, &run, Run.worker, Run.caller);
+    };
     const S = struct {
         fn worker(j: *Job, go: *Signal, i: u32, fp: FpState, qos: Qos, wio: Io) void {
             qos.raise();

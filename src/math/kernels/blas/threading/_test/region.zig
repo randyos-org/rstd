@@ -21,6 +21,7 @@ const reduceIn = region.reduceIn;
 const Evented = threading.Evented;
 const usesFutures = threading.usesFutures;
 const Signal = threading.Signal;
+const Team = threading.Team;
 
 /// Mixed magnitudes, so a sum's bits follow its order.
 fn testData(x: []f64) void {
@@ -287,4 +288,52 @@ test "a signal wakes every sleeper on an Io.Evented with worker threads" {
     try group.await(io);
     if (started < n) return error.SkipZigTest;
     try zigstd.testExpectEqual(@as(u32, n), got);
+}
+
+test "a team's regions give the same bits, reused, with no worker or inside a job" {
+    if (comptime !test_io.threaded_tests) return error.SkipZigTest;
+    const n = 64123;
+    const x = try zigstd.testAllocator.alloc(f64, n);
+    defer zigstd.testAllocator.free(x);
+    const marks = try zigstd.testAllocator.alloc(u8, n);
+    defer zigstd.testAllocator.free(marks);
+    testData(x);
+    const r: Rule = .{ .serial_max = 1000 };
+    const chunks: Chunks = .init(n, r.chunkCount(n), .even, 1);
+    const expected = folded(x, &chunks, false);
+
+    var threaded: test_io.TestIo = .init(zigstd.testAllocator, .{ .async_limit = .limited(8) });
+    defer threaded.deinit();
+    var team: Team = undefined;
+    team.init(threaded.io(), 4);
+    defer team.deinit();
+    try zigstd.testExpectTrue(team.size() > 1);
+    // the same team for every region, as a caller's loop of calls uses it
+    for (0..3) |_| try checkRegions(team.io(), x, marks, &chunks, expected);
+
+    // a job from inside a job on the same team runs on the caller's task
+    const Nest = struct {
+        x: []const f64,
+        chunks: *const Chunks,
+        io: Io,
+        out: *u64,
+
+        fn outer(s: @This(), _: Chunk) void {
+            const p: Plan = .{ .chunks = s.chunks.*, .workers = 4 };
+            const v = reduce(s.io, &p, f64, Sum{ .x = s.x }, Sum.partial, Sum.add) catch return;
+            @atomicStore(u64, s.out, @as(u64, @bitCast(v)), .monotonic);
+        }
+    };
+    var out: u64 = 0;
+    const two: Chunks = .init(2, 2, .even, 1);
+    const p: Plan = .{ .chunks = two, .workers = 2 };
+    try forEach(team.io(), &p, Nest{ .x = x, .chunks = &chunks, .io = team.io(), .out = &out }, Nest.outer);
+    try zigstd.testExpectEqual(@as(u64, @bitCast(expected)), out);
+
+    // a team that started no worker is the plain `Io`
+    var alone: Team = undefined;
+    alone.init(Io.failing, 4);
+    defer alone.deinit();
+    try zigstd.testExpectEqual(@as(u32, 1), alone.size());
+    try checkRegions(alone.io(), x, marks, &chunks, expected);
 }

@@ -19,6 +19,7 @@ const region = @import("threading/region.zig");
 const tasks = @import("threading/tasks.zig");
 const partials = @import("threading/partials.zig");
 const teams = @import("threading/team.zig");
+pub const Team = @import("threading/TeamIo.zig");
 
 pub const chunks_max = chunking.chunks_max;
 pub const Shape = chunking.Shape;

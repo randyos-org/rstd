@@ -273,4 +273,5 @@ test {
     _ = @import("threaded/public.zig");
     _ = @import("threaded/routines.zig");
     _ = @import("threaded/stress.zig");
+    _ = @import("threaded/team.zig");
 }
