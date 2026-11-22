@@ -177,6 +177,8 @@ const api = @import("api.zig");
 const strided = @import("../strided.zig");
 const check = @import("../_test/check.zig");
 const test_io = @import("../_test/io.zig");
+const blas = @import("../__root__.zig");
+const sum_kernels = @import("sum/__root__.zig");
 
 const ConstStrided = strided.ConstStrided;
 const Complex32 = types.Complex32;
@@ -272,15 +274,18 @@ test "fast: within the f32 lanes' error bound of a plain loop" {
 }
 
 test "fast: f32 lanes drop what f64 keeps" {
-    if (comptime !serves(f32)) return error.SkipZigTest;
+    // `.fast`'s `sum` is the core's kernel (issue #584), its lanes the
+    // core's: a portable one sums in `f64` and drops nothing
+    if (blas.kernel(.ssum_k) == sum_kernels.ssum_generic) return error.SkipZigTest;
     const n = 2 * W * 64;
     const tiny = std.math.ldexp(@as(f32, 1), -24);
     var x: [n]f32 = @splat(tiny);
     x[0] = 1;
-    // lane 0 of the first sum drops the 63 others it meets after its 1
-    const lanes: f32 = 1 + @as(f32, n - 64) * tiny;
-    try testing.expectEqual(lanes, try api.sumWith(check.io, f32, .of(&x), .fast));
-    try testing.expect(lanes < @as(f32, @floatCast(1 + @as(f64, n - 1) * tiny)));
+    // the lane that takes the 1 drops each 2^-24 after it, whatever the
+    // lanes; `.plain` keeps them all in `f64`, rounding once
+    const plain = try api.sumWith(check.io, f32, .of(&x), .plain);
+    try testing.expectEqual(@as(f32, @floatCast(1 + @as(f64, n - 1) * tiny)), plain);
+    try testing.expect(try api.sumWith(check.io, f32, .of(&x), .fast) < plain);
 }
 
 test "fast: f64 sums as plain" {
