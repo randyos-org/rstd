@@ -184,8 +184,8 @@ fn laneOrder(comptime F: type, len: usize, x: []const F) F {
 /// (`w` 2 for complex), summed in `D`: unit stride, float `i` of each full `2 * W` into
 /// lane `i % W` of sum `i / W % 2`, `W` the accumulators' width (`AW` for `f64` sums of `f32`, the
 /// vector's for `F`'s own: issue #584); strided, element `i` of each full group into lane `i % 4`
-/// (real), or into sum `i % 2` by parts (complex). Then the sums lane by lane, the lanes and the rest
-/// in order.
+/// (real), or into sum `i % 2` by parts (complex). Then the sums lane by lane, at unit stride halved
+/// to one lane, strided the lanes in order, and the rest in order.
 fn vectorOrder(comptime F: type, comptime D: type, comptime w: comptime_int, n: usize, x: []const F, inc: usize) F {
     const R = blas.vector.Real(F, 4);
     if (inc == 1 and D != R.D) return laneOrder(F, w * n, x);
@@ -197,8 +197,14 @@ fn vectorOrder(comptime F: type, comptime D: type, comptime w: comptime_int, n: 
         while (i + 2 * W <= len) : (i += 2 * W) for (0..2) |q| for (0..W) |k| {
             acc[q][k] += x[i + q * W + k];
         };
-        var s: D = acc[0][0] + acc[1][0];
-        for (1..W) |k| s += acc[0][k] + acc[1][k];
+        // the two lane by lane, then halved to one lane (issue #594)
+        var v: [W]D = undefined;
+        for (0..W) |k| v[k] = acc[0][k] + acc[1][k];
+        var m: usize = W;
+        while (m > 1) : (m /= 2) for (0..m / 2) |k| {
+            v[k] += v[k + m / 2];
+        };
+        var s = v[0];
         while (i < len) : (i += 1) s += x[i];
         return @floatCast(s);
     }

@@ -14,6 +14,7 @@ const libs = @import("libs.zig");
 const ext = @import("ext.zig");
 const obx86 = @import("obx86.zig");
 const compensated_bench = @import("compensated_bench.zig");
+const calls_bench = @import("calls_bench.zig");
 const matcopy_bench = @import("matcopy_bench.zig");
 const sparse_bench = @import("sparse_bench.zig");
 const potrf_bench = @import("potrf_bench.zig");
@@ -201,6 +202,13 @@ pub fn main(init: std.process.Init) !void {
             libs_loaded = true;
         }
         try compensated_bench.run(io, gpa);
+    }
+    if (!alone and want(sections.items, "calls")) {
+        if (!libs_loaded and opts.paths.get(.openblas) != null) {
+            try loadLibs(opts);
+            libs_loaded = true;
+        }
+        try calls_bench.run(io, gpa);
     }
     if (!alone and want(sections.items, "rotreals")) try rot_reals_bench.run(io, gpa);
     const lib_sections = want(sections.items, "lib1") or want(sections.items, "lib2") or want(sections.items, "lib3") or want(sections.items, "lapack");
