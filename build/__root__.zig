@@ -191,7 +191,9 @@ pub fn build(b: *Build) !void {
     // tests
     // -----
     const test_filter = b.option([]const []const u8, "rstd-test-filter", "Only run rstd tests whose name contains this (repeatable)") orelse &.{};
-    const rstd_test_exe = try addRstdTest(b, rstd_mod, target, optimize, test_filter);
+    // a part of the SVE rigs' split, for CI's qemu-user SVE legs (issue #653)
+    const test_part = b.option([]const u8, "rstd-test-part", "Only run this part of the SVE rigs' split (build/qemu/machines.zig's sve_parts, or rest)");
+    const rstd_test_exe = try addRstdTest(b, rstd_mod, target, optimize, if (test_part) |p| try qemutest.svePartFilters(b, p) else test_filter);
     const run_rstd_test = b.addRunArtifact(rstd_test_exe);
     const test_step = b.step("rstd-test", "Run rstd's unit tests");
     test_step.dependOn(&run_rstd_test.step);

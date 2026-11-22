@@ -126,7 +126,7 @@ const tsan_parts = [_]Part{
 /// The SVE rigs' runs, each part a VM or image: in one, TCG on CI's arm64
 /// runners takes 3.3 to 4.6 hours (issue #569). Balanced on `aarch64-sve`'s
 /// test times in run 44702146209, 22 to 33 minutes a part.
-const sve_parts = [_]Part{
+pub const sve_parts = [_]Part{
     .{ .name = "blas1", .filters = &.{ "math.kernels.blas.blas1.", "math.kernels.blas._test.blas1.", "math.kernels.blas._test.from_openblas." } },
     .{ .name = "blas2-edge", .filters = &.{"math.kernels.blas._test.blas2.edge."} },
     .{ .name = "blas2", .filters = &.{
