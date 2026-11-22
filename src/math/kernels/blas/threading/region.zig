@@ -6,6 +6,7 @@ const FpState = @import("../FpState.zig");
 const chunking = @import("chunks.zig");
 const Plan = @import("../threading.zig").Plan;
 const Tasks = @import("tasks.zig").Tasks;
+const Team = @import("TeamIo.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -109,6 +110,8 @@ fn Region(comptime Ctx: type, comptime f: fn (Ctx, Chunk) void) type {
         next: std.atomic.Value(usize) = .init(0),
         /// The caller's, which `work` adopts.
         fp: FpState = undefined,
+        /// The caller's `Io`, for a `Team` job.
+        io: Io = undefined,
 
         fn claim(r: *Self, io: Io) Io.Cancelable!void {
             while (true) {
@@ -129,8 +132,24 @@ fn Region(comptime Ctx: type, comptime f: fn (Ctx, Chunk) void) type {
             };
         }
 
+        /// A `Team` worker's share (`Team.run`): the same `work`.
+        fn onTeam(p: *anyopaque, wio: Io, _: u32) void {
+            work(@ptrCast(@alignCast(p)), wio);
+        }
+
+        fn callerOnTeam(p: *anyopaque) Io.Cancelable!void {
+            const r: *Self = @ptrCast(@alignCast(p));
+            return r.claim(r.io);
+        }
+
         fn parallel(r: *Self, io: Io, w: usize) Io.Cancelable!void {
             r.fp = .capture();
+            if (Team.of(io)) |t| {
+                r.io = io;
+                // the caller's state where a fiber `Io` resumed it (`Lent`)
+                defer _ = r.fp.adopt();
+                if (t.run(@intCast(w), r, onTeam, callerOnTeam)) |done| return done;
+            }
             var tasks: Tasks = .init(io);
             // runs before the caller's frame goes; every task has then run
             defer {

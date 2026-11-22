@@ -658,3 +658,21 @@ fn cancelGemm(io: Io, vt: *const Vtable, a: []f64, b: []f64, c: []f64, n: usize,
     io.sleep(.fromMilliseconds(20), .awake) catch {};
     try zigstd.testExpectEqual(after, Hold.calls.load(.acquire));
 }
+
+test "a Team's level 3 keeps the serial bits: gemm and the other routines, on resident workers" {
+    if (comptime !test_io.hosted) return error.SkipZigTest;
+    var threaded: test_io.TestIo = .init(zigstd.testAllocator, .{ .async_limit = .limited(8) });
+    defer threaded.deinit();
+    var team: threading.Team = undefined;
+    team.init(threaded.io(), 4);
+    defer team.deinit();
+    try zigstd.testExpectTrue(team.size() > 1);
+    inline for (precisions) |T| {
+        try shapes(T, team.io());
+        const vt = Depths.spied(T, shrunkCore(T));
+        for (routines) |r| {
+            if (!types.isComplex(T) and (r == .hemm or r == .herk or r == .her2k)) continue;
+            try routineShapes(T, &vt, team.io(), r);
+        }
+    }
+}
