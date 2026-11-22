@@ -28,6 +28,7 @@ const potrs = cholesky.potrs;
 
 const testing = std.testing;
 const check = @import("../../blas/_test/check.zig");
+const test_io = @import("../../blas/_test/io.zig");
 const guard = @import("../../blas/_test/guard.zig");
 const reference = @import("../../blas/_test/reference.zig");
 const lcheck = @import("check.zig");
@@ -504,5 +505,35 @@ test "potrf goes to Accelerate where it routes, and agrees with rstd's" {
                 if (if (upper) i > j else i < j) try testing.expectEqual(fromF64(T, 777), p.a[i + j * p.lda]);
             };
         }
+    };
+}
+
+test "potrf on a Team gives one worker's bits, every type, as the M6 bench found it did not" {
+    if (comptime !test_io.hosted) return error.SkipZigTest;
+    _ = blas.coreName();
+    const was = accel.routing();
+    _ = accel.route(false);
+    defer _ = accel.route(was);
+    const al = testing.allocator;
+    var th: test_io.TestIo = .init(al, .{});
+    defer th.deinit();
+    var team: blas.Team = undefined;
+    team.init(th.io(), 4);
+    defer team.deinit();
+    inline for (.{ f32, f64, types.Complex32, types.Complex64 }) |T| for ([_]bool{ true, false }) |upper| {
+        const n: usize = 420;
+        var p = try fixtures.CholProblem(T).init(al, n, upper, 47);
+        defer p.deinit(al);
+        const c: Threaded(T) = .{ .p = &p };
+        const want = try al.alloc(T, p.a.len);
+        defer al.free(want);
+        const got = try al.alloc(T, p.a.len);
+        defer al.free(got);
+        try c.grained(Io.failing, 1, want);
+        try c.grained(team.io(), 4, got);
+        for (want, got, 0..) |x, y, i| if (!lcheck.sameBits(T, x, y)) {
+            check.say("potrf {s} upper {}: a team differs from one worker at element {d}: {any} against {any}\n", .{ @typeName(T), upper, i, y, x });
+            return error.TestUnexpectedResult;
+        };
     };
 }
