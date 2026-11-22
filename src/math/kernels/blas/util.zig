@@ -308,6 +308,9 @@ fn x87Without(comptime unit: std.Target.x86.Feature) bool {
 pub fn fits(n: isize, inc: isize, size: usize) bool {
     if (inc == std.math.minInt(isize)) return false;
     if (n <= 1) return true;
+    // the usual sizes at once, without the checked products: below 2^28
+    // each, the span's bytes stay far from overflow (issue #677)
+    if (size <= 32 and ((@as(usize, @intCast(n)) | @abs(inc)) >> 28) == 0) return true;
     return fitsMatrix(1, n, @intCast(@abs(inc)), size);
 }
 

@@ -75,8 +75,10 @@ fn Elementwise(comptime T: type, comptime r: Elem) type {
             } orelse unreachable;
         }
 
-        /// The call over its parts; false where rstd runs it.
-        fn run(e: *const Self, io: Io) Io.Cancelable!bool {
+        /// The call over its parts; false where rstd runs it. Out of line, so its
+        /// plan stays out of the routines' frames when Accelerate does not
+        /// serve (issue #677).
+        noinline fn run(e: *const Self, io: Io) Io.Cancelable!bool {
             if (!fits(name, e.b, &.{ e.n, mag(e.incx), mag(e.incy), span(e.n, e.incx), span(e.n, e.incy) })) return false;
             if (e.incy == 0 or (e.incx == 0 and (r == .swap or r == .scal or r == .rot))) return false;
             // a zero stride's elements depend on each other, as for rstd's own
@@ -159,8 +161,9 @@ fn Reduction(comptime T: type, comptime r: Red) type {
             return .init(v.re, v.im);
         }
 
-        /// The sum over its parts; null where rstd runs it.
-        fn run(e: *const Self, io: Io) Io.Cancelable!?W {
+        /// The sum over its parts; null where rstd runs it. Out of line, as the
+        /// call's `run`.
+        noinline fn run(e: *const Self, io: Io) Io.Cancelable!?W {
             if (!fits(name, e.b, &.{ e.n, mag(e.incx), mag(e.incy), span(e.n, e.incx), span(e.n, e.incy) })) return null;
             // a zero stride runs serially, as rstd's own
             if (e.incx == 0 or e.incy == 0) return e.part(whole(e.n));
