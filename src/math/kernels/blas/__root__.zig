@@ -44,6 +44,9 @@ pub const Extreme = l1.Extreme;
 pub const HalfPrecision = l2.HalfPrecision;
 
 /// Level 1, two vectors: counts that disagree, or `error.Canceled`.
+/// A caller-owned worker team: `init` it on an `Io`, pass `io()` to any routine (issue #561).
+pub const Team = threading.Team;
+
 pub const Level1Error = l1.PairError;
 /// Level 2: counts that disagree, a slice too short for its matrix or a
 /// leading dimension too small; `error.OutOfMemory` or `error.Canceled`.
