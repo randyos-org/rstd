@@ -183,7 +183,8 @@ pub fn Real(comptime F: type, comptime U: comptime_int) type {
             while (i + 2 * AW <= len) : (i += 2 * AW) {
                 inline for (0..2) |q| acc[q] += abs(@as(AV, ldA(x + i + q * AW)));
             }
-            var s = @reduce(.Add, acc[0] + acc[1]);
+            // no fold of untouched sums, which are 0 (issue #594: n = 16)
+            var s: D = if (i == 0) 0 else halved(1, acc[0] + acc[1])[0];
             while (i < len) : (i += 1) s += abs(@as(D, x[i]));
             return s;
         }
@@ -192,13 +193,16 @@ pub fn Real(comptime F: type, comptime U: comptime_int) type {
         const L = lanes(F);
         const N = @Vector(L, F);
 
-        /// `v`'s upper half added to its lower until `n` lanes are left.
-        fn halved(comptime n: comptime_int, v: anytype) @Vector(n, F) {
+        /// `v`'s upper half added to its lower until `n` lanes are left: a tree
+        /// `log2` adds deep, where `@reduce`'s ordered sum chains one add a
+        /// lane, which at n = 100 was most of a `sum` (issue #594).
+        fn halved(comptime n: comptime_int, v: anytype) @Vector(n, @typeInfo(@TypeOf(v)).vector.child) {
+            const E = @typeInfo(@TypeOf(v)).vector.child;
             const m = @typeInfo(@TypeOf(v)).vector.len;
             if (m == n) return v;
             const h = m / 2;
-            const lo = @shuffle(F, v, undefined, std.simd.iota(i32, h));
-            const hi = @shuffle(F, v, undefined, std.simd.iota(i32, h) + @as(@Vector(h, i32), @splat(h)));
+            const lo = @shuffle(E, v, undefined, std.simd.iota(i32, h));
+            const hi = @shuffle(E, v, undefined, std.simd.iota(i32, h) + @as(@Vector(h, i32), @splat(h)));
             return halved(n, lo + hi);
         }
 
@@ -269,16 +273,16 @@ pub fn Real(comptime F: type, comptime U: comptime_int) type {
             return sums(D, true, n, x, incx);
         }
 
-        /// The sum of `x[0..len]` in `D`, as `dot` sums: float `i` of each
+        /// The sum of `x[0..len]` in `D`: float `i` of each
         /// `2 * AW` into lane `i % AW` of sum `i / AW % 2`; then the two lane by
-        /// lane, the lanes in order, and the floats left in order.
+        /// lane, halved to one (`halved`), and the floats left in order.
         pub fn plainSum(len: usize, x: [*]F) D {
             var acc: [2]AV = @splat(@splat(0));
             var i: usize = 0;
             while (i + 2 * AW <= len) : (i += 2 * AW) {
                 inline for (0..2) |q| acc[q] += @as(AV, ldA(x + i + q * AW));
             }
-            var s = @reduce(.Add, acc[0] + acc[1]);
+            var s: D = if (i == 0) 0 else halved(1, acc[0] + acc[1])[0];
             while (i < len) : (i += 1) s += x[i];
             return s;
         }
