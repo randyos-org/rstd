@@ -20,16 +20,22 @@ inner: Io,
 tasks: Tasks,
 /// Workers started, the caller not among them.
 started: u32 = 0,
-/// Bumped to wake the workers for a job or to stop.
-wake: Signal = .{},
-/// Workers that have finished the job or sat it out.
+/// A word of its own for each worker, bumped to wake it for a job or to stop:
+/// the caller wakes the participants only, and each worker sees each of its
+/// own wakes, so none runs a job meant for the next generation.
+wake: [workers_max]Wake = @splat(.{}),
+/// Participants that have finished the job.
 fin: Signal = .{},
 stop: std.atomic.Value(bool) = .init(false),
 busy: std.atomic.Value(bool) = .init(false),
-/// The job: participants (the caller among them), its function and context.
-take: std.atomic.Value(u32) = .init(0),
+/// The job: its function and context.
 run_fn: ?*const fn (*anyopaque, Io, u32) void = null,
 run_ctx: ?*anyopaque = null,
+
+/// The most workers a team starts, the caller not among them.
+pub const workers_max = 64;
+
+const Wake = struct { signal: Signal align(std.atomic.cache_line) = .{} };
 
 fn marker(_: ?*anyopaque) void {}
 
@@ -39,7 +45,7 @@ pub fn init(t: *Team, parent: Io, workers: u32) void {
     t.* = .{ .vtable = parent.vtable.*, .inner = parent, .tasks = .init(parent) };
     t.vtable.crashHandler = &marker;
     if (comptime sysinfo.single_threaded) return;
-    while (t.started + 1 < workers) : (t.started += 1) {
+    while (t.started < workers_max and t.started + 1 < workers) : (t.started += 1) {
         t.tasks.concurrent(parent, worker, .{ t, t.started + 1 }) catch break;
     }
 }
@@ -47,7 +53,7 @@ pub fn init(t: *Team, parent: Io, workers: u32) void {
 /// Ends the workers; no job may be running.
 pub fn deinit(t: *Team) void {
     t.stop.store(true, .release);
-    t.wake.set(t.inner, t.wake.value.load(.monotonic) +% 1, null);
+    for (t.wake[0..t.started]) |*w| w.signal.set(t.inner, w.signal.value.load(.monotonic) +% 1, null);
     t.tasks.await(t.inner) catch t.tasks.cancel(t.inner);
     t.* = undefined;
 }
@@ -60,7 +66,7 @@ pub fn io(t: *Team) Io {
 /// The team behind `i`, if it is a team's `Io`.
 pub fn of(i: Io) ?*Team {
     if (i.vtable.crashHandler != &marker) return null;
-    return @fieldParentPtr("vtable", @constCast(i.vtable));
+    return @alignCast(@fieldParentPtr("vtable", @constCast(i.vtable)));
 }
 
 /// Workers and caller: the most a job can use.
@@ -72,11 +78,10 @@ fn worker(t: *Team, i: u32) void {
     const wio = t.inner;
     var seen: u32 = 0;
     while (true) {
-        seen = t.wake.waitWhile(wio, seen, null) catch return wio.recancel();
+        seen = t.wake[i - 1].signal.waitWhile(wio, seen, null) catch return wio.recancel();
         if (t.stop.load(.acquire)) return;
-        // every worker acknowledges every job, so none lags a generation and
-        // reads the next job's fields for this one
-        if (i < t.take.load(.acquire)) t.run_fn.?(t.run_ctx.?, wio, i);
+        // woken only for a job it takes part in, and the caller waits for it
+        t.run_fn.?(t.run_ctx.?, wio, i);
         _ = t.fin.value.fetchAdd(1, .seq_cst);
         if (t.fin.sleepers.load(.seq_cst) != 0) wio.futexWake(u32, &t.fin.value.raw, std.math.maxInt(i32));
     }
@@ -107,12 +112,11 @@ pub fn go(
     comptime caller: fn (*anyopaque) Io.Cancelable!void,
 ) Io.Cancelable!void {
     if (take < 2) return caller(ctx);
+    const need = take - 1;
     t.run_fn = f;
     t.run_ctx = ctx;
-    t.take.store(take, .release);
     t.fin.value.store(0, .release);
-    t.wake.set(t.inner, t.wake.value.load(.monotonic) +% 1, null);
-    const need = t.started;
+    for (t.wake[0..need]) |*w| w.signal.set(t.inner, w.signal.value.load(.monotonic) +% 1, null);
     const first = caller(ctx);
     // the caller's own wait may be canceled; the workers' chunks still end
     var canceled = false;
