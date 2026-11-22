@@ -156,14 +156,15 @@ pub fn isSet(env: anytype, comptime key: []const u8) bool {
 }
 
 /// Builds an empty `Environ.Map` for a test, pre-populated with `pairs`.
-fn testEnv(pairs: []const [2][]const u8) std.process.Environ.Map {
+fn testEnv(pairs: []const [2][]const u8) !std.process.Environ.Map {
     var env: std.process.Environ.Map = .init(zigstd.testAllocator);
-    for (pairs) |kv| env.put(kv[0], kv[1]) catch unreachable;
+    errdefer env.deinit();
+    for (pairs) |kv| try env.put(kv[0], kv[1]);
     return env;
 }
 
 test "unset variables yield every default" {
-    var env = testEnv(&.{});
+    var env = try testEnv(&.{});
     defer env.deinit();
     var buf: [value_max]u8 = undefined;
 
@@ -177,14 +178,14 @@ test "unset variables yield every default" {
 }
 
 test "readInt clamps a negative value to 0" {
-    var env = testEnv(&.{.{ "OPENBLAS_BLOCK_FACTOR", "-5" }});
+    var env = try testEnv(&.{.{ "OPENBLAS_BLOCK_FACTOR", "-5" }});
     defer env.deinit();
 
     try zigstd.testExpectEqual(@as(i32, 0), readInt(&env, "OPENBLAS_BLOCK_FACTOR"));
 }
 
 test "readIntRaw does not clamp negatives, unlike readInt" {
-    var env = testEnv(&.{.{ "OPENBLAS_L2_SIZE", "-5" }});
+    var env = try testEnv(&.{.{ "OPENBLAS_L2_SIZE", "-5" }});
     defer env.deinit();
 
     try zigstd.testExpectEqual(@as(?i32, -5), readIntRaw(i32, &env, "OPENBLAS_L2_SIZE", 0));
@@ -195,14 +196,14 @@ test "readIntRaw does not clamp negatives, unlike readInt" {
 }
 
 test "a malformed value falls back to the default instead of erroring" {
-    var env = testEnv(&.{.{ "OPENBLAS_VERBOSE", "not-a-number" }});
+    var env = try testEnv(&.{.{ "OPENBLAS_VERBOSE", "not-a-number" }});
     defer env.deinit();
 
     try zigstd.testExpectEqual(@as(?i32, 0), readIntRaw(i32, &env, "OPENBLAS_VERBOSE", 0));
 }
 
 test "OPENBLAS_NUM_THREADS wins over OPENBLAS_DEFAULT_NUM_THREADS when both are set" {
-    var env = testEnv(&.{
+    var env = try testEnv(&.{
         .{ "OPENBLAS_NUM_THREADS", "4" },
         .{ "OPENBLAS_DEFAULT_NUM_THREADS", "8" },
     });
@@ -212,21 +213,21 @@ test "OPENBLAS_NUM_THREADS wins over OPENBLAS_DEFAULT_NUM_THREADS when both are 
 }
 
 test "OPENBLAS_DEFAULT_NUM_THREADS is used only when OPENBLAS_NUM_THREADS is unset" {
-    var env = testEnv(&.{.{ "OPENBLAS_DEFAULT_NUM_THREADS", "8" }});
+    var env = try testEnv(&.{.{ "OPENBLAS_DEFAULT_NUM_THREADS", "8" }});
     defer env.deinit();
 
     try zigstd.testExpectEqual(@as(i32, 8), Self.init(&env).num_threads);
 }
 
 test "neither thread-count variable set yields 0 threads" {
-    var env = testEnv(&.{});
+    var env = try testEnv(&.{});
     defer env.deinit();
 
     try zigstd.testExpectEqual(@as(i32, 0), Self.init(&env).num_threads);
 }
 
 test "the thread ceiling is OPENBLAS_NUM_THREADS, else GOTO_NUM_THREADS" {
-    var env = testEnv(&.{.{ "GOTO_NUM_THREADS", "6" }});
+    var env = try testEnv(&.{.{ "GOTO_NUM_THREADS", "6" }});
     defer env.deinit();
     try zigstd.testExpectEqual(@as(?u32, 6), Self.init(&env).threadCeiling());
     try env.put("OPENBLAS_NUM_THREADS", "3");
@@ -237,7 +238,7 @@ test "the thread ceiling is OPENBLAS_NUM_THREADS, else GOTO_NUM_THREADS" {
 }
 
 test "GET_OPENBLAS_CORETYPE is a bare-presence check, even set to empty" {
-    var env = testEnv(&.{.{ "GET_OPENBLAS_CORETYPE", "" }});
+    var env = try testEnv(&.{.{ "GET_OPENBLAS_CORETYPE", "" }});
     defer env.deinit();
 
     try zigstd.testExpectTrue(isSet(&env, "GET_OPENBLAS_CORETYPE"));
@@ -248,7 +249,7 @@ test "GET_OPENBLAS_CORETYPE is a bare-presence check, even set to empty" {
 
 test "LD_HWCAP_MASK base-0 parsing: matches strtoul for hex, diverges for bare-leading-zero octal" {
     {
-        var env = testEnv(&.{.{ "LD_HWCAP_MASK", "0xff" }});
+        var env = try testEnv(&.{.{ "LD_HWCAP_MASK", "0xff" }});
         defer env.deinit();
         try zigstd.testExpectEqual(@as(?u64, 0xff), readIntRaw(u64, &env, "LD_HWCAP_MASK", null));
     }
@@ -257,12 +258,12 @@ test "LD_HWCAP_MASK base-0 parsing: matches strtoul for hex, diverges for bare-l
         // parseInt with base 0 does not infer octal from a bare leading
         // zero, only from an explicit "0o" prefix, so this parses as
         // decimal 10, not 8.
-        var env = testEnv(&.{.{ "LD_HWCAP_MASK", "010" }});
+        var env = try testEnv(&.{.{ "LD_HWCAP_MASK", "010" }});
         defer env.deinit();
         try zigstd.testExpectEqual(@as(?u64, 10), readIntRaw(u64, &env, "LD_HWCAP_MASK", null));
     }
     {
-        var env = testEnv(&.{.{ "LD_HWCAP_MASK", "0o10" }});
+        var env = try testEnv(&.{.{ "LD_HWCAP_MASK", "0o10" }});
         defer env.deinit();
         try zigstd.testExpectEqual(@as(?u64, 8), readIntRaw(u64, &env, "LD_HWCAP_MASK", null));
     }
@@ -276,7 +277,7 @@ test "RSTD_BLAS_ACCELERATE=0 turns Accelerate off; unset or anything else leaves
         .{ .v = "1", .on = true },
         .{ .v = "no", .on = true },
     }) |c| {
-        var env = testEnv(&.{});
+        var env = try testEnv(&.{});
         defer env.deinit();
         if (c.v) |v| try env.put("RSTD_BLAS_ACCELERATE", v);
         try zigstd.testExpectEqual(c.on, Self.init(&env).accelerate);
@@ -284,7 +285,7 @@ test "RSTD_BLAS_ACCELERATE=0 turns Accelerate off; unset or anything else leaves
 }
 
 test "a fully populated environment produces a matching config" {
-    var env = testEnv(&.{
+    var env = try testEnv(&.{
         .{ "OPENBLAS_VERBOSE", "2" },
         .{ "OPENBLAS_CORETYPE", "Haswell" },
         .{ "OPENBLAS_L2_SIZE", "262144" },
@@ -293,7 +294,7 @@ test "a fully populated environment produces a matching config" {
 
     const c = Self.init(&env);
     env.deinit();
-    env = testEnv(&.{});
+    env = try testEnv(&.{});
     try zigstd.testExpectEqual(@as(i32, 2), c.verbose);
     try zigstd.testExpectEqualStrings("Haswell", c.coreType().?);
     try zigstd.testExpectEqual(@as(i32, 262144), c.l2_size_override);

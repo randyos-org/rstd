@@ -117,7 +117,10 @@ pub fn ger(al: Allocator, io: Io, comptime T: type, alpha: T, x: [*]T, incx: usi
 /// `‖x‖₂` (`l1.nrm2`).
 pub fn nrm2(io: Io, comptime T: type, n: usize, x: [*]T, inc: usize) Float(T) {
     if (n == 0) return 0;
-    return l1.nrm2(io, T, @intCast(n), x, @intCast(inc)) catch unreachable;
+    return l1.nrm2(io, T, @intCast(n), x, @intCast(inc)) catch |e| switch (e) {
+        // serial, and the extent was checked by the caller
+        error.Canceled, error.InvalidIncx, error.InvalidIncy => unreachable,
+    };
 }
 
 /// `?SCAL` (`?DSCAL` for complex) by a real `s`.
