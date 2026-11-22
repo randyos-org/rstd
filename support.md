@@ -29,7 +29,7 @@ after it. Rig names are `zig build` steps: `qemu-test-<rig>` unless named in ful
 | `x86_64-uefi-msvc` | 2 | RandyOS's loader | `x86_64-uefi` (OVMF; HVF on the Intel Mac, or KVM in CI), `rstd-check-uefi` (CI too) |
 | `aarch64-uefi-msvc` | 2 | RandyOS's loader (pftf) | `aarch64-uefi` (AAVMF; HVF on the M6, or arm64 runners in CI), `rstd-check-uefi`. `aarch64-uefi-sve` (TCG `max`) is tier 3: no RandyOS target has SVE (#619) |
 | `x86_64-linux-musl` | 2 | zfls (release, conda, Alpine) | CI's native `x86_64-linux-musl` legs; locally `linux-x86_64` (TCG `max` or HVF on the Intel Mac; 4 CPUs), `rstd-check-zig017` |
-| `aarch64-linux-musl` | 2 | zfls (release, conda, Alpine) | CI's native legs on arm64 runners, which are Cobalt 100 (Neoverse N2, SVE2) and run the `neoversen2` kernels (CI's `blas-core` step, #619); locally `linux-aarch64` (HVF on the M6, or TCG `max`); the SVE and SME cores, for SVE servers such as Graviton 3 and 4, in CI's `aarch64-linux-musl, sve` leg under qemu-user's `max` CPU ([#653](https://github.com/randyos-org/rstd/issues/653)), and locally the `linux-aarch64-sve` rig (TCG `max`); `rstd-check-zig017` |
+| `aarch64-linux-musl` | 2 | zfls (release, conda, Alpine) | CI's native legs on arm64 runners, which are Cobalt 100 (Neoverse N2, SVE2) and run the `neoversen2` kernels (CI's `blas-core` step, #619); locally `linux-aarch64` (HVF on the M6, or TCG `max`); the SVE and SME cores, for SVE servers such as Graviton 3 and 4, in CI's `aarch64-linux-musl, sve, <part>` legs under qemu-user's `max` CPU, in the rig's parts ([#653](https://github.com/randyos-org/rstd/issues/653)), and locally the `linux-aarch64-sve` rig (TCG `max`); `rstd-check-zig017` |
 | `x86_64-linux-gnu`, `aarch64-linux-gnu` | 2 | zfls | CI's native legs (`ubuntu-24.04`, `ubuntu-24.04-arm`); locally the Linux rigs above with `-Drstd-tsan` (glibc from `-Dtest-host`'s Nix); in CI both ThreadSanitizer runs are native legs ([#539](https://github.com/randyos-org/rstd/issues/539), [#652](https://github.com/randyos-org/rstd/issues/652)) |
 | `aarch64-windows` | 2 | zfls | CI's native legs (`windows-11-arm`), `rstd-check-zig017` |
 | `x86_64-macos` 11.0+ | 2 | zfls | `ssh-test-x86_64-macos` (Intel Mac, i5-8500B, macOS 15.8), CI's native legs (`macos-15-intel`), `ssh-test-x86_64-macos-rosetta` (Rosetta 2 on the M6, for comparison), `rstd-check-macho`, `rstd-check-zig017` |
@@ -110,8 +110,8 @@ Compiled and symbol-checked, never run:
 | --- | --- |
 | `armv8`, `cortexa53`, `cortexa55`, `cortexa57`, `cortexa72`, `cortexa73`, `cortexa76`, `cortexx1`, `falkor`, `thunderx`, `thunderx2t99`, `tsv110`, `emag8180`, `neoversen1`, `ft2000` | `aarch64`, `aarch64-sve`, `aarch64-uefi`, `linux-aarch64` |
 | `thunderx3t110`, `ampere1` (need FCMA) | `aarch64-sve`, `linux-aarch64`; `aarch64` and `aarch64-uefi` under HVF |
-| `a64fx`, `armv8sve`, `neoversev1`, `neoversen2`, `neoversev2`, `cortexa510`, `cortexa710`, `cortexx2` (SVE) | CI's `aarch64-linux-musl, sve` leg (qemu-user), `linux-aarch64-sve`; `aarch64-sve` (tier 3) |
-| `armv9sme` (SVE2, SME) | CI's `aarch64-linux-musl, sve` leg (qemu-user), `linux-aarch64-sve`; `aarch64-sve` (tier 3) |
+| `a64fx`, `armv8sve`, `neoversev1`, `neoversen2`, `neoversev2`, `cortexa510`, `cortexa710`, `cortexx2` (SVE) | CI's `aarch64-linux-musl, sve` legs (qemu-user), `linux-aarch64-sve`; `aarch64-sve` (tier 3) |
+| `armv9sme` (SVE2, SME) | CI's `aarch64-linux-musl, sve` legs (qemu-user), `linux-aarch64-sve`; `aarch64-sve` (tier 3) |
 | `vortex` (Apple) | `ssh-test-aarch64-macos`; `aarch64`, `aarch64-uefi` and `linux-aarch64` under HVF |
 | `vortexm4` (Apple, SME) | `ssh-test-aarch64-macos`; `aarch64` and `aarch64-uefi` under HVF |
 

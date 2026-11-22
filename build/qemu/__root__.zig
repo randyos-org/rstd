@@ -104,6 +104,13 @@ fn hasPart(name: []const u8) bool {
 /// `parts` and a `rest` part: every file and folder of `src/` as a test
 /// name's prefix (`math.kernels.blas.blas1.`), descending where a part's filter
 /// lies within. Filters match by substring, so parts may overlap, never miss.
+/// The filters of the SVE rigs' part `name`, `rest` too: `-Drstd-test-part`, CI's
+/// qemu-user SVE legs (issue #653).
+pub fn svePartFilters(b: *Build, name: []const u8) ![]const []const u8 {
+    for (try withRest(b, &machines.sve_parts)) |p| if (std.mem.eql(u8, p.name, name)) return p.filters;
+    std.debug.panic("-Drstd-test-part: no SVE part named {s}", .{name});
+}
+
 fn withRest(b: *Build, parts: []const Part) ![]const Part {
     var rest: std.ArrayList([]const u8) = .empty;
     try addRest(b, &rest, "src", "", parts);
