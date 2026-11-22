@@ -337,3 +337,23 @@ test "a team's regions give the same bits, reused, with no worker or inside a jo
     try zigstd.testExpectEqual(@as(u32, 1), alone.size());
     try checkRegions(alone.io(), x, marks, &chunks, expected);
 }
+
+test "a team's back-to-back jobs of changing sizes run every chunk once and never wait on a lagging worker" {
+    if (comptime !test_io.threaded_tests) return error.SkipZigTest;
+    var threaded: test_io.TestIo = .init(zigstd.testAllocator, .{ .async_limit = .limited(8) });
+    defer threaded.deinit();
+    var team: Team = undefined;
+    team.init(threaded.io(), 5);
+    defer team.deinit();
+    try zigstd.testExpectTrue(team.size() > 2);
+    var marks: [64]u8 = undefined;
+    const chunks: Chunks = .init(marks.len, 8, .even, 1);
+    // a worker that sat out one job must not run the next one early or twice
+    for (0..4000) |round| {
+        const w: u32 = @intCast(2 + round % (team.size() - 1));
+        const p: Plan = .{ .chunks = chunks, .workers = w };
+        @memset(&marks, 0);
+        try forEach(team.io(), &p, Marks{ .marks = &marks }, Marks.mark);
+        for (marks) |v| try zigstd.testExpectEqual(@as(u8, 1), v);
+    }
+}

@@ -22,7 +22,7 @@ tasks: Tasks,
 started: u32 = 0,
 /// Bumped to wake the workers for a job or to stop.
 wake: Signal = .{},
-/// Participants of the job that have finished it.
+/// Workers that have finished the job or sat it out.
 fin: Signal = .{},
 stop: std.atomic.Value(bool) = .init(false),
 busy: std.atomic.Value(bool) = .init(false),
@@ -74,8 +74,9 @@ fn worker(t: *Team, i: u32) void {
     while (true) {
         seen = t.wake.waitWhile(wio, seen, null) catch return wio.recancel();
         if (t.stop.load(.acquire)) return;
-        if (i >= t.take.load(.acquire)) continue;
-        t.run_fn.?(t.run_ctx.?, wio, i);
+        // every worker acknowledges every job, so none lags a generation and
+        // reads the next job's fields for this one
+        if (i < t.take.load(.acquire)) t.run_fn.?(t.run_ctx.?, wio, i);
         _ = t.fin.value.fetchAdd(1, .seq_cst);
         if (t.fin.sleepers.load(.seq_cst) != 0) wio.futexWake(u32, &t.fin.value.raw, std.math.maxInt(i32));
     }
@@ -111,7 +112,7 @@ pub fn go(
     t.take.store(take, .release);
     t.fin.value.store(0, .release);
     t.wake.set(t.inner, t.wake.value.load(.monotonic) +% 1, null);
-    const need = take - 1;
+    const need = t.started;
     const first = caller(ctx);
     // the caller's own wait may be canceled; the workers' chunks still end
     var canceled = false;
