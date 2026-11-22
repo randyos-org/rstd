@@ -28,7 +28,8 @@ pub const Extreme = core.Extreme;
 /// single precision in `f32` lanes: `asum`, `sum` and complex `dot` on the
 /// core's own kernels, OpenBLAS's where it has one, so their bits may differ
 /// between cores (issue #584); real `dot` in `fast.zig`; `.plain` for wider
-/// types.
+/// types. The four are inline, so a mode known at the call compiles to its
+/// path alone, without the others' frame (issue #677).
 pub const Summation = enum { plain, compensated, fast };
 
 /// What a routine of two vectors that may thread returns.
@@ -107,16 +108,16 @@ pub fn dotc(io: Io, comptime T: type, x: ConstStrided(T), y: ConstStrided(T)) Pa
 }
 
 /// `dot` summed as `s` says.
-pub fn dotWith(io: Io, comptime T: type, x: ConstStrided(T), y: ConstStrided(T), s: Summation) PairError!T {
+pub inline fn dotWith(io: Io, comptime T: type, x: ConstStrided(T), y: ConstStrided(T), s: Summation) PairError!T {
     return dotsWith(io, T, false, x, y, s);
 }
 
 /// `dotc` summed as `s` says.
-pub fn dotcWith(io: Io, comptime T: type, x: ConstStrided(T), y: ConstStrided(T), s: Summation) PairError!T {
+pub inline fn dotcWith(io: Io, comptime T: type, x: ConstStrided(T), y: ConstStrided(T), s: Summation) PairError!T {
     return dotsWith(io, T, true, x, y, s);
 }
 
-fn dotsWith(io: Io, comptime T: type, comptime conj: bool, x: ConstStrided(T), y: ConstStrided(T), s: Summation) PairError!T {
+inline fn dotsWith(io: Io, comptime T: type, comptime conj: bool, x: ConstStrided(T), y: ConstStrided(T), s: Summation) PairError!T {
     const plain = s == .plain or (s == .fast and !fast.serves(T));
     if (plain) return if (conj) dotc(io, T, x, y) else dot(io, T, x, y);
     try x.sameLength(y);
@@ -161,7 +162,7 @@ pub fn sum(io: Io, comptime T: type, x: ConstStrided(T)) Io.Cancelable!Float(T) 
 }
 
 /// `asum` summed as `s` says.
-pub fn asumWith(io: Io, comptime T: type, x: ConstStrided(T), s: Summation) Io.Cancelable!Float(T) {
+pub inline fn asumWith(io: Io, comptime T: type, x: ConstStrided(T), s: Summation) Io.Cancelable!Float(T) {
     return switch (s) {
         .plain => asum(io, T, x),
         .compensated => compensated.asum(io, T, x.n, ptr(T, x), step(x)),
@@ -171,7 +172,7 @@ pub fn asumWith(io: Io, comptime T: type, x: ConstStrided(T), s: Summation) Io.C
 }
 
 /// `sum` summed as `s` says.
-pub fn sumWith(io: Io, comptime T: type, x: ConstStrided(T), s: Summation) Io.Cancelable!Float(T) {
+pub inline fn sumWith(io: Io, comptime T: type, x: ConstStrided(T), s: Summation) Io.Cancelable!Float(T) {
     return switch (s) {
         .plain => sum(io, T, x),
         .compensated => compensated.sum(io, T, x.n, ptr(T, x), step(x)),

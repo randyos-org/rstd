@@ -251,35 +251,40 @@ pub fn dotcFast(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]
     return dotImpl(io, T, true, .fast, n, x, incx, y, incy);
 }
 
-fn dotImpl(io: Io, comptime T: type, comptime conj: bool, comptime lanes: Lanes, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) Error!T {
+inline fn dotImpl(io: Io, comptime T: type, comptime conj: bool, comptime lanes: Lanes, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) Error!T {
     if (n <= 0) return zero(T);
     try spanXY(T, T, n, incx, incy);
     const complex_op: portable.Op = if (comptime wide(T, lanes)) (if (conj) .dotc_wide_k else .dotu_wide_k) else (if (conj) .dotc_k else .dotu_k);
     if (comptime !(single(T) and isComplex(T))) if (try accel.dot(io, T, conj, n, x, incx, y, incy)) |r| return r;
-    // `kernel/x86_64/ddot.c`, `zdot.c`: a zero stride runs serially
-    if (comptime sums(T)) if (incx != 0 and incy != 0) if (chunked(.dot, T, n)) |p| {
-        const c: Pair(T, void) = .{ .x = first(T, x, n, incx), .incx = incx, .y = first(T, y, n, incy), .incy = incy, .e = {} };
-        const S = struct {
-            fn part(q: @TypeOf(c), len: isize, at: isize) Wide(T) {
-                // `sdot` sums in `f64` and rounds once (`readme.md`)
-                if (comptime T == f32) return dsdotPart(q, len, at);
-                const a = raw(T, shift(T, q.x, at, q.incx));
-                const b = raw(T, shift(T, q.y, at, q.incy));
-                if (comptime isComplex(T)) {
-                    const r = types.complexOf(portable.fetch(T, complex_op, blas.vtable)(len, a, q.incx, b, q.incy));
-                    return .init(r.re, r.im);
-                }
-                return portable.fetch(T, .dot_k, blas.vtable)(len, a, q.incx, b, q.incy);
-            }
-        };
-        return rounded(T, try fold(io, &p, Wide(T), c, S.part, plus(Wide(T))));
-    };
+    // `kernel/x86_64/ddot.c`, `zdot.c`: a zero stride runs serially; the
+    // serial test first, as `summed`'s (issue #677)
+    if (comptime sums(T)) if (incx != 0 and incy != 0) if (!threading.serial(.dot, T, @intCast(n))) if (try dotChunks(io, T, complex_op, n, x, incx, y, incy)) |r| return r;
     const px = raw(T, first(T, x, n, incx));
     const py = raw(T, first(T, y, n, incy));
     if (comptime isComplex(T)) {
         return types.complexOf(portable.fetch(T, complex_op, blas.vtable)(n, px, incx, py, incy));
     }
     return portable.fetch(T, .dot_k, blas.vtable)(n, px, incx, py, incy);
+}
+
+/// `dotImpl`'s threaded path, null for one chunk.
+noinline fn dotChunks(io: Io, comptime T: type, comptime complex_op: portable.Op, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) Io.Cancelable!?T {
+    const p = chunked(.dot, T, n) orelse return null;
+    const c: Pair(T, void) = .{ .x = first(T, x, n, incx), .incx = incx, .y = first(T, y, n, incy), .incy = incy, .e = {} };
+    const S = struct {
+        fn part(q: @TypeOf(c), len: isize, at: isize) Wide(T) {
+            // `sdot` sums in `f64` and rounds once (`readme.md`)
+            if (comptime T == f32) return dsdotPart(q, len, at);
+            const a = raw(T, shift(T, q.x, at, q.incx));
+            const b = raw(T, shift(T, q.y, at, q.incy));
+            if (comptime isComplex(T)) {
+                const r = types.complexOf(portable.fetch(T, complex_op, blas.vtable)(len, a, q.incx, b, q.incy));
+                return .init(r.re, r.im);
+            }
+            return portable.fetch(T, .dot_k, blas.vtable)(len, a, q.incx, b, q.incy);
+        }
+    };
+    return rounded(T, try fold(io, &p, Wide(T), c, S.part, plus(Wide(T))));
 }
 
 /// `DSDOT` (`interface/dsdot.c`): the dot of two `f32` vectors, summed and
@@ -351,11 +356,18 @@ fn asumBy(io: Io, comptime T: type, comptime lanes: Lanes, n: isize, x: [*]T, in
     return summed(io, T, .asum_k, n, x, incx);
 }
 
-/// `asum` or `sum` (`op`) over chunks of `n`, folded in chunk order.
-fn summed(io: Io, comptime T: type, comptime op: portable.Op, n: isize, x: [*]T, incx: isize) Io.Cancelable!Float(T) {
-    const F = Float(T);
+/// `asum` or `sum` (`op`) over chunks of `n`, folded in chunk order. The
+/// serial test first, at compile time's cost: a serial call never holds a
+/// `threading.Plan`, whose 536 bytes cost it a frame (issue #677).
+inline fn summed(io: Io, comptime T: type, comptime op: portable.Op, n: isize, x: [*]T, incx: isize) Io.Cancelable!Float(T) {
     // `kernel/x86_64/dasum.c` and the rest: a stride `<= 0` runs serially
-    if (comptime sums(T)) if (incx > 0) if (chunked(.asum, T, n)) |p| {
+    if (comptime sums(T)) if (incx > 0) if (!threading.serial(.asum, T, @intCast(n))) return summedChunks(io, T, op, n, x, incx);
+    return portable.fetch(T, op, blas.vtable)(n, raw(T, x), incx);
+}
+
+noinline fn summedChunks(io: Io, comptime T: type, comptime op: portable.Op, n: isize, x: [*]T, incx: isize) Io.Cancelable!Float(T) {
+    const F = Float(T);
+    if (chunked(.asum, T, n)) |p| {
         const c: Pair(T, void) = .{ .x = x, .incx = incx, .y = x, .incy = incx, .e = {} };
         const S = struct {
             fn part(q: @TypeOf(c), len: isize, at: isize) Wide(F) {
@@ -363,7 +375,7 @@ fn summed(io: Io, comptime T: type, comptime op: portable.Op, n: isize, x: [*]T,
             }
         };
         return rounded(F, try fold(io, &p, Wide(F), c, S.part, plus(Wide(F))));
-    };
+    }
     return portable.fetch(T, op, blas.vtable)(n, raw(T, x), incx);
 }
 
