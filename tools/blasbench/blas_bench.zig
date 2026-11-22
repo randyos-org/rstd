@@ -166,6 +166,13 @@ pub fn main(init: std.process.Init) !void {
     var threaded: Io.Threaded = .init(std.heap.c_allocator, if (opts.threads) |t| .{ .async_limit = .limited(t - 1), .concurrent_limit = .limited(t - 1) } else .{});
     defer threaded.deinit();
     if (opts.rstd_io == .threaded) libs.rstd_io = threaded.io();
+    // `--rstd-io=team`: the same `Io.Threaded`, as one resident worker team (issue #561)
+    var team: blas.Team = undefined;
+    if (opts.rstd_io == .team) {
+        team.init(threaded.io(), if (opts.threads) |n| n else @intCast(blas.config.cpu_count));
+        libs.rstd_io = team.io();
+    }
+    defer if (opts.rstd_io == .team) team.deinit();
     const all = sections.items.len == 0;
     const want = struct {
         fn f(list: []const []const u8, name: []const u8) bool {

@@ -116,6 +116,8 @@ pub const RstdIo = enum {
     threaded,
     /// Serial: `Io.failing` runs every task inline.
     failing,
+    /// The same `Io.Threaded`, its workers resident in one `Team` (issue #561).
+    team,
 };
 
 /// And an `Io`: `main` sets it.
@@ -272,6 +274,7 @@ pub fn loadLibs(opts: LibOptions) !void {
     const io_name = switch (opts.rstd_io) {
         .threaded => "Io.Threaded",
         .failing => "Io.failing",
+        .team => "a Team on Io.Threaded",
     };
     const ceiling = blas.config.threadCeiling();
     std.debug.print("rstd core: {s}, accelerate: {}, io: {s}, ceiling: {?d}, cpus: {d}\n", .{ blas.coreName(), routed, io_name, ceiling, blas.config.cpu_count });
