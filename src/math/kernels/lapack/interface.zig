@@ -183,5 +183,28 @@ pub fn workers(size_max: u64) u32 {
     return @min(w, threading.chunks_max);
 }
 
+/// A worker team for one routine's duration (issue #561): the routine's many
+/// medium calls then run on workers that wait hot between them, not on ones
+/// started per call. `open` returns the `Io` to pass down: the caller's own
+/// where it is a team already, `use` is false, or one worker is all there is.
+/// Not to be copied after `open`; `close` ends the team.
+pub const OwnTeam = struct {
+    team: threading.Team = undefined,
+    owned: bool = false,
+
+    pub fn open(o: *OwnTeam, io: std.Io, use: bool) std.Io {
+        if (!use or threading.Team.of(io) != null) return io;
+        const w = workers(std.math.maxInt(u64));
+        if (w < 2) return io;
+        o.team.init(io, w);
+        o.owned = true;
+        return o.team.io();
+    }
+
+    pub fn close(o: *OwnTeam) void {
+        if (o.owned) o.team.deinit();
+    }
+};
+
 /// LAPACK's `JOBZ`, `JOBVL`, `JOBVR`, `JOBVS`: vectors (`V`) or not (`N`).
 pub const VectorJob = enum { none, compute };

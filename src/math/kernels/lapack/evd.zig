@@ -70,8 +70,15 @@ fn driver(al: Allocator, io: Io, comptime T: type, jobz: VectorJob, uplo: Uplo, 
     if (w.len < n) return error.SliceTooShort;
     if (n == 0) return;
     const am: Mat(T) = .{ .ptr = a.ptr, .rows = n, .cols = n, .ld = lda };
-    return symmetric(al, io, T, jobz == .compute, uplo.isLower(), am, w[0..n], threshold);
+    var own: interface.OwnTeam = .{};
+    defer own.close();
+    return symmetric(al, own.open(io, n >= team_from), T, jobz == .compute, uplo.isLower(), am, w[0..n], threshold);
 }
+
+/// The order from which the drivers run on a team of their own: where the
+/// reduction's level-2 calls start to thread (OpenBLAS's `symv.c`: `n < 200`
+/// one thread; issue #561).
+pub const team_from = 200;
 
 /// The drivers after their checks: `dsyevd.f:292-307`'s scaling into
 /// `[sqrt(SMLNUM), sqrt(BIGNUM)]`, faer's `self_adjoint_evd`, the values

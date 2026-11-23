@@ -106,7 +106,10 @@ pub fn potrfChecked(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, 
     // one packing space for every team, as upstream's one buffer per call
     var kept: Kept = .init(allocator);
     defer kept.deinit();
-    return factorParallel(kept.allocator(), io, T, vt, upper, blk, n, a.ptr, lda, w, interface.team_grain, interface.block_grain);
+    // its trailing updates on one team of resident workers (issue #561)
+    var own: interface.OwnTeam = .{};
+    defer own.close();
+    return factorParallel(kept.allocator(), own.open(io, true), T, vt, upper, blk, n, a.ptr, lda, w, interface.team_grain, interface.block_grain);
 }
 
 /// `?POTF2`: `potrf` unblocked (`potf2_U.c` and the rest, as loops), with
