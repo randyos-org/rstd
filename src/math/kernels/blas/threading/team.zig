@@ -117,7 +117,12 @@ pub const Signal = struct {
 
     /// Waits until the value is other than `old`; returns it.
     pub fn waitWhile(s: *Signal, io: Io, old: u32, lent: ?*Lent) Io.Cancelable!u32 {
-        for (0..spin_limit) |_| {
+        return s.waitWhileFor(io, old, lent, spin_limit);
+    }
+
+    /// `waitWhile`, spinning `spins` rounds before it sleeps.
+    pub fn waitWhileFor(s: *Signal, io: Io, old: u32, lent: ?*Lent, spins: usize) Io.Cancelable!u32 {
+        for (0..spins) |_| {
             const x = s.value.load(.acquire);
             if (x != old) return x;
             std.atomic.spinLoopHint();

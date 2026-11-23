@@ -8,6 +8,8 @@
 const std = @import("std");
 const sysinfo = @import("builtin");
 const Signal = @import("team.zig").Signal;
+const spin_limit = @import("team.zig").spin_limit;
+const threading = @import("../threading.zig");
 const Tasks = @import("tasks.zig").Tasks;
 
 const Io = std.Io;
@@ -31,9 +33,19 @@ busy: std.atomic.Value(bool) = .init(false),
 /// The job: its function and context.
 run_fn: ?*const fn (*anyopaque, Io, u32) void = null,
 run_ctx: ?*anyopaque = null,
+/// An idle worker's spins: `idle_spins` where the team fits the CPUs,
+/// `spin_limit` where its workers outnumber them and would spin in each
+/// other's way.
+spins: usize = spin_limit,
 
 /// The most workers a team starts, the caller not among them.
 pub const workers_max = 64;
+
+/// Spins of an idle worker's wait for the next job before it sleeps: a team
+/// lives only as long as its owner keeps it, and a worker that sleeps between
+/// a routine's many calls wakes late (on the M6, on an Efficiency core; issue
+/// #561). The probe's value, to tune.
+pub const idle_spins = 1 << 22;
 
 const Wake = struct { signal: Signal align(std.atomic.cache_line) = .{} };
 
@@ -45,6 +57,7 @@ pub fn init(t: *Team, parent: Io, workers: u32) void {
     t.* = .{ .vtable = parent.vtable.*, .inner = parent, .tasks = .init(parent) };
     t.vtable.crashHandler = &marker;
     if (comptime sysinfo.single_threaded) return;
+    if (workers <= threading.cpuCount()) t.spins = idle_spins;
     while (t.started < workers_max and t.started + 1 < workers) : (t.started += 1) {
         t.tasks.concurrent(parent, worker, .{ t, t.started + 1 }) catch break;
     }
@@ -78,7 +91,7 @@ fn worker(t: *Team, i: u32) void {
     const wio = t.inner;
     var seen: u32 = 0;
     while (true) {
-        seen = t.wake[i - 1].signal.waitWhile(wio, seen, null) catch return wio.recancel();
+        seen = t.wake[i - 1].signal.waitWhileFor(wio, seen, null, t.spins) catch return wio.recancel();
         if (t.stop.load(.acquire)) return;
         // woken only for a job it takes part in, and the caller waits for it
         t.run_fn.?(t.run_ctx.?, wio, i);
