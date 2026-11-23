@@ -230,12 +230,12 @@ fn wide(comptime T: type, comptime lanes: Lanes) bool {
 
 /// `?DOT`/`?DOTU` (`interface/dot.c`, `zdot.c`): `x . y`, 0 for `n <= 0`;
 /// complex `f32` summed in `f64`.
-pub fn dot(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) Error!T {
+pub inline fn dot(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) Error!T {
     return dotImpl(io, T, false, .plain, n, x, incx, y, incy);
 }
 
 /// `?DOTC`: `conj(x) . y`. Complex only.
-pub fn dotc(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) Error!T {
+pub inline fn dotc(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) Error!T {
     comptime util.requireComplex(T, "dotc");
     return dotImpl(io, T, true, .plain, n, x, incx, y, incy);
 }

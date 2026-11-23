@@ -96,13 +96,13 @@ pub fn scalReal(io: Io, comptime T: type, alpha: Float(T), x: Strided(T)) Io.Can
 // ---- dot ---------------------------------------------------------------------
 
 /// `x . y`, 0 for empty vectors.
-pub fn dot(io: Io, comptime T: type, x: ConstStrided(T), y: ConstStrided(T)) PairError!T {
+pub inline fn dot(io: Io, comptime T: type, x: ConstStrided(T), y: ConstStrided(T)) PairError!T {
     try x.sameLength(y);
     return core.dot(io, T, len(x), ptr(T, x), inc(x), ptr(T, y), inc(y)) catch |e| return canceled(e);
 }
 
 /// `conj(x) . y`. Complex only.
-pub fn dotc(io: Io, comptime T: type, x: ConstStrided(T), y: ConstStrided(T)) PairError!T {
+pub inline fn dotc(io: Io, comptime T: type, x: ConstStrided(T), y: ConstStrided(T)) PairError!T {
     try x.sameLength(y);
     return core.dotc(io, T, len(x), ptr(T, x), inc(x), ptr(T, y), inc(y)) catch |e| return canceled(e);
 }
