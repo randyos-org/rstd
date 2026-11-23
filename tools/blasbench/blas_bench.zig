@@ -163,7 +163,9 @@ pub fn main(init: std.process.Init) !void {
     } else std.debug.print("zig {s}, {t}-{t}, cpu model {s}; the libraries alone, rstd never initialized\n", .{ sysinfo.zig_version_string, sysinfo.target.cpu.arch, os_tag, sysinfo.target.cpu.model.name });
     // before anything selects rstd's core, which reads its ceiling then
     try setThreadEnv(opts.threads);
-    var threaded: Io.Threaded = .init(std.heap.c_allocator, if (opts.threads) |t| .{ .async_limit = .limited(t - 1), .concurrent_limit = .limited(t - 1) } else .{});
+    // a program's default limits: `--threads` caps rstd by its ceiling alone, as
+    // `Io.Threaded` frees a slot only after its task wakes the awaiter (issue #684)
+    var threaded: Io.Threaded = .init(std.heap.c_allocator, .{});
     defer threaded.deinit();
     if (opts.rstd_io == .threaded) libs.rstd_io = threaded.io();
     const all = sections.items.len == 0;
