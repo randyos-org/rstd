@@ -84,8 +84,13 @@ pub fn Svd(comptime T: type) type {
 pub const SvdError = error{NoConvergence} || Allocator.Error || Io.Cancelable;
 
 /// `NanInA` is `NoConvergence`.
-pub fn svdError(e: anyerror) SvdError {
-    return if (e == error.NanInA) error.NoConvergence else narrow(SvdError, e);
+pub fn svdError(e: anytype) SvdError {
+    switch (e) {
+        inline else => |err| {
+            if (comptime std.mem.eql(u8, @errorName(err), "NanInA")) return error.NoConvergence;
+            return narrow(SvdError, err);
+        },
+    }
 }
 
 /// `A = U Σ Vᴴ` (MATLAB's `svd`): the values alone by `gesvd` (QR

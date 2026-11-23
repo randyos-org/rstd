@@ -13,6 +13,7 @@ const mem = @import("../../../mem.zig");
 const matrix = @import("../matrix.zig");
 const vector = @import("../vector.zig");
 const util = @import("util.zig");
+const ops = @import("../../kernels/lapack/ops.zig");
 const products = @import("products.zig");
 const schur_form = @import("schur_form.zig");
 
@@ -58,12 +59,8 @@ pub fn similar(comptime T: type, ar: Allocator, io: Io, u: Mat(T), r: Mat(T)) (A
     return products.mul(ar, io, ur, uh) catch |e| narrow(e);
 }
 
-fn narrow(e: anyerror) (Allocator.Error || Io.Cancelable) {
-    return switch (e) {
-        error.OutOfMemory => error.OutOfMemory,
-        error.Canceled => error.Canceled,
-        else => unreachable,
-    };
+fn narrow(e: anytype) (Allocator.Error || Io.Cancelable) {
+    return ops.narrow(Allocator.Error || Io.Cancelable, e);
 }
 
 /// `t` (upper triangular, or quasi-triangular for real `T`) becomes its
