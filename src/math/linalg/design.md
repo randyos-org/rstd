@@ -2280,7 +2280,7 @@ they run natively too.
   interfaces' stack buffers hold NaN in tests, so a kernel that reads scratch it did not write
   fails.
 - **Blocking is shrunk.** Level 3 runs on a vtable whose `P`, `Q` and `R` are shrunk to `2 *
-  unroll_m`, 5 and `6 * unroll_n + 1` (ours, `_test/blas3/check.zig:624`), so every block and panel edge comes at small sizes, then
+  unroll_m`, 5 and `6 * unroll_n + 1` (ours, `_test/blas3/check.zig`'s `shrinkBlocking`), so every block and panel edge comes at small sizes, then
   once at the core's own blocking, past `R` (natively also past twice `P` and `Q`).
 - **Foreign tiles.** `blas3/gemm/__root__.zig` installs tiles other targets choose
   (`installTile`: NEON's, 8 x 3 complex) to run every routine over them on any host.

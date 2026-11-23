@@ -4,580 +4,40 @@
 
 const std = @import("std");
 const blas = @import("../../__root__.zig");
-const l2 = @import("../../blas2/core.zig");
 const Vtable = @import("../../Vtable.zig");
-const util = @import("../../util.zig");
 const check = @import("../check.zig");
-const bitwise = @import("../bitwise.zig");
-const guard = @import("../guard.zig");
 const pattern = @import("../pattern.zig");
-const reference = @import("../reference.zig");
 const portable = @import("../../portable.zig");
 const accel = @import("../../apple_accel.zig");
 const test_io = @import("../io.zig");
+const cs = @import("edge/case.zig");
+const rn = @import("edge/runs.zig");
 
-const Allocator = std.mem.Allocator;
 const C = std.math.Complex;
 const Float = check.FloatOf;
 const isComplex = check.isComplex;
-const Wide = reference.Wide;
 const Pattern = pattern.Pattern;
-const Vector = check.Vector;
-
-const Kind = enum { general, symmetric, hermitian, hermitian_rev, triangular };
-const Layout = enum { full, band, packed_ };
-
-/// What a matrix operand is and how it is stored.
-const Shape = struct {
-    kind: Kind,
-    layout: Layout = .full,
-    m: usize,
-    n: usize,
-    /// Sub- and superdiagonals of a band; a triangle's other one is 0.
-    kl: usize = 0,
-    ku: usize = 0,
-    lower: bool = false,
-    unit: bool = false,
-    /// A solve's: the diagonal dominant and left out of the pattern.
-    solve: bool = false,
-    /// Rows of padding below a full or band matrix.
-    pad: usize = 1,
-
-    fn ld(s: Shape) usize {
-        return switch (s.layout) {
-            .full => s.m + s.pad,
-            .band => s.kl + s.ku + 1 + s.pad,
-            .packed_ => 1,
-        };
-    }
-
-    fn len(s: Shape) usize {
-        return if (s.layout == .packed_) s.n * (s.n + 1) / 2 else s.ld() * s.n;
-    }
-
-    /// Where `(i, j)` is stored, if it is.
-    fn stored(s: Shape, i: usize, j: usize) ?usize {
-        if (s.kind == .general) return switch (s.layout) {
-            .full => i + j * s.ld(),
-            .band => if (i + s.ku >= j and i <= j + s.kl) s.ku + i - j + j * s.ld() else null,
-            .packed_ => unreachable,
-        };
-        if (if (s.lower) i < j else i > j) return null;
-        const d = if (s.lower) i - j else j - i;
-        return switch (s.layout) {
-            .full => i + j * s.ld(),
-            .band => if (d > s.kl + s.ku) null else (if (s.lower) d else s.ku - d) + j * s.ld(),
-            .packed_ => if (s.lower) j * (2 * s.n - j + 1) / 2 + d else j * (j + 1) / 2 + i,
-        };
-    }
-
-    /// Whether the routine reads entry `(i, j)`: stored, and not a unit diagonal.
-    fn read(s: Shape, i: usize, j: usize) ?usize {
-        if (i == j and s.unit) return null;
-        return s.stored(i, j);
-    }
-
-    /// The entries a pattern goes through, in `init`'s order.
-    fn entries(s: Shape) usize {
-        var k: usize = 0;
-        for (0..s.n) |j| for (0..s.m) |i| {
-            if (s.read(i, j) != null and !(s.solve and i == j)) k += 1;
-        };
-        return k;
-    }
-};
-
-fn Matrix(comptime T: type) type {
-    return struct {
-        const Self = @This();
-        s: Shape,
-        buf: []T,
-        was: []T,
-
-        /// Random entries where the routine reads, shaped by `p` in order;
-        /// NaN everywhere else, and in a Hermitian diagonal's imaginary part.
-        fn init(al: Allocator, s: Shape, seed: u64, p: ?Pattern) !Self {
-            const F = Float(T);
-            const buf = try al.alloc(T, s.len() + check.tail);
-            errdefer al.free(buf);
-            @memset(std.mem.sliceAsBytes(buf), 0xff);
-            const vals = try al.alloc(T, s.len());
-            defer al.free(vals);
-            check.fill(T, vals, seed);
-            const sc: F = if (s.solve) 1 / @sqrt(@as(F, @floatFromInt(s.n + 1))) else 1;
-            var k: usize = 0;
-            for (0..s.n) |j| for (0..s.m) |i| {
-                const idx = s.read(i, j) orelse continue;
-                var v = vals[idx];
-                if (s.solve and i == j) {
-                    v = if (comptime isComplex(T)) .init(3 + @abs(v.re), v.im) else 3 + @abs(v);
-                } else {
-                    if (s.solve) v = if (comptime isComplex(T)) .init(v.re * sc, v.im * sc) else v * sc;
-                    if (p) |q| v = pattern.shape(T, v, k, q);
-                    k += 1;
-                }
-                if (comptime isComplex(T)) if (i == j and (s.kind == .hermitian or s.kind == .hermitian_rev)) {
-                    buf[idx].re = v.re;
-                    continue;
-                };
-                buf[idx] = v;
-            };
-            return .{ .s = s, .buf = buf, .was = try al.dupe(T, buf) };
-        }
-
-        fn deinit(self: *Self, al: Allocator) void {
-            al.free(self.was);
-            al.free(self.buf);
-        }
-
-        fn ld(self: *const Self) isize {
-            return @intCast(self.s.ld());
-        }
-
-        /// NaN in every entry: the routine must not read them.
-        fn poison(self: *Self) void {
-            @memset(std.mem.sliceAsBytes(self.buf), 0xff);
-            @memcpy(self.was, self.buf);
-        }
-
-        /// Entry `(i, j)` of the matrix the storage stands for, as it was;
-        /// null for a zero outside the band or triangle, which the reference
-        /// never multiplies.
-        fn at(self: *const Self, i: usize, j: usize) ?Wide(T) {
-            const s = self.s;
-            const z: ?Wide(T) = null;
-            switch (s.kind) {
-                .general => return if (s.stored(i, j)) |k| reference.wide(T, self.was[k]) else z,
-                .triangular => {
-                    const k = s.stored(i, j) orelse return z;
-                    if (i == j and s.unit) return reference.wide(T, if (comptime isComplex(T)) T.init(1, 0) else 1);
-                    return reference.wide(T, self.was[k]);
-                },
-                .symmetric => {
-                    const k = s.stored(i, j) orelse s.stored(j, i) orelse return z;
-                    return reference.wide(T, self.was[k]);
-                },
-                .hermitian, .hermitian_rev => {
-                    if (comptime !isComplex(T)) unreachable;
-                    if (i == j) return .init(self.was[s.stored(i, i).?].re, 0);
-                    const rev = s.kind == .hermitian_rev;
-                    if (s.stored(i, j)) |k| return if (rev) reference.conjW(reference.wide(T, self.was[k])) else reference.wide(T, self.was[k]);
-                    const k = s.stored(j, i) orelse return z;
-                    return if (rev) reference.wide(T, self.was[k]) else reference.conjW(reference.wide(T, self.was[k]));
-                },
-            }
-        }
-
-        fn unchanged(self: *const Self) !void {
-            for (self.buf, self.was, 0..) |a, b, k| if (!bitwise.same(T, a, b, true)) {
-                check.say("matrix storage {d} changed: ", .{k});
-                return error.TestUnexpectedResult;
-            };
-        }
-    };
-}
-
-/// Where a case's pattern goes.
-const Where = enum { a, x, y, none };
-
-const Case = struct {
-    m: usize,
-    n: usize,
-    /// A band's widths: `kl`, `ku`, or a triangle's `k` in both.
-    kl: usize,
-    ku: usize,
-    inc: [2]isize,
-    p: Pattern,
-    where: Where,
-    /// A second operand's pattern.
-    also: ?struct { where: Where, p: Pattern } = null,
-    /// The matrix's rows of padding (`Shape.pad`).
-    pad: usize = 1,
-
-    /// The pattern operand `w` takes, if any.
-    fn on(c: Case, w: Where) ?Pattern {
-        if (c.where == w) return c.p;
-        if (c.also) |a| if (a.where == w) return a.p;
-        return null;
-    }
-};
-
-const Routine = enum {
-    gemv,
-    gbmv,
-    symv,
-    hemv,
-    sbmv,
-    hbmv,
-    spmv,
-    hpmv,
-    trmv,
-    tbmv,
-    tpmv,
-    trsv,
-    tbsv,
-    tpsv,
-    ger,
-    gerc,
-    syr,
-    her,
-    spr,
-    hpr,
-    syr2,
-    her2,
-    spr2,
-    hpr2,
-
-    fn complexOnly(r: Routine) bool {
-        return switch (r) {
-            .hemv, .hbmv, .hpmv, .gerc, .her, .hpr, .her2, .hpr2 => true,
-            else => false,
-        };
-    }
-
-    const Family = enum { mv, tr, rank };
-
-    fn family(r: Routine) Family {
-        return switch (r) {
-            .gemv, .gbmv, .symv, .hemv, .sbmv, .hbmv, .spmv, .hpmv => .mv,
-            .trmv, .tbmv, .tpmv, .trsv, .tbsv, .tpsv => .tr,
-            else => .rank,
-        };
-    }
-
-    fn layout(r: Routine) Layout {
-        return switch (r) {
-            .gbmv, .sbmv, .hbmv, .tbmv, .tbsv => .band,
-            .spmv, .hpmv, .tpmv, .tpsv, .spr, .hpr, .spr2, .hpr2 => .packed_,
-            else => .full,
-        };
-    }
-
-    fn solve(r: Routine) bool {
-        return r == .trsv or r == .tbsv or r == .tpsv;
-    }
-
-    /// Variants: `gemv`'s and `gbmv`'s transposes, the triangles (with
-    /// `hemv`'s and `hbmv`'s reversed Hermitian ones), and the triangular
-    /// routines' triangle, transpose and diagonal (`v / 8`, `v / 2 % 4`,
-    /// `v % 2`).
-    fn variants(r: Routine, complex: bool) usize {
-        return switch (r) {
-            .gemv, .gbmv => if (complex) 8 else 2,
-            .hemv, .hbmv => 4,
-            .trmv, .tbmv, .tpmv, .trsv, .tbsv, .tpsv => 16,
-            .ger, .gerc => 1,
-            else => 2,
-        };
-    }
-};
-
-/// `gemv`'s `TRANS` letters by variant: transposed, `A` conjugated, `x`
-/// conjugated.
-const trans_flags = [8][3]bool{
-    .{ false, false, false }, .{ true, false, false }, .{ false, true, false }, .{ true, true, false },
-    .{ false, false, true },  .{ true, false, true },  .{ false, true, true },  .{ true, true, true },
-};
-
-fn shapeOf(r: Routine, v: usize, c: Case) Shape {
-    const herm_kind: Kind = if (v >= 2) .hermitian_rev else .hermitian;
-    var s: Shape = switch (r) {
-        .gemv, .ger, .gerc => .{ .kind = .general, .m = c.m, .n = c.n },
-        .gbmv => .{ .kind = .general, .layout = .band, .m = c.m, .n = c.n, .kl = c.kl, .ku = c.ku },
-        .symv, .sbmv, .spmv, .syr, .spr, .syr2, .spr2 => .{ .kind = .symmetric, .layout = r.layout(), .m = c.n, .n = c.n, .lower = v == 1, .kl = if (v == 1) c.kl else 0, .ku = if (v == 1) 0 else c.ku },
-        .hemv, .hbmv, .hpmv, .her, .hpr, .her2, .hpr2 => .{ .kind = herm_kind, .layout = r.layout(), .m = c.n, .n = c.n, .lower = v % 2 == 1, .kl = if (v % 2 == 1) c.kl else 0, .ku = if (v % 2 == 1) 0 else c.ku },
-        .trmv, .tbmv, .tpmv, .trsv, .tbsv, .tpsv => .{ .kind = .triangular, .layout = r.layout(), .m = c.n, .n = c.n, .lower = v / 8 == 1, .unit = v % 2 == 1, .kl = if (v / 8 == 1) c.kl else 0, .ku = if (v / 8 == 1) 0 else c.ku, .solve = r.solve() },
-    };
-    s.pad = c.pad;
-    return s;
-}
-
-/// Scratch from the heap holds NaN, so a driver that reads what it did not
-/// write shows.
-var poison: guard.Poison = .{ .child = std.testing.allocator };
-
-const val = check.val;
-
-fn zeroW(v: anytype) bool {
-    return if (comptime isComplex(@TypeOf(v))) v.re == 0 and v.im == 0 else v == 0;
-}
-
-const isZero = util.isZero;
-
-/// `y := alpha*op(A)*x + beta*y` for the matrix-vector products.
-fn mvRun(comptime T: type, comptime r: Routine, v: usize, alpha: T, beta: T, c: Case) !void {
-    const al = std.testing.allocator;
-    const s = shapeOf(r, v, c);
-    const t = if (r == .gemv or r == .gbmv) trans_flags[v] else [3]bool{ false, false, false };
-    const rows = if (t[0]) s.n else s.m;
-    const cols = if (t[0]) s.m else s.n;
-    var a: Matrix(T) = try .init(al, s, 7 * c.m + c.n, c.on(.a));
-    defer a.deinit(al);
-    var x: Vector(T) = try .init(al, cols, c.inc[0], cols + 3, c.on(.x));
-    defer x.deinit(al);
-    var y: Vector(T) = try .init(al, rows, c.inc[1], rows + 5, c.on(.y));
-    defer y.deinit(al);
-    if (isZero(T, beta)) y.poison();
-    if (isZero(T, alpha)) {
-        a.poison();
-        x.poison();
-    }
-    const pa = poison.allocator();
-    const m: isize = @intCast(s.m);
-    const n: isize = @intCast(s.n);
-    const ix = c.inc[0];
-    const iy = c.inc[1];
-    switch (r) {
-        .gemv => try l2.gemv(pa, check.io, T, @fromBackingInt(@intCast(v)), m, n, alpha, a.buf.ptr, a.ld(), x.base(), ix, beta, y.base(), iy),
-        .gbmv => try l2.gbmv(pa, check.io, T, @fromBackingInt(@intCast(v)), m, n, @intCast(s.kl), @intCast(s.ku), alpha, a.buf.ptr, a.ld(), x.base(), ix, beta, y.base(), iy),
-        .symv => try l2.symv(pa, check.io, T, if (s.lower) .l else .u, n, alpha, a.buf.ptr, a.ld(), x.base(), ix, beta, y.base(), iy),
-        .hemv => if (comptime isComplex(T)) try l2.hemv(pa, check.io, T, @fromBackingInt(@intCast(v)), n, alpha, a.buf.ptr, a.ld(), x.base(), ix, beta, y.base(), iy),
-        .sbmv => try l2.sbmv(pa, check.io, T, if (s.lower) .l else .u, n, @intCast(s.kl + s.ku), alpha, a.buf.ptr, a.ld(), x.base(), ix, beta, y.base(), iy),
-        .hbmv => if (comptime isComplex(T)) try l2.hbmv(pa, check.io, T, @fromBackingInt(@intCast(v)), n, @intCast(s.kl + s.ku), alpha, a.buf.ptr, a.ld(), x.base(), ix, beta, y.base(), iy),
-        .spmv => try l2.spmv(pa, check.io, T, if (s.lower) .l else .u, n, alpha, a.buf.ptr, x.base(), ix, beta, y.base(), iy),
-        .hpmv => if (comptime isComplex(T)) try l2.hpmv(pa, check.io, T, @fromBackingInt(@intCast(v)), n, alpha, a.buf.ptr, x.base(), ix, beta, y.base(), iy),
-        else => unreachable,
-    }
-    try a.unchanged();
-    try x.unchanged();
-    const wa = reference.wide(T, alpha);
-    const wb = reference.wide(T, beta);
-    for (0..rows) |i| {
-        var acc = reference.wide(T, val(T, 0, 0));
-        var mag: f128 = 0;
-        var terms: usize = 0;
-        if (!isZero(T, alpha)) for (0..cols) |j| {
-            var e = (if (t[0]) a.at(j, i) else a.at(i, j)) orelse continue;
-            terms += 1;
-            if (t[1]) e = reference.conjW(e);
-            const xv = if (t[2]) reference.conjW(x.w(j)) else x.w(j);
-            acc = reference.addW(acc, reference.mulW(e, xv));
-            mag += reference.mag(e) * reference.mag(xv);
-        };
-        // a row with no entries (a band's) is only scaled
-        var want = if (terms == 0) acc else reference.mulW(wa, acc);
-        var scale = reference.mag(wa) * mag;
-        if (!isZero(T, beta)) {
-            want = reference.addW(want, reference.mulW(wb, y.w(i)));
-            scale += reference.mag(wb) * reference.mag(y.w(i));
-        }
-        pattern.expectWideAnyOrder(T, want, y.at(i), @floatFromInt(4 * (cols + 2)), scale) catch |e| {
-            check.say("y[{d}]: ", .{i});
-            return e;
-        };
-    }
-    try y.gaps();
-}
-
-/// `x := op(A)*x`, or the solve of `op(A)*z = x`.
-fn trRun(comptime T: type, comptime r: Routine, v: usize, c: Case) !void {
-    const al = std.testing.allocator;
-    const s = shapeOf(r, v, c);
-    const op: blas.Trans = @fromBackingInt(@intCast((v / 2) % 4));
-    const tr = op == .t or op == .c;
-    const cj = op == .r or op == .c;
-    var a: Matrix(T) = try .init(al, s, 7 * c.n + v, c.on(.a));
-    defer a.deinit(al);
-    var x: Vector(T) = try .init(al, s.n, c.inc[0], s.n + 3, c.on(.x));
-    defer x.deinit(al);
-    const pa = poison.allocator();
-    const uplo: blas.Uplo = if (s.lower) .l else .u;
-    const diag: blas.Diag = if (s.unit) .u else .n;
-    const n: isize = @intCast(s.n);
-    const k: isize = @intCast(s.kl + s.ku);
-    switch (r) {
-        .trmv => try l2.trmv(pa, check.io, T, uplo, op, diag, n, a.buf.ptr, a.ld(), x.base(), c.inc[0]),
-        .tbmv => try l2.tbmv(pa, check.io, T, uplo, op, diag, n, k, a.buf.ptr, a.ld(), x.base(), c.inc[0]),
-        .tpmv => try l2.tpmv(pa, check.io, T, uplo, op, diag, n, a.buf.ptr, x.base(), c.inc[0]),
-        .trsv => try l2.trsv(pa, check.io, T, uplo, op, diag, n, a.buf.ptr, a.ld(), x.base(), c.inc[0]),
-        .tbsv => try l2.tbsv(pa, check.io, T, uplo, op, diag, n, k, a.buf.ptr, a.ld(), x.base(), c.inc[0]),
-        .tpsv => try l2.tpsv(pa, check.io, T, uplo, op, diag, n, a.buf.ptr, x.base(), c.inc[0]),
-        else => unreachable,
-    }
-    try a.unchanged();
-    // op(A)'s (i, j)
-    const M = struct {
-        fn at(m: *const Matrix(T), t: bool, conj: bool, i: usize, j: usize) ?Wide(T) {
-            const e = (if (t) m.at(j, i) else m.at(i, j)) orelse return null;
-            return if (conj) reference.conjW(e) else e;
-        }
-    };
-    var z: [max_order]Wide(T) = undefined;
-    const lower = s.lower != tr;
-    for (0..s.n) |q| {
-        // the solve goes from the end its triangle starts at
-        const i = if (!r.solve() or lower) q else s.n - 1 - q;
-        var acc = reference.wide(T, val(T, 0, 0));
-        var mag: f128 = 0;
-        for (0..s.n) |j| {
-            if (r.solve() and (j == i or (if (lower) j > i else j < i))) continue;
-            const e = M.at(&a, tr, cj, i, j) orelse continue;
-            const u = if (r.solve()) z[j] else x.w(j);
-            // a unit diagonal is not multiplied by
-            acc = reference.addW(acc, if (i == j and s.unit) u else reference.mulW(e, u));
-            mag += reference.mag(e) * reference.mag(u);
-        }
-        if (r.solve()) {
-            const d = M.at(&a, tr, cj, i, i).?;
-            const rhs = reference.subW(x.w(i), acc);
-            z[i] = if (s.unit) rhs else reference.divW(rhs, d);
-            mag = (mag + reference.mag(x.w(i))) / reference.mag(d);
-            pattern.expectWideAnyOrder(T, z[i], x.at(i), reference.solveUlps(s.n), mag) catch |e| {
-                check.say("z[{d}]: ", .{i});
-                return e;
-            };
-        } else {
-            pattern.expectWideAnyOrder(T, acc, x.at(i), @floatFromInt(4 * (s.n + 2)), mag) catch |e| {
-                check.say("x[{d}]: ", .{i});
-                return e;
-            };
-        }
-    }
-    try x.gaps();
-}
-
-fn setAt(comptime T: type, v: *Vector(T), i: usize, e: T) void {
-    v.was[i] = e;
-    v.buf[v.idx(i)] = e;
-}
-
-/// Zero factors beside a vector's special values, away from a lone one:
-/// at `z1` a column the reference passes over (`y` for `ger`, `x`, both for
-/// rank 2), as `-0`; for rank 2, at `z2` only the other vector's zero, a
-/// column it does not, so the special value meets that zero. They take the
-/// first indices, or the last for an upper triangle, whose columns are full.
-fn zeroFactors(comptime T: type, comptime r: Routine, c: Case, lower: bool, x: *Vector(T), y: *Vector(T)) void {
-    if (c.where != .x and c.where != .y) return;
-    const general = r == .ger or r == .gerc;
-    if (general and c.where == .y) return;
-    const n = if (general) y.n else x.n;
-    const lone: ?usize = switch (c.p) {
-        .one => |o| o.at,
-        else => null,
-    };
-    var z: [2]usize = undefined;
-    var found: usize = 0;
-    for (0..n) |k| {
-        const i = if (lower or general) k else n - 1 - k;
-        if (found < 2 and i != lone) {
-            z[found] = i;
-            found += 1;
-        }
-    }
-    if (found == 0) return;
-    const nz = val(T, -0.0, 0);
-    switch (r) {
-        .ger, .gerc => setAt(T, y, z[0], nz),
-        .syr, .spr, .her, .hpr => setAt(T, x, z[0], nz),
-        .syr2, .spr2, .her2, .hpr2 => {
-            setAt(T, x, z[0], nz);
-            setAt(T, y, z[0], nz);
-            if (found == 2) setAt(T, if (c.where == .x) y else x, z[1], val(T, 0, 0));
-        },
-        else => unreachable,
-    }
-}
-
-/// The rank updates: `A += alpha*x*y'` and its symmetric and Hermitian kin.
-fn rankRun(comptime T: type, comptime r: Routine, v: usize, alpha: T, c: Case) !void {
-    const al = std.testing.allocator;
-    const s = shapeOf(r, v, c);
-    const sym2 = r == .syr2 or r == .spr2 or r == .her2 or r == .hpr2;
-    const two = switch (r) {
-        .ger, .gerc, .syr2, .her2, .spr2, .hpr2 => true,
-        else => false,
-    };
-    var a: Matrix(T) = try .init(al, s, 7 * c.m + c.n + v, c.on(.a));
-    defer a.deinit(al);
-    var x: Vector(T) = try .init(al, s.m, c.inc[0], s.m + 3, c.on(.x));
-    defer x.deinit(al);
-    var y: Vector(T) = try .init(al, s.n, c.inc[1], s.n + 5, c.on(.y));
-    defer y.deinit(al);
-    zeroFactors(T, r, c, s.lower, &x, &y);
-    const az = isZero(T, alpha);
-    if (az) {
-        x.poison();
-        y.poison();
-    }
-    const pa = poison.allocator();
-    const m: isize = @intCast(s.m);
-    const n: isize = @intCast(s.n);
-    const ix = c.inc[0];
-    const iy = c.inc[1];
-    const ar = if (comptime isComplex(T)) alpha.re else alpha;
-    const up: blas.Uplo = if (s.lower) .l else .u;
-    switch (r) {
-        .ger => try l2.ger(pa, check.io, T, m, n, alpha, x.base(), ix, y.base(), iy, a.buf.ptr, a.ld()),
-        .gerc => if (comptime isComplex(T)) try l2.gerc(pa, check.io, T, m, n, alpha, x.base(), ix, y.base(), iy, a.buf.ptr, a.ld()),
-        .syr => try l2.syr(pa, check.io, T, up, n, alpha, x.base(), ix, a.buf.ptr, a.ld()),
-        .spr => try l2.spr(pa, check.io, T, up, n, alpha, x.base(), ix, a.buf.ptr),
-        .her => if (comptime isComplex(T)) try l2.her(pa, check.io, T, @fromBackingInt(@intCast(v)), n, ar, x.base(), ix, a.buf.ptr, a.ld()),
-        .hpr => if (comptime isComplex(T)) try l2.hpr(pa, check.io, T, @fromBackingInt(@intCast(v)), n, ar, x.base(), ix, a.buf.ptr),
-        .syr2 => try l2.syr2(pa, check.io, T, up, n, alpha, x.base(), ix, y.base(), iy, a.buf.ptr, a.ld()),
-        .spr2 => try l2.spr2(pa, check.io, T, up, n, alpha, x.base(), ix, y.base(), iy, a.buf.ptr),
-        .her2 => if (comptime isComplex(T)) try l2.her2(pa, check.io, T, @fromBackingInt(@intCast(v)), n, alpha, x.base(), ix, y.base(), iy, a.buf.ptr, a.ld()),
-        .hpr2 => if (comptime isComplex(T)) try l2.hpr2(pa, check.io, T, @fromBackingInt(@intCast(v)), n, alpha, x.base(), ix, y.base(), iy, a.buf.ptr),
-        else => unreachable,
-    }
-    try x.unchanged();
-    try y.unchanged();
-    if (az) return a.unchanged();
-    const herm = s.kind == .hermitian;
-    // `her` and `hpr` take the real part
-    const wa = reference.wide(T, if (r == .her or r == .hpr) val(T, ar, 0) else alpha);
-    // everything but the stored entries keeps its NaN
-    const hit = try al.alloc(bool, a.buf.len);
-    defer al.free(hit);
-    @memset(hit, false);
-    for (0..s.n) |j| for (0..s.m) |i| if (s.stored(i, j)) |k| {
-        hit[k] = true;
-    };
-    for (a.buf, hit, 0..) |e, h, k| {
-        if (!h and !bitwise.poisoned(T, e)) {
-            check.say("storage {d} written: ", .{k});
-            return error.TestUnexpectedResult;
-        }
-    }
-    for (0..s.n) |j| for (0..s.m) |i| {
-        const k = s.stored(i, j) orelse continue;
-        const xi = x.w(i);
-        const yj = if (two) y.w(j) else x.w(j);
-        // a column whose factors are zero is passed over, as the reference
-        // does
-        const skip = if (r == .ger or r == .gerc) zeroW(y.w(j)) else zeroW(x.w(j)) and (!sym2 or zeroW(y.w(j)));
-        var u = if (skip) reference.wide(T, val(T, 0, 0)) else switch (r) {
-            .ger, .syr, .spr => reference.mulW(wa, reference.mulW(xi, yj)),
-            .gerc => reference.mulW(wa, reference.mulW(xi, reference.conjW(yj))),
-            // a real alpha, part by part
-            .her, .hpr => reference.scaleW(ar, reference.mulW(xi, reference.conjW(yj))),
-            .syr2, .spr2 => reference.addW(reference.mulW(wa, reference.mulW(xi, yj)), reference.mulW(wa, reference.mulW(y.w(i), x.w(j)))),
-            .her2, .hpr2 => reference.addW(reference.mulW(wa, reference.mulW(xi, reference.conjW(yj))), reference.mulW(reference.conjW(wa), reference.mulW(y.w(i), reference.conjW(x.w(j))))),
-            else => unreachable,
-        };
-        var old = reference.wide(T, a.was[k]);
-        if (comptime isComplex(T)) if (herm and i == j) {
-            old.im = 0;
-            u.im = 0;
-        };
-        const scale = reference.mag(old) + reference.mag(wa) * (reference.mag(xi) * reference.mag(yj) + if (sym2) reference.mag(y.w(i)) * reference.mag(x.w(j)) else 0);
-        pattern.expectWideAnyOrder(T, reference.addW(old, u), a.buf[k], reference.update_ulps, scale) catch |e| {
-            check.say("A({d},{d}): ", .{ i, j });
-            return e;
-        };
-    };
-}
+const Case = cs.Case;
+const Routine = cs.Routine;
+const Where = cs.Where;
+const shapeOf = cs.shapeOf;
+const trans_flags = cs.trans_flags;
+const val = cs.val;
+const mvRun = rn.mvRun;
+const rankRun = rn.rankRun;
+const trRun = rn.trRun;
 
 /// A failure of the sweep, so one run names every failing routine; 0 for
 /// none, else `@intFromError`. Atomic: the Accelerate sweep runs routines on
 /// threads of their own.
-var failed = std.atomic.Value(@Int(.unsigned, @bitSizeOf(anyerror))).init(0);
+pub var failed = std.atomic.Value(@Int(.unsigned, @bitSizeOf(anyerror))).init(0);
 
-fn fail(e: anyerror) void {
+pub fn fail(e: anyerror) void {
     failed.store(@intFromError(e), .monotonic);
 }
 
 /// The failure since `failed` was cleared, if any.
-fn failure() ?anyerror {
+pub fn failure() ?anyerror {
     const v = failed.load(.monotonic);
     return if (v == 0) null else @errorFromInt(v);
 }
@@ -585,7 +45,7 @@ fn failure() ?anyerror {
 /// Runs `r` over its shapes, variants, operands and patterns, then its
 /// special scalars, for `T`; names a failing case and goes on with the next
 /// routine.
-fn sweep(comptime T: type, comptime r: Routine) void {
+pub fn sweep(comptime T: type, comptime r: Routine) void {
     const complex = comptime isComplex(T);
     if (comptime r.complexOnly() and !complex) return;
     const gen = val(T, 1.25, -0.5);
@@ -655,34 +115,34 @@ fn sweep(comptime T: type, comptime r: Routine) void {
 }
 
 /// m, n, kl, ku; the rigs take one, past the unrolls.
-const all_shapes = [_][4]usize{ .{ 1, 1, 0, 0 }, .{ 7, 4, 1, 2 }, .{ 4, 17, 3, 0 }, .{ 33, 9, 2, 2 } };
+pub const all_shapes = [_][4]usize{ .{ 1, 1, 0, 0 }, .{ 7, 4, 1, 2 }, .{ 4, 17, 3, 0 }, .{ 33, 9, 2, 2 } };
 
 /// The large strides' and leading dimension's shape (the rigs' one), strides
 /// by variant, and padding: past a page of `f32`, and within the rigs' 32 MiB
 /// heap at `Complex(f64)` (4.2 MB a vector).
-const large_shape = all_shapes[2];
-const large_incs = [_][2]isize{ .{ 4097, -4099 }, .{ -16411, 16417 } };
-const large_pad = 4099;
+pub const large_shape = all_shapes[2];
+pub const large_incs = [_][2]isize{ .{ 4097, -4099 }, .{ -16411, 16417 } };
+pub const large_pad = 4099;
 
 /// Accelerate's: every shape, and one past its small-problem paths.
-const accel_shapes = all_shapes ++ [_][4]usize{.{ 130, 67, 4, 6 }};
+pub const accel_shapes = all_shapes ++ [_][4]usize{.{ 130, 67, 4, 6 }};
 /// The largest order of any shape.
-const max_order = 130;
+pub const max_order = 130;
 
 /// Accelerate's largest shape takes every third variant: its `f128`
 /// reference is slow.
-fn thinned(sh: [4]usize, v: usize) bool {
+pub fn thinned(sh: [4]usize, v: usize) bool {
     return sh[0] == max_order and v % 3 != 0;
 }
-var accel_run = false;
+pub var accel_run = false;
 
-fn shapes() []const [4]usize {
+pub fn shapes() []const [4]usize {
     if (accel_run) return &accel_shapes;
     return if (check.rig()) all_shapes[2..3] else &all_shapes;
 }
 
 /// `r`'s case of shape `sh`, no pattern yet.
-fn baseCase(comptime r: Routine, sh: [4]usize) Case {
+pub fn baseCase(comptime r: Routine, sh: [4]usize) Case {
     const general = r == .gemv or r == .gbmv or r == .ger or r == .gerc;
     // square routines take `n` from the shape's larger side
     const sq = @max(sh[0], sh[1]);
@@ -692,7 +152,7 @@ fn baseCase(comptime r: Routine, sh: [4]usize) Case {
 /// Denormal results: denormal the operands that reach them (`x` tiny where
 /// it meets itself, so its products are), the rest and the scalars near 1,
 /// so a flushed input or result shows.
-fn denormals(comptime T: type, comptime r: Routine) void {
+pub fn denormals(comptime T: type, comptime r: Routine) void {
     const complex = comptime isComplex(T);
     if (comptime r.complexOnly() and !complex) return;
     const self = r == .syr or r == .spr or r == .her or r == .hpr;
@@ -716,7 +176,7 @@ fn denormals(comptime T: type, comptime r: Routine) void {
     };
 }
 
-fn run(comptime T: type, comptime r: Routine, v: usize, alpha: T, beta: T, c: Case) !void {
+pub fn run(comptime T: type, comptime r: Routine, v: usize, alpha: T, beta: T, c: Case) !void {
     return switch (comptime r.family()) {
         .mv => mvRun(T, r, v, alpha, beta, c),
         .tr => trRun(T, r, v, c),
@@ -724,7 +184,7 @@ fn run(comptime T: type, comptime r: Routine, v: usize, alpha: T, beta: T, c: Ca
     };
 }
 
-fn report(e: anyerror, comptime T: type, comptime r: Routine, v: usize, c: Case) void {
+pub fn report(e: anyerror, comptime T: type, comptime r: Routine, v: usize, c: Case) void {
     if (c.where != .none) c.p.describe();
     check.say("in {s}, {s} {s} variant {d} m={d} n={d} k={d},{d} inc={d},{d} pad={d}\n", .{ @tagName(c.where), @tagName(r), @typeName(T), v, c.m, c.n, c.kl, c.ku, c.inc[0], c.inc[1], c.pad });
     fail(e);
@@ -732,11 +192,11 @@ fn report(e: anyerror, comptime T: type, comptime r: Routine, v: usize, c: Case)
 
 /// Runs `jobs` on up to a thread per CPU, each taking the next until none
 /// remain; in turn on this thread where there are no threads.
-fn onThreads(comptime jobs: []const *const fn () void) void {
+pub fn onThreads(comptime jobs: []const *const fn () void) void {
     const Queue = struct {
         next: std.atomic.Value(usize) = .init(0),
 
-        fn work(q: *@This()) void {
+        pub fn work(q: *@This()) void {
             while (true) {
                 const i = q.next.fetchAdd(1, .monotonic);
                 if (i >= jobs.len) return;
@@ -762,14 +222,14 @@ fn onThreads(comptime jobs: []const *const fn () void) void {
 /// Real and complex apart, and the complex ones on every core in two (the
 /// products, then the rest): one test of more is too big an image for
 /// sparc64's debug rig.
-const real_types = .{ f32, f64 };
-const complex_types = .{ C(f32), C(f64) };
-const all_routines = std.enums.values(Routine);
-const products = routinesOf(true);
-const solves_and_updates = routinesOf(false);
+pub const real_types = .{ f32, f64 };
+pub const complex_types = .{ C(f32), C(f64) };
+pub const all_routines = std.enums.values(Routine);
+pub const products = routinesOf(true);
+pub const solves_and_updates = routinesOf(false);
 
 /// The routines that are products (`mv`), or the rest.
-fn routinesOf(comptime mv: bool) []const Routine {
+pub fn routinesOf(comptime mv: bool) []const Routine {
     comptime {
         var n = 0;
         for (all_routines) |r| n += @intFromBool((r.family() == .mv) == mv);
@@ -787,11 +247,11 @@ fn routinesOf(comptime mv: bool) []const Routine {
 /// `vt`'s kernels, with its own `dtb_entries` and with 3, which takes the
 /// triangular drivers through `gemv`; static, as a vtable is large for a
 /// rig's stack.
-var small_dtb: Vtable = undefined;
+pub var small_dtb: Vtable = undefined;
 
-fn CheckAll(comptime types: anytype, comptime routines: []const Routine) type {
+pub fn CheckAll(comptime types: anytype, comptime routines: []const Routine) type {
     return struct {
-        fn sweepAll(vt: *const Vtable) !void {
+        pub fn sweepAll(vt: *const Vtable) !void {
             failed.store(0, .monotonic);
             {
                 const saved = blas.testUse(vt);
@@ -806,7 +266,7 @@ fn CheckAll(comptime types: anytype, comptime routines: []const Routine) type {
             if (failure()) |e| return e;
         }
 
-        fn denormalsAll(vt: *const Vtable) !void {
+        pub fn denormalsAll(vt: *const Vtable) !void {
             failed.store(0, .monotonic);
             const saved = blas.testUse(vt);
             defer blas.testRestore(saved);
@@ -830,7 +290,7 @@ fn CheckAll(comptime types: anytype, comptime routines: []const Routine) type {
         };
 
         /// Through Apple Accelerate, where the routines go to it.
-        fn accelerate() !void {
+        pub fn accelerate() !void {
             if (comptime !accel.covers(f64)) return error.SkipZigTest;
             const saved = blas.testUse(blas.vtable());
             defer blas.testRestore(saved);
@@ -839,7 +299,7 @@ fn CheckAll(comptime types: anytype, comptime routines: []const Routine) type {
         }
 
         /// `accelerate`'s sweep, on whatever the table routes to.
-        fn accelSweep() !void {
+        pub fn accelSweep() !void {
             failed.store(0, .monotonic);
             accel_run = true;
             defer accel_run = false;
@@ -847,7 +307,7 @@ fn CheckAll(comptime types: anytype, comptime routines: []const Routine) type {
             if (failure()) |e| return e;
         }
 
-        fn portableKernels() !void {
+        pub fn portableKernels() !void {
             var vt: Vtable = .{};
             portable.install(&vt);
             try sweepAll(&vt);

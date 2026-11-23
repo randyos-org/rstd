@@ -8,22 +8,26 @@ const blas = @import("../../../__root__.zig");
 const l1 = @import("../../../blas1/interface.zig");
 const real = @import("real_data.zig");
 const cplx = @import("complex_data.zig");
+const cc = @import("complex.zig");
 
 const Float = ob.Float;
-const isComplex = ob.isComplex;
 const C32 = std.math.Complex(f32);
 const C64 = std.math.Complex(f64);
+const ccheck1 = cc.ccheck1;
+const ccheck2 = cc.ccheck2;
+const ctest_c1 = cc.ctest_c1;
+const fortran_c1 = cc.fortran_c1;
 
 /// `SFAC`: the factor the differences are scaled by before comparing.
-const sfac = 9.765625e-4;
+pub const sfac = 9.765625e-4;
 
 /// The case a failure is reported against, as the Fortran's `COMBLA` does.
-const Case = struct { name: []const u8, n: isize = 0, incx: isize = 0, incy: isize = 0 };
+pub const Case = struct { name: []const u8, n: isize = 0, incx: isize = 0, incy: isize = 0 };
 
 /// `STEST`: `comp` against `want` within `|size| * eps / fac` each, in `F`.
 /// `old` takes ctest's criterion, that `|size| + |fac * diff|` rounds to
 /// `|size|`.
-fn stest(comptime F: type, c: Case, comp: []const F, want: []const f64, size: []const f64, fac: f64, old: bool) !void {
+pub fn stest(comptime F: type, c: Case, comp: []const F, want: []const f64, size: []const f64, fac: f64, old: bool) !void {
     for (comp, 0..) |got, i| {
         const sd: F = got - @as(F, @floatCast(want[i]));
         const s: F = @abs(@as(F, @floatCast(size[i])));
@@ -37,19 +41,19 @@ fn stest(comptime F: type, c: Case, comp: []const F, want: []const f64, size: []
 
 /// `SDIFF`: `a - b` with `a` rounded to `F` first, through memory, as x87
 /// would otherwise keep it wider.
-fn sdiff(comptime F: type, a: F, b: F) F {
+pub fn sdiff(comptime F: type, a: F, b: F) F {
     var t: F = undefined;
     const v: *volatile F = &t;
     v.* = a;
     return v.* - b;
 }
 
-fn stest1(comptime F: type, c: Case, comp: F, want: f64, size: f64, fac: f64) !void {
+pub fn stest1(comptime F: type, c: Case, comp: F, want: f64, size: f64, fac: f64) !void {
     try stest(F, c, &.{comp}, &.{want}, &.{size}, fac, false);
 }
 
 /// `CTEST`: `STEST` over the real and imaginary parts.
-fn ctest(comptime C: type, c: Case, comp: []const C, want: []const [2]f64, size: []const [2]f64, fac: f64, old: bool) !void {
+pub fn ctest(comptime C: type, c: Case, comp: []const C, want: []const [2]f64, size: []const [2]f64, fac: f64, old: bool) !void {
     const F = Float(C);
     var sc: [40]F = undefined;
     var st: [40]f64 = undefined;
@@ -66,24 +70,24 @@ fn ctest(comptime C: type, c: Case, comp: []const C, want: []const [2]f64, size:
     try stest(F, c, sc[0..len], st[0..len], ss[0..len], fac, old);
 }
 
-fn itest1(c: Case, comp: isize, want: isize) !void {
+pub fn itest1(c: Case, comp: isize, want: isize) !void {
     if (comp == want) return;
     ob.say("{s} n={d} incx={d}: got {d}, true {d}\n", .{ c.name, c.n, c.incx, comp, want });
     return error.TestUnexpectedResult;
 }
 
-fn load(comptime F: type, dst: []F, src: []const f64) void {
+pub fn load(comptime F: type, dst: []F, src: []const f64) void {
     for (dst, src[0..dst.len]) |*d, s| d.* = @floatCast(s);
 }
 
-fn loadC(comptime C: type, dst: []C, src: []const [2]f64) void {
+pub fn loadC(comptime C: type, dst: []C, src: []const [2]f64) void {
     for (dst, src[0..dst.len]) |*d, s| d.* = .init(@floatCast(s[0]), @floatCast(s[1]));
 }
 
 // ---- real --------------------------------------------------------------------
 
 /// `CHECK0`: `rotg` and `rotmg`.
-fn check0(comptime F: type) !void {
+pub fn check0(comptime F: type) !void {
     const p = if (F == f32) "S" else "D";
     var dbt = real.dbtrue;
     dbt[0] = 1.0 / 0.6;
@@ -106,7 +110,7 @@ fn check0(comptime F: type) !void {
     load(F, &dt, &real.dtrue);
     const d12: F = 4096;
     const T = struct {
-        fn at(a: *[81]F, i: usize, j: usize) *F {
+        pub fn at(a: *[81]F, i: usize, j: usize) *F {
             return &a[(i - 1) + 9 * (j - 1)];
         }
     }.at;
@@ -143,7 +147,7 @@ fn check0(comptime F: type) !void {
 }
 
 /// `CHECK1`: `nrm2`, `asum`, `scal`, `iamax`.
-fn check1(comptime F: type) !void {
+pub fn check1(comptime F: type) !void {
     const p = if (F == f32) "S" else "D";
     for (1..3) |incx| for (0..5) |np1| {
         const n = np1;
@@ -162,15 +166,15 @@ fn check1(comptime F: type) !void {
     };
 }
 
-const incxs = [_]isize{ 1, 2, -2, -1 };
-const incys = [_]isize{ 1, -2, 1, -2 };
-const ns = [_]isize{ 0, 1, 2, 4 };
+pub const incxs = [_]isize{ 1, 2, -2, -1 };
+pub const incys = [_]isize{ 1, -2, 1, -2 };
+pub const ns = [_]isize{ 0, 1, 2, 4 };
 /// `LENS(KN, |inc|)`: how many elements a vector of `NS(KN)` spans.
-const lens = [_]usize{ 1, 1, 2, 4, 1, 1, 3, 7 };
+pub const lens = [_]usize{ 1, 1, 2, 4, 1, 1, 3, 7 };
 
 /// `CHECK2`: `dot`, `axpy`, `copy`, `swap`, `rotm`, and `sdsdot` (single)
 /// or `dsdot` (double).
-fn check2(comptime F: type) !void {
+pub fn check2(comptime F: type) !void {
     const p = if (F == f32) "S" else "D";
     const dt19x = real.dt19xa ++ real.dt19xb ++ real.dt19xc ++ real.dt19xd;
     const dt19y = real.dt19ya ++ real.dt19yb ++ real.dt19yc ++ real.dt19yd;
@@ -232,7 +236,7 @@ fn check2(comptime F: type) !void {
 }
 
 /// `CHECK3`: `rot`.
-fn check3(comptime F: type) !void {
+pub fn check3(comptime F: type) !void {
     const p = if (F == f32) "SROT" else "DROT";
     for (0..4) |ki| {
         const incx = incxs[ki];
@@ -297,7 +301,7 @@ fn check3(comptime F: type) !void {
 }
 
 /// ctest's `SROT`/`DROT`: the reference BLAS loop.
-fn refRot(comptime F: type, n: isize, x: []F, incx: isize, y: []F, incy: isize, c: F, s: F) void {
+pub fn refRot(comptime F: type, n: isize, x: []F, incx: isize, y: []F, incy: isize, c: F, s: F) void {
     if (n <= 0) return;
     var ix: isize = if (incx < 0) (1 - n) * incx else 0;
     var iy: isize = if (incy < 0) (1 - n) * incy else 0;
@@ -313,7 +317,7 @@ fn refRot(comptime F: type, n: isize, x: []F, incx: isize, y: []F, incy: isize, 
 }
 
 /// ctest's `SROTM`/`DROTM`: the reference BLAS loop.
-fn refRotm(comptime F: type, n: isize, x: []F, incx: isize, y: []F, incy: isize, p: *const [5]F) void {
+pub fn refRotm(comptime F: type, n: isize, x: []F, incx: isize, y: []F, incy: isize, p: *const [5]F) void {
     const flag = p[0];
     if (n <= 0 or flag + 2 == 0) return;
     var kx: isize = if (incx < 0) (1 - n) * incx else 0;
@@ -340,7 +344,7 @@ fn refRotm(comptime F: type, n: isize, x: []F, incx: isize, y: []F, incy: isize,
 
 /// ctest's `CHECK3`: `rot` and `rotm` against the reference loops, over the
 /// whole of `x` and `y`.
-fn ctestCheck3(comptime F: type) !void {
+pub fn ctestCheck3(comptime F: type) !void {
     const dx = if (F == f32) &cplx.c_sdx else &cplx.c_ddx;
     const dy = if (F == f32) &cplx.c_sdy else &cplx.c_ddy;
     const nss = if (F == f32) &cplx.c_sns else &cplx.c_dns;
@@ -377,98 +381,11 @@ fn ctestCheck3(comptime F: type) !void {
     };
 }
 
-fn wideOf(comptime F: type, comptime n: usize, v: [n]F) [n]f64 {
+pub fn wideOf(comptime F: type, comptime n: usize, v: [n]F) [n]f64 {
     var out: [n]f64 = undefined;
     for (&out, v) |*o, x| o.* = x;
     return out;
 }
-
-// ---- complex -----------------------------------------------------------------
-
-/// `CHECK1`: `nrm2`, `asum`, `scal`, `scalReal`, `iamax`, from the data
-/// `d` (the Fortran's or ctest's), compared by `old` as `STEST` says.
-fn ccheck1(comptime C: type, d: anytype, old: bool) !void {
-    const F = Float(C);
-    const p = if (F == f32) "C" else "Z";
-    const ca: C = .init(0.4, -0.7);
-    const sa: F = 0.3;
-    var cx: [8]C = undefined;
-    inline for (.{ "scal", "scalReal" }) |which| {
-        for (1..3) |incx| for (0..5) |np1| {
-            const n = np1;
-            const len = 2 * @max(n, 1);
-            const col = 8 * (np1 + 5 * (incx - 1));
-            const inc: isize = @intCast(incx);
-            const in: isize = @intCast(n);
-            const c: Case = .{ .name = p, .n = in, .incx = inc };
-            loadC(C, cx[0..len], d.cv[col..]);
-            try stest(F, c, &.{try l1.nrm2(ob.io, C, in, &cx, inc)}, d.strue2[np1..], d.strue2[np1..], sfac, old);
-            try stest(F, c, &.{try l1.asum(ob.io, C, in, &cx, inc)}, d.strue4[np1..], d.strue4[np1..], sfac, old);
-            try itest1(c, try l1.index(ob.io, C, .largest_magnitude, in, &cx, inc), cplx.itrue3[np1]);
-            if (comptime std.mem.eql(u8, which, "scal")) {
-                try l1.scal(ob.io, C, in, ca, &cx, inc);
-                try ctest(C, c, cx[0..len], d.ctrue5[col..], d.ctrue5[col..], sfac, old);
-            } else {
-                try l1.scalReal(ob.io, C, in, sa, &cx, inc);
-                try ctest(C, c, cx[0..len], d.ctrue6[col..], d.ctrue6[col..], sfac, old);
-            }
-        };
-        // then on the last `x`, with `incx` 1: `alpha` 0, and for the real
-        // `alpha` 1 and -1
-        const c: Case = .{ .name = p ++ "SCAL", .n = 5, .incx = 1 };
-        const zeros: [5][2]f64 = @splat(.{ 0, 0 });
-        const ones: [5][2]f64 = @splat(.{ 1, 1 });
-        if (comptime std.mem.eql(u8, which, "scal")) {
-            try l1.scal(ob.io, C, 5, .init(0, 0), &cx, 1);
-            try ctest(C, c, cx[0..5], &zeros, &ones, sfac, old);
-        } else {
-            try l1.scalReal(ob.io, C, 5, 0, &cx, 1);
-            try ctest(C, c, cx[0..5], &zeros, &ones, sfac, old);
-            for ([_]F{ 1, -1 }) |s| {
-                var want: [5][2]f64 = undefined;
-                for (&want, cx[0..5]) |*w, z| w.* = .{ s * z.re, s * z.im };
-                try l1.scalReal(ob.io, C, 5, s, &cx, 1);
-                try ctest(C, c, cx[0..5], &want, &want, sfac, old);
-            }
-        }
-    }
-}
-
-/// `CHECK2`: `dotc`, `dotu`, `axpy`, `copy`, `swap`.
-fn ccheck2(comptime C: type) !void {
-    const p = if (Float(C) == f32) "C" else "Z";
-    const ca: C = .init(0.4, -0.7);
-    for (0..4) |ki| {
-        const incx = incxs[ki];
-        const incy = incys[ki];
-        for (0..4) |kn| {
-            const n = ns[kn];
-            const ksize: usize = @min(2, kn + 1);
-            const lenx = lens[kn + 4 * (@abs(incx) - 1)];
-            const leny = lens[kn + 4 * (@abs(incy) - 1)];
-            const at = 7 * (kn + 4 * ki);
-            const c: Case = .{ .name = p, .n = n, .incx = incx, .incy = incy };
-            var cx: [7]C = undefined;
-            var cy: [7]C = undefined;
-            loadC(C, &cx, &cplx.cx1);
-            loadC(C, &cy, &cplx.cy1);
-            try ctest(C, c, &.{try l1.dotc(ob.io, C, n, &cx, incx, &cy, incy)}, cplx.ct6[kn + 4 * ki ..], cplx.csize1[kn..], sfac, false);
-            try ctest(C, c, &.{try l1.dot(ob.io, C, n, &cx, incx, &cy, incy)}, cplx.ct7[kn + 4 * ki ..], cplx.csize1[kn..], sfac, false);
-            try l1.axpy(ob.io, C, n, ca, &cx, incx, &cy, incy);
-            try ctest(C, c, cy[0..leny], cplx.ct8[at..], cplx.csize2[7 * (ksize - 1) ..], sfac, false);
-            loadC(C, &cy, &cplx.cy1);
-            try l1.copy(ob.io, C, n, &cx, incx, &cy, incy);
-            try ctest(C, c, cy[0..leny], cplx.ct10y[at..], &cplx.csize3, 1, false);
-            loadC(C, &cy, &cplx.cy1);
-            try l1.swap(ob.io, C, n, &cx, incx, &cy, incy);
-            try ctest(C, c, cx[0..lenx], cplx.ct10x[at..], &cplx.csize3, 1, false);
-            try ctest(C, c, cy[0..leny], cplx.ct10y[at..], &cplx.csize3, 1, false);
-        }
-    }
-}
-
-const fortran_c1 = .{ .cv = &cplx.cv, .strue2 = &cplx.strue2, .strue4 = &cplx.strue4, .ctrue5 = &cplx.ctrue5, .ctrue6 = &cplx.ctrue6 };
-const ctest_c1 = .{ .cv = &cplx.c_cv, .strue2 = &cplx.c_strue2, .strue4 = &cplx.c_strue4, .ctrue5 = &cplx.c_ctrue5, .ctrue6 = &cplx.c_ctrue6 };
 
 /// Every case here, for `check.eachCore`.
 pub fn all() !void {

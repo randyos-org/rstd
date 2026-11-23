@@ -6,21 +6,21 @@ const std = @import("std");
 const sysinfo = @import("builtin");
 const types = @import("../../types.zig");
 const Vtable = @import("../../Vtable.zig");
-const blas = @import("../../__root__.zig");
-const l3 = @import("../../blas3/core.zig");
 const driver = @import("../../blas3/driver.zig");
 const driver3m = @import("../../blas3/driver3m.zig");
 const portable = @import("../../portable.zig");
 const check = @import("../check.zig");
-const bitwise = @import("../bitwise.zig");
-const guard = @import("../guard.zig");
 const pattern = @import("../pattern.zig");
 const reference = @import("../reference.zig");
+const c3one = @import("check/one.zig");
+const c3run = @import("check/runners.zig");
 
-const XDouble = types.XDouble;
 const Float = types.Float;
 const isComplex = types.isComplex;
-const testing = std.testing;
+const one = c3one.one;
+const Driver = c3run.Driver;
+const Iface = c3run.Iface;
+pub const callAny = c3run.callAny;
 
 /// The `Io` the tests pass (`check.io`).
 pub const io = check.io;
@@ -29,7 +29,7 @@ pub const io = check.io;
 pub const f80_unslotted = check.f80_unslotted;
 
 /// The reference's float: twice the precision.
-fn RefFloat(comptime T: type) type {
+pub fn RefFloat(comptime T: type) type {
     return if (@bitSizeOf(Float(T)) <= 32) f64 else f128;
 }
 
@@ -103,7 +103,7 @@ pub const Case = struct {
     p: ?pattern.Pattern = null,
     where: Where = .a,
 
-    fn rank(case: Case) bool {
+    pub fn rank(case: Case) bool {
         return switch (case.r) {
             .syrk, .herk, .syr2k, .her2k => true,
             else => false,
@@ -111,28 +111,28 @@ pub const Case = struct {
     }
     /// Whether the case computes one triangle of a square `C`: the rank-k
     /// updates and `gemmt`.
-    fn triangle(case: Case) bool {
+    pub fn triangle(case: Case) bool {
         return case.rank() or case.r == .gemmt;
     }
-    fn herm(case: Case) bool {
+    pub fn herm(case: Case) bool {
         return case.r.base() == .hemm or case.r == .herk or case.r == .her2k;
     }
-    fn three(case: Case) bool {
+    pub fn three(case: Case) bool {
         return case.r != case.r.base();
     }
-    fn triangular(case: Case) bool {
+    pub fn triangular(case: Case) bool {
         return case.r == .trmm or case.r == .trsm;
     }
     /// The order of the symmetric or triangular `A`.
-    fn ka(case: Case) usize {
+    pub fn ka(case: Case) usize {
         return if (case.left) case.m else case.n;
     }
 };
 
 /// Rows and columns of each operand as stored.
-const Dims = struct { ra: usize, ca: usize, rb: usize, cb: usize };
+pub const Dims = struct { ra: usize, ca: usize, rb: usize, cb: usize };
 
-fn dims(case: Case) Dims {
+pub fn dims(case: Case) Dims {
     const t = case.ta.transposed();
     return switch (case.r.base()) {
         .gemm, .gemmt => .{
@@ -150,468 +150,49 @@ fn dims(case: Case) Dims {
 }
 
 /// Rows of padding below every matrix.
-const pad = 3;
+pub const pad = 3;
 /// What padding holds, so a stray write shows.
-const sentinel = 1234.5;
+pub const sentinel = 1234.5;
 
-const val = check.val;
+pub const val = check.val;
 
-fn nanOf(comptime T: type) T {
+pub fn nanOf(comptime T: type) T {
     const nan = std.math.nan(Float(T));
     return if (comptime isComplex(T)) .init(nan, nan) else nan;
 }
 
-fn toRef(comptime T: type, v: T) Ref(T) {
+pub fn toRef(comptime T: type, v: T) Ref(T) {
     return if (comptime isComplex(T)) .init(v.re, v.im) else v;
 }
 
-fn conjIf(x: anytype, c: bool) @TypeOf(x) {
+pub fn conjIf(x: anytype, c: bool) @TypeOf(x) {
     return if (c) reference.conjW(x) else x;
 }
 
-fn zeroW(comptime W: type) W {
+pub fn zeroW(comptime W: type) W {
     return if (comptime isComplex(W)) .init(0, 0) else 0;
 }
 
 /// Whether `(i, j)` of `C` is one the case computes.
-fn kept(case: Case, i: usize, j: usize) bool {
+pub fn kept(case: Case, i: usize, j: usize) bool {
     if (!case.triangle()) return true;
     return if (case.upper) i <= j else i >= j;
 }
 
 /// Whether element `(i, j)` of the symmetric or triangular `A` is stored.
-fn stored(case: Case, i: usize, j: usize) bool {
+pub fn stored(case: Case, i: usize, j: usize) bool {
     return if (case.upper) i <= j else i >= j;
-}
-
-/// Runs `case` through `runner.run` and compares with the reference.
-pub fn one(comptime T: type, case: Case, runner: anytype) !void {
-    const al = testing.allocator;
-    const d = dims(case);
-    const lda = d.ra + pad;
-    const ldb = d.rb + pad;
-    const rc = if (case.triangle()) case.n else case.m;
-    const ldc = rc + pad;
-    const a = try al.alloc(T, lda * @max(d.ca, 1));
-    defer al.free(a);
-    const b = try al.alloc(T, ldb * @max(d.cb, 1));
-    defer al.free(b);
-    const c = try al.alloc(T, ldc * case.n + check.tail);
-    defer al.free(c);
-    const c0 = try al.alloc(T, c.len);
-    defer al.free(c0);
-    check.fill(T, a, case.m * 31 + case.k + @backingInt(case.r));
-    check.fill(T, b, case.n * 17 + case.k);
-    check.fill(T, c, case.m + case.n);
-    const nan = nanOf(T);
-    if (case.r == .trsm) wellConditioned(T, case, a, lda);
-    if (case.p) |p| switch (case.where) {
-        .a => shape(T, a, d.ra, d.ca, lda, p),
-        .b => shape(T, b, d.rb, d.cb, ldb, p),
-        .c => shape(T, c, rc, case.n, ldc, p),
-    };
-    // padding is never read, nor what a structured `A` does not store
-    padNan(T, a, d.ra, lda);
-    padNan(T, b, d.rb, ldb);
-    if (case.r.base() == .symm or case.r.base() == .hemm or case.triangular()) {
-        for (0..d.ca) |j| for (0..d.ra) |i| {
-            if (!stored(case, i, j) or (i == j and case.triangular() and case.unit)) a[i + j * lda] = nan;
-        };
-        if (comptime isComplex(T)) {
-            if (case.r.base() == .hemm) for (0..d.ra) |i| {
-                a[i + i * lda].im = nan.im;
-            };
-        }
-    }
-    const alpha0 = case.alpha[0] == 0 and case.alpha[1] == 0;
-    const beta0 = case.beta[0] == 0 and case.beta[1] == 0;
-    if (alpha0) {
-        @memset(a, nan);
-        @memset(b, nan);
-    }
-    @memset(c[ldc * case.n ..], val(T, sentinel, sentinel));
-    for (0..case.n) |j| for (0..ldc) |i| {
-        if (i >= rc or !kept(case, i, j)) {
-            c[i + j * ldc] = val(T, sentinel, sentinel);
-        } else if ((beta0 and !case.triangular()) or (alpha0 and case.triangular())) {
-            c[i + j * ldc] = nan;
-        } else if (comptime isComplex(T)) {
-            // a Hermitian `C`'s diagonal is real: its imaginary part unread
-            if ((case.r == .herk or case.r == .her2k) and i == j) c[i + j * ldc].im = nan.im;
-        }
-    };
-    @memcpy(c0, c);
-
-    const alpha = val(T, case.alpha[0], case.alpha[1]);
-    const beta = val(T, case.beta[0], case.beta[1]);
-    try runner.run(T, case, a.ptr, lda, b.ptr, ldb, alpha, beta, c.ptr, ldc);
-
-    for (c[ldc * case.n ..]) |v| if (!bitwise.same(T, v, val(T, sentinel, sentinel), true)) return fail(case, ldc, case.n, "written past the end");
-    const ops = Ops(T){ .case = case, .a = a, .lda = lda, .b = b, .ldb = ldb, .c0 = c0, .ldc = ldc };
-    if (case.r == .trsm and !alpha0) return ops.checkSolve(c, rc);
-    for (0..case.n) |j| for (0..ldc) |i| {
-        const got = c[i + j * ldc];
-        if (i >= rc or !kept(case, i, j)) {
-            if (!bitwise.same(T, got, c0[i + j * ldc], true)) return fail(case, i, j, "written outside");
-            continue;
-        }
-        const ref = ops.element(i, j);
-        var want = ref.v;
-        if (comptime isComplex(T)) {
-            if ((case.r == .herk or case.r == .her2k) and i == j) {
-                // made real unless nothing happens (`beta` 1 and no product)
-                const nothing = case.beta[0] == 1 and (alpha0 or case.k == 0);
-                want.im = if (nothing) c0[i + j * ldc].im else 0;
-            }
-        }
-        // a rank-k update of special values meets them in sums of its own order
-        const lax = isComplex(T) or (case.triangle() and case.p != null);
-        if (case.three()) {
-            compare3m(T, case, want, got, ref.terms, ref.bound) catch return fail(case, i, j, "wrong");
-        } else compare(T, want, got, ref.terms, ref.bound, lax) catch return fail(case, i, j, "wrong");
-    };
-}
-
-/// `got` against `want`; with `lax`, a part that should not be finite may
-/// come out NaN or infinite (complex products, and solves, meet infinities
-/// in an order of their own).
-fn compare(comptime T: type, want: Ref(T), got: T, terms: usize, bound: f128, lax: bool) !void {
-    const ulps = reference.sumUlps(terms);
-    if (comptime isComplex(T)) {
-        try part(Float(T), want.re, got.re, ulps, bound, lax);
-        try part(Float(T), want.im, got.im, ulps, bound, lax);
-    } else try part(T, want, got, ulps, bound, lax);
-}
-
-/// `compare` for a 3M routine: the part it forms from three products, a
-/// difference of them (the imaginary one, or the real one where exactly one
-/// operand is conjugated), takes the error of three sums of `terms`, and of
-/// the copies' `alpha * op(B)` and part sums (Higham 1992).
-fn compare3m(comptime T: type, case: Case, want: Ref(T), got: T, terms: usize, bound: f128) !void {
-    if (comptime !isComplex(T)) unreachable;
-    const ulps = reference.sumUlps(terms);
-    const ulps3 = reference.sumUlps(3 * terms + 2);
-    const real3 = case.r == .gemm3m and case.ta.conjugated() != case.tb.conjugated();
-    try part(Float(T), want.re, got.re, if (real3) ulps3 else ulps, bound, true);
-    try part(Float(T), want.im, got.im, if (real3) ulps else ulps3, bound, true);
-}
-
-fn part(comptime F: type, want: anytype, got: F, ulps: f128, bound: f128, lax: bool) !void {
-    const w: f128 = want;
-    // past `F`'s range is infinite in `F`, of a sign the order of the sum picks
-    if (lax and (!std.math.isFinite(w) or @abs(w) > std.math.floatMax(F))) {
-        if (std.math.isFinite(got)) return error.TestUnexpectedResult;
-        return;
-    }
-    try pattern.component(F, w, got, ulps, bound);
-}
-
-/// The reference: the routine's operators as dense matrices, by element.
-fn Ops(comptime T: type) type {
-    const W = Ref(T);
-    return struct {
-        const Self = @This();
-        case: Case,
-        a: []const T,
-        lda: usize,
-        b: []const T,
-        ldb: usize,
-        c0: []const T,
-        ldc: usize,
-
-        fn at(x: []const T, ld: usize, i: usize, j: usize) W {
-            return toRef(T, x[i + j * ld]);
-        }
-
-        /// `op(X)(i, l)` of a general `X`.
-        fn general(x: []const T, ld: usize, t: Trans, i: usize, l: usize) W {
-            const v = if (t.transposed()) at(x, ld, l, i) else at(x, ld, i, l);
-            return conjIf(v, t.conjugated());
-        }
-
-        /// `A`'s full symmetric or Hermitian matrix at `(i, j)`.
-        fn sym(s: Self, i: usize, j: usize) W {
-            const c = s.case;
-            const v = if (stored(c, i, j)) at(s.a, s.lda, i, j) else conjIf(at(s.a, s.lda, j, i), c.herm());
-            if (comptime isComplex(T)) if (c.herm() and i == j) return .init(v.re, 0);
-            return v;
-        }
-
-        /// `op(A)(i, l)` of the triangular `A`, null where it is zero.
-        fn tri(s: Self, i: usize, l: usize) ?W {
-            const c = s.case;
-            const r = if (c.ta.transposed()) l else i;
-            const q = if (c.ta.transposed()) i else l;
-            if (!stored(c, r, q)) return null;
-            if (r == q and c.unit) return if (comptime isComplex(T)) .init(1, 0) else 1;
-            return conjIf(at(s.a, s.lda, r, q), c.ta.conjugated());
-        }
-
-        /// One factor pair's `(i, l)` and `(l, j)`, null for a structural zero.
-        fn factors(s: Self, second: bool, i: usize, j: usize, l: usize) [2]?W {
-            const c = s.case;
-            const y = if (second) s.a else s.b;
-            const x = if (second) s.b else s.a;
-            const ldy = if (second) s.lda else s.ldb;
-            const ldx = if (second) s.ldb else s.lda;
-            return switch (c.r.base()) {
-                .gemm, .gemmt => .{ general(s.a, s.lda, c.ta, i, l), general(s.b, s.ldb, c.tb, l, j) },
-                .symm, .hemm => if (c.left) .{ s.sym(i, l), at(s.b, s.ldb, l, j) } else .{ at(s.b, s.ldb, i, l), s.sym(l, j) },
-                // `op(X)` is `n x k`; the second factor is `op(Y)'`
-                .syrk, .herk, .syr2k, .her2k => blk: {
-                    const two = c.r == .syr2k or c.r == .her2k;
-                    const yy = if (two) y else x;
-                    const ldyy = if (two) ldy else ldx;
-                    // `trans` `c` conjugates `op(X)` too
-                    break :blk .{ general(x, ldx, c.ta, i, l), conjIf(general(yy, ldyy, c.ta, j, l), c.herm()) };
-                },
-                .trmm, .trsm => if (c.left) .{ s.tri(i, l), at(s.c0, s.ldc, l, j) } else .{ at(s.c0, s.ldc, i, l), s.tri(l, j) },
-                .gemm3m, .symm3m, .hemm3m => unreachable,
-            };
-        }
-
-        const Elem = struct { v: W, bound: f128, terms: usize };
-
-        /// `C(i, j)` as the routine defines it, the sum of the magnitudes in it,
-        /// and how many products it sums.
-        fn element(s: Self, i: usize, j: usize) Elem {
-            const c = s.case;
-            const depth = switch (c.r.base()) {
-                .gemm, .gemmt, .syrk, .herk, .syr2k, .her2k => c.k,
-                else => c.ka(),
-            };
-            const alpha = scalar(c.alpha);
-            const alpha0 = c.alpha[0] == 0 and c.alpha[1] == 0;
-            var sum = zeroW(W);
-            var bound: f128 = 0;
-            if (!alpha0) {
-                const passes: usize = if (c.r == .syr2k or c.r == .her2k) 2 else 1;
-                for (0..passes) |pass| {
-                    var acc = zeroW(W);
-                    var mags: f128 = 0;
-                    for (0..depth) |l| {
-                        const f = s.factors(pass == 1, i, j, l);
-                        const x = f[0] orelse continue;
-                        const y = f[1] orelse continue;
-                        acc = reference.addW(acc, reference.mulW(x, y));
-                        mags += reference.mag(x) * reference.mag(y);
-                    }
-                    // the second pass of `her2k` takes `conj(alpha)`
-                    const al = if (pass == 1 and c.r == .her2k) reference.conjW(alpha) else alpha;
-                    sum = reference.addW(sum, mulScalar(al, acc));
-                    bound += magScalar(al) * mags;
-                }
-            }
-            if (!c.triangular()) {
-                const beta = scalar(c.beta);
-                if (!(c.beta[0] == 0 and c.beta[1] == 0)) {
-                    const cw = at(s.c0, s.ldc, i, j);
-                    // `herk`'s real `beta` scales each part
-                    sum = reference.addW(sum, if (c.herm() and c.rank()) partwise(c.beta[0], cw) else mulScalar(beta, cw));
-                    bound += magScalar(beta) * reference.mag(cw);
-                }
-            }
-            return .{ .v = sum, .bound = bound, .terms = depth * if (c.r == .syr2k or c.r == .her2k) @as(usize, 2) else 1 };
-        }
-
-        fn partwise(f: f64, x: W) W {
-            const g: RefFloat(T) = @floatCast(f);
-            return if (comptime isComplex(T)) .init(g * x.re, g * x.im) else g * x;
-        }
-
-        fn scalar(v: [2]f64) W {
-            return if (comptime isComplex(T)) .init(v[0], v[1]) else v[0];
-        }
-        fn mulScalar(s: W, x: W) W {
-            // `alpha` and `beta` multiply as the type's scalars
-            return reference.mulW(s, x);
-        }
-        fn magScalar(s: W) f128 {
-            return reference.mag(s);
-        }
-
-        /// `trsm`: the solution by substitution in the wide type, element by
-        /// element against `got`, within a tolerance from the magnitudes of
-        /// each step.
-        fn checkSolve(s: Self, got: []const T, rows: usize) !void {
-            const c = s.case;
-            const al = testing.allocator;
-            const n = c.n;
-            const ka = c.ka();
-            const x = try al.alloc(W, rows * n);
-            defer al.free(x);
-            const scale = try al.alloc(f128, rows * n);
-            defer al.free(scale);
-            const alpha = scalar(c.alpha);
-            // `op(A)` lower: forward from the first row (left) or back from
-            // the last column (right)
-            const lower = c.upper == c.ta.transposed();
-            for (0..n) |jj| for (0..rows) |ii| {
-                // the element solved at step (ii, jj)
-                const i = if (c.left and !lower) rows - 1 - ii else ii;
-                const j = if (!c.left and lower) n - 1 - jj else jj;
-                var r = mulScalar(alpha, at(s.c0, s.ldc, i, j));
-                var mags = magScalar(alpha) * reference.mag(at(s.c0, s.ldc, i, j));
-                for (0..ka) |l| {
-                    // the solved neighbors: earlier in the order of substitution
-                    const before = if (c.left) (if (lower) l < i else l > i) else (if (lower) l > j else l < j);
-                    if (!before) continue;
-                    const t = (if (c.left) s.tri(i, l) else s.tri(l, j)) orelse continue;
-                    const xv = if (c.left) x[l + j * rows] else x[i + l * rows];
-                    r = reference.subW(r, reference.mulW(t, xv));
-                    mags += reference.mag(t) * reference.mag(xv);
-                }
-                const dg = (if (c.left) s.tri(i, i) else s.tri(j, j)).?;
-                x[i + j * rows] = reference.divW(r, dg);
-                scale[i + j * rows] = mags / @max(reference.mag(dg), reference.tiny_mag);
-            };
-            for (0..n) |j| for (0..rows) |i| {
-                compare(T, x[i + j * rows], got[i + j * s.ldc], 4 * ka, scale[i + j * rows], true) catch return fail(c, i, j, "wrong");
-            };
-        }
-    };
-}
-
-/// `trsm`'s `A`: off the diagonal a quarter of the order's share, so the
-/// solve is well conditioned whatever the triangle; the diagonal at least 1.
-fn wellConditioned(comptime T: type, case: Case, a: []T, lda: usize) void {
-    const ka = case.ka();
-    const f: Float(T) = @floatCast(1.0 / @as(f64, @floatFromInt(4 * ka)));
-    for (0..ka) |j| for (0..ka) |i| {
-        const p = &a[i + j * lda];
-        if (i != j) {
-            p.* = if (comptime isComplex(T)) .init(p.re * f, p.im * f) else p.* * f;
-        } else if (comptime isComplex(T)) {
-            p.* = .init(p.re / 4 + std.math.copysign(@as(Float(T), 1), p.re), p.im / 4);
-        } else p.* = p.* / 4 + std.math.copysign(@as(T, 1), p.*);
-    };
-}
-
-/// Operand `p` shapes, the `rows` by `cols` of `x` at `ld`.
-fn shape(comptime T: type, x: []T, rows: usize, cols: usize, ld: usize, p: pattern.Pattern) void {
-    for (0..cols) |j| for (0..rows) |i| {
-        x[i + j * ld] = pattern.shape(T, x[i + j * ld], i + j * rows, p);
-    };
-}
-
-/// NaN in the rows past `rows` of each column.
-fn padNan(comptime T: type, x: []T, rows: usize, ld: usize) void {
-    var j: usize = 0;
-    while (j * ld < x.len) : (j += 1) @memset(x[j * ld + rows .. @min(x.len, (j + 1) * ld)], nanOf(T));
-}
-
-fn fail(case: Case, i: usize, j: usize, what: []const u8) anyerror {
-    if (case.p) |p| {
-        p.describe();
-        check.say("in {s}, ", .{@tagName(case.where)});
-    }
-    check.say("{s} at ({d},{d}): {s} ta={s} tb={s} left={} upper={} unit={} m={d} n={d} k={d} alpha={d},{d} beta={d},{d}: ", .{ what, i, j, @tagName(case.r), @tagName(case.ta), @tagName(case.tb), case.left, case.upper, case.unit, case.m, case.n, case.k, case.alpha[0], case.alpha[1], case.beta[0], case.beta[1] });
-    return error.TestUnexpectedResult;
-}
-
-// ---- runners --------------------------------------------------------------------
-
-/// Calls the driver of `r` on a fixed vtable through a poisoned allocator, so
-/// a packing buffer read before it is written shows as NaN. The routine is
-/// fixed at compile time, so a test builds only its own driver.
-pub fn Driver(comptime r: Routine) type {
-    return struct {
-        vt: *const Vtable,
-
-        pub fn run(self: @This(), comptime T: type, case: Case, a: [*]T, lda: usize, b: [*]T, ldb: usize, alpha: T, beta: T, c: [*]T, ldc: usize) !void {
-            var poison: guard.Poison = .{ .child = testing.allocator };
-            return call(T, poison.allocator(), io, self.vt, r, case, a, lda, b, ldb, alpha, beta, c, ldc, 1);
-        }
-    };
-}
-
-/// The one dispatcher of the level-3 tests: driver `r` on `vt` for `case`'s
-/// options at up to `want` workers.
-pub fn call(comptime T: type, al: std.mem.Allocator, run_io: std.Io, vt: *const Vtable, comptime r: Routine, case: Case, a: [*]const T, lda: usize, b: [*]const T, ldb: usize, alpha: T, beta: T, c: [*]T, ldc: usize, want: u32) !void {
-    const herm = comptime isComplex(T);
-    switch (r) {
-        .gemm => try driver.gemm(al, run_io, T, vt, case.ta.transposed(), case.tb.transposed(), .of(case.ta.conjugated(), case.tb.conjugated()), case.m, case.n, case.k, alpha, a, lda, b, ldb, beta, c, ldc, want),
-        .gemmt => try driver.gemmt(al, run_io, T, vt, case.upper, case.ta.transposed(), case.tb.transposed(), .of(case.ta.conjugated(), case.tb.conjugated()), case.n, case.k, alpha, a, lda, b, ldb, beta, c, ldc),
-        .symm => try driver.symm(al, run_io, T, vt, false, case.left, case.upper, case.m, case.n, alpha, a, lda, b, ldb, beta, c, ldc, want),
-        .hemm => if (herm) try driver.symm(al, run_io, T, vt, true, case.left, case.upper, case.m, case.n, alpha, a, lda, b, ldb, beta, c, ldc, want) else unreachable,
-        .syrk => try driver.syrk(al, run_io, T, vt, false, case.upper, case.ta.transposed(), case.n, case.k, alpha, a, lda, null, 0, beta, c, ldc, want),
-        .syr2k => try driver.syrk(al, run_io, T, vt, false, case.upper, case.ta.transposed(), case.n, case.k, alpha, a, lda, b, ldb, beta, c, ldc, want),
-        .herk => if (herm) try driver.syrk(al, run_io, T, vt, true, case.upper, case.ta.transposed(), case.n, case.k, alpha, a, lda, null, 0, beta, c, ldc, want) else unreachable,
-        .her2k => if (herm) try driver.syrk(al, run_io, T, vt, true, case.upper, case.ta.transposed(), case.n, case.k, alpha, a, lda, b, ldb, beta, c, ldc, want) else unreachable,
-        .trmm, .trsm => if (@hasDecl(driver, "trmm")) {
-            const args = .{ al, run_io, T, vt, case.left, case.upper, case.ta.transposed(), case.ta.conjugated(), case.unit, case.m, case.n, alpha, a, lda, c, ldc, want };
-            if (r == .trmm) try @call(.auto, driver.trmm, args) else try @call(.auto, driver.trsm, args);
-        } else return error.SkipZigTest,
-        .gemm3m => if (herm) try driver3m.gemm3m(al, run_io, T, vt, case.ta.transposed(), case.tb.transposed(), .of(case.ta.conjugated(), case.tb.conjugated()), case.m, case.n, case.k, alpha, a, lda, b, ldb, beta, c, ldc, want) else unreachable,
-        .symm3m, .hemm3m => if (herm) try driver3m.symm3m(al, run_io, T, vt, r == .hemm3m, case.left, case.upper, case.m, case.n, alpha, a, lda, b, ldb, beta, c, ldc, want) else unreachable,
-    }
-}
-
-/// `call` for a routine known only at run time.
-pub fn callAny(comptime T: type, al: std.mem.Allocator, run_io: std.Io, vt: *const Vtable, r: Routine, case: Case, a: [*]const T, lda: usize, b: [*]const T, ldb: usize, alpha: T, beta: T, c: [*]T, ldc: usize, want: u32) !void {
-    switch (r) {
-        inline else => |cr| try call(T, al, run_io, vt, cr, case, a, lda, b, ldb, alpha, beta, c, ldc, want),
-    }
-}
-
-/// Calls the public routines (`l3.gemm` and the rest) through a poisoned
-/// allocator; real `r` and `c` stand in for `n` and `t` half the time. As
-/// `Driver`, for one routine `r`.
-pub fn Iface(comptime r: Routine) type {
-    return struct {
-        pub fn run(_: @This(), comptime T: type, case: Case, a: [*]T, lda: usize, b: [*]T, ldb: usize, alpha: T, beta: T, c: [*]T, ldc: usize) !void {
-            var poison: guard.Poison = .{ .child = testing.allocator };
-            const al = poison.allocator();
-            const odd = (case.m + case.n + case.k) % 2 == 1;
-            const ta = trans(T, case.ta, odd, case.rank());
-            const tb = trans(T, case.tb, !odd, false);
-            const m: isize = @intCast(case.m);
-            const n: isize = @intCast(case.n);
-            const k: isize = @intCast(case.k);
-            const ia: isize = @intCast(lda);
-            const ib: isize = @intCast(ldb);
-            const ic: isize = @intCast(ldc);
-            const side: blas.Side = if (case.left) .l else .r;
-            const uplo: blas.Uplo = if (case.upper) .u else .l;
-            const diag: blas.Diag = if (case.unit) .u else .n;
-            const herm = comptime isComplex(T);
-            switch (r) {
-                .gemm => try l3.gemm(al, io, T, ta, tb, m, n, k, alpha, a, ia, b, ib, beta, c, ic),
-                .gemmt => try l3.gemmt(al, io, T, uplo, ta, tb, n, k, alpha, a, ia, b, ib, beta, c, ic),
-                .symm => try l3.symm(al, io, T, side, uplo, m, n, alpha, a, ia, b, ib, beta, c, ic),
-                .hemm => if (herm) try l3.hemm(al, io, T, side, uplo, m, n, alpha, a, ia, b, ib, beta, c, ic) else unreachable,
-                .syrk => try l3.syrk(al, io, T, uplo, ta, n, k, alpha, a, ia, beta, c, ic),
-                .syr2k => try l3.syr2k(al, io, T, uplo, ta, n, k, alpha, a, ia, b, ib, beta, c, ic),
-                .herk => if (herm) try l3.herk(al, io, T, uplo, ta, n, k, alpha.re, a, ia, beta.re, c, ic) else unreachable,
-                .her2k => if (herm) try l3.her2k(al, io, T, uplo, ta, n, k, alpha, a, ia, b, ib, beta.re, c, ic) else unreachable,
-                .trmm => try l3.trmm(al, io, T, side, uplo, ta, diag, m, n, alpha, a, ia, c, ic),
-                .trsm => try l3.trsm(al, io, T, side, uplo, ta, diag, m, n, alpha, a, ia, c, ic),
-                .gemm3m => if (herm) try l3.gemm3m(al, io, T, ta, tb, m, n, k, alpha, a, ia, b, ib, beta, c, ic) else unreachable,
-                .symm3m => if (herm) try l3.symm3m(al, io, T, side, uplo, m, n, alpha, a, ia, b, ib, beta, c, ic) else unreachable,
-                .hemm3m => if (herm) try l3.hemm3m(al, io, T, side, uplo, m, n, alpha, a, ia, b, ib, beta, c, ic) else unreachable,
-            }
-        }
-
-        /// `t` as `blas.Trans`; real `r` and `c` for `n` and `t` where `alt`.
-        fn trans(comptime T: type, t: Trans, alt: bool, rank: bool) blas.Trans {
-            if (comptime isComplex(T)) return switch (t) {
-                inline else => |v| @field(blas.Trans, @tagName(v)),
-            };
-            // the rank-k updates take no `r`
-            return if (t.transposed()) (if (alt) .c else .t) else (if (alt and !rank) .r else .n);
-        }
-    };
 }
 
 // ---- cases -----------------------------------------------------------------------
 
 /// `vt` with its `T` blocking shrunk so every block edge comes at small
 /// sizes; static, as a vtable is large for a rig's stack.
-var shrunk: Vtable = undefined;
+pub var shrunk: Vtable = undefined;
 
 /// The options of `r` over `T`, each a case to fill in: every side,
 /// triangle, transpose and diagonal it takes.
-fn variants(comptime T: type, r: Routine, buf: []Case) []Case {
+pub fn variants(comptime T: type, r: Routine, buf: []Case) []Case {
     const complex = comptime isComplex(T);
     const all_t: []const Trans = if (complex) &.{ .n, .t, .r, .c } else &.{ .n, .t };
     var len: usize = 0;
@@ -644,7 +225,7 @@ fn variants(comptime T: type, r: Routine, buf: []Case) []Case {
     return buf[0..len];
 }
 
-fn sized(v: Case, m: usize, n: usize, k: usize, alpha: [2]f64, beta: [2]f64) Case {
+pub fn sized(v: Case, m: usize, n: usize, k: usize, alpha: [2]f64, beta: [2]f64) Case {
     var c = v;
     c.m = if (v.triangle()) n else m;
     c.n = n;
@@ -656,7 +237,7 @@ fn sized(v: Case, m: usize, n: usize, k: usize, alpha: [2]f64, beta: [2]f64) Cas
 }
 
 /// The scalars: `alpha` and `beta` special and plain, complex ones too.
-fn scalarsOf(comptime T: type) []const [2][2]f64 {
+pub fn scalarsOf(comptime T: type) []const [2][2]f64 {
     const real = [_][2][2]f64{
         .{ .{ -0.75, 0 }, .{ 0.5, 0 } }, .{ .{ 0, 0 }, .{ 0.5, 0 } },   .{ .{ 1, 0 }, .{ 0, 0 } }, .{ .{ 0, 0 }, .{ 0, 0 } },
         .{ .{ 1, 0 }, .{ 1, 0 } },       .{ .{ -0.75, 0 }, .{ 0, 0 } }, .{ .{ 0, 0 }, .{ 1, 0 } },
@@ -730,12 +311,12 @@ pub fn routineCases(comptime T: type, vt: *const Vtable, comptime r: Routine) !v
 }
 
 /// The routines over `T`.
-fn routinesOf(comptime T: type) []const Routine {
+pub fn routinesOf(comptime T: type) []const Routine {
     return if (comptime isComplex(T)) std.enums.values(Routine) else &.{ .gemm, .symm, .syrk, .syr2k, .trmm, .trsm, .gemmt };
 }
 
 /// Whether the drivers have `r` yet.
-fn ported(r: Routine) bool {
+pub fn ported(r: Routine) bool {
     return switch (r) {
         .trmm, .trsm => @hasDecl(driver, "trmm"),
         else => true,
@@ -783,10 +364,10 @@ pub fn accelerateCases(comptime T: type, comptime r: Routine) !void {
 }
 
 /// How many failing cases `accelerateCases` describes per routine.
-const max_said = 8;
+pub const max_said = 8;
 
 /// The shapes and reach of `edgeCases`.
-const Edges = struct {
+pub const Edges = struct {
     m: usize,
     n: usize,
     /// The depth of the scalar cases, and of the special values'.
@@ -805,7 +386,7 @@ const Edges = struct {
 /// The special scalars (every transpose pair for `gemm`), the special
 /// values of `pattern.Pattern` in each operand, and NaN scalars, of `r`'s
 /// variants `vs` through `runner`.
-fn edgeCases(comptime T: type, comptime r: Routine, vs: []const Case, e: Edges, runner: anytype) !void {
+pub fn edgeCases(comptime T: type, comptime r: Routine, vs: []const Case, e: Edges, runner: anytype) !void {
     for (scalarsOf(T)) |s| {
         if (r.base() == .gemm) {
             const all_t: []const Trans = if (comptime isComplex(T)) &.{ .n, .t, .r, .c } else &.{ .n, .t };
@@ -843,7 +424,7 @@ fn edgeCases(comptime T: type, comptime r: Routine, vs: []const Case, e: Edges, 
 }
 
 /// One of `edgeCases`'s results: kept or returned, as `e` says.
-fn edge(e: Edges, r: anyerror!void) anyerror!void {
+pub fn edge(e: Edges, r: anyerror!void) anyerror!void {
     if (e.keep) |f| return check.keep(f, r);
     return r;
 }
