@@ -500,7 +500,7 @@ test {
     _ = @import("FpState.zig");
     _ = @import("apple_accel.zig");
     // hosted only: the rigs' `math.kernels.blas._test.` filter would take it
-    if (comptime test_io.hosted) _ = @import("_test/apple_accel.zig");
+    if (comptime test_io.hosted) _ = @import("_test/apple_accel/__root__.zig");
     _ = @import("threading.zig");
     _ = @import("threading/_test/plan.zig");
     _ = @import("threading/_test/region.zig");
