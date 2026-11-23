@@ -103,12 +103,13 @@ fn setStdHandlesToNul() void {
 /// at a real log file, same mechanism as console.zig's NUL redirect, so
 /// std.debug.print and error return traces are visible regardless of
 /// whether a console is attached.
-pub fn redirectStdioToFile(alloc: zigstd.Allocator, name: []const u8) !void {
+/// `error.OpenFailed` when the file cannot be opened.
+pub fn redirectStdioToFile(alloc: zigstd.Allocator, name: []const u8) error{ InvalidUtf8, OutOfMemory, OpenFailed }!void {
     if (sysinfo.target.os.tag != .windows) return;
     const name_w = try bytes.utf8ToWinStrAllocZ(alloc, name);
     defer alloc.free(name_w);
     const handle = openHandle(name_w, false, true);
-    if (invalidHandle(handle)) return error.InvalidHandle;
+    if (invalidHandle(handle)) return error.OpenFailed;
     setStdHandles(handle);
 }
 

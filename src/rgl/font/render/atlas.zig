@@ -91,7 +91,7 @@ pub const default_msdf: msdf.Options = .{
     // Width, in pixels, of the distance-field falloff around each edge.
     .px_range = 8,
     .px_size = 0,
-    // Fails the whole atlas build with error.InvalidShape instead of
+    // Fails the whole atlas build with error.OpenContour instead of
     // silently rendering a bad outline if a glyph's decoded contours don't
     // form a closed loop.
     .validate_shape = true,

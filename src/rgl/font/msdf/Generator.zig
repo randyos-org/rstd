@@ -63,7 +63,9 @@ pub fn fontMetrics(self: *Generator) !FontMetrics {
     };
 }
 
-fn handleVarFont(self: *Generator, var_args: []const VarFontArgument) void {
+/// `error.UnsupportedVariations` for axis coordinates on a variable font:
+/// they are not yet applied to glyph outlines (`gvar` deformation is unimplemented).
+fn handleVarFont(self: *Generator, var_args: []const VarFontArgument) error{UnsupportedVariations}!void {
     if (var_args.len == 0) return;
 
     if (self.sfnt.fvar == null) {
@@ -71,7 +73,7 @@ fn handleVarFont(self: *Generator, var_args: []const VarFontArgument) void {
         return;
     }
 
-    @panic("TODO: variable font axis coordinates are not yet applied to glyph outlines (gvar deformation is unimplemented)");
+    return error.UnsupportedVariations;
 }
 
 /// Walks a decomposed glyph outline (see Sfnt.glyphShape) into `shape`,
@@ -129,11 +131,11 @@ pub fn generateSingle(
     codepoint: u21,
     opts: *const Options,
 ) !GeneratedGlyph {
-    self.handleVarFont(opts.var_font_args);
+    try self.handleVarFont(opts.var_font_args);
 
     const head = self.sfnt.head orelse return error.MissingHead;
     const scale = 1.0 / f64i(head.unitsPerEm());
-    const glyph_index = self.sfnt.getGlyphIndex(codepoint) orelse return error.InvalidCodepoint;
+    const glyph_index = self.sfnt.getGlyphIndex(codepoint) orelse return error.MissingGlyph;
 
     var shape: Shape = .{};
     defer shape.deinit(allocator);
@@ -162,7 +164,7 @@ pub fn generateSingle(
             _ = shape.contours.swapRemove(@intCast(i));
         };
 
-    if (opts.validate_shape and !shape.validate()) return error.InvalidShape;
+    if (opts.validate_shape and !shape.validate()) return error.OpenContour;
     if (opts.orient_contours) try shape.orientContours(allocator);
     if (opts.normalize_shape) try shape.normalize(allocator);
 
@@ -240,8 +242,8 @@ pub fn generateAtlas(
         const head = self.sfnt.head orelse break :kerning;
         const scale = 1.0 / f64i(head.unitsPerEm());
         for (codepoints) |codepoint_a| for (codepoints) |codepoint_b| {
-            const idx_a = self.sfnt.getGlyphIndex(codepoint_a) orelse return error.InvalidCodepoint;
-            const idx_b = self.sfnt.getGlyphIndex(codepoint_b) orelse return error.InvalidCodepoint;
+            const idx_a = self.sfnt.getGlyphIndex(codepoint_a) orelse return error.MissingGlyph;
+            const idx_b = self.sfnt.getGlyphIndex(codepoint_b) orelse return error.MissingGlyph;
             if (idx_a != idx_b) {
                 const kern_x = self.sfnt.glyphKernAdvance(idx_a, idx_b);
                 if (kern_x != 0)

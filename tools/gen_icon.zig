@@ -13,7 +13,7 @@ pub fn main(init: std.process.Init) !void {
     const args = try init.minimal.args.toSlice(alloc);
     if (args.len != 5) {
         std.debug.print("usage: genicon <in.png> <out.png> <out.ico> <out.rgba>\n", .{});
-        return error.InvalidArgs;
+        return error.WrongArgumentCount;
     }
     const in_png_path = args[1];
     const png_path = args[2];

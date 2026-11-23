@@ -19,7 +19,7 @@ pub const VectorNorm = union(enum) { one, two, inf, p: f64 };
 
 pub const VectorNormError = reductions.VectorError || error{
     /// `p` is not positive, or NaN.
-    InvalidOrder,
+    OrderNotPositive,
 };
 
 /// `x`'s norm of the given kind: `Σ|xᵢ|`, `‖x‖₂`, `max|xᵢ|` or
@@ -29,7 +29,7 @@ pub fn vectorNorm(io: Io, x: anytype, which: VectorNorm) VectorNormError!Real(El
     const T = ElementOf(@TypeOf(x));
     const F = Real(T);
     const kind: VectorNorm = switch (which) {
-        .p => |p| if (!(p > 0)) return error.InvalidOrder else if (p == 1) .one else if (p == 2) .two else if (std.math.isInf(p)) .inf else which,
+        .p => |p| if (!(p > 0)) return error.OrderNotPositive else if (p == 1) .one else if (p == 2) .two else if (std.math.isInf(p)) .inf else which,
         else => which,
     };
     if (kind == .two) return reductions.norm(io, x);
@@ -80,7 +80,7 @@ test "vectorNorm: each kind, scaled p, special values" {
     const C = std.math.Complex(f64);
     const z = [_]C{ .init(3, 4), .init(0, 1) };
     try testing.expectEqual(6, try vectorNorm(io, @as([]const C, &z), .one));
-    try testing.expectError(error.InvalidOrder, vectorNorm(io, @as([]const f64, &v), .{ .p = 0 }));
+    try testing.expectError(error.OrderNotPositive, vectorNorm(io, @as([]const f64, &v), .{ .p = 0 }));
     const nan = [_]f64{ 1, std.math.nan(f64) };
     try testing.expect(std.math.isNan(try vectorNorm(io, @as([]const f64, &nan), .inf)));
 }
