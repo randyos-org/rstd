@@ -368,7 +368,8 @@ pub const EnvError = error{Unsupported};
 pub fn setMaxThreadsEnv(n: u32) EnvError!void {
     if (comptime !available) return error.Unsupported;
     var buf: [16:0]u8 = undefined;
-    const v = std.mem.printSentinel(&buf, "{d}", .{n}, 0) catch unreachable;
+    // 10 digits of a `u32` fit the 16 bytes
+    const v = std.mem.printSentinel(&buf, "{d}", .{n}, 0) catch return error.Unsupported;
     if (setenv("VECLIB_MAXIMUM_THREADS", v, 1) != 0) return error.Unsupported;
 }
 

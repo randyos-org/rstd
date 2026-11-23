@@ -43,7 +43,7 @@ pub fn rcond(allocator: Allocator, io: Io, a: anytype) RcondError!Real(ElementOf
     };
 }
 
-fn narrow(e: anyerror) RcondError {
+fn narrow(e: anytype) RcondError {
     return ops.narrow(RcondError, e);
 }
 

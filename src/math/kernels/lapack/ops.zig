@@ -269,14 +269,25 @@ pub fn normalized(comptime T: type, x: T) T {
     return mulReal(T, y, 1 / abs(T, y));
 }
 
-/// `e` narrowed to `E`, for a callee given arguments it accepts: the errors
-/// `E` names pass (such as `OutOfMemory`, `Canceled` or `Singular`); any
-/// other is `unreachable`.
-pub fn narrow(comptime E: type, e: anyerror) E {
-    inline for (@typeInfo(E).error_set.error_names.?) |name| {
-        if (e == @field(anyerror, name)) return @errorCast(e);
+/// `e`, an error of the callee's own set, narrowed to `E` for a callee given
+/// arguments it accepts: the errors `E` names pass (such as `OutOfMemory`,
+/// `Canceled` or `Singular`); any other of the callee's is `unreachable`,
+/// each decided at compile time.
+pub fn narrow(comptime E: type, e: anytype) E {
+    switch (e) {
+        inline else => |err| {
+            if (comptime inSet(E, err)) return err;
+            unreachable;
+        },
     }
-    unreachable;
+}
+
+/// Whether `E` names `err`.
+pub fn inSet(comptime E: type, comptime err: anyerror) bool {
+    inline for (@typeInfo(E).error_set.error_names.?) |name| {
+        if (std.mem.eql(u8, name, @errorName(err))) return true;
+    }
+    return false;
 }
 
 test {

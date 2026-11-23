@@ -65,13 +65,18 @@ fn binary(comptime op: Op, allocator: Allocator, a: anytype, b: anytype) Element
     const cb: ConstView(T) = constOf(b);
     if (ca.rows != cb.rows or ca.cols != cb.cols) return error.DimensionMismatch;
     const m = try Mat(T).init(allocator, ca.rows, ca.cols);
-    binaryInto(op, m.view(), ca, cb) catch unreachable;
+    binaryFill(op, m.view(), ca, cb);
     return m;
 }
 
 fn binaryInto(comptime op: Op, o: anytype, a: anytype, b: anytype) ElementwiseIntoError!void {
-    const T = @TypeOf(o).Element;
     if (a.rows != o.rows or a.cols != o.cols or b.rows != o.rows or b.cols != o.cols) return error.DimensionMismatch;
+    binaryFill(op, o, a, b);
+}
+
+/// `binaryInto` of views of one shape, which the caller has checked.
+fn binaryFill(comptime op: Op, o: anytype, a: anytype, b: anytype) void {
+    const T = @TypeOf(o).Element;
     for (0..o.cols) |j| for (o.col(j), a.col(j), b.col(j)) |*r, x, y| {
         r.* = if (comptime isComplex(T)) switch (op) {
             .add => x.add(y),
@@ -104,7 +109,7 @@ pub fn map(allocator: Allocator, a: anytype, f: anytype) Allocator.Error!Mat(Ele
     const T = ElementOf(@TypeOf(a));
     const ca = constOf(a);
     const m = try Mat(T).init(allocator, ca.rows, ca.cols);
-    mapInto(m, ca, f) catch unreachable;
+    mapFill(m.view(), ca, f);
     return m;
 }
 
@@ -112,7 +117,12 @@ pub fn mapInto(out: anytype, a: anytype, f: anytype) ElementwiseIntoError!void {
     const o = viewOf(out);
     const ca = constOf(a);
     if (ca.rows != o.rows or ca.cols != o.cols) return error.DimensionMismatch;
-    for (0..o.cols) |j| for (o.col(j), ca.col(j)) |*r, x| {
+    mapFill(o, ca, f);
+}
+
+/// `mapInto` of views of one shape, which the caller has checked.
+fn mapFill(o: anytype, a: anytype, f: anytype) void {
+    for (0..o.cols) |j| for (o.col(j), a.col(j)) |*r, x| {
         r.* = f(x);
     };
 }

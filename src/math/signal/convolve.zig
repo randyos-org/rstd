@@ -10,6 +10,14 @@ const fft = @import("../kernels/fft/__root__.zig");
 
 const Allocator = std.mem.Allocator;
 
+/// The plan's size and type were checked by `init`, and the slices cut from its
+/// own buffer: none of its errors can occur.
+fn never(e: fft.UnorderedError) noreturn {
+    switch (e) {
+        error.SliceTooShort, error.UnsupportedSize, error.UnsupportedType => unreachable,
+    }
+}
+
 pub const InitError = Allocator.Error || error{
     /// `block` is 0, or the filter is empty.
     ZeroLength,
@@ -44,7 +52,8 @@ pub fn Convolver(comptime T: type) type {
                 error.ZeroLength, error.NotImplemented => unreachable,
             };
             errdefer plan.deinit(allocator);
-            const parts = std.math.divCeil(usize, filter.len, block) catch unreachable;
+            // `block` is nonzero, checked above
+            const parts = (filter.len + block - 1) / block;
             const buf = try allocator.alignedAlloc(T, .@"16", 2 * parts * n + 2 * n + plan.scratchLen());
             errdefer allocator.free(buf);
             @memset(buf, 0);
@@ -86,16 +95,16 @@ pub fn Convolver(comptime T: type) type {
             @memmove(window[0..b], window[b..n]);
             @memcpy(window[b..n], in[0..b]);
             self.head = (self.head + 1) % self.parts;
-            self.plan.forwardUnordered(self.lineSpectrum(self.head), window, self.scratch()) catch unreachable;
+            self.plan.forwardUnordered(self.lineSpectrum(self.head), window, self.scratch()) catch |e| never(e);
             // part p meets the input from p blocks ago, in a fixed order
             const acc = self.sum();
             @memset(acc, 0);
             const scale = 1 / @as(T, @floatFromInt(n));
             for (0..self.parts) |p| {
                 const age = (self.head + self.parts - p) % self.parts;
-                self.plan.convolveAccumulate(acc, self.lineSpectrum(age), self.filterSpectrum(p), scale) catch unreachable;
+                self.plan.convolveAccumulate(acc, self.lineSpectrum(age), self.filterSpectrum(p), scale) catch |e| never(e);
             }
-            self.plan.backwardUnordered(acc, acc, self.scratch()) catch unreachable;
+            self.plan.backwardUnordered(acc, acc, self.scratch()) catch |e| never(e);
             // overlap-save: the second half is free of the circular wrap
             @memcpy(out[0..b], acc[b..n]);
         }
