@@ -19,6 +19,8 @@ pub fn tol(comptime T: type, single: f64, double: f64) f64 {
     return if (Float(T) == f32) single else double;
 }
 
+// ---- the parameter cases ---------------------------------------------------------
+
 /// One case: the source's variables by their own names.
 pub const Case = struct {
     name: []const u8,
@@ -109,6 +111,8 @@ pub fn transOf(c: u8) blas.Trans {
 pub fn transposed(c: u8) bool {
     return c == 'T' or c == 'C' or c == 'U' or c == 'D';
 }
+
+// ---- the matrix extensions -----------------------------------------------------
 
 /// The sources' `?matrix_difference`: the mean over `cols` columns of `ld`
 /// of the norm of `got - want` down `rows` of each; elements that agree

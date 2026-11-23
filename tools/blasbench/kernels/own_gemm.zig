@@ -21,6 +21,8 @@ const Num = libs.Num;
 const rstd_alloc = libs.rstd_alloc;
 const checkGemmReal = k3.checkGemmReal;
 
+// ---- rstd's own gemm --------------------------------------------------------
+
 /// `kern3`: the selected core's gemm kernel alone, on a `P` by 64 block of
 /// depth `Q` its own copies packed, against rstd's whole `gemm` on one
 /// worker: how much of the kernel's rate the driver keeps (T21).

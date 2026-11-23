@@ -27,6 +27,8 @@ const Probe = rt.Probe;
 const expectCalled = rt.expectCalled;
 const val = rt.val;
 
+// ---- Accelerate against rstd's kernels on special values ----------------------
+
 /// The routed level-1 routines.
 pub const R1 = enum { copy, swap, scal, dot, dotc, dsdot, nrm2, asum, iamax, rot, rotm, axpy, axpby };
 

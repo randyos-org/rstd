@@ -29,6 +29,8 @@ const vector_quantum = accel.vector_quantum;
 const expectCalled = rt.expectCalled;
 const val = rt.val;
 
+// ---- rstd's workers around Accelerate --------------------------------------------
+
 /// A split test's sizes: under a `test_serial_max` of `split_unit`, several
 /// parts each, every one with a tail.
 pub const split_unit = vector_quantum;

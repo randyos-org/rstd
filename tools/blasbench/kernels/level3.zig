@@ -15,6 +15,8 @@ const l3_timing = bb.l3_timing;
 const Prec = bb.Prec;
 const precs = bb.precs;
 
+// ---- level 3 ---------------------------------------------------------------
+
 extern fn ob_sgemm_kernel(isize, isize, isize, f32, [*]f32, [*]f32, [*]f32, isize) callconv(.c) i32;
 extern fn ob_sgemm_itcopy(isize, isize, [*]f32, isize, [*]f32) callconv(.c) i32;
 extern fn ob_sgemm_oncopy(isize, isize, [*]f32, isize, [*]f32) callconv(.c) i32;

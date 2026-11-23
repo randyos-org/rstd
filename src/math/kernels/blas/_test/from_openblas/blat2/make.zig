@@ -6,6 +6,8 @@ const ob = @import("../__root__.zig");
 const Float = ob.Float;
 const isComplex = ob.isComplex;
 
+// ---- SMAKE, LSERES -----------------------------------------------------
+
 pub const Kind = enum { ge, gb, sy, sb, sp, tr, tb, tp };
 
 pub fn rogue(comptime T: type) T {

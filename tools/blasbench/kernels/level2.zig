@@ -21,6 +21,8 @@ const part = kn.part;
 const rounded = kn.rounded;
 const size = kn.size;
 
+// ---- level 2 ---------------------------------------------------------------
+
 pub const gemv_alpha = 1e-3;
 
 pub fn GemvCall(comptime p: Prec, comptime name: []const u8) type {

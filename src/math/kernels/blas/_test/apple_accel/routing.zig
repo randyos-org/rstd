@@ -22,6 +22,8 @@ const route = accel.route;
 const routing = accel.routing;
 const x86_64 = accel.x86_64;
 
+// ---- routing tests -------------------------------------------------------------
+
 /// Fails unless Accelerate was called since `before` exactly when `want`.
 pub fn expectCalled(want: bool, before: usize, what: []const u8) !void {
     if ((calls.load(.monotonic) > before) == want) return;

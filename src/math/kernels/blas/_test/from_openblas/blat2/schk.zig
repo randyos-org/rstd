@@ -20,6 +20,9 @@ const Call = cl.Call;
 const Sweep = cl.Sweep;
 const Work = cl.Work;
 
+// ---- SCHK1 to SCHK6 -----------------------------------------------------------
+
+/// `SCHK1`: `gemv` and `gbmv`.
 pub fn chk1(comptime T: type, comptime r: Routine, p: Params) !void {
     const band = r == .gbmv;
     var arena: std.heap.ArenaAllocator = .init(testing.allocator);

@@ -31,6 +31,8 @@ const sc = pr.sc;
 const Work = wk.Work;
 const symAt = rc.symAt;
 
+// ---- level 3 entries
+
 /// `c0 + A B` at (i, j) against `c`, `A` read by `a(w, i, k)`.
 pub fn productAt(comptime p: Prec, w: *const Work(p), i: usize, j: usize, comptime a: fn (*const Work(p), usize, usize) Pair) [2]f64 {
     var s = w.at(.c0, i + j * w.n);

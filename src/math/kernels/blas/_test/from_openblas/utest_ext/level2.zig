@@ -27,6 +27,8 @@ const conjugate = util.conjugate;
 const transOf = util.transOf;
 const transposed = util.transposed;
 
+// ---- level 2 -------------------------------------------------------------------
+
 /// `y := alpha*op(A)*x + beta*y` by the definition, for `trans` any of the
 /// eight letters: the sources' `?gemv_n_trusted` and its kin.
 fn gemvRef(comptime T: type, trans: u8, m: usize, n: usize, alpha: T, a: []const T, lda: usize, x: []const T, incx: isize, beta: T, y: []T, incy: isize) void {

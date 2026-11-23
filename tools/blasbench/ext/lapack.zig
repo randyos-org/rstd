@@ -35,6 +35,8 @@ const one_c = pr.one_c;
 const Work = wk.Work;
 const symAt = rc.symAt;
 
+// ---- LAPACK entries
+
 /// `orig X` at (i, j), over k in `lo..hi`, against the identity; `X` read
 /// by `x(w, k, j)`: the residual of an inverse.
 pub fn inverseAt(comptime p: Prec, w: *const Work(p), i: usize, j: usize, lo: usize, hi: usize, comptime x: fn (*const Work(p), usize, usize) Pair) [2]f64 {

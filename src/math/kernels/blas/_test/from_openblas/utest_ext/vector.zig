@@ -12,6 +12,8 @@ const single_eps = util.single_eps;
 const double_eps = util.double_eps;
 const tol = util.tol;
 
+// ---- the vector cases ----------------------------------------------------------
+
 /// `x` as raw floats (two per complex element), `n` elements at stride
 /// `inc`, and the expected result.
 const VecCase = struct { name: []const u8, n: isize, inc: isize, want: f64, x: []const f64 };
@@ -54,6 +56,8 @@ pub fn reductions() !void {
 test "utest_ext: amin, amax, sum, iamin" {
     try reductions();
 }
+
+// ---- data ----------------------------------------------------------------------
 
 /// `test_damin.c (test_samin.c is the same)`.
 const amin_real = [_]VecCase{

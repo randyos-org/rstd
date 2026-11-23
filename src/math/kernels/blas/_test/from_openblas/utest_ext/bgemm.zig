@@ -10,6 +10,8 @@ const testing = std.testing;
 const transOf = util.transOf;
 const transposedLetter = util.transposedLetter;
 
+// ---- bgemm ---------------------------------------------------------------------
+
 /// One `CTEST` of `test_bgemm.c`'s `check_bgemm`.
 const BgemmCase = struct { name: []const u8, ta: u8, tb: u8, m: isize, n: isize, k: isize, alpha: f32, beta: f32, lda: isize, ldb: isize, ldc: isize };
 

@@ -39,6 +39,8 @@ const sc = pr.sc;
 const Work = wk.Work;
 const symAt = rc.symAt;
 
+// ---- level 2 entries
+
 pub const Ger = struct {
     pub const name = "ger";
     pub const shape: Shape = .mv;
