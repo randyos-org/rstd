@@ -59,8 +59,8 @@ pub fn counts() [6]u32 {
     return .{ 1, 2, 3, 7, threading.cpuCount(), threading.chunks_max + 1 };
 }
 
-/// The `async_limit`s of the threaded tests: all inline, fewer than asked,
-/// oversubscribed.
+/// The `async_limit`s and `concurrent_limit`s of the threaded tests: the
+/// caller alone, fewer than asked, oversubscribed.
 pub const limits = [_]Io.Limit{ .nothing, .limited(3), .limited(8) };
 
 /// `f(ctx, io)` on each threaded-test `Io`: `Io.failing`; `TestIo` at each of

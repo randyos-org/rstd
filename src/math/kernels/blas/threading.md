@@ -126,7 +126,7 @@ no spinning server. The calling thread is worker 0.
 
 The worker count affects only speed. Targets that report one CPU (freestanding builds, the
 single-core qemu rigs through their `Thread` override) run serially without special cases. When the `Io`
-admits fewer than `w` workers, the surplus run inline on the caller.
+admits fewer than `w` workers, the caller and the workers it started share the work.
 
 ### Levels 1 and 2: fixed chunks, dynamic claiming, ordered combine
 
@@ -137,11 +137,14 @@ the problem size and the routine's chunk size, never on `w`:
   `work` units above `serial_max` makes `ceil(work / serial_max)` chunks, at most 64. Bounds
   split the range evenly, or by square roots where row costs grow or shrink (`Shape`), and
   round to a quantum the routine picks.
-- **Claiming.** `w` workers start through `Group.async` (futures on `Dispatch`, below); each
-  claims the next chunk from an atomic counter until none remain. The work spreads over
-  whatever actually runs: all workers when the `Io` runs them all, fewer when it admits fewer
-  (late starters find nothing left), and the remaining workers absorb the load when a core is
-  busy.
+- **Claiming.** The caller and up to `w - 1` helpers started through `Group.concurrent`
+  (futures on `Dispatch`, below), stopping at the first the `Io` refuses; each claims the next
+  chunk from an atomic counter until none remain. The work spreads over whatever actually runs:
+  all workers when the `Io` runs them all, fewer when it admits fewer (late starters find
+  nothing left), and the remaining workers absorb the load when a core is busy. Not
+  `Group.async`: a helper it ran inline would claim every chunk before the next started, and
+  `Io.Threaded` counts a slot busy until its task has woken the awaiter, so back-to-back calls
+  often find the pool full ([#685](https://github.com/randyos-org/rstd/issues/685)).
 - **Combining.** Each chunk's partial result is determined by its boundaries, not by the
   worker that computed it. Reductions keep partials in a stack `[64]T` and fold them in chunk
   order on the caller; the extremes fold exactly (first index wins). The level-2 products that
@@ -259,7 +262,7 @@ second pass over the same split. `gemmt` stays serial; upstream threads it throu
 column panels) and `gemm_thread_m` (right side, row panels) do, and as BLIS splits only its
 `jc` and `ic` loops there: one part per worker, starting on `unroll_n` columns or `unroll_m`
 rows, each a serial solve or product on packing space of its own. Nothing waits, so the parts
-run through `forEach` (`Group.async`, inline when the `Io` admits fewer).
+run through `forEach` (`Group.concurrent`, on fewer workers when the `Io` admits fewer).
 
 The half gemms (`sbgemm`, `bgemm`, `shgemm`, `blas3/half.zig`) split `C` the same way: column
 ranges (row ranges for a tall `C`) starting on a panel, each a serial problem on its own packing
@@ -340,8 +343,8 @@ kernel buffer (`symv`, `hemv`, `trmv`); a chunk zeroes its own vector when it st
 therefore infallible, and the allocator need not be thread safe. Level 1, `ger`, transposed
 `gbmv` and the rank updates need none beyond their serial copies of strided vectors, made before
 any task starts. Task
-arguments are a pointer to the shared job plus a worker index; `Group.async` copies them with
-the `Io`'s own allocator and runs the task inline if that allocation fails.
+arguments are a pointer to the shared job plus a worker index; `Group.concurrent` copies them with
+the `Io`'s own allocator, and fails if that allocation does, leaving the work to those started.
 
 ### Errors and cancellation
 

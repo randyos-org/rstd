@@ -138,7 +138,9 @@ fn Region(comptime Ctx: type, comptime f: fn (Ctx, Chunk) void) type {
                 // the caller's state where a fiber `Io` resumed it (`Lent`)
                 _ = r.fp.adopt();
             }
-            for (1..w) |_| tasks.async(io, Self.work, .{ r, io });
+            // `concurrent`, not `async`: a helper run inline would claim every
+            // chunk before the next started (issue #685)
+            for (1..w) |_| tasks.concurrent(io, Self.work, .{ r, io }) catch break;
             try r.claim(io);
             try tasks.await(io);
         }
