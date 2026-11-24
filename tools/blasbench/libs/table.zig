@@ -7,6 +7,7 @@ const merge = @import("../merge.zig");
 const bb = @import("../blas_bench.zig");
 const ext = @import("../ext.zig");
 const lb = @import("../libs.zig");
+const alone = @import("../alone.zig");
 
 const Io = std.Io;
 const blas = rstd.math.kernels.blas;
@@ -70,6 +71,7 @@ pub fn sumBound(n: usize) f64 {
 /// error, and a hash of rstd's output.
 pub fn printHeader(comptime lead: []const u8, comptime rule: []const u8, cols: []const Col) void {
     var n: usize = 0;
+    header_lead = lead;
     std.debug.print("| " ++ lead ++ " |", .{});
     for (cols) |c| if (c.shown()) {
         std.debug.print(" {s} |", .{c.label});
@@ -79,6 +81,10 @@ pub fn printHeader(comptime lead: []const u8, comptime rule: []const u8, cols: [
         std.debug.print(" {s}/ob |", .{c.short});
         n += 1;
     };
+    if (fair()) {
+        std.debug.print(" ob alone | rstd/ob alone |", .{});
+        n += 2;
+    }
     if (bb.alone) {
         std.debug.print("\n| " ++ rule ++ " |", .{});
         for (0..n) |_| std.debug.print(" -: |", .{});
@@ -99,12 +105,14 @@ pub fn printHeader(comptime lead: []const u8, comptime rule: []const u8, cols: [
 pub const merge_labels = blk: {
     var l: []const merge.Label = &.{};
     for (lib_cols ++ ext_cols[4..] ++ lib3_cols[4..]) |c| l = l ++ [_]merge.Label{.{ .label = c.label, .short = c.short }};
+    l = l ++ [_]merge.Label{.{ .label = "ob alone", .short = "ob alone" }};
     break :blk l[0..l.len].*;
 };
 
 /// Marks the start of a section's output for `merge.zig`, which reruns
 /// noisy sections by name.
 pub fn sectionMark(comptime name: []const u8) void {
+    section = name;
     std.debug.print("\n<!-- section " ++ name ++ " -->\n", .{});
 }
 
@@ -118,6 +126,11 @@ pub fn printRow(cols: []const Col, rates: []const ?f64, diffs: []const ?Diff, mi
     for (cols[1..], rates[1..]) |c, r| {
         if (!c.shown()) continue;
         if (r != null and rates[0] != null) std.debug.print("{d:.2} | ", .{r.? / rates[0].?}) else std.debug.print("- | ", .{});
+    }
+    if (fair()) {
+        const o = obAlone();
+        if (o) |v| std.debug.print("{d:.1} | ", .{v}) else std.debug.print("- | ", .{});
+        if (o != null and rates[rstd_col] != null) std.debug.print("{d:.2} | ", .{rates[rstd_col].? / o.?}) else std.debug.print("- | ", .{});
     }
     if (bb.alone) return std.debug.print("\n", .{});
     for (cols, diffs) |c, d| {
@@ -179,3 +192,46 @@ pub fn rstdRuns(comptime name: []const u8) []const u8 {
 }
 
 pub const diff_note = "`rstd-<lib>` is rstd's largest difference from that library's result, in eps of the type relative to the size of the terms; `!` marks one past what accumulation order explains: 0 for `copy`, `swap` and `i?amax`, 8 for the other element-wise routines, 2 (n + 8) for a sum of n terms. `rstd err` is rstd's own error from an f64 reference in the same units (gemm: at 256 entries), which tells whose result a difference comes from. `rstd bits` hashes rstd's output, the same on machines that run the same kernels";
+
+/// The section being printed (`sectionMark`), the lead of its table's header
+/// (`printHeader`) and the lead of its row (`printLead`): a row's key in the alone
+/// run's rates.
+var section: []const u8 = "";
+var header_lead: []const u8 = "";
+var row_lead_buf: [256]u8 = undefined;
+var row_lead: []const u8 = "";
+
+/// Prints a row's lead, the cells before `printRow`'s.
+pub fn printLead(comptime fmt: []const u8, args: anytype) void {
+    row_lead = std.mem.print(&row_lead_buf, fmt, args) catch "";
+    std.debug.print("{s}", .{row_lead});
+}
+
+/// The race shows rstd against the alone run's OpenBLAS (issue #690).
+fn fair() bool {
+    return !bb.alone and alone.ob_rates != null;
+}
+
+/// This row's OpenBLAS rate in the alone run.
+fn obAlone() ?f64 {
+    var hc: [8][]const u8 = undefined;
+    var rc: [8][]const u8 = undefined;
+    const h = splitCells(&hc, header_lead);
+    const r = splitCells(&rc, row_lead);
+    var kb: [512]u8 = undefined;
+    const k = alone.key(&kb, section, h, r) catch return null;
+    return alone.ob_rates.?.get(k);
+}
+
+/// `line`'s cells between `|`s, trimmed, empty ones out.
+fn splitCells(out: [][]const u8, line: []const u8) []const []const u8 {
+    var n: usize = 0;
+    var it = std.mem.splitScalar(u8, line, '|');
+    while (it.next()) |c| {
+        const t = std.mem.trim(u8, c, " ");
+        if (t.len == 0 or n == out.len) continue;
+        out[n] = t;
+        n += 1;
+    }
+    return out[0..n];
+}

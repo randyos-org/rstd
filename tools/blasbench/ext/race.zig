@@ -13,6 +13,7 @@ const l3_timing = bb.l3_timing;
 const Prec = bb.Prec;
 const fail = libs.fail;
 const lookupF = libs.lookupF;
+const printLead = libs.printLead;
 const rstd_col = libs.rstd_col;
 const rstdFirst = libs.rstdFirst;
 const sumBound = libs.sumBound;
@@ -141,7 +142,7 @@ pub fn raceExt(io: Io, gpa: std.mem.Allocator, comptime E: type, comptime table_
         if (!ok or es.count == 0) continue;
         w.reset(E);
         const rates = try es.race(io, timing, E.flops(@floatFromInt(n)) * @as(f64, if (p.complex) 4 else 1));
-        std.debug.print("| {s} | {s} | {d} | ", .{ E.name, p.name, n });
+        printLead("| {s} | {s} | {d} | ", .{ E.name, p.name, n });
         es.print(&ext_cols, &rates);
     }
 }

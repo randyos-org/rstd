@@ -19,6 +19,7 @@ pub const Entrants = tb.Entrants;
 pub const lib_cols = tb.lib_cols;
 pub const merge_labels = tb.merge_labels;
 pub const printHeader = tb.printHeader;
+pub const printLead = tb.printLead;
 pub const rstdFirst = tb.rstdFirst;
 pub const rstd_col = tb.rstd_col;
 pub const sectionMark = tb.sectionMark;

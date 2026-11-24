@@ -35,7 +35,7 @@ The bench takes `--name=value` options, then section names; with none named ever
 - `--openblas-prefix=<prefix>`: the prefix on each OpenBLAS symbol, as SciPy's `scipy-openblas32` wheels have (`scipy_`).
 - `--rstd-accelerate=0`: rstd's own kernels on macOS, not Accelerate.
 - `--routines=<name>[,<name>...]`: only those level-1 routines in `l1` and `lib1` (`sum,asum`), for a short run.
-- `--accelerate-alone=1`: only the libraries, rstd never initialized (see Accelerate's threads below).
+- `--accelerate-alone=1`: only the libraries, rstd never initialized (see the alone run below).
 - `blas_bench --merge <out.md> <log>...` merges runs of one configuration (`merge.zig`, `flyoff.sh`).
 
 ## Contestants
@@ -59,7 +59,7 @@ The reference binaries (design.md, the anthology decision) are baselines only:
 
 `tools/nix/blas.sh <system> <rev> <bench nix dir>` fetches and builds them on the Mac's Nix, for macOS under `/tmp/rstd-blas` and for the Linux VMs into their initramfs (`/flyoff`). Windows has no Nix: its runs race OpenBLAS alone. A library that cannot load is skipped with a warning; OpenBLAS must load.
 
-**Accelerate's threads.** rstd's init makes Accelerate single-threaded for its process (`VECLIB_MAXIMUM_THREADS=1`, threading.md), so a run with `--threads` other than 1 then starts the bench again with `--accelerate-alone=1`: OpenBLAS and Accelerate only, rstd never initialized, Accelerate on its own threads. Its tables follow the first process's, without rstd's columns.
+**The alone run.** A run with `--threads` other than 1 first starts the bench again with `--accelerate-alone=1`, in the environment it started with: OpenBLAS, BLIS and Accelerate only, rstd never initialized, each library on its own threads with its own defaults; its tables come first, without rstd's columns. Two reasons ([#690](https://github.com/randyos-org/rstd/issues/690)): rstd's init makes Accelerate single-threaded for its process (`VECLIB_MAXIMUM_THREADS=1`, threading.md), and OpenBLAS's workers spin for seconds after each call (`THREAD_TIMEOUT`, about 11 s on arm64), holding cores through rstd's timed calls. So the race sets `OPENBLAS_THREAD_TIMEOUT=4` (its shortest) unless the caller set one, and its tables add `ob alone`, OpenBLAS's rate in the alone run, and `rstd/ob alone`: rstd with OpenBLAS idle against OpenBLAS alone with its spin, each at its best. `rstd/ob` in the race compares rstd with an OpenBLAS that idles between calls, slower than its default (on the M6 at 12 threads, c `syevdN` n = 1024: 44 GFLOP/s against 106 alone). OpenBLAS's Windows build does not spin (its workers wait on events), so the variable changes nothing there.
 
 ## Steps
 

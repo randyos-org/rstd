@@ -34,6 +34,7 @@ const Entrants = tb.Entrants;
 const diff_note = tb.diff_note;
 const lib_cols = tb.lib_cols;
 const printHeader = tb.printHeader;
+const printLead = tb.printLead;
 const rstdFirst = tb.rstdFirst;
 const rstdRuns = tb.rstdRuns;
 const rstd_col = tb.rstd_col;
@@ -140,7 +141,7 @@ pub fn raceLibL1(io: Io, comptime r: L1, comptime p: Prec, b: Bufs(p.F), kx: []p
         if (!ok) continue;
         b.reset();
         const rates = try es.race(io, l1_timing, l1Bytes(r, n, p.es()));
-        std.debug.print("| {s} | {s} | {d} | {d} | {s} | ", .{ @tagName(r), p.name, n, case.inc, rstdRuns(name) });
+        printLead("| {s} | {s} | {d} | {d} | {s} | ", .{ @tagName(r), p.name, n, case.inc, rstdRuns(name) });
         if (arm) std.debug.print("{s} | ", .{if (asm_k) |a| a.from else "none"});
         es.print(&lib_cols, &rates);
     }

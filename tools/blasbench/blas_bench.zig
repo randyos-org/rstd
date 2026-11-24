@@ -7,6 +7,7 @@ const Io = std.Io;
 const rstd = @import("rstd");
 const bench_options = @import("bench_options");
 const bench = @import("bench.zig");
+const alone_run = @import("alone.zig");
 const merge = @import("merge.zig");
 const kernels = @import("kernels.zig");
 const l3thread = @import("l3thread.zig");
@@ -144,8 +145,7 @@ pub fn main(init: std.process.Init) !void {
         } else try sections.append(init.arena.allocator(), a);
     }
 
-    // the parent's rstd set `VECLIB_MAXIMUM_THREADS=1`, which this process
-    // inherited: Accelerate takes its own count unless `--threads` sets one
+    // Accelerate takes its own count unless `--threads` sets one
     if (comptime os_tag.isDarwin()) {
         if (alone and opts.threads == null) _ = unsetenv("VECLIB_MAXIMUM_THREADS");
     }
@@ -163,6 +163,9 @@ pub fn main(init: std.process.Init) !void {
     } else std.debug.print("zig {s}, {t}-{t}, cpu model {s}; the libraries alone, rstd never initialized\n", .{ sysinfo.zig_version_string, sysinfo.target.cpu.arch, os_tag, sysinfo.target.cpu.model.name });
     // before anything selects rstd's core, which reads its ceiling then
     try setThreadEnv(opts.threads);
+    // OpenBLAS's workers would spin through rstd's timed calls (issue #690): idle
+    // here, its own rates from the alone run; a caller's value stands
+    if (!alone and opts.threads != 1 and init.environ_map.get("OPENBLAS_THREAD_TIMEOUT") == null) libs.setEnv("OPENBLAS_THREAD_TIMEOUT", "4");
     // a program's default limits: `--threads` caps rstd by its ceiling alone, as
     // `Io.Threaded` frees a slot only after its task wakes the awaiter (issue #684)
     var threaded: Io.Threaded = .init(std.heap.c_allocator, .{});
@@ -215,14 +218,15 @@ pub fn main(init: std.process.Init) !void {
     if (!alone and want(sections.items, "rotreals")) try rot_reals_bench.run(io, gpa);
     const lib_sections = want(sections.items, "lib1") or want(sections.items, "lib2") or want(sections.items, "lib3") or want(sections.items, "lapack");
     if (lib_sections or (all and (opts.paths.get(.openblas) != null or alone))) {
+        // each library alone on its own threads first: rstd's init makes
+        // Accelerate single-threaded here (T07), and OpenBLAS idles here
+        const threads = opts.paths.get(.openblas) != null or opts.paths.get(.accelerate) != null;
+        if (!alone and opts.threads != 1 and threads) try alone_run.run(io, init.arena.allocator(), init.environ_map, args);
         if (!libs_loaded) try loadLibs(opts);
         if (all or want(sections.items, "lib1")) try libLevel1(io, gpa);
         if (all or want(sections.items, "lib2")) try libLevel2(io, gpa);
         if (all or want(sections.items, "lib3")) try libLevel3(io, gpa);
         if (all or want(sections.items, "lapack")) try libLapack(io, gpa);
-        // rstd's init made Accelerate single-threaded here: its own threads
-        // run in a process that never initializes rstd (T07)
-        if (!alone and opts.threads != 1 and loaded(.accelerate)) try runAlone(io, args);
     }
     try clock(io, "end");
 }
@@ -230,24 +234,10 @@ pub fn main(init: std.process.Init) !void {
 /// `--name=value` options.
 const Opt = enum { openblas, blis, accelerate, reference, eigen, @"aocl-libflame", threads, @"rstd-io", @"max-n", only, @"ob-core", @"openblas-prefix", @"rstd-accelerate", @"accelerate-alone", routines };
 
-/// `--accelerate-alone`: only the libraries race; nothing of rstd's runs, so
-/// nothing sets `VECLIB_MAXIMUM_THREADS` or `BLASSetThreading`.
+/// `--accelerate-alone`: only the libraries race (`alone.zig`); nothing of
+/// rstd's runs, so nothing sets `VECLIB_MAXIMUM_THREADS` or `BLASSetThreading`,
+/// and OpenBLAS keeps its spin.
 pub var alone = false;
-
-/// This bench again with `args` and `--accelerate-alone=1`: the libraries'
-/// tables, Accelerate on its own threads.
-fn runAlone(io: Io, args: []const [:0]const u8) !void {
-    var argv: [64][]const u8 = undefined;
-    if (args.len + 1 > argv.len) return error.TooManyArguments;
-    for (args, argv[0..args.len]) |a, *v| v.* = a;
-    argv[args.len] = "--accelerate-alone=1";
-    std.debug.print("\n{s}: the libraries again in a process without rstd, Accelerate on its own threads\n", .{args[0]});
-    var child = try std.process.spawn(io, .{ .argv = argv[0 .. args.len + 1], .stdin = .ignore, .stdout = .inherit, .stderr = .inherit });
-    switch (try child.wait(io)) {
-        .exited => |code| if (code != 0) return error.AloneRunFailed,
-        else => return error.AloneRunFailed,
-    }
-}
 
 extern "c" fn pthread_set_qos_class_self_np(qos: c_uint, relpri: c_int) c_int;
 const qos_class_user_interactive: c_uint = 0x21;

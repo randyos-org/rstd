@@ -31,6 +31,7 @@ const Entrants = tb.Entrants;
 const diff_note = tb.diff_note;
 const lib3_cols = tb.lib3_cols;
 const printHeader = tb.printHeader;
+const printLead = tb.printLead;
 const rstdFirst = tb.rstdFirst;
 const rstd_col = tb.rstd_col;
 const sectionMark = tb.sectionMark;
@@ -174,7 +175,7 @@ pub fn raceLibGemm(io: Io, gpa: std.mem.Allocator, comptime p: Prec) !void {
         }
         const nf: f64 = @floatFromInt(n);
         const rates = try es.race(io, l3_timing, nf * nf * nf * @as(f64, if (p.complex) 8 else 2));
-        std.debug.print("| {s} | {d} | ", .{ p.name, n });
+        printLead("| {s} | {d} | ", .{ p.name, n });
         es.print(&lib3_cols, &rates);
     }
 }
