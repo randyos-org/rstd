@@ -453,6 +453,7 @@ Reproducibility:
   capture `FpState` on the caller, and each task's first step adopts it, restoring its
   thread's own when it ends. Only control bits move: exception flags stay per thread, and the
   caller's state is never changed ([`design.md`](../../linalg/design.md), Settled decisions).
+- **The caller's QoS class (macOS).** macOS places a thread by its quality-of-service class, so a default-class worker of a user-interactive caller lands on an Efficiency core. `team` and `forEachIn` capture the caller's class, and each task raises its thread to it when that is higher and keeps it (`threading/Qos.zig`), since one task is too short for macOS to move a thread. Never above the caller's class; a pool thread keeps the highest class any rstd caller on it had. On the M6, +5 to +24% at 6 and 12 threads ([#691](https://github.com/randyos-org/rstd/issues/691)).
 
 Memory safety for concurrent work:
 

@@ -4,6 +4,7 @@
 const std = @import("std");
 const sysinfo = @import("builtin");
 const FpState = @import("../FpState.zig");
+const Qos = @import("Qos.zig");
 const Tasks = @import("tasks.zig").Tasks;
 
 const Io = std.Io;
@@ -19,7 +20,8 @@ pub fn team(io: Io, job: anytype, want: u32) Io.Cancelable!void {
     }
     const Job = @TypeOf(job.*);
     const S = struct {
-        fn worker(j: *Job, go: *Signal, i: u32, fp: FpState, wio: Io) void {
+        fn worker(j: *Job, go: *Signal, i: u32, fp: FpState, qos: Qos, wio: Io) void {
+            qos.raise();
             var lent: Lent = .{ .want = fp };
             lent.take();
             defer lent.give();
@@ -28,6 +30,7 @@ pub fn team(io: Io, job: anytype, want: u32) Io.Cancelable!void {
         }
     };
     const fp: FpState = .capture();
+    const qos: Qos = .capture();
     // the caller's own: a fiber `Io` may resume it on another thread too
     var mine: Lent = .{ .want = fp };
     var go: Signal = .{};
@@ -39,7 +42,7 @@ pub fn team(io: Io, job: anytype, want: u32) Io.Cancelable!void {
         mine.take();
     }
     var started: u32 = 1;
-    while (started < want) : (started += 1) tasks.concurrent(io, S.worker, .{ job, &go, started, fp, io }) catch break;
+    while (started < want) : (started += 1) tasks.concurrent(io, S.worker, .{ job, &go, started, fp, qos, io }) catch break;
     go.set(io, job.plan(started), &mine);
     try job.work(io, 0, &mine);
     try tasks.await(io);
