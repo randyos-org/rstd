@@ -19,11 +19,13 @@ const Matrix = driver.Matrix;
 const Error = driver.Error;
 
 /// The workers `family`'s rule (`threading.md`) gives `work` on the
-/// selected core, for the drivers' `want`.
-pub fn workers(comptime family: threading.Family, comptime T: type, work: u64) u32 {
+/// selected core, at most one per `threading.team_grain` of the call's
+/// `madds` real multiply-adds (#591), for the drivers' `want`.
+pub fn workers(comptime family: threading.Family, comptime T: type, work: u64, madds: u64) u32 {
     // selects the core first, which fills `blas.config`
     const r = threading.rule(family, T, blas.coreType());
-    return @min(threading.workers(&blas.config, r.sizeMax(work)), threading.chunks_max);
+    const w = @min(threading.workers(&blas.config, r.sizeMax(work)), threading.chunks_max);
+    return threading.crew(T, w, threading.team_grain, madds);
 }
 
 /// `driver.run`'s loops on up to `want` workers.

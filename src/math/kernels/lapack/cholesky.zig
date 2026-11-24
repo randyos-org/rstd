@@ -11,6 +11,7 @@ const driver = @import("../blas/blas3/driver.zig");
 const accel = @import("../blas/apple_accel.zig");
 const Vtable = @import("../blas/Vtable.zig");
 const ops = @import("ops.zig");
+const threading = @import("../blas/threading.zig");
 const interface = @import("interface.zig");
 const Kept = @import("Kept.zig");
 const tri = @import("triangular.zig");
@@ -106,7 +107,7 @@ pub fn potrfChecked(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, 
     // one packing space for every team, as upstream's one buffer per call
     var kept: Kept = .init(allocator);
     defer kept.deinit();
-    return factorParallel(kept.allocator(), io, T, vt, upper, blk, n, a.ptr, lda, w, interface.team_grain, interface.block_grain);
+    return factorParallel(kept.allocator(), io, T, vt, upper, blk, n, a.ptr, lda, w, threading.team_grain, interface.block_grain);
 }
 
 /// `?POTF2`: `potrf` unblocked (`potf2_U.c` and the rest, as loops), with
@@ -131,7 +132,7 @@ fn factor(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, upp
         const bk = @min(n - j, blocking);
         const d = a + j * (lda + 1);
         if (try factor(allocator, io, T, vt, upper, dtb, q, bk, d, lda)) |k| return k + j;
-        try trailing(allocator, io, T, vt, upper, n - j - bk, bk, d, lda, 1, interface.team_grain);
+        try trailing(allocator, io, T, vt, upper, n - j - bk, bk, d, lda, 1, threading.team_grain);
     }
     return null;
 }
@@ -139,7 +140,7 @@ fn factor(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, upp
 /// `potrf_U_parallel.c` and `potrf_L_parallel.c`: blocks of half the order
 /// rounded up to `unroll_n`, at most `Q`, each factored recursively, until
 /// `4 * unroll_n` is left for `factor`; the drivers take up to `want`
-/// workers, one per `grain` of each call (`interface.crew`). Upstream drops
+/// workers, one per `grain` of each call (`threading.crew`). Upstream drops
 /// to `factor` for one thread; here a block does whose first updates would
 /// each take one worker at `block`, by its size alone (`threads`,
 /// `oneWorker`): `factor` is the faster at one worker to n = 128 (issue #546).
@@ -161,13 +162,13 @@ pub fn factorParallel(allocator: Allocator, io: Io, comptime T: type, vt: *const
 fn oneWorker(comptime T: type, grain: u64, n: usize, bk: usize) bool {
     const any = std.math.maxInt(u32);
     const rest = n - @min(n, bk);
-    return interface.crew(T, any, grain, bk, bk, rest) == 1 and interface.crew(T, any, grain, rest, rest, bk) == 1;
+    return threading.crew(T, any, grain, threading.product(&.{ bk, bk, rest })) == 1 and threading.crew(T, any, grain, threading.product(&.{ rest, rest, bk })) == 1;
 }
 
 /// The `rest` columns (`u`: rows) past the `bk` just factored at `d`:
 /// `A12 := U11^-H A12; A22 -= A12^H A12`, or `A21 := A21 L11^-H;
 /// A22 -= A21 A21^H` (`TRSM_LCUN`, `HERK_UC`; `TRSM_RCLN`, `HERK_LN`).
-/// Each takes `want` workers, at most one per `grain` (`interface.crew`).
+/// Each takes `want` workers, at most one per `grain` (`threading.crew`).
 fn trailing(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, upper: bool, rest: usize, bk: usize, d: [*]T, lda: usize, want: u32, grain: u64) driver.Error!void {
     if (rest == 0) return;
     const complex = comptime isComplex(T);
@@ -175,13 +176,13 @@ fn trailing(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, u
     const minus = scalar(T, -1);
     const p = if (upper) d + bk * lda else d + bk;
     const c = d + bk * (lda + 1);
-    const solvers = interface.crew(T, want, grain, bk, bk, rest);
+    const solvers = threading.crew(T, want, grain, threading.product(&.{ bk, bk, rest }));
     if (upper) {
         try driver.trsm(allocator, io, T, vt, true, true, true, complex, false, bk, rest, one, d, lda, p, lda, solvers);
     } else {
         try driver.trsm(allocator, io, T, vt, false, false, true, complex, false, rest, bk, one, d, lda, p, lda, solvers);
     }
-    try driver.syrk(allocator, io, T, vt, complex, upper, upper, rest, bk, minus, p, lda, null, 0, one, c, lda, interface.crew(T, want, grain, rest, rest, bk));
+    try driver.syrk(allocator, io, T, vt, complex, upper, upper, rest, bk, minus, p, lda, null, 0, one, c, lda, threading.crew(T, want, grain, threading.product(&.{ rest, rest, bk })));
 }
 
 /// `?POTRS`: solves `A X = B` for the `n x nrhs` `X`, in place of `B`,

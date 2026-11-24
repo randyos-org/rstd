@@ -204,8 +204,8 @@ pub fn symvLower(al: Allocator, io: Io, comptime T: type, alpha: T, a: Mat(T), x
 pub fn rank2kLower(al: Allocator, io: Io, comptime T: type, a: Mat(T), b: Mat(T), c: Mat(T)) Error!void {
     const n = c.rows;
     if (n == 0 or a.cols == 0) return;
-    // inside a routine: at most one worker per `team_grain` (`interface.crew`)
+    // inside a routine: at most one worker per `team_grain` (`threading.crew`)
     const want = threaded.workers(.syr2k, T, threading.product(&.{ n, a.cols }));
-    const w = interface.crew(T, want, interface.team_grain, n, n, 2 * a.cols);
+    const w = threading.crew(T, want, threading.team_grain, threading.product(&.{ n, n, 2 * a.cols }));
     try driver.syrk(al, io, T, table(T), comptime isComplex(T), false, false, n, a.cols, scalar(T, -1), a.ptr, a.ld, b.ptr, b.ld, scalar(T, 1), c.ptr, c.ld, w);
 }

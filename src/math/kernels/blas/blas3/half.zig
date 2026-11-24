@@ -57,7 +57,8 @@ pub fn gemmHalf(allocator: Allocator, io: Io, comptime kind: HalfPrecision, tran
     try interface.gemmFits(transa, transb, m, n, k, lda, ldb, ldc, @sizeOf(kind.In()), @sizeOf(kind.Out()));
     // upstream excludes the half types from the per-core tables
     // (`gemm.c:232-242`): every core takes the default rule, as `f16` does
-    const w = threaded.workers(.gemm, types.HF16, threading.product(&.{ @intCast(m), @intCast(n), @intCast(k) }));
+    const mnk = threading.product(&.{ @intCast(m), @intCast(n), @intCast(k) });
+    const w = threaded.workers(.gemm, types.HF16, mnk, mnk);
     try gemm(allocator, io, kind, blas.vtable(), ta, tb, @intCast(m), @intCast(n), @intCast(k), alpha, a, @intCast(lda), b, @intCast(ldb), beta, c, @intCast(ldc), w);
 }
 
