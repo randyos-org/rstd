@@ -7,6 +7,7 @@ const real = @import("../real.zig");
 const BlasLong = types.BlasLong;
 const at = shared.at;
 const mulAdd = shared.mulAdd;
+const lanes = shared.lanes;
 
 pub fn Level2(comptime F: type, comptime U: comptime_int) type {
     const Base = real.Real(F, U);
@@ -15,6 +16,9 @@ pub fn Level2(comptime F: type, comptime U: comptime_int) type {
         const W = Base.W;
         const ld = Base.ld;
         const st = Base.st;
+        /// One register: `gemv_n`'s rows past the last `W`, before single ones.
+        const L = lanes(F);
+        const VL = @Vector(L, F);
 
         /// `y += alpha*A*x`, four columns a pass over a unit-stride `y`.
         pub fn gemv_n(m: BlasLong, n: BlasLong, _: BlasLong, alpha: F, a: [*]F, lda: BlasLong, x: [*]F, incx: BlasLong, y: [*]F, incy: BlasLong, _: [*]F) callconv(.c) i32 {
@@ -37,6 +41,11 @@ pub fn Level2(comptime F: type, comptime U: comptime_int) type {
                         inline for (0..4) |q| yv = mulAdd(V, ld(c[q] + i), @splat(t[q]), yv);
                         st(y + i, yv);
                     }
+                    if (U > 1) while (i + L <= rows) : (i += L) {
+                        var yv: VL = y[i..][0..L].*;
+                        inline for (0..4) |q| yv = mulAdd(VL, c[q][i..][0..L].*, @splat(t[q]), yv);
+                        y[i..][0..L].* = yv;
+                    };
                     while (i < rows) : (i += 1) {
                         inline for (0..4) |q| y[i] = mulAdd(F, c[q][i], t[q], y[i]);
                     }
@@ -48,6 +57,9 @@ pub fn Level2(comptime F: type, comptime U: comptime_int) type {
                 var i: usize = 0;
                 if (incy == 1) {
                     while (i + W <= rows) : (i += W) st(y + i, mulAdd(V, ld(c + i), @splat(t), ld(y + i)));
+                    if (U > 1) while (i + L <= rows) : (i += L) {
+                        y[i..][0..L].* = mulAdd(VL, c[i..][0..L].*, @splat(t), y[i..][0..L].*);
+                    };
                 }
                 while (i < rows) : (i += 1) {
                     const yp = at(F, y, @as(BlasLong, @intCast(i)) * incy);
