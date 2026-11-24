@@ -3,25 +3,29 @@
 //! vtable's packed kernels, for every routine of two packed operands (`gemm/notes.md`).
 
 const std = @import("std");
-const sysinfo = @import("builtin");
 const types = @import("../types.zig");
 const Vtable = @import("../Vtable.zig");
 const portable = @import("../portable.zig");
 const util = @import("../util.zig");
 const gemm_kernels = @import("gemm/kernel.zig");
-const small = @import("gemm/small.zig");
-const sme2 = @import("gemm/sme2/driver.zig");
 const threaded = @import("threaded.zig");
 const loops = @import("loops.zig");
-const driver = @This();
+const drout = @import("driver/routines.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
-const BlasLong = types.BlasLong;
-const Float = types.Float;
 const isComplex = types.isComplex;
 const Op = portable.Op;
 pub const Conj = gemm_kernels.Conj;
+pub const gemm = drout.gemm;
+pub const gemmBlocked = drout.gemmBlocked;
+pub const gemmt = drout.gemmt;
+const scaleBlock = drout.scaleBlock;
+pub const symm = drout.symm;
+pub const syrk = drout.syrk;
+pub const unlessOne = drout.unlessOne;
+
+const driver = @This();
 
 /// `P`, `Q`, `R` and the unrolls the loops round to, from the vtable (a
 /// vtable no core filled, or a type it has no slots for, gets the generic
@@ -137,11 +141,11 @@ pub const stack_bytes = util.stack_bytes;
 
 pub const Error = Allocator.Error || Io.Cancelable;
 
-const raw = util.raw;
+pub const raw = util.raw;
 
-const isZero = util.isZero;
+pub const isZero = util.isZero;
 
-const isOne = util.isOne;
+pub const isOne = util.isOne;
 
 // ---- kernel calls ------------------------------------------------------------
 
@@ -379,7 +383,7 @@ const zero = util.zero;
 /// Runs `d`'s loops with packing space from `allocator`, `beta` (null for
 /// 1) folded into them; `twice` runs them again with the operands swapped
 /// and `alpha2` (`syr2k`). More than one worker `want`ed, on `io`'s threads.
-fn run(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, d: Desc, m: usize, n: usize, k: usize, alpha: T, x: Matrix(T), y: Matrix(T), twice: ?T, beta: ?T, c: [*]T, ldc: usize, want: u32) Error!void {
+pub fn run(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, d: Desc, m: usize, n: usize, k: usize, alpha: T, x: Matrix(T), y: Matrix(T), twice: ?T, beta: ?T, c: [*]T, ldc: usize, want: u32) Error!void {
     if (want > 1) return threaded.run(allocator, io, T, vt, d, m, n, k, alpha, x, y, twice, beta, c, ldc, want);
     const blk = Blocking.of(T, vt);
     const lens = Work(T).lens(blk, m, n, k, d.region != .full);
@@ -392,125 +396,6 @@ fn run(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, d: Des
     if (twice) |alpha2| drive(T, vt, d, blk, m, n, k, alpha2, y, x, null, c, ldc, work);
 }
 
-// ---- the routines ----------------------------------------------------------------
-
-/// `C := alpha*op(A)*op(B) + beta*C` with the kernels of `vt`; `ta`, `tb`
-/// say whether `op` transposes, `conj` which it conjugates (complex).
-/// Arguments are checked by the caller (`interface.zig`), and `m`, `n` are
-/// positive. Up to `want` workers run it (`threaded.workers`).
-pub fn gemm(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, ta: bool, tb: bool, conj: Conj, m: usize, n: usize, k: usize, alpha: T, a: [*]const T, lda: usize, b: [*]const T, ldb: usize, beta: T, c: [*]T, ldc: usize, want: u32) Error!void {
-    if (k == 0 or isZero(T, alpha)) {
-        if (!isOne(T, beta)) scale(T, vt, m, n, beta, c, ldc);
-        return;
-    }
-    const cj = comptime isComplex(T);
-    // upstream takes the SME2 kernels before the small-matrix ones
-    if (comptime !cj) if (try sme2.gemm(allocator, io, T, vt, ta, tb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc, want)) return;
-    if (small.gemm(T, vt, ta, tb, cj and conj.ofA(), cj and conj.ofB(), m, n, k, alpha, a, lda, b, ldb, beta, c, ldc)) return;
-    const x: Matrix(T) = .{ .p = @constCast(a), .ld = lda };
-    const y: Matrix(T) = .{ .p = @constCast(b), .ld = ldb };
-    const d: Desc = .{ .rows = if (ta) .t else .n, .cols = if (tb) .t else .n, .conj = if (comptime isComplex(T)) conj else .n };
-    try run(allocator, io, T, vt, d, m, n, k, alpha, x, y, null, unlessOne(T, beta), c, ldc, want);
-}
-
-/// `C += alpha*A*B` on the blocked loops alone, one worker, never the
-/// small-matrix path: upstream's LAPACK drivers call the kernels
-/// (`getrf_single.c`), so the bits match `drive` on any part of `C`.
-pub fn gemmBlocked(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, m: usize, n: usize, k: usize, alpha: T, a: [*]const T, lda: usize, b: [*]const T, ldb: usize, c: [*]T, ldc: usize) Error!void {
-    const x: Matrix(T) = .{ .p = @constCast(a), .ld = lda };
-    const y: Matrix(T) = .{ .p = @constCast(b), .ld = ldb };
-    try run(allocator, io, T, vt, .{ .rows = .n, .cols = .n }, m, n, k, alpha, x, y, null, null, c, ldc, 1);
-}
-
-/// `C := alpha*op(A)*op(B) + beta*C` on the `upper` or lower triangle of the
-/// `m x m` `C`, `op(A)` being `m x k`: `gemm`'s operands over `syrk`'s
-/// triangle. Upstream's `interface/gemmt.c` took a `gemv` per column
-/// instead at commit a69062524, conjugating `B` in place for it; this
-/// reads `B` only. `m` positive.
-pub fn gemmt(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, upper: bool, ta: bool, tb: bool, conj: Conj, m: usize, k: usize, alpha: T, a: [*]const T, lda: usize, b: [*]const T, ldb: usize, beta: T, c: [*]T, ldc: usize) Error!void {
-    const region: Region = if (upper) .upper else .lower;
-    if (k == 0 or isZero(T, alpha)) {
-        if (!isOne(T, beta)) scaleBlock(T, vt, region, false, 0, m, 0, m, beta, c, ldc);
-        return;
-    }
-    const x: Matrix(T) = .{ .p = @constCast(a), .ld = lda };
-    const y: Matrix(T) = .{ .p = @constCast(b), .ld = ldb };
-    const d: Desc = .{ .rows = if (ta) .t else .n, .cols = if (tb) .t else .n, .conj = if (comptime isComplex(T)) conj else .n, .region = region };
-    try run(allocator, io, T, vt, d, m, m, k, alpha, x, y, null, unlessOne(T, beta), c, ldc, 1);
-}
-
-/// `C := alpha*S*B + beta*C` (`left`) or `alpha*B*S + beta*C`, `S` the
-/// symmetric (`herm`: Hermitian) matrix whose `upper` or lower triangle `a`
-/// holds; `symm_k.c` and `zhemm_k.c` over `level3.c`. `m`, `n` positive.
-/// Up to `want` workers run it.
-pub fn symm(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, comptime herm: bool, left: bool, upper: bool, m: usize, n: usize, alpha: T, a: [*]const T, lda: usize, b: [*]const T, ldb: usize, beta: T, c: [*]T, ldc: usize, want: u32) Error!void {
-    if (isZero(T, alpha)) {
-        if (!isOne(T, beta)) scale(T, vt, m, n, beta, c, ldc);
-        return;
-    }
-    const s: Matrix(T) = .{ .p = @constCast(a), .ld = lda };
-    const g: Matrix(T) = .{ .p = @constCast(b), .ld = ldb };
-    const t: Pack = if (upper) .upper else .lower;
-    // `hemm`'s right side packs `S^T`: the kernel conjugates it (`NC`)
-    const d: Desc = if (left) .{ .rows = t, .cols = .n, .herm = herm } else .{ .rows = .n, .cols = t, .herm = herm, .conj = if (herm) .r else .n };
-    try run(allocator, io, T, vt, d, m, n, if (left) m else n, alpha, if (left) s else g, if (left) g else s, null, unlessOne(T, beta), c, ldc, want);
-}
-
-/// `C := beta*C` on rows `[ib, ie)` and columns `[jb, je)` of `C`, the part
-/// of them in `region`; with `real_diag` `beta` is real and the diagonal
-/// comes out real (`zherk_k.c`'s `syrk_beta`). A zero `beta` never reads `C`.
-fn scaleBlock(comptime T: type, vt: *const Vtable, region: Region, real_diag: bool, ib: usize, ie: usize, jb: usize, je: usize, beta: T, c: [*]T, ldc: usize) void {
-    if (region == .full) return scale(T, vt, ie - ib, je - jb, beta, c + ib + jb * ldc, ldc);
-    for (jb..je) |j| {
-        const lo = if (region == .lower) @max(ib, j) else ib;
-        const hi = if (region == .upper) @min(ie, j + 1) else ie;
-        if (lo >= hi) continue;
-        const col = c + lo + j * ldc;
-        if (comptime isComplex(T)) {
-            if (real_diag) {
-                // a real `beta` scales each part, as the reference's real times complex
-                const rows = hi - lo;
-                _ = portable.kernel(Float(T), vt, .gemm_beta)(@intCast(2 * rows), 1, 0, beta.re, raw(T, col), 0, raw(T, col), 0, raw(T, col), @intCast(2 * rows));
-                if (lo <= j and j < hi) c[j + j * ldc].im = 0;
-                continue;
-            }
-        }
-        scale(T, vt, hi - lo, 1, beta, col, ldc);
-    }
-}
-
-/// `beta` as `run` takes it: null for 1.
-pub fn unlessOne(comptime T: type, beta: T) ?T {
-    return if (isOne(T, beta)) null else beta;
-}
-
-/// `C := alpha*op(A)*op(A)' + beta*C` on the `upper` or lower triangle of
-/// the `n x n` `C`, `op(A)` being `n x k`; `'` is the transpose, or with
-/// `herm` the conjugate transpose (`alpha`, `beta` then real, given as
-/// complex with zero imaginary parts). `trans` takes `op(A) = A'`. With `b`,
-/// `syr2k`: `alpha*op(A)*op(B)' + alpha2*op(B)*op(A)' + beta*C`, `alpha2`
-/// being `alpha` (or its conjugate for `herm`). `level3_syrk.c` and
-/// `level3_syr2k.c`, over `syrk_k.c`'s triangle. `n` positive. Up to `want`
-/// workers run it.
-pub fn syrk(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, comptime herm: bool, upper: bool, trans: bool, n: usize, k: usize, alpha: T, a: [*]const T, lda: usize, b: ?[*]const T, ldb: usize, beta: T, c: [*]T, ldc: usize, want: u32) Error!void {
-    const region: Region = if (upper) .upper else .lower;
-    if (k == 0 or isZero(T, alpha)) {
-        if (!isOne(T, beta)) scaleBlock(T, vt, region, herm, 0, n, 0, n, beta, c, ldc);
-        return;
-    }
-    const x: Matrix(T) = .{ .p = @constCast(a), .ld = lda };
-    const y: Matrix(T) = if (b) |p| .{ .p = @constCast(p), .ld = ldb } else x;
-    const alpha2: ?T = if (b == null) null else if (comptime herm) alpha.conjugate() else alpha;
-    // `herk`'s `op(A)'` conjugates the columns (N) or `op(A)` the rows (C)
-    try run(allocator, io, T, vt, .{
-        .rows = if (trans) .t else .n,
-        .cols = if (trans) .n else .t,
-        .conj = if (herm) (if (trans) .l else .r) else .n,
-        .region = region,
-        .real_diag = herm,
-    }, n, n, k, alpha, x, y, alpha2, unlessOne(T, beta), c, ldc, want);
-}
-
 // ---- trmm and trsm: `triangular.zig` -------------------------------------------
 
 const tri = @import("triangular.zig");
@@ -520,111 +405,3 @@ pub const trmm = tri.trmm;
 pub const trsm = tri.trsm;
 pub const triLens = tri.triLens;
 pub const triDrive = tri.triDrive;
-
-// ---- tests ---------------------------------------------------------------------
-
-const check = @import("../_test/check.zig");
-const check3 = @import("../_test/blas3/check.zig");
-
-const fromReal = util.fromReal;
-
-const Routine = check3.Routine;
-
-/// The routines `foldedCase` takes.
-const routines = [_]Routine{ .gemm, .symm, .hemm, .syrk, .herk, .syr2k, .her2k, .trmm, .trsm };
-
-/// The operands of one `foldedCase`.
-fn Operands(comptime T: type) type {
-    return struct { a: []T, b: []T, c: []T, ld: usize };
-}
-
-/// `r` with `s` as its `beta` (`trmm`'s and `trsm`'s `alpha`), options
-/// `opt`, on `o`: `opt` is the side (`gemm`'s `transa`, the rank updates'
-/// `upper`), then `upper` (`transb`, `trans`), then `trans` for `trmm` and
-/// `trsm` (both conjugations for complex `gemm`; `trsm` conjugates complex).
-fn callWith(comptime T: type, vt: *const Vtable, r: Routine, opt: [3]bool, s: T, m: usize, n: usize, k: usize, o: Operands(T)) !void {
-    const complex = comptime isComplex(T);
-    const alpha: T = if (complex) .init(-0.75, if (r == .herk) 0 else 0.25) else -0.75;
-    const rank = r == .syrk or r == .herk or r == .syr2k or r == .her2k;
-    const triangle = r == .trmm or r == .trsm;
-    const conj = opt[2] and complex;
-    const case: check3.Case = .{
-        .r = r,
-        .ta = if (triangle) .of(opt[2], r == .trsm and complex) else if (rank) .of(opt[1], false) else .of(opt[0], conj),
-        .tb = .of(opt[1], conj),
-        .left = opt[0],
-        .upper = if (rank) opt[0] else opt[1],
-        .m = m,
-        .n = n,
-        .k = k,
-    };
-    try check3.callAny(T, std.testing.allocator, check.io, vt, r, case, o.a.ptr, o.ld, o.b.ptr, o.ld, if (triangle) s else alpha, s, o.c.ptr, o.ld, 1);
-}
-
-/// `r` with `s` folded in against a separate pass of `s` first and then 1,
-/// on a blocking shrunk so every edge comes at small sizes: the same bits.
-fn foldedCase(comptime T: type, vt: *const Vtable, r: Routine, opt: [3]bool, s: T) !void {
-    const al = std.testing.allocator;
-    const blk = Blocking.of(T, vt);
-    const m = 2 * blk.p + blk.um + 1;
-    const n = 2 * blk.r + 3;
-    const k = 2 * blk.q + 3;
-    const ld = @max(m, n, k) + 1;
-    const a = try al.alloc(T, ld * ld);
-    defer al.free(a);
-    const b = try al.alloc(T, ld * ld);
-    defer al.free(b);
-    const c = try al.alloc(T, ld * n);
-    defer al.free(c);
-    const c2 = try al.alloc(T, ld * n);
-    defer al.free(c2);
-    check.fill(T, a, 1);
-    check.fill(T, b, 2);
-    check.fill(T, c, 3);
-    // a tame triangle for `trsm`: small off the diagonal, at least 1 on it
-    const f: Float(T) = 1 / @as(Float(T), @floatFromInt(ld));
-    for (0..ld) |j| for (0..ld) |i| {
-        const p = &a[i + j * ld];
-        const g: Float(T) = if (i == j) 1 else f;
-        const h: Float(T) = if (i == j) 2 else 0;
-        p.* = if (comptime isComplex(T)) .init(p.re * g + h, p.im * g) else p.* * g + h;
-    };
-    // a zero `s` must not read `C`
-    if (isZero(T, s)) @memset(c, if (comptime isComplex(T)) .init(std.math.nan(Float(T)), 0) else std.math.nan(T));
-    @memcpy(c2, c);
-    const o: Operands(T) = .{ .a = a, .b = b, .c = c, .ld = ld };
-    try callWith(T, vt, r, opt, s, m, n, k, o);
-    const rank = r == .syrk or r == .herk or r == .syr2k or r == .her2k;
-    if (rank) {
-        scaleBlock(T, vt, if (opt[0]) .upper else .lower, r == .herk or r == .her2k, 0, n, 0, n, s, c2.ptr, ld);
-    } else scale(T, vt, m, n, s, c2.ptr, ld);
-    try callWith(T, vt, r, opt, util.one(T), m, n, k, .{ .a = a, .b = b, .c = c2, .ld = ld });
-    try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(c2), std.mem.sliceAsBytes(c));
-}
-
-test "beta folded into the first slice gives the bits of a separate pass first" {
-    inline for (check.sd_types) |T| {
-        var vt: Vtable = .{};
-        portable.install(&vt);
-        const own = Blocking.of(T, &vt);
-        check3.shrinkBlocking(T, &vt, false, own.um, own.un);
-        const complex = comptime isComplex(T);
-        const ss = [_]T{ fromReal(T, 0), if (complex) .init(0.5, -0.25) else 0.5, fromReal(T, -2) };
-        for (routines) |r| {
-            if (!complex and (r == .hemm or r == .herk or r == .her2k)) continue;
-            for (0..8) |bits| {
-                const opt: [3]bool = .{ bits & 1 != 0, bits & 2 != 0, bits & 4 != 0 };
-                for (ss) |s0| {
-                    // `trmm`'s and `trsm`'s zero `alpha` returns before the drivers
-                    if ((r == .trmm or r == .trsm) and isZero(T, s0)) continue;
-                    // `herk`'s and `her2k`'s `beta` is real
-                    const s = if (complex and (r == .herk or r == .her2k)) T.init(s0.re, 0) else s0;
-                    foldedCase(T, &vt, r, opt, s) catch |e| {
-                        std.debug.print("{s} {t} opt={any} s={any}\n", .{ @typeName(T), r, opt, s });
-                        return e;
-                    };
-                }
-            }
-        }
-    }
-}

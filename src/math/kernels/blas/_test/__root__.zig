@@ -19,6 +19,7 @@ test {
     _ = @import("blas2/threaded.zig");
     _ = @import("blas2/triangular.zig");
     _ = @import("bf16/gemv.zig");
+    _ = @import("blas3/driver.zig");
     _ = @import("blas3/gemmt.zig");
     _ = @import("blas3/half.zig");
     _ = @import("blas3/interface.zig");
