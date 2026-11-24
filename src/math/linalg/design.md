@@ -1503,7 +1503,7 @@ routine and matches the reference; `apple_accel.zig` binds it and routes to it.
   classic `cblas_dgemm` (macOS 13.3 Release Notes, Accelerate: "a new ILP64 interface",
   `ACCELERATE_NEW_LAPACK`, `ACCELERATE_LAPACK_ILP64`,
   <https://developer.apple.com/documentation/macos-release-notes/macos-13_3-release-notes>).
-  The spellings are ours, checked by `_test/apple_accel.zig` on the M6 ("the 32-bit table binds
+  The spellings are ours, checked by `_test/apple_accel/binding.zig` on the M6 ("the 32-bit table binds
   the new names first"). macOS 27 binds 150 of the `Table`'s 154 CBLAS fields: there is no
   `cblas_i?amin` (seen on the M6; no SDK since 11.3 lists it). `axpby` is
   `catlas_?axpby`. LAPACK's `?potrf_` is bound as `dpotrf$NEWLAPACK$ILP64` or
@@ -1564,7 +1564,7 @@ routine and matches the reference; `apple_accel.zig` binds it and routes to it.
   complex symmetric level 2, the conjugated-`x` letters `o` to `d`, a complex `r`, `HEMVREV`'s
   `v` and `m`; `i?amax`, which does not take the first NaN.
 - **Quirks.** Where Accelerate's results differ from the reference's (macOS 27, M6), the call
-  runs rstd's kernels. The Accelerate special-value tests (`_test/apple_accel.zig`,
+  runs rstd's kernels. The Accelerate special-value tests (`_test/apple_accel/special.zig`,
   `_test/blas2/edge.zig`, `_test/blas3/interface.zig`) found each, against rstd's kernels or the wide
   reference. Rechecked 2026-11-15 natively on both Macs (the Intel Mac on macOS 15.8.3, the M6
   on 27.2) by `tools/probe/accel_quirks.zig`, through all three symbol sets ([#355](https://github.com/randyos-org/rstd/issues/355)); each item
@@ -2232,7 +2232,7 @@ Questions decided once, with the reason, so they are not reopened without new ev
 | Ported suites | `_test/from_openblas/` | OpenBLAS's `blat1`, `blat2`, `blat3`, `utest`, `utest/test_extensions` |
 | Selection | `cpu/`, `cpu/_test/`, `cpu/detect/_test/` | decisions on synthetic `Caps`, served objects, names |
 | Initialization | `__root__.zig` | the handshake, `shutdown`, environment copies, racing threads |
-| Small files | `_test/types.zig`, `fma.zig`, `portable.zig`, `ext/`, `Config.zig`, `abi.zig`, `_test/apple_accel.zig` | types, contraction, dispatch, bfloat16, parsing, variants, the Accelerate binding and routing |
+| Small files | `_test/types.zig`, `fma.zig`, `portable.zig`, `ext/`, `Config.zig`, `abi.zig`, `_test/apple_accel/` | types, contraction, dispatch, bfloat16, parsing, variants, the Accelerate binding and routing |
 
 Not propagation, on purpose, as the reference has it (`_test/blas1/edge.zig`, `_test/blas2/edge.zig`): `axpby` with a zero `beta` never reads `y`, with a zero `alpha` never reads `x`, both zero store zeros; `rotm` with flag -2 changes nothing; the extremes' first NaN wins, ties keep the first; `nrm2` is Inf for an infinity and NaN for a NaN, the plain sum of squares past `f64`; a zero `alpha` in `scal` follows its flag. In level 2 a zero `beta` overwrites `y`, a zero `alpha` returns once `y` is scaled, a Hermitian update stores a real diagonal, entries outside a band or triangle and a unit diagonal are never multiplied, and the rank updates pass over a column whose factors are zero; complex infinities may meet in another order, giving NaN (`pattern.expectWideAnyOrder`). A solve's special values go off the diagonal and in the right-hand side, the diagonal dominating. Where a core's converted kernels did otherwise, they are not used (`vector.routed`, [#226](https://github.com/randyos-org/rstd/issues/226)).
 
@@ -2280,7 +2280,7 @@ they run natively too.
   interfaces' stack buffers hold NaN in tests, so a kernel that reads scratch it did not write
   fails.
 - **Blocking is shrunk.** Level 3 runs on a vtable whose `P`, `Q` and `R` are shrunk to `2 *
-  unroll_m`, 5 and `6 * unroll_n + 1` (ours, `_test/blas3/check.zig:624`), so every block and panel edge comes at small sizes, then
+  unroll_m`, 5 and `6 * unroll_n + 1` (ours, `_test/blas3/check.zig`'s `shrinkBlocking`), so every block and panel edge comes at small sizes, then
   once at the core's own blocking, past `R` (natively also past twice `P` and `Q`).
 - **Foreign tiles.** `blas3/gemm/__root__.zig` installs tiles other targets choose
   (`installTile`: NEON's, 8 x 3 complex) to run every routine over them on any host.

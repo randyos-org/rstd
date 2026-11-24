@@ -407,7 +407,7 @@ Rstd's workers parallelize around it (`apple_accel/split.zig`), under the rules 
 - **Parts by size.** Above the routine's threshold (`threading.rule`, as for rstd's kernels) a
   routed call splits into chunks of its output (`threading.plan`), each one Accelerate call on
   the worker that claims it. Accelerate's single-threaded calls gave the same bits on every
-  thread (`_test/apple_accel.zig`), so no result depends on the worker count.
+  thread (`_test/apple_accel/routing.zig`), so no result depends on the worker count.
 - **Split at one worker too.** Unlike rstd's element-wise kernels, whose paths rstd knows, a
   split call is split whatever the worker count: Accelerate's paths at a part's edges are its
   own. So a call past one chunk differs in its low bits from one Accelerate call, and matches

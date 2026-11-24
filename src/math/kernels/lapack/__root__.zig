@@ -278,6 +278,9 @@ test {
     _ = hseqr_tests;
     _ = stebr_tests;
     _ = sytrd_tests;
+    _ = lsq_tests;
+    _ = qr_tests;
+    _ = tridiag_evd_tests;
 }
 
 const std = @import("std");
@@ -300,6 +303,9 @@ const geev_tests = @import("_test/geev.zig");
 const hseqr_tests = @import("_test/hseqr.zig");
 const stebr_tests = @import("_test/stebr.zig");
 const sytrd_tests = @import("_test/sytrd.zig");
+const lsq_tests = @import("_test/lsq.zig");
+const qr_tests = @import("_test/qr.zig");
+const tridiag_evd_tests = @import("_test/tridiag_evd.zig");
 
 test "lapack: ReLAPACK's routines through their public names, 2 x 2 smoke tests" {
     const al = testing.allocator;

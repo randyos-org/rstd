@@ -8,11 +8,11 @@ const check = @import("../check.zig");
 const blas = @import("../../__root__.zig");
 const Vtable = @import("../../Vtable.zig");
 const util = @import("../../util.zig");
-const blat1 = @import("blat1.zig");
+const blat1 = @import("blat1/__root__.zig");
 const blat2 = @import("blat2.zig");
 const blat3 = @import("blat3.zig");
 const utest = @import("utest.zig");
-const utest_ext = @import("utest_ext.zig");
+const utest_ext = @import("utest_ext/__root__.zig");
 const compare = @import("compare.zig");
 
 pub const Float = types.Float;
