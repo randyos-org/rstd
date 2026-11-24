@@ -16,7 +16,7 @@ pub const list = [_]Machine{
         // code alone is about 5 MB; blas2 by itself is 3.3 MB
         .parts = &.{
             .{ .name = "blas1", .filters = &.{ "math.kernels.blas.blas1.", "math.kernels.blas._test.blas1.", "math.kernels.blas._test.check.", "math.kernels.blas._test.bitwise." } },
-            .{ .name = "blas2-dense", .filters = &.{ "math.kernels.blas.blas2.__root__.", "math.kernels.blas.blas2.gemv.", "math.kernels.blas._test.bf16.", "math.kernels.blas.blas2.ger.", "math.kernels.blas.blas2.hemv.", "math.kernels.blas.blas2.symv." } },
+            .{ .name = "blas2-dense", .filters = &.{ "math.kernels.blas.blas2.__root__.", "math.kernels.blas.blas2.gemv.", "math.kernels.blas._test.blas2.gemv.", "math.kernels.blas._test.bf16.", "math.kernels.blas.blas2.ger.", "math.kernels.blas.blas2.hemv.", "math.kernels.blas.blas2.symv." } },
             .{ .name = "blas2-banded", .filters = &.{ "math.kernels.blas._test.blas2.banded.", "math.kernels.blas.blas2.symmetric." } },
             .{ .name = "blas2-triangular", .filters = &.{"math.kernels.blas._test.blas2.triangular."} },
             .{ .name = "blas2-interface", .filters = &.{ "math.kernels.blas._test.blas2.interface.", "math.kernels.blas._test.blas2.interface_any." } },
@@ -54,9 +54,9 @@ pub const list = [_]Machine{
             .{ .name = "blas1-denormal", .filters = &.{ "math.kernels.blas._test.blas1.edge.test.portable level-1 kernels: denormal", "math.kernels.blas._test.blas1.edge.test.every linked core's level-1 kernels: denormal", "math.kernels.blas._test.blas1.edge.test.where util.vectorIeee" } },
             // the dense routines, the triangular ones, the interface and the
             // complex edge cases each in two, as one is past the window
-            .{ .name = "blas2-dense", .filters = &.{ "math.kernels.blas.blas2.__root__.", "math.kernels.blas.blas2.gemv.__root__.test.portable", "math.kernels.blas.blas2.gemv.__root__.test_" } },
+            .{ .name = "blas2-dense", .filters = &.{ "math.kernels.blas.blas2.__root__.", "math.kernels.blas._test.blas2.gemv.test.portable", "math.kernels.blas.blas2.gemv.__root__.test_" } },
             .{ .name = "blas2-gemv-x87", .filters = &.{ "math.kernels.blas._test.bf16.gemv.", "math.kernels.blas.blas2.gemv.extended.test.extended gemv:" } },
-            .{ .name = "blas2-gemv-cores", .filters = &.{"math.kernels.blas.blas2.gemv.__root__.test.every linked core's"} },
+            .{ .name = "blas2-gemv-cores", .filters = &.{"math.kernels.blas._test.blas2.gemv.test.every linked core's"} },
             .{ .name = "blas2-dense-2", .filters = &.{ "math.kernels.blas.blas2.ger.", "math.kernels.blas.blas2.hemv.", "math.kernels.blas.blas2.symv." } },
             .{ .name = "blas2-banded", .filters = &.{
                 "math.kernels.blas._test.blas2.banded.test.banded",
@@ -149,7 +149,7 @@ pub const list = [_]Machine{
             .{ .name = "lapack-getrf", .filters = &.{ "math.kernels.lapack._test.lu.test.getrf", "math.kernels.lapack._test.lu_solve.test.getrf" } },
             .{ .name = "lapack-getrs-real", .filters = &.{ "math.kernels.lapack._test.lu_solve.test.getrs: op(A) X = B on getrf's factor, every op, NaN in one column of B, real", "math.kernels.lapack._test.lu_solve.test.getrs: a known", "math.kernels.lapack._test.lu_solve.test.getrs: reports" } },
             .{ .name = "lapack-getrs-complex", .filters = &.{"math.kernels.lapack._test.lu_solve.test.getrs: op(A) X = B on getrf's factor, every op, NaN in one column of B, complex"} },
-            .{ .name = "lapack-faer", .filters = &.{ "math.kernels.lapack.ops.", "math.kernels.lapack.interface.", "math.kernels.lapack.blas_calls.", "math.kernels.lapack.auxiliary.", "math.kernels.lapack.householder.", "math.kernels.lapack.qr.", "math.kernels.lapack.qr_solve.", "math.kernels.lapack.tridiag.", "math.kernels.lapack.tridiag_evd.", "math.kernels.lapack.hessenberg.", "math.kernels.lapack.real_schur.", "math.kernels.lapack.complex_schur.", "math.kernels.lapack._test.balance.", "math.kernels.lapack.bidiag.", "math.kernels.lapack._test.bidiag_svd." } },
+            .{ .name = "lapack-faer", .filters = &.{ "math.kernels.lapack.ops.", "math.kernels.lapack.interface.", "math.kernels.lapack.blas_calls.", "math.kernels.lapack.auxiliary.", "math.kernels.lapack.householder.", "math.kernels.lapack._test.qr.", "math.kernels.lapack.qr_solve.", "math.kernels.lapack.tridiag.", "math.kernels.lapack._test.tridiag_evd.", "math.kernels.lapack.hessenberg.", "math.kernels.lapack.real_schur.", "math.kernels.lapack.complex_schur.", "math.kernels.lapack._test.balance.", "math.kernels.lapack.bidiag.", "math.kernels.lapack._test.bidiag_svd." } },
             .{ .name = "rest", .filters = &.{ "math.kernels.blas.__root__.", "math.kernels.blas.Config.", "math.kernels.blas.cpu." } },
             .{ .name = "small", .filters = &small_filters },
         },
