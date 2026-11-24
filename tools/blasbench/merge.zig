@@ -64,7 +64,7 @@ fn cells(arena: Allocator, line: []const u8) ![]const []const u8 {
     return list.items;
 }
 
-fn parse(arena: Allocator, text: []const u8, labels: []const Label) ![]const Item {
+pub fn parse(arena: Allocator, text: []const u8, labels: []const Label) ![]const Item {
     var lines: std.ArrayList([]const u8) = .empty;
     var it = std.mem.splitScalar(u8, text, '\n');
     while (it.next()) |l| try lines.append(arena, std.mem.trimEnd(u8, l, "\r"));
@@ -96,7 +96,7 @@ fn parse(arena: Allocator, text: []const u8, labels: []const Label) ![]const Ite
     return items.items;
 }
 
-fn firstRate(header: []const []const u8, labels: []const Label) ?usize {
+pub fn firstRate(header: []const []const u8, labels: []const Label) ?usize {
     for (header, 0..) |h, j| if (isRate(h, labels)) return j;
     return null;
 }
@@ -108,7 +108,7 @@ fn sameHeader(a: []const []const u8, b: []const []const u8) bool {
 }
 
 /// A rate cell's value; null for `-` and the like.
-fn num(s: []const u8) ?f64 {
+pub fn num(s: []const u8) ?f64 {
     const v = std.mem.trim(u8, s, " !");
     return std.fmt.parseFloat(f64, v) catch null;
 }

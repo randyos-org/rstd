@@ -30,6 +30,7 @@ const Entrants = tb.Entrants;
 const diff_note = tb.diff_note;
 const lib_cols = tb.lib_cols;
 const printHeader = tb.printHeader;
+const printLead = tb.printLead;
 const rstdFirst = tb.rstdFirst;
 const rstdRuns = tb.rstdRuns;
 const rstd_col = tb.rstd_col;
@@ -148,7 +149,7 @@ pub fn raceLibGemv(io: Io, gpa: std.mem.Allocator, comptime p: Prec, comptime t:
         @memcpy(y, y0);
         const nf: f64 = @floatFromInt(n);
         const rates = try es.race(io, l1_timing, nf * nf * @as(f64, if (p.complex) 8 else 2));
-        std.debug.print("| gemv_{s} | {s} | {d} | {s} | ", .{ t, p.name, n, rstdRuns(name) });
+        printLead("| gemv_{s} | {s} | {d} | {s} | ", .{ t, p.name, n, rstdRuns(name) });
         if (arm) std.debug.print("{s} | ", .{if (asm_k) |k| k.from else "none"});
         es.print(&lib_cols, &rates);
     }
