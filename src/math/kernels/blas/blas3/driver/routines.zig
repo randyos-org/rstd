@@ -30,7 +30,7 @@ const scale = droot.scale;
 /// `C := alpha*op(A)*op(B) + beta*C` with the kernels of `vt`; `ta`, `tb`
 /// say whether `op` transposes, `conj` which it conjugates (complex).
 /// Arguments are checked by the caller (`interface.zig`), and `m`, `n` are
-/// positive. Up to `want` workers run it (`threaded.workers`).
+/// positive. Up to `want` workers run it (`threaded.gemmWorkers`).
 pub fn gemm(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, ta: bool, tb: bool, conj: Conj, m: usize, n: usize, k: usize, alpha: T, a: [*]const T, lda: usize, b: [*]const T, ldb: usize, beta: T, c: [*]T, ldc: usize, want: u32) Error!void {
     if (k == 0 or isZero(T, alpha)) {
         if (!isOne(T, beta)) scale(T, vt, m, n, beta, c, ldc);

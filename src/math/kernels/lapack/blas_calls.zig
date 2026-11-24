@@ -11,7 +11,6 @@ const l1 = @import("../blas/blas1/interface.zig");
 const types = @import("../blas/types.zig");
 const driver = @import("../blas/blas3/driver.zig");
 const threaded = @import("../blas/blas3/threaded.zig");
-const threading = @import("../blas/threading.zig");
 const ops = @import("ops.zig");
 const interface = @import("interface.zig");
 
@@ -61,7 +60,7 @@ pub const Op = enum {
 pub fn gemm(al: Allocator, io: Io, comptime T: type, ta: Op, tb: Op, alpha: T, a: Mat(T), b: Mat(T), beta: T, c: Mat(T)) Error!void {
     const k = if (ta.transposed()) a.rows else a.cols;
     if (c.rows == 0 or c.cols == 0) return;
-    const w = threaded.workers(.gemm, T, threading.product(&.{ c.rows, c.cols, k }));
+    const w = threaded.gemmWorkers(T, c.rows, c.cols, k);
     try driver.gemm(al, io, T, table(T), ta.transposed(), tb.transposed(), .of(ta.conjugated(T), tb.conjugated(T)), c.rows, c.cols, k, alpha, a.ptr, a.ld, b.ptr, b.ld, beta, c.ptr, c.ld, w);
 }
 
@@ -69,7 +68,7 @@ pub fn gemm(al: Allocator, io: Io, comptime T: type, ta: Op, tb: Op, alpha: T, a
 /// triangular.
 pub fn tri(al: Allocator, io: Io, comptime T: type, comptime solve: bool, upper: bool, op: Op, unit: bool, alpha: T, a: Mat(T), b: Mat(T)) Error!void {
     if (b.rows == 0 or b.cols == 0) return;
-    const w = threaded.workers(.trsm, T, threading.product(&.{ b.rows, b.cols }));
+    const w = threaded.triWorkers(T, b.rows, b.cols, b.rows);
     const f = if (solve) driver.trsm else driver.trmm;
     try f(al, io, T, table(T), true, upper, op.transposed(), op.conjugated(T), unit, b.rows, b.cols, alpha, a.ptr, a.ld, b.ptr, b.ld, w);
 }
@@ -78,7 +77,7 @@ pub fn tri(al: Allocator, io: Io, comptime T: type, comptime solve: bool, upper:
 /// triangular.
 pub fn triRight(al: Allocator, io: Io, comptime T: type, comptime solve: bool, upper: bool, op: Op, unit: bool, alpha: T, a: Mat(T), b: Mat(T)) Error!void {
     if (b.rows == 0 or b.cols == 0) return;
-    const w = threaded.workers(.trsm, T, threading.product(&.{ b.rows, b.cols }));
+    const w = threaded.triWorkers(T, b.rows, b.cols, b.cols);
     const f = if (solve) driver.trsm else driver.trmm;
     try f(al, io, T, table(T), false, upper, op.transposed(), op.conjugated(T), unit, b.rows, b.cols, alpha, a.ptr, a.ld, b.ptr, b.ld, w);
 }
@@ -88,7 +87,7 @@ pub fn triRight(al: Allocator, io: Io, comptime T: type, comptime solve: bool, u
 pub fn gramUpper(al: Allocator, io: Io, comptime T: type, alpha: Float(T), a: Mat(T), beta: Float(T), c: Mat(T)) Error!void {
     const n = a.cols;
     if (n == 0) return;
-    const w = threaded.workers(.syrk, T, threading.product(&.{ n + 1, n, a.rows }));
+    const w = threaded.syrkWorkers(T, false, n, a.rows);
     try driver.syrk(al, io, T, table(T), comptime isComplex(T), true, true, n, a.rows, scalar(T, alpha), a.ptr, a.ld, null, 0, scalar(T, beta), c.ptr, c.ld, w);
 }
 
@@ -204,8 +203,6 @@ pub fn symvLower(al: Allocator, io: Io, comptime T: type, alpha: T, a: Mat(T), x
 pub fn rank2kLower(al: Allocator, io: Io, comptime T: type, a: Mat(T), b: Mat(T), c: Mat(T)) Error!void {
     const n = c.rows;
     if (n == 0 or a.cols == 0) return;
-    // inside a routine: at most one worker per `team_grain` (`threading.crew`)
-    const want = threaded.workers(.syr2k, T, threading.product(&.{ n, a.cols }));
-    const w = threading.crew(T, want, threading.team_grain, threading.product(&.{ n, n, 2 * a.cols }));
+    const w = threaded.syrkWorkers(T, true, n, a.cols);
     try driver.syrk(al, io, T, table(T), comptime isComplex(T), false, false, n, a.cols, scalar(T, -1), a.ptr, a.ld, b.ptr, b.ld, scalar(T, 1), c.ptr, c.ld, w);
 }
