@@ -246,8 +246,8 @@ signatures take every change below at once, so none changes twice. [Z7](https://
 
 ### The vtable
 
-`Vtable.zig` is OpenBLAS's `gotoblas_t`, mechanically derived from `common_param.h`: 854 kernel
-slots, its 87 integer parameters, rstd's `symv_p` and the `init` hook. It leaves out the 47 slots only row-major data
+`Vtable.zig` began as OpenBLAS's `gotoblas_t`, translated from `common_param.h`, and is maintained by hand since #618: 816 kernel
+slots, 76 of its integer parameters, rstd's `symv_p` and the `init` hook. The 38 slots nothing fills and the 11 parameters nothing reads went in [#696](https://github.com/randyos-org/rstd/issues/696). It leaves out the 47 slots only row-major data
 or CBLAS reaches (`?gerv_k`, `?gerd_k`, the `*_direct*` kernels, `?omatcopy_k_r*`,
 `?imatcopy_k_r*`) and the `sbger_k`, `sbsymv_L` and `sbsymv_U` that nothing upstream calls
 (`kernel/setparam-ref.c:112-113` fills them with `sger_k`, `ssymv_L` and `ssymv_U`); its doc comment lists them (`unused/`, below). The reference guards fields behind `BUILD_*`,

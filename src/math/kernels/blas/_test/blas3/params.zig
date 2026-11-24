@@ -387,10 +387,8 @@ test "old x86 cores take their getarch entry's subarch blocks" {
     try std.testing.expectEqual(@as(i32, 512), vt.sgemm_p);
     try std.testing.expectEqual(@as(i32, 256), vt.dgemm_p);
     // `CORE_PRESCOTT`'s offsets follow `__64BIT__`
-    installCore(&vt, .x86, .prescott, .{});
-    try std.testing.expectEqual(@as(i32, 128), vt.offsetA);
-    installCore(&vt, .x86_64, .prescott, .{});
-    try std.testing.expectEqual(@as(i32, 256), vt.offsetB);
+    try std.testing.expectEqual(@as(i32, 128), tableFor(.x86, .prescott).?.offset_a);
+    try std.testing.expectEqual(@as(i32, 256), tableFor(.x86_64, .prescott).?.offset_b);
 }
 
 test "32-bit builds take Makefile.system's fallback entries" {

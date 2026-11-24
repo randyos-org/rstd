@@ -327,8 +327,8 @@ with `GEMM_MULTITHREAD_THRESHOLD = 4` as a comptime constant,
 together with OpenBLAS's per-core overrides (`neoversev1`/`v2` in `interface/gemm.c` and
 `gemv.c`, `a64fx` and `neoversev1` in `arm64/dot.c`). Complex routines have their own
 constants; `threading.zig`'s `rule` holds them all. These are defaults; per-core tables derived from rstd's own benchmarks will
-replace them, and the chunk sizes, later. `switch_ratio` already lives in the vtable
-(`blas3/gemm/params.zig`). M ranges round to `unroll_m` and a cache line to avoid false
+replace them, and the chunk sizes, later. `switch_ratio` already lives in each core's blocking table
+(`blas3/gemm/params.zig`), unread so far ([#696](https://github.com/randyos-org/rstd/issues/696)). M ranges round to `unroll_m` and a cache line to avoid false
 sharing in `C`. The rank-update cut-offs only pick the thread count; their serial small-`n`
 paths are already ported ([`design.md`](../../linalg/design.md), Level 2).
 

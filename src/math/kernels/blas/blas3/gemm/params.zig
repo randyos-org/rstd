@@ -249,13 +249,6 @@ pub fn install(vt: *Vtable, comptime family: Family, comptime core: CoreOf(famil
 pub fn installRule(vt: *Vtable, comptime family: Family, comptime core: CoreOf(family), table: Table, env: Env, comptime rule: Rule) void {
     const x86 = comptime (family == .x86 or family == .x86_64);
 
-    vt.offsetA = table.offset_a;
-    vt.offsetB = table.offset_b;
-    vt.@"align" = table.align_;
-    vt.switch_ratio = table.switch_ratio;
-    vt.divide_rate = table.divide_rate;
-    vt.divide_limit = table.divide_limit;
-    vt.preferred_size = table.preferred_size;
     vt.symv_p = table.symv_p;
 
     // the primaries, whose `p` the rules and overrides decide
