@@ -204,3 +204,9 @@ test "potrf goes to Accelerate where it routes, and agrees with rstd's" {
         }
     };
 }
+
+test {
+    _ = @import("cholesky/parallel.zig");
+    _ = @import("cholesky/potri.zig");
+    _ = @import("cholesky/potrs.zig");
+}

@@ -215,3 +215,8 @@ test "relapack potrf and getrf: the same bits inline and threaded" {
     try lcheck.expectIoBits(f64, Big{ .a = a }, Big.potrfRun, lcheck.big_n * lcheck.big_n, "potrf");
     try lcheck.expectIoBits(f64, Big{ .a = a }, Big.getrfRun, lcheck.big_n * lcheck.big_n, "getrf");
 }
+
+test {
+    _ = @import("relapack/pbtrf.zig");
+    _ = @import("relapack/sygst.zig");
+}
