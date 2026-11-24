@@ -108,9 +108,10 @@ const quantum = 64;
 /// `gemv`'s row chunks without a transpose start on multiples of this.
 /// x86_64's kernels take rows in 4096-row `NBMAX` blocks and run a block's
 /// first `nb & 12` rows apart (Haswell's `sgemv_kernel_4x8`), so only whole
-/// blocks split there; arm64's sum every row alike wherever it falls (#592).
-/// Elsewhere unmeasured, so as x86_64.
-const gemv_rows = if (sysinfo.target.cpu.arch.isAarch64()) quantum else 4096;
+/// blocks split there; arm64's sum every row alike wherever it falls, and
+/// 256 rows a column streamed faster on the M6 than 64 (#592). Elsewhere
+/// unmeasured, so as x86_64.
+const gemv_rows = if (sysinfo.target.cpu.arch.isAarch64()) 256 else 4096;
 
 fn gemvRun(allocator: Allocator, io: Io, comptime T: type, comptime t: Trans, m: isize, n: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) (Allocator.Error || Io.Cancelable)!void {
     const F = Float(T);
