@@ -190,7 +190,7 @@ const base_machines = arm_rigs.list ++ riscv_mips_rigs.list ++ x86_rigs.list ++ 
 /// Tests that need an OS (files, threads) live in files the test root also
 /// reaches, so the runnable ones are picked by name; the runner supplies a heap.
 /// Left out: `math.kernels.blas.abi.`, which resolves targets through `std.testing.io`.
-pub const default_filters: []const []const u8 = &([_][]const u8{ "math.kernels.blas.__root__.", "math.kernels.blas.Config.", "math.kernels.blas.cpu.", "math.kernels.blas.blas1.", "math.kernels.blas.blas2.", "math.kernels.blas.blas3.", "math.kernels.blas._test.", "math.kernels.lapack." } ++ small_filters);
+pub const default_filters: []const []const u8 = &([_][]const u8{ "math.kernels.blas.Config.", "math.kernels.blas.cpu.", "math.kernels.blas.blas1.", "math.kernels.blas.blas2.", "math.kernels.blas.blas3.", "math.kernels.blas._test.", "math.kernels.lapack." } ++ small_filters);
 
 /// The multicore rigs' tests: those that thread.
 pub const smp_filters: []const []const u8 = &.{ "math.kernels.blas.threading.", "math.kernels.blas.blas3.threaded.", "math.kernels.blas._test.blas3.threaded.", "math.kernels.blas._test.blas2.threaded.", "threaded level 1", "at any worker count" };
