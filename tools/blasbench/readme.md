@@ -27,7 +27,7 @@ Every contestant is checked once on fresh data before timing (its residual, in e
 The bench takes `--name=value` options, then section names; with none named every section but `kern3` and `l3thread` that the host and options allow runs.
 
 - `--openblas=<library>` (`-Dopenblas-lib`), `--blis=<library>`, `--accelerate=<path>` (macOS' framework by default), `--reference=<liblapack>`, `--eigen=<shim>`, `--aocl-libflame=<library>`: the libraries, by absolute path; each but OpenBLAS is skipped with a warning when it cannot load. The library sections run unnamed only with `--openblas`.
-- `--threads=<n>` or `--threads=default`: each library's thread count and rstd's ceiling; 1 by default.
+- `--threads=<n>` or `--threads=default`: each library's thread count and rstd's ceiling; 1 by default. rstd's `Io.Threaded` keeps a program's default limits, so the ceiling alone caps it ([#684](https://github.com/randyos-org/rstd/issues/684)).
 - `--rstd-io=failing`: rstd on `Io.failing`, serial, rather than its own `Io.Threaded`.
 - `--max-n=<n>`: library rows of `n` up to that only.
 - `--only=<routine>[,<routine>...]`: the table sections (`lib2`'s and `lib3`'s routines beyond `gemv` and `gemm`, `lapack`) race those routines only, by their names in the tables (`--only=potrf,potri`).

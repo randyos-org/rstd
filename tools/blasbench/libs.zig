@@ -84,7 +84,7 @@ pub fn fail(e: anyerror) void {
 pub const rstd_alloc = std.heap.c_allocator;
 /// The `Io` rstd's routines thread on.
 pub const RstdIo = enum {
-    /// The bench's `Io.Threaded`, limited to `--threads` less the caller.
+    /// The bench's `Io.Threaded`, with a program's default limits.
     threaded,
     /// Serial: `Io.failing` runs every task inline.
     failing,
