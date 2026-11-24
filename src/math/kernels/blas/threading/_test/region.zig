@@ -107,7 +107,7 @@ test "a reduction gives the same bits for any worker count, Io and claim order" 
     try checkRegions(Io.failing, x, marks, &chunks, expected);
     if (comptime test_io.threaded_tests) {
         for (test_io.limits) |limit| {
-            var threaded: test_io.TestIo = .init(zigstd.testAllocator, .{ .async_limit = limit });
+            var threaded: test_io.TestIo = .init(zigstd.testAllocator, .{ .async_limit = limit, .concurrent_limit = limit });
             defer threaded.deinit();
             try checkRegions(threaded.io(), x, marks, &chunks, expected);
         }
@@ -138,7 +138,7 @@ test "workers adopt the caller's rounding and flush to zero and leave the caller
     // the data can tell the modes apart
     try zigstd.testExpectTrue(@as(u64, @bitCast(nearest)) != @as(u64, @bitCast(expected)));
     for (test_io.limits) |limit| {
-        var threaded: test_io.TestIo = .init(zigstd.testAllocator, .{ .async_limit = limit });
+        var threaded: test_io.TestIo = .init(zigstd.testAllocator, .{ .async_limit = limit, .concurrent_limit = limit });
         defer threaded.deinit();
         // workers started under the default state, which a spawned thread
         // may inherit
@@ -197,7 +197,7 @@ fn cancelRegion(io: Io) !void {
 test "a canceled region returns error.Canceled after its workers stop" {
     if (comptime !test_io.threaded_tests) return error.SkipZigTest;
     for (test_io.limits) |limit| {
-        var threaded: test_io.TestIo = .init(zigstd.testAllocator, .{ .async_limit = limit });
+        var threaded: test_io.TestIo = .init(zigstd.testAllocator, .{ .async_limit = limit, .concurrent_limit = limit });
         defer threaded.deinit();
         try cancelRegion(threaded.io());
     }
