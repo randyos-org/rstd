@@ -267,3 +267,10 @@ test "threaded gemm matches the serial driver on the selected core's own blockin
         try shape(T, vt, threaded.io(), .{ .t, .n }, 3 * blk.p + 1, 97, 2 * blk.q + 1, scalar(T, 1.25, -1), scalar(T, 1, 0));
     }
 }
+
+test {
+    _ = @import("threaded/cancel.zig");
+    _ = @import("threaded/public.zig");
+    _ = @import("threaded/routines.zig");
+    _ = @import("threaded/stress.zig");
+}
