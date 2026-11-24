@@ -2,11 +2,11 @@
 //! count, fixed chunks, the claim loop and the ordered combine. Chunks follow
 //! the problem size and the core only, never the worker count, and partials
 //! fold in chunk order, so the bits are the same for any worker count, `Io` or
-//! scheduling. Level 3 uses the thresholds and the worker count.
+//! scheduling. Level 3 uses the thresholds, the worker count and the grain.
 //!
 //! Here, the worker count and the plan; the rest is in `threading/`: the
 //! thresholds (`rules.zig`), `chunks.zig`, the claim loop (`region.zig`,
-//! `tasks.zig`), `partials.zig` and level 3's `team.zig`.
+//! `tasks.zig`), `partials.zig`, level 3's `team.zig` and `grain.zig`.
 
 const std = @import("std");
 const sysinfo = @import("builtin");
@@ -19,6 +19,7 @@ const region = @import("threading/region.zig");
 const tasks = @import("threading/tasks.zig");
 const partials = @import("threading/partials.zig");
 const teams = @import("threading/team.zig");
+const grain = @import("threading/grain.zig");
 
 pub const chunks_max = chunking.chunks_max;
 pub const Shape = chunking.Shape;
@@ -29,6 +30,8 @@ pub const Tier = rules.Tier;
 pub const Rule = rules.Rule;
 pub const rule = rules.rule;
 pub const product = rules.product;
+pub const team_grain = grain.team_grain;
+pub const crew = grain.crew;
 pub const forEach = region.forEach;
 pub const reduce = region.reduce;
 pub const forEachPart = region.forEachPart;

@@ -10,7 +10,7 @@ const apple_accel = @import("../../../apple_accel.zig");
 const check = @import("../../check.zig");
 const bitwise = @import("../../bitwise.zig");
 const interface = @import("../../../blas3/interface.zig");
-const workers = @import("../../../blas3/threaded.zig").workers;
+const l3 = @import("../../../blas3/threaded.zig");
 const th = @import("../threaded.zig");
 
 const Io = std.Io;
@@ -40,10 +40,11 @@ test "the public gemm threads above the threshold and keeps the serial bits" {
     defer threaded.deinit();
     const al = std.testing.allocator;
     inline for (precisions) |T| {
-        // past `m * n * k` of 8 serial units for every type's rule
-        const m = 211;
-        const n = 197;
-        const k = 173;
+        // past `m * n * k` of 8 serial units for every type's rule, and of 8
+        // `team_grain`s on any system
+        const m = 331;
+        const n = 317;
+        const k = 307;
         const a = try al.alloc(T, m * k);
         defer al.free(a);
         const b = try al.alloc(T, k * n);
@@ -61,7 +62,7 @@ test "the public gemm threads above the threshold and keeps the serial bits" {
         try driver.gemm(al, Io.failing, T, blas.vtable(), true, false, .n, m, n, k, alpha, a.ptr, k, b.ptr, k, beta, want.ptr, m, 1);
         for ([_]u32{ 1, 3, 8 }) |cpus| {
             blas.config.cpu_count = cpus;
-            try zigstd.testExpectEqual(cpus, workers(.gemm, T, m * n * k));
+            try zigstd.testExpectEqual(cpus, l3.gemmWorkers(T, m, n, k));
             const c = try al.dupe(T, got);
             defer al.free(c);
             try interface.gemm(al, threaded.io(), T, .t, .n, m, n, k, alpha, a.ptr, k, b.ptr, k, beta, c.ptr, m);
@@ -84,8 +85,9 @@ test "the public symm, herk, syr2k and trmm thread above their thresholds and ke
     const io = threaded.io();
     const al = std.testing.allocator;
     const T = types.Complex64;
-    const n = 157;
-    const k = 141;
+    // five `team_grain`s or more for each call on any system
+    const n = 241;
+    const k = 229;
     const a = try al.alloc(T, n * n);
     defer al.free(a);
     const b = try al.alloc(T, n * n);
@@ -100,19 +102,19 @@ test "the public symm, herk, syr2k and trmm thread above their thresholds and ke
     @memcpy(got, want);
     const vt = blas.vtable();
     const alpha = scalar(T, 0.5, -1);
-    try zigstd.testExpectEqual(@as(u32, 5), workers(.symm, T, 2 * n * n * n));
+    try zigstd.testExpectEqual(@as(u32, 5), l3.symmWorkers(T, n, n, n));
     try driver.symm(al, Io.failing, T, vt, false, false, true, n, n, alpha, a.ptr, n, b.ptr, n, alpha, want.ptr, n, 1);
     try interface.symm(al, io, T, .r, .u, n, n, alpha, a.ptr, n, b.ptr, n, alpha, got.ptr, n);
     try zigstd.testExpectTrue(sameBits(T, want, got));
-    try zigstd.testExpectEqual(@as(u32, 5), workers(.syrk, T, (n + 1) * n * k));
+    try zigstd.testExpectEqual(@as(u32, 5), l3.syrkWorkers(T, false, n, k));
     try driver.syrk(al, Io.failing, T, vt, true, false, true, n, k, scalar(T, 0.25, 0), a.ptr, k, null, 0, scalar(T, 2, 0), want.ptr, n, 1);
     try interface.herk(al, io, T, .l, .c, n, k, 0.25, a.ptr, k, 2, got.ptr, n);
     try zigstd.testExpectTrue(sameBits(T, want, got));
-    try zigstd.testExpectEqual(@as(u32, 5), workers(.syr2k, T, n * k));
+    try zigstd.testExpectEqual(@as(u32, 5), l3.syrkWorkers(T, true, n, k));
     try driver.syrk(al, Io.failing, T, vt, false, true, false, n, k, alpha, a.ptr, n, b.ptr, n, alpha, want.ptr, n, 1);
     try interface.syr2k(al, io, T, .u, .n, n, k, alpha, a.ptr, n, b.ptr, n, alpha, got.ptr, n);
     try zigstd.testExpectTrue(sameBits(T, want, got));
-    try zigstd.testExpectEqual(@as(u32, 5), workers(.trsm, T, n * k));
+    try zigstd.testExpectEqual(@as(u32, 5), l3.triWorkers(T, k, n, n));
     try driver.trmm(al, Io.failing, T, vt, false, false, true, true, true, k, n, alpha, a.ptr, n, want.ptr, n, 1);
     try interface.trmm(al, io, T, .r, .l, .c, .u, k, n, alpha, a.ptr, n, got.ptr, n);
     try zigstd.testExpectTrue(sameBits(T, want, got));

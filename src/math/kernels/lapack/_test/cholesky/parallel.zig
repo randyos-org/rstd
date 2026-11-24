@@ -1,4 +1,4 @@
-//! Tests of `potrf`'s parallel algorithm: its factor, its failing minor, one worker's bits at any worker count, and `crew`.
+//! Tests of `potrf`'s parallel algorithm: its factor, its failing minor and one worker's bits at any worker count.
 
 const std = @import("std");
 const blas = @import("../../../blas/__root__.zig");
@@ -70,7 +70,7 @@ pub fn Threaded(comptime T: type) type {
         }
 
         /// The public `potrf`, its workers `blas.config`'s and its teams by
-        /// `interface.team_grain`.
+        /// `threading.team_grain`.
         pub fn grained(c: @This(), io: Io, want: u32, out: []T) anyerror!void {
             const saved = blas.config.cpu_count;
             defer blas.config.cpu_count = saved;
@@ -122,16 +122,4 @@ test "potrf gives one worker's bits at any worker count where its grain allows t
         const c: Threaded(T) = .{ .p = &p };
         try expectSameBits(T, c, Threaded(T).grained, p.a.len, "potrf, grained");
     };
-}
-
-test "crew: one worker per grain, a complex product four, never more than asked" {
-    const grain = interface.block_grain;
-    try testing.expectEqual(@as(u32, 1), interface.crew(f64, 12, grain, 64, 64, 64));
-    try testing.expectEqual(@as(u32, 1), interface.crew(f64, 12, grain, 100, 100, 199));
-    try testing.expectEqual(@as(u32, 2), interface.crew(f64, 12, grain, 100, 100, 200));
-    try testing.expectEqual(@as(u32, 4), interface.crew(types.Complex64, 12, grain, 100, 100, 100));
-    try testing.expectEqual(@as(u32, 12), interface.crew(f32, 12, grain, 512, 512, 512));
-    try testing.expectEqual(@as(u32, 1), interface.crew(f32, 1, grain, 512, 512, 512));
-    try testing.expectEqual(@as(u32, 3), interface.crew(f32, 3, 0, 2, 2, 2));
-    try testing.expectEqual(@as(u32, 5), interface.crew(f64, 5, grain, std.math.maxInt(u64), 2, 2));
 }

@@ -19,11 +19,40 @@ const Matrix = driver.Matrix;
 const Error = driver.Error;
 
 /// The workers `family`'s rule (`threading.md`) gives `work` on the
-/// selected core, for the drivers' `want`.
-pub fn workers(comptime family: threading.Family, comptime T: type, work: u64) u32 {
+/// selected core, at most one per `threading.team_grain` of the call's
+/// `madds` real multiply-adds (#591), for the drivers' `want`.
+fn workers(comptime family: threading.Family, comptime T: type, work: u64, madds: u64) u32 {
     // selects the core first, which fills `blas.config`
     const r = threading.rule(family, T, blas.coreType());
-    return @min(threading.workers(&blas.config, r.sizeMax(work)), threading.chunks_max);
+    const w = @min(threading.workers(&blas.config, r.sizeMax(work)), threading.chunks_max);
+    return threading.crew(T, w, threading.team_grain, madds);
+}
+
+/// `gemm`'s workers for an `m x n` `C` and depth `k`.
+pub fn gemmWorkers(comptime T: type, m: u64, n: u64, k: u64) u32 {
+    const mnk = threading.product(&.{ m, n, k });
+    return workers(.gemm, T, mnk, mnk);
+}
+
+/// `symm`'s and `hemm`'s for an `m x n` `C`, `A` of order `ka`; `symm.c`
+/// counts `2 * m * m * n` on either side.
+pub fn symmWorkers(comptime T: type, m: u64, n: u64, ka: u64) u32 {
+    return workers(.symm, T, threading.product(&.{ 2, m, m, n }), threading.product(&.{ m, n, ka }));
+}
+
+/// `syrk`'s and `herk`'s for an order `n` `C` and depth `k`, or with `two`
+/// `syr2k`'s and `her2k`'s; `syrk.c` counts `(n + 1) * n * k`, a product
+/// taking half that, and `syr2k.c` `n * k`.
+pub fn syrkWorkers(comptime T: type, two: bool, n: u64, k: u64) u32 {
+    const nnk = threading.product(&.{ n +| 1, n, k });
+    return if (two) workers(.syr2k, T, threading.product(&.{ n, k }), nnk) else workers(.syrk, T, nnk, nnk / 2);
+}
+
+/// `trsm`'s and `trmm`'s for an `m x n` `B`, `A` of order `ka`: `m * n *
+/// ka`, twice the products, as their drivers run well under `gemm`'s rate
+/// per product (half started teams too late at order 128 on the M6, #591).
+pub fn triWorkers(comptime T: type, m: u64, n: u64, ka: u64) u32 {
+    return workers(.trsm, T, threading.product(&.{ m, n }), threading.product(&.{ m, n, ka }));
 }
 
 /// `driver.run`'s loops on up to `want` workers.

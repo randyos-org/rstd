@@ -7,7 +7,6 @@
 const std = @import("std");
 const types = @import("../blas/types.zig");
 const util = @import("../blas/util.zig");
-const threading = @import("../blas/threading.zig");
 const driver = @import("../blas/blas3/driver.zig");
 const threaded = @import("../blas/blas3/threaded.zig");
 const laswp = @import("../blas/ext/laswp/kernel.zig");
@@ -54,7 +53,7 @@ pub fn split(comptime T: type, n: usize) usize {
 pub fn gemm(al: Allocator, io: Io, comptime T: type, ta: Trans, tb: Trans, m: usize, n: usize, k: usize, alpha: T, a: [*]const T, lda: usize, b: [*]const T, ldb: usize, beta: T, c: [*]T, ldc: usize) Error!void {
     if (m == 0 or n == 0) return;
     const conj: driver.Conj = .of(isComplex(T) and ta.conjA(), isComplex(T) and tb.conjA());
-    const w = threaded.workers(.gemm, T, threading.product(&.{ m, n, k }));
+    const w = threaded.gemmWorkers(T, m, n, k);
     try driver.gemm(al, io, T, interface.table(T), ta.transposed(), tb.transposed(), conj, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc, w);
 }
 
@@ -62,7 +61,7 @@ pub fn gemm(al: Allocator, io: Io, comptime T: type, ta: Trans, tb: Trans, m: us
 pub fn trsm(al: Allocator, io: Io, comptime T: type, comptime solve: bool, side: Side, uplo: Uplo, ta: Trans, diag: Diag, m: usize, n: usize, alpha: T, a: [*]const T, lda: usize, b: [*]T, ldb: usize) Error!void {
     if (m == 0 or n == 0) return;
     const f = if (solve) driver.trsm else driver.trmm;
-    const w = threaded.workers(.trsm, T, threading.product(&.{ m, n }));
+    const w = threaded.triWorkers(T, m, n, if (side == .l) m else n);
     try f(al, io, T, interface.table(T), side == .l, uplo == .u, ta.transposed(), isComplex(T) and ta.conjA(), diag == .u, m, n, alpha, a, lda, b, ldb, w);
 }
 
@@ -70,17 +69,14 @@ pub fn trsm(al: Allocator, io: Io, comptime T: type, comptime solve: bool, side:
 /// `?HER2K` with `b`. `trans` is `t` or `c` for `op(A) = A'`.
 pub fn syrk(al: Allocator, io: Io, comptime T: type, comptime herm: bool, uplo: Uplo, trans: Trans, n: usize, k: usize, alpha: T, a: [*]const T, lda: usize, b: ?[*]const T, ldb: usize, beta: T, c: [*]T, ldc: usize) Error!void {
     if (n == 0) return;
-    const w = if (b == null)
-        threaded.workers(.syrk, T, threading.product(&.{ n + 1, n, k }))
-    else
-        threaded.workers(.syr2k, T, threading.product(&.{ n, k }));
+    const w = threaded.syrkWorkers(T, b != null, n, k);
     try driver.syrk(al, io, T, interface.table(T), herm and isComplex(T), uplo == .u, trans != .n, n, k, alpha, a, lda, b, ldb, beta, c, ldc, w);
 }
 
 /// `?SYMM`, or with `herm` `?HEMM`.
 pub fn symm(al: Allocator, io: Io, comptime T: type, comptime herm: bool, side: Side, uplo: Uplo, m: usize, n: usize, alpha: T, a: [*]const T, lda: usize, b: [*]const T, ldb: usize, beta: T, c: [*]T, ldc: usize) Error!void {
     if (m == 0 or n == 0) return;
-    const w = threaded.workers(.symm, T, threading.product(&.{ 2, m, m, n }));
+    const w = threaded.symmWorkers(T, m, n, if (side == .l) m else n);
     try driver.symm(al, io, T, interface.table(T), herm and isComplex(T), side == .l, uplo == .u, m, n, alpha, a, lda, b, ldb, beta, c, ldc, w);
 }
 

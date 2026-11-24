@@ -7,7 +7,6 @@ const blas = @import("../__root__.zig");
 const driver = @import("driver.zig");
 const driver3m = @import("driver3m.zig");
 const threaded = @import("threaded.zig");
-const threading = @import("../threading.zig");
 const types = @import("../types.zig");
 const util = @import("../util.zig");
 const accel = @import("../apple_accel.zig");
@@ -92,7 +91,7 @@ fn gemmImpl(allocator: Allocator, io: Io, comptime T: type, comptime three: bool
     try gemmFits(transa, transb, m, n, k, lda, ldb, ldc, @sizeOf(T), @sizeOf(T));
     if (!three and try accel.gemm(io, T, transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc)) return;
     const conj: driver.Conj = .of(conjugated(T, transa), conjugated(T, transb));
-    const w = threaded.workers(.gemm, T, threading.product(&.{ @intCast(m), @intCast(n), @intCast(k) }));
+    const w = threaded.gemmWorkers(T, @intCast(m), @intCast(n), @intCast(k));
     const f = if (three) driver3m.gemm3m else driver.gemm;
     try f(allocator, io, T, table(T), ta, tb, conj, @intCast(m), @intCast(n), @intCast(k), alpha, a, @intCast(lda), b, @intCast(ldb), beta, c, @intCast(ldc), w);
 }
@@ -181,8 +180,7 @@ fn symmImpl(allocator: Allocator, io: Io, comptime T: type, comptime herm: bool,
     if (!util.fitsMatrix(m, n, ldb, @sizeOf(T))) return error.InvalidLdb;
     if (!util.fitsMatrix(m, n, ldc, @sizeOf(T))) return error.InvalidLdc;
     if (!three and try accel.symm(io, T, herm, side, uplo, m, n, alpha, a, lda, b, ldb, beta, c, ldc)) return;
-    // `symm.c` counts `2 * m * m * n` on either side
-    const w = threaded.workers(.symm, T, threading.product(&.{ 2, @intCast(m), @intCast(m), @intCast(n) }));
+    const w = threaded.symmWorkers(T, @intCast(m), @intCast(n), @intCast(ka));
     const f = if (three) driver3m.symm3m else driver.symm;
     try f(allocator, io, T, table(T), herm, side == .l, uplo == .u, @intCast(m), @intCast(n), alpha, a, @intCast(lda), b, @intCast(ldb), beta, c, @intCast(ldc), w);
 }
@@ -244,10 +242,7 @@ fn rankImpl(allocator: Allocator, io: Io, comptime T: type, comptime herm: bool,
     if (b != null and !util.fitsMatrix(rows, cols, ldb, @sizeOf(T))) return error.InvalidLdb;
     if (!util.fitsMatrix(n, n, ldc, @sizeOf(T))) return error.InvalidLdc;
     if (accel.syrk(T, herm, uplo, t, n, k, alpha, a, lda, b, ldb, beta, c, ldc)) return;
-    const w = if (b == null)
-        threaded.workers(.syrk, T, threading.product(&.{ @intCast(n + 1), @intCast(n), @intCast(k) }))
-    else
-        threaded.workers(.syr2k, T, threading.product(&.{ @intCast(n), @intCast(k) }));
+    const w = threaded.syrkWorkers(T, b != null, @intCast(n), @intCast(k));
     try driver.syrk(allocator, io, T, table(T), herm, uplo == .u, t, @intCast(n), @intCast(k), alpha, a, @intCast(lda), b, @intCast(ldb), beta, c, @intCast(ldc), w);
 }
 
@@ -284,6 +279,6 @@ fn triImpl(allocator: Allocator, io: Io, comptime T: type, comptime solve: bool,
     if (!util.fitsMatrix(m, n, ldb, @sizeOf(T))) return error.InvalidLdb;
     if (try accel.trmm(io, T, solve, side, uplo, transa, diag, m, n, alpha, a, lda, b, ldb)) return;
     const f = if (solve) driver.trsm else driver.trmm;
-    const w = threaded.workers(.trsm, T, threading.product(&.{ @intCast(m), @intCast(n) }));
+    const w = threaded.triWorkers(T, @intCast(m), @intCast(n), @intCast(ka));
     try f(allocator, io, T, table(T), side == .l, uplo == .u, transa.transposed(), conjugated(T, transa), diag == .u, @intCast(m), @intCast(n), alpha, a, @intCast(lda), b, @intCast(ldb), w);
 }
