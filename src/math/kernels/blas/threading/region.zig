@@ -3,6 +3,7 @@
 const std = @import("std");
 const sysinfo = @import("builtin");
 const FpState = @import("../FpState.zig");
+const Qos = @import("Qos.zig");
 const chunking = @import("chunks.zig");
 const Plan = @import("../threading.zig").Plan;
 const Tasks = @import("tasks.zig").Tasks;
@@ -109,6 +110,8 @@ fn Region(comptime Ctx: type, comptime f: fn (Ctx, Chunk) void) type {
         next: std.atomic.Value(usize) = .init(0),
         /// The caller's, which `work` adopts.
         fp: FpState = undefined,
+        /// The caller's QoS class, which `work` raises its thread to.
+        qos: Qos = .{},
 
         fn claim(r: *Self, io: Io) Io.Cancelable!void {
             while (true) {
@@ -124,6 +127,7 @@ fn Region(comptime Ctx: type, comptime f: fn (Ctx, Chunk) void) type {
         fn work(r: *Self, io: Io) void {
             const own = r.fp.adopt();
             defer if (own) |s| s.apply();
+            r.qos.raise();
             r.claim(io) catch |err| switch (err) {
                 error.Canceled => io.recancel(),
             };
@@ -131,6 +135,7 @@ fn Region(comptime Ctx: type, comptime f: fn (Ctx, Chunk) void) type {
 
         fn parallel(r: *Self, io: Io, w: usize) Io.Cancelable!void {
             r.fp = .capture();
+            r.qos = .capture();
             var tasks: Tasks = .init(io);
             // runs before the caller's frame goes; every task has then run
             defer {
