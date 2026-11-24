@@ -48,10 +48,11 @@ pub fn syrkWorkers(comptime T: type, two: bool, n: u64, k: u64) u32 {
     return if (two) workers(.syr2k, T, threading.product(&.{ n, k }), nnk) else workers(.syrk, T, nnk, nnk / 2);
 }
 
-/// `trsm`'s and `trmm`'s for an `m x n` `B`, `A` of order `ka`: half of
-/// `m * n * ka` products.
+/// `trsm`'s and `trmm`'s for an `m x n` `B`, `A` of order `ka`: `m * n *
+/// ka`, twice the products, as their drivers run well under `gemm`'s rate
+/// per product (half started teams too late at order 128 on the M6, #591).
 pub fn triWorkers(comptime T: type, m: u64, n: u64, ka: u64) u32 {
-    return workers(.trsm, T, threading.product(&.{ m, n }), threading.product(&.{ m, n, ka }) / 2);
+    return workers(.trsm, T, threading.product(&.{ m, n }), threading.product(&.{ m, n, ka }));
 }
 
 /// `driver.run`'s loops on up to `want` workers.
