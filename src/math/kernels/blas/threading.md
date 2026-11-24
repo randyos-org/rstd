@@ -175,9 +175,12 @@ What threads, as landed:
   picked by `|re|/4 + |im|/4`, and the fold does too between two such chunks, so the index is
   the serial one.
 - **`gemv`:** rows without a transpose, columns with one, each chunk a serial kernel call with a
-  buffer of its own. Rows split only on 4096-row blocks: x86_64's `gemv_n` kernels take rows in
-  `NBMAX` blocks and run the last block's remainder first, so a finer split moves rows between
-  paths (measured: `sgemv_n` on Sandy Bridge, Haswell and Zen). Columns start on multiples of 64.
+  buffer of its own. Rows split only on 4096-row blocks on x86_64: its `gemv_n` kernels take rows in
+  `NBMAX` blocks and run a block's first `nb & 12` rows apart (Haswell's `sgemv_kernel_4x8`), so a
+  finer split moves rows between paths (measured: `sgemv_n` on Sandy Bridge, Haswell and Zen; again
+  on Haswell and Zen with 64-row chunks, [#592](https://github.com/randyos-org/rstd/issues/592)). arm64's kernels sum each row alike wherever it
+  falls, so rows split on multiples of 64 there; other architectures keep x86_64's blocks, unmeasured.
+  Columns start on multiples of 64.
 - **`ger`:** columns. Its runs of nonzero `y` are cut on multiples of 64 past each run's start,
   so a run's parts make its kernel call's column blocks.
 - **Rank updates** (`syr`, `spr`, `syr2`, `spr2`, `her`, `hpr`, `her2`, `hpr2`): columns, each one
@@ -302,7 +305,7 @@ What is left to upstream's rate past n = 128 is the drivers' own scaling at thes
 | `syrk`, `symm` | `(n+1)nk` over `109944 * 4`; `2m^2 n` over `65536 * 4` | triangle-balanced ways; `gemm`'s |
 | `syr2k` | `n * k >= 1000` | triangle-balanced ways |
 | `trsm`, `trmm` | `m * n >= SMP_FACTOR (256 real, 128 cplx) * 4` | left: N panels; right: M panels |
-| `gemv` | `m * n >= 115200 * 4` | N: 4096-row chunks; T: column chunks |
+| `gemv` | `m * n >= 115200 * 4` | N: 4096-row chunks (arm64: 64-row); T: column chunks |
 | `gbmv` | `m * n >= 250000` (125000 complex), `kl + ku >= 15` | T: column chunks; N: partials |
 | `ger` | `m*n > 2048*4`: up to 3; `> 20480*4`: all | column chunks |
 | `symv`, `spmv` | `n >= 200`; complex (`zsymv.c`, `zhpmv.c` for `hpmv`): `n < 50`: 1, `< 500`: 2 | column chunks, partials |

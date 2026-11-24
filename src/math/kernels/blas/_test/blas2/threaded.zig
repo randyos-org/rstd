@@ -83,8 +83,10 @@ fn Cases(comptime T: type) type {
         const alpha = val(T, 1.25, -0.5);
         const beta = val(T, 0.5, 0.25);
         const incs = [_][2]isize{ .{ 1, 1 }, .{ -2, 3 } };
-        /// Past `gemv_rows` rows twice over, and past 64 columns many times.
-        const shapes = [_][2]usize{ .{ 2 * 4096 + 300, 9 }, .{ 9, 2 * 4096 + 300 }, .{ long, short }, .{ short, long } };
+        /// Past 4096 rows twice over (x86_64's `gemv_n` blocks) and 64 columns
+        /// many times, and rows neither a multiple of 4 nor of 64 (arm64's
+        /// 64-row chunks, the kernels' last rows).
+        const shapes = [_][2]usize{ .{ 2 * 4096 + 300, 9 }, .{ 4096 - 61, 9 }, .{ 9, 2 * 4096 + 300 }, .{ long, short }, .{ short, long } };
         const most = (2 * 4096 + 300) * 3;
         const transes = if (isComplex(T)) std.enums.values(Trans) else &[_]Trans{ .n, .t };
 
