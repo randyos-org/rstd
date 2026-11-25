@@ -134,7 +134,7 @@ Above a routine's threshold the problem is cut into chunks whose boundaries depe
 the problem size and the routine's chunk size, never on `w`:
 
 - **Chunks.** A chunk is about the most work OpenBLAS's threshold runs serially: a call of
-  `work` units above `serial_max` makes `ceil(work / serial_max)` chunks, at most 64. Bounds
+  `work` units above `serial_max` makes `ceil(work / serial_max)` chunks (`hemv`: 50-column chunks, [#706](https://github.com/randyos-org/rstd/issues/706)), at most 64. Bounds
   split the range evenly, or by square roots where row costs grow or shrink (`Shape`), and
   round to a quantum the routine picks.
 - **Claiming.** The caller and up to `w - 1` helpers started through `Group.concurrent`
@@ -310,7 +310,7 @@ What is left to upstream's rate past n = 128 is the drivers' own scaling at thes
 | `gbmv` | `m * n >= 250000` (125000 complex), `kl + ku >= 15` | T: column chunks; N: partials |
 | `ger` | `m*n > 2048*4`: up to 3; `> 20480*4`: all | column chunks |
 | `symv`, `spmv` | `n >= 200` (rstd: real `n >= 512`, [#561](https://github.com/randyos-org/rstd/issues/561)); complex (`zsymv.c`, `zhpmv.c` for `hpmv`): `n < 50`: 1, `< 500`: 2 | column chunks, partials |
-| `hemv` | `zhemv.c`: `n >= 362` | same |
+| `hemv` | `zhemv.c`: `n >= 362` (rstd: 50-column chunks, [#706](https://github.com/randyos-org/rstd/issues/706)) | same |
 | `sbmv`, `hbmv` | none upstream; `gbmv`'s for `kl = ku = k` | same |
 | `trmv` | `n < 50`: 1, `< 500`: 2; complex `n*n > 36*s*s*4`, `< 64*s*s*4`: 2 | same |
 | `tbmv`, `tpmv` | `n < 50`: 1, `< 500`: 2 | same |

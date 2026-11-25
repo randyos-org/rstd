@@ -76,6 +76,8 @@ pub const Rule = struct {
     per_unit: bool = false,
     /// Caps above `serial_max`, by ascending `below`.
     tiers: []const Tier = &.{},
+    /// Units a chunk past `serial_max`; 0 for `serial_max`.
+    chunk: u64 = 0,
 
     /// The most workers `work` justifies.
     pub fn sizeMax(r: Rule, work: u64) u32 {
@@ -85,11 +87,11 @@ pub const Rule = struct {
         return std.math.cast(u32, work / @max(r.serial_max, 1)) orelse std.math.maxInt(u32);
     }
 
-    /// One chunk up to `serial_max`; above, chunks of about `serial_max`, at
-    /// most `chunks_max`.
+    /// One chunk up to `serial_max`; above, chunks of about `chunk` (else
+    /// `serial_max`), at most `chunks_max`.
     pub fn chunkCount(r: Rule, work: u64) usize {
         if (work <= r.serial_max) return 1;
-        const per = @max(r.serial_max, 1);
+        const per = @max(if (r.chunk != 0) r.chunk else r.serial_max, 1);
         return @intCast(@min(work / per + @intFromBool(work % per != 0), chunks_max));
     }
 };
@@ -127,8 +129,9 @@ pub fn rule(comptime family: Family, comptime T: type, core: anytype) Rule {
         // not `symv.c`'s 200: on the M6 teams of 2 and 3 lost to one
         // worker there, a call per column in `sytrd` (#561)
         .symv => if (complex) .{ .serial_max = 49, .tiers = comptime &.{.{ .below = 500, .max = 2 }} } else .{ .serial_max = 511 },
-        // `zhemv.c`: `n < MULTI_THREAD_MINIMAL`, 362
-        .hemv => .{ .serial_max = 361 },
+        // `zhemv.c`: `n < MULTI_THREAD_MINIMAL`, 362, then every thread; chunks
+        // of `zsymv.c`'s 50 columns, not 361, which ran 2 or 3 workers (#706)
+        .hemv => .{ .serial_max = 361, .chunk = 50 },
         // `tbmv.c`, `tpmv.c`, `ztbmv.c`, `ztpmv.c`: `n < 50`, `n < 500`
         .tpmv => .{ .serial_max = 49, .tiers = comptime &.{.{ .below = 500, .max = 2 }} },
         .gemm => (if (complex) null else gemmCore(F, core)) orelse .{ .serial_max = @as(u64, if (complex) 8192 else 65536) * mt, .per_unit = true },
