@@ -8,6 +8,7 @@ const BlasLong = types.BlasLong;
 const at = shared.at;
 const mulAdd = shared.mulAdd;
 const lanes = shared.lanes;
+const splatTo = shared.splatTo;
 
 pub fn Level2(comptime F: type, comptime U: comptime_int) type {
     const Base = real.Real(F, U);
@@ -16,11 +17,11 @@ pub fn Level2(comptime F: type, comptime U: comptime_int) type {
         const W = Base.W;
         const ld = Base.ld;
         const st = Base.st;
-        /// One register: `gemv_n`'s rows past the last `W`, before single ones.
+        /// One register: `gemv_n`'s rows past the last `W`.
         const L = lanes(F);
-        const VL = @Vector(L, F);
 
-        /// `y += alpha*A*x`, four columns a pass over a unit-stride `y`.
+        /// `y += alpha*A*x`: over a unit-stride `y` four columns a pass, then
+        /// two, then one, as `sgemv_n_neon.c`.
         pub fn gemv_n(m: BlasLong, n: BlasLong, _: BlasLong, alpha: F, a: [*]F, lda: BlasLong, x: [*]F, incx: BlasLong, y: [*]F, incy: BlasLong, _: [*]F) callconv(.c) i32 {
             if (m <= 0 or n <= 0) return 0;
             const rows: usize = @intCast(m);
@@ -28,45 +29,50 @@ pub fn Level2(comptime F: type, comptime U: comptime_int) type {
             const ld_a: usize = @intCast(lda);
             var j: usize = 0;
             if (incy == 1) {
-                while (j + 4 <= cols) : (j += 4) {
-                    var t: [4]F = undefined;
-                    var c: [4][*]F = undefined;
-                    inline for (0..4) |q| {
-                        t[q] = alpha * at(F, x, @as(BlasLong, @intCast(j + q)) * incx).*;
-                        c[q] = a + (j + q) * ld_a;
-                    }
-                    var i: usize = 0;
-                    while (i + W <= rows) : (i += W) {
-                        var yv = ld(y + i);
-                        inline for (0..4) |q| yv = mulAdd(V, ld(c[q] + i), @splat(t[q]), yv);
-                        st(y + i, yv);
-                    }
-                    if (U > 1) while (i + L <= rows) : (i += L) {
-                        var yv: VL = y[i..][0..L].*;
-                        inline for (0..4) |q| yv = mulAdd(VL, c[q][i..][0..L].*, @splat(t[q]), yv);
-                        y[i..][0..L].* = yv;
-                    };
-                    while (i < rows) : (i += 1) {
-                        inline for (0..4) |q| y[i] = mulAdd(F, c[q][i], t[q], y[i]);
-                    }
+                while (j + 4 <= cols) : (j += 4) columns(4, rows, alpha, a, ld_a, x, incx, j, y);
+                if (j + 2 <= cols) {
+                    columns(2, rows, alpha, a, ld_a, x, incx, j, y);
+                    j += 2;
                 }
+                if (j < cols) columns(1, rows, alpha, a, ld_a, x, incx, j, y);
+                return 0;
             }
             while (j < cols) : (j += 1) {
                 const t = alpha * at(F, x, @as(BlasLong, @intCast(j)) * incx).*;
                 const c = a + j * ld_a;
-                var i: usize = 0;
-                if (incy == 1) {
-                    while (i + W <= rows) : (i += W) st(y + i, mulAdd(V, ld(c + i), @splat(t), ld(y + i)));
-                    if (U > 1) while (i + L <= rows) : (i += L) {
-                        y[i..][0..L].* = mulAdd(VL, c[i..][0..L].*, @splat(t), y[i..][0..L].*);
-                    };
-                }
-                while (i < rows) : (i += 1) {
+                for (0..rows) |i| {
                     const yp = at(F, y, @as(BlasLong, @intCast(i)) * incy);
                     yp.* = mulAdd(F, c[i], t, yp.*);
                 }
             }
             return 0;
+        }
+
+        /// `K` columns from `j` into a unit-stride `y`: rows `W` at a time, then
+        /// one register, two and one; each row one chain over the columns.
+        inline fn columns(comptime K: usize, rows: usize, alpha: F, a: [*]F, ld_a: usize, x: [*]F, incx: BlasLong, j: usize, y: [*]F) void {
+            var t: [K]F = undefined;
+            var c: [K][*]F = undefined;
+            inline for (0..K) |q| {
+                t[q] = alpha * at(F, x, @as(BlasLong, @intCast(j + q)) * incx).*;
+                c[q] = a + (j + q) * ld_a;
+            }
+            var i = rowsBy(K, W, rows, 0, c, t, y);
+            if (L < W) i = rowsBy(K, L, rows, i, c, t, y);
+            if (2 < L) i = rowsBy(K, 2, rows, i, c, t, y);
+            _ = rowsBy(K, 1, rows, i, c, t, y);
+        }
+
+        /// Rows from `start`, `R` at a time while `R` fit; where it stopped.
+        inline fn rowsBy(comptime K: usize, comptime R: usize, rows: usize, start: usize, c: [K][*]F, t: [K]F, y: [*]F) usize {
+            const T = if (R == 1) F else @Vector(R, F);
+            var i = start;
+            while (i + R <= rows) : (i += R) {
+                var yv: T = if (R == 1) y[i] else y[i..][0..R].*;
+                inline for (0..K) |q| yv = mulAdd(T, if (R == 1) c[q][i] else c[q][i..][0..R].*, splatTo(T, t[q]), yv);
+                if (R == 1) y[i] = yv else y[i..][0..R].* = yv;
+            }
+            return i;
         }
 
         /// `y += alpha*A'*x`, four columns' sums a pass over a unit-stride
