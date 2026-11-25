@@ -309,7 +309,7 @@ What is left to upstream's rate past n = 128 is the drivers' own scaling at thes
 | `gemv` | `m * n >= 115200 * 4` | N: 4096-row chunks (arm64: 256-row); T: column chunks |
 | `gbmv` | `m * n >= 250000` (125000 complex), `kl + ku >= 15` | T: column chunks; N: partials |
 | `ger` | `m*n > 2048*4`: up to 3; `> 20480*4`: all | column chunks |
-| `symv`, `spmv` | `n >= 200`; complex (`zsymv.c`, `zhpmv.c` for `hpmv`): `n < 50`: 1, `< 500`: 2 | column chunks, partials |
+| `symv`, `spmv` | `n >= 200` (rstd: real `n >= 512`, [#561](https://github.com/randyos-org/rstd/issues/561)); complex (`zsymv.c`, `zhpmv.c` for `hpmv`): `n < 50`: 1, `< 500`: 2 | column chunks, partials |
 | `hemv` | `zhemv.c`: `n >= 362` | same |
 | `sbmv`, `hbmv` | none upstream; `gbmv`'s for `kl = ku = k` | same |
 | `trmv` | `n < 50`: 1, `< 500`: 2; complex `n*n > 36*s*s*4`, `< 64*s*s*4`: 2 | same |

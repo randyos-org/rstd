@@ -123,8 +123,10 @@ pub fn rule(comptime family: Family, comptime T: type, core: anytype) Rule {
         .syr => .{ .serial_max = 49, .tiers = comptime &.{.{ .below = 500, .max = 2 }} },
         // `zher.c`, `zhpr.c`, `zher2.c`, `zhpr2.c`: `n < 100`
         .her => .{ .serial_max = 99 },
-        // `symv.c`: `n < 200`; `zsymv.c`, `zhpmv.c`: `n < 50`, `n < 500`
-        .symv => if (complex) .{ .serial_max = 49, .tiers = comptime &.{.{ .below = 500, .max = 2 }} } else .{ .serial_max = 199 },
+        // `zsymv.c`, `zhpmv.c`: `n < 50`, `n < 500`; real serial below 512,
+        // not `symv.c`'s 200: on the M6 teams of 2 and 3 lost to one
+        // worker there, a call per column in `sytrd` (#561)
+        .symv => if (complex) .{ .serial_max = 49, .tiers = comptime &.{.{ .below = 500, .max = 2 }} } else .{ .serial_max = 511 },
         // `zhemv.c`: `n < MULTI_THREAD_MINIMAL`, 362
         .hemv => .{ .serial_max = 361 },
         // `tbmv.c`, `tpmv.c`, `ztbmv.c`, `ztpmv.c`: `n < 50`, `n < 500`
