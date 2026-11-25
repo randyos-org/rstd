@@ -20,3 +20,13 @@ test "crew: one worker per grain, a complex product four, never more than asked"
     try testing.expectEqual(@as(u32, 5), crew(f64, 5, grain, std.math.maxInt(u64)));
     try testing.expectEqual(@as(u32, 5), crew(types.Complex64, 5, grain, std.math.maxInt(u64)));
 }
+
+test "share: one worker per grain of work, at least one, never more than asked" {
+    const share = threading.share;
+    const grain = threading.matrix_grain;
+    try testing.expectEqual(@as(u32, 1), share(12, grain, 64 * 64 * 16));
+    try testing.expectEqual(@as(u32, 6), share(12, grain, 1024 * 1024 * 4));
+    try testing.expectEqual(@as(u32, 12), share(12, grain, 4096 * 4096 * 4));
+    try testing.expectEqual(@as(u32, 2), share(2, grain, 4096 * 4096 * 4));
+    try testing.expectEqual(@as(u32, 3), share(3, 0, 8));
+}
