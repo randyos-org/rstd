@@ -98,8 +98,8 @@ test "rules: thresholds at their edges, tiers and the chunk cap" {
     try zigstd.testExpectEqual(@as(u32, 2), ztrmv.sizeMax(127));
     try zigstd.testExpectEqual(@as(u32, std.math.maxInt(u32)), ztrmv.sizeMax(128));
     try zigstd.testExpectEqual(@as(u32, 2), rule(.trmv, f64, X86.haswell).sizeMax(499));
-    try zigstd.testExpectEqual(@as(u32, 1), rule(.symv, f64, X86.haswell).sizeMax(199));
-    try zigstd.testExpectEqual(@as(usize, 2), rule(.symv, f64, X86.haswell).chunkCount(200));
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.symv, f64, X86.haswell).sizeMax(511));
+    try zigstd.testExpectEqual(@as(usize, 2), rule(.symv, f64, X86.haswell).chunkCount(512));
     try zigstd.testExpectEqual(@as(u32, 1), rule(.hemv, std.math.Complex(f64), X86.haswell).sizeMax(361));
     try zigstd.testExpectEqual(@as(usize, 2), rule(.hemv, std.math.Complex(f64), X86.haswell).chunkCount(362));
     try zigstd.testExpectEqual(@as(u32, 2), rule(.tpmv, std.math.Complex(f32), X86.haswell).sizeMax(499));
