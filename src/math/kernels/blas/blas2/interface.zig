@@ -262,8 +262,10 @@ fn gerImpl(allocator: Allocator, io: Io, comptime T: type, comptime conj: bool, 
     // stays out of it; the kernels get the runs between zeros, a strided `x`
     // copied once for all of them
     var g: Ger(T, op) = .{ .m = m, .n = n, .alpha = alpha, .x = px, .incx = incx, .y = py, .incy = incy, .a = a, .lda = lda, .buf = sc.ptr };
-    // `ger_thread.c` splits the columns
-    const p = threading.plan(.ger, T, threading.product(&.{ @intCast(m), @intCast(n) }), @intCast(n), .even, quantum);
+    // `ger_thread.c` splits the columns; a worker per `matrix_grain` of `A`
+    const mn = threading.product(&.{ @intCast(m), @intCast(n) });
+    var p = threading.plan(.ger, T, mn, @intCast(n), .even, quantum);
+    p.workers = threading.share(p.workers, threading.matrix_grain, mn *| @sizeOf(T));
     if (p.workers > 1) {
         if (incx != 1) g.copyX();
         return threading.forEach(io, &p, @as(*const Ger(T, op), &g), Ger(T, op).chunk);
@@ -393,8 +395,10 @@ fn mvRun(allocator: Allocator, io: Io, comptime T: type, comptime herm: bool, co
         break :blk @field(blas.table().*, s) == (if (complex) &auto.cplx else &auto.real) and !auto.native();
     } else true;
     const nu: usize = @intCast(n);
-    // `symv_thread.c` splits the columns on multiples of 4, balanced by area
-    const p = threading.plan(if (herm) .hemv else .symv, T, nu, nu, if (lower) .falling else .rising, 4);
+    // `symv_thread.c` splits the columns on multiples of 4, balanced by area;
+    // a worker per `matrix_grain` of the square
+    var p = threading.plan(if (herm) .hemv else .symv, T, nu, nu, if (lower) .falling else .rising, 4);
+    p.workers = threading.share(p.workers, threading.matrix_grain, threading.product(&.{ nu, nu, @sizeOf(T) }));
     if (p.chunks.count > 1) return mvChunks(allocator, io, T, op, lower, direct, &p, n, alpha, a, lda, x, incx, y, incy);
     var none: [1]F = undefined;
     const sc: Scratch(F) = if (direct) .{ .ptr = &none, .len = 0 } else blk: {
