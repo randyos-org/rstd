@@ -236,6 +236,8 @@ pub const Crew = struct {
     pub fn concurrent(c: *Crew, function: anytype, args: std.meta.ArgsTuple(@TypeOf(function))) Io.ConcurrentError!void {
         const A = @TypeOf(args);
         comptime std.debug.assert(@sizeOf(A) <= args_max and @alignOf(A) <= 16);
+        // no pool here: `Tasks` never picks it, and its slots are empty
+        if (comptime !built) return error.ConcurrencyUnavailable;
         if (c.len == @min(c.limit, cap)) return error.ConcurrencyUnavailable;
         const s = claim() orelse return error.ConcurrencyUnavailable;
         const e = &c.entries[c.len];
@@ -257,6 +259,7 @@ pub const Crew = struct {
 
     /// Until every task has finished: spinning first, as `exec_blas`, then asleep.
     fn wait(c: *Crew, io: Io, comptime cancelable: bool) Io.Cancelable!void {
+        if (comptime !built) return;
         if (spinFor(c, allDone)) return;
         while (true) {
             const d = c.done.load(.acquire);
