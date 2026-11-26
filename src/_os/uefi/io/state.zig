@@ -18,6 +18,9 @@ const fdtable = @import("fdtable.zig");
 /// set by init(), cleared by stop(); null = console output dropped
 pub var con_out: ?*uefi.protocol.SimpleTextOutput = null;
 
+/// set by init(), cleared by stop(); null = stdin at end of stream
+pub var con_in: ?*uefi.protocol.SimpleTextInput = null;
+
 /// set by stop(); guards all Boot Services use so late print/panic after
 /// exitBootServices() drops output instead of touching reclaimed memory.
 /// Not derived from `boot_services == null`; don't trust firmware for that.
@@ -43,6 +46,7 @@ pub fn init() void {
             con_out = out;
         }
     }
+    if (con_in == null) con_in = uefi.system_table.con_in;
     time.init() catch |err| {
         // not fatal: log lines just lack a monotonic clock; console's already up
         log.err(@src(), "starting bootloader timer failed: {s}", .{@errorName(err)});
@@ -53,6 +57,7 @@ pub fn init() void {
 /// con_out/stall/RNG live in memory firmware may reclaim then.
 pub fn stop() void {
     con_out = null;
+    con_in = null;
     // no close() calls: protocols already gone, just drop dangling pointers
     root_dir = null;
     fdtable.reset();

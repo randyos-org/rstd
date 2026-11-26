@@ -4,10 +4,11 @@ const Io = std.Io;
 const state = @import("state.zig");
 const console = @import("console.zig");
 const fdtable = @import("fdtable.zig");
+const stdin = @import("stdin.zig");
 
 /// Backs `Io.File.writeStreamingAll`/`.readStreamingAll`; the streaming
 /// counterpart to `dir.zig`/`file.zig`'s positional ops. stdin/stdout/stderr
-/// (fds 0/1/2, see `fdtable.zig`) go through the console; real opened files
+/// (fds 0/1/2, see `fdtable.zig`) go through the consoles; real opened files
 /// (fd >= 3) go through `fdtable.get`. Device ioctl and networking have no
 /// UEFI backing (networking planned, ioctl not).
 pub fn operate(userdata: ?*anyopaque, operation: Io.Operation) Io.Cancelable!Io.Operation.Result {
@@ -60,10 +61,7 @@ fn writeStreaming(o: Io.Operation.FileWriteStreaming) Io.Operation.FileWriteStre
 }
 
 fn readStreaming(o: Io.Operation.FileReadStreaming) Io.Operation.FileReadStreaming.Error!usize {
-    if (o.file.handle == fdtable.stdin_fd) {
-        // TODO: no ConIn (Simple Text Input Protocol) backing yet
-        return error.InputOutput;
-    }
+    if (o.file.handle == fdtable.stdin_fd) return stdin.read(o.data);
 
     const f = fdtable.get(o.file.handle) orelse return error.NotOpenForReading;
     return fdtable.readInto(f, o.data);
