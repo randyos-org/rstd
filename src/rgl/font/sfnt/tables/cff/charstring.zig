@@ -303,7 +303,7 @@ fn runCharstring(cff: CffTable, glyph: GlyphIndex, ctx: *CharstringCtx) !void {
         const op: Instruction = @fromBackingInt(@intCast(b0));
 
         sw: switch (op) {
-            // @TODO implement hinting
+            // hint masks are skipped: outlines here are unhinted (issue #373)
             .hintmask, // 0x13
             .cntrmask, // 0x14
             => {
@@ -474,8 +474,8 @@ fn runCharstring(cff: CffTable, glyph: GlyphIndex, ctx: *CharstringCtx) !void {
 /// The two-byte escape operators (12 x): the flex family.
 fn runEscape(ctx: *CharstringCtx, op: Escape, s: *const [48]f32, sp: u32) !void {
     switch (op) {
-        // @TODO These "flex" implementations ignore the flex-depth and resolution,
-        // and always draw beziers.
+        // always both curves: flex depth only tells a hinter when to draw a
+        // shallow flex flat at device resolution (Adobe TN 5177, "flex")
         .hflex => { // 0x22
             if (sp < 7) return error.HFlexStack;
             const dx1 = s[0];
