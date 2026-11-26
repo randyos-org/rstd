@@ -165,13 +165,13 @@ fn checkedObject(b: *Build, obj: *Compile, query: std.Target.Query) !LazyPath {
 /// exits 0 and caches the output (issue #190).
 /// `comp` must use LLVM, and `query` name no `ofmt`, which `zig cc` ignores.
 pub fn asmCheck(b: *Build, comp: *Compile, query: std.Target.Query) !*Build.Step {
-    const triple = try query.zigTriple(b.allocator);
+    const triple = try queryText(b, &query, .triple);
     const check = b.addSystemCommand(&.{ b.graph.zig_exe, "cc", "-c", "-Wno-override-module", "-target", triple });
     const target = b.resolveTargetQuery(query).result;
     // Functions carry their own CPU; module-level asm needs `-mcpu`. Not on
     // x86, whose assembler ignores CPU features.
     if (!target.cpu.arch.isX86())
-        check.addArg(b.fmt("-mcpu={s}", .{try query.serializeCpuAlloc(b.allocator)}));
+        check.addArg(b.fmt("-mcpu={s}", .{try queryText(b, &query, .cpu)}));
     // as Zig builds it; `zig cc` makes freestanding mips PIC, which its asm
     // fails, and non-abicalls MIPS code (`objectPic`) cannot be PIC; N64 implies
     // abicalls, so clang ignores a bare `-fno-PIC` there and its warning fails
@@ -193,8 +193,27 @@ pub fn asmCheck(b: *Build, comp: *Compile, query: std.Target.Query) !*Build.Step
     check.setName(b.fmt("check inline asm of {s}", .{comp.name}));
     check.addFileArg(comp.getEmittedLlvmBc());
     check.addArg("-o");
-    _ = check.addOutputFileArg(b.fmt("asmcheck-{s}.o", .{comp.name}));
+    _ = check.addOutputFileArg2(b.fmt("asmcheck-{s}.o", .{comp.name}), .{});
     return &check.step;
+}
+
+/// `query`'s triple or `-mcpu` text: Zig 0.18's `print*`, else 0.17's
+/// allocating calls, which 0.18 deprecates (#521).
+fn queryText(b: *Build, query: *const std.Target.Query, comptime what: enum { triple, cpu }) ![]u8 {
+    const Query = std.Target.Query;
+    if (comptime @hasDecl(Query, "printZigTriple")) {
+        var w: std.Io.Writer.Allocating = .init(b.allocator);
+        errdefer w.deinit();
+        (switch (what) {
+            .triple => query.printZigTriple(&w.writer),
+            .cpu => query.printCpu(&w.writer),
+        }) catch return error.OutOfMemory;
+        return w.toOwnedSlice();
+    }
+    return switch (what) {
+        .triple => query.zigTriple(b.allocator),
+        .cpu => query.serializeCpuAlloc(b.allocator),
+    };
 }
 
 /// The objects' PIC where it must match the image's: MIPS marks PIC code
