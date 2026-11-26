@@ -69,6 +69,8 @@ const eigen = @import("eigen.zig");
 pub const Eig = eigen.Eig;
 pub const EigError = eigen.EigError;
 pub const eig = eigen.eig;
+pub const EigGeneralizedError = eigen.EigGeneralizedError;
+pub const eigGeneralized = eigen.eigGeneralized;
 
 const subspace = @import("subspace.zig");
 pub const orth = subspace.orth;

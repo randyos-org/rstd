@@ -109,6 +109,36 @@ pub fn eig(allocator: Allocator, io: Io, a: anytype, want_vectors: bool) EigErro
     return .{ .general = .{ .values = w, .vectors = v } };
 }
 
+pub const EigGeneralizedError = error{ NotSquare, DimensionMismatch, NotHermitianPencil, NotPositiveDefinite, NoConvergence } || Allocator.Error || Io.Cancelable;
+
+/// The generalized eigenvalues of `A x = λ B x` (MATLAB's `eig(A, B)`) for
+/// Hermitian `A` and Hermitian positive definite `B`, by `sygvd` (`hegvd`):
+/// real, nondecreasing, and with `want_vectors` eigenvectors of unit
+/// `B`-norm (`Vᴴ B V = I`), MATLAB's `chol` algorithm. Other pencils need
+/// the QZ algorithm (issue #754): `NotHermitianPencil`, or
+/// `NotPositiveDefinite` for a Hermitian `B` that is not.
+pub fn eigGeneralized(allocator: Allocator, io: Io, a: anytype, b: anytype, want_vectors: bool) EigGeneralizedError!Eig(ElementOf(@TypeOf(a))) {
+    const T = ElementOf(@TypeOf(a));
+    const ca = constOf(a);
+    const cb = constOf(b);
+    if (ca.rows != ca.cols or cb.rows != cb.cols) return error.NotSquare;
+    if (cb.rows != ca.rows) return error.DimensionMismatch;
+    if (!isHermitian(ca) or !isHermitian(cb)) return error.NotHermitianPencil;
+    const n = ca.rows;
+    const ld = @max(n, 1);
+    const f = try copyOf(T, allocator, ca);
+    errdefer f.deinit(allocator);
+    const g = try copyOf(T, allocator, cb);
+    defer g.deinit(allocator);
+    const w = try allocator.alloc(Real(T), n);
+    errdefer allocator.free(w);
+    const jobz: lapack.VectorJob = if (want_vectors) .compute else .none;
+    const solve = if (comptime isComplex(T)) lapack.hegvd else lapack.sygvd;
+    solve(allocator, io, T, .ax_equals_lambda_bx, jobz, .u, n, f.data, ld, g.data, ld, w) catch |e| return ops.narrow(EigGeneralizedError, e);
+    if (!want_vectors) f.deinit(allocator);
+    return .{ .hermitian = .{ .values = w, .vectors = if (want_vectors) f else null } };
+}
+
 /// `a == aᴴ` exactly, the diagonal real.
 pub fn isHermitian(a: anytype) bool {
     const T = @TypeOf(a).Element;

@@ -40,6 +40,7 @@ const shiftDiag = test_inverse.shiftDiag;
 const tolOf = test_inverse.tolOf;
 const eigen = @import("../eigen.zig");
 const eig = eigen.eig;
+const eigGeneralized = eigen.eigGeneralized;
 const factor = @import("../factor.zig");
 const Lu = factor.Lu;
 const QrMode = factor.QrMode;
@@ -457,4 +458,51 @@ test "pinv, rank and cond" {
     const pe = try pinv(al, test_io, e, null);
     defer pe.deinit(al);
     try testing.expect(pe.rows == 3 and pe.cols == 0);
+}
+
+test "eigGeneralized: A V = B V Λ and Vᴴ B V = I for a Hermitian definite pencil; errors" {
+    const al = testing.allocator;
+    var prng: std.Random.DefaultPrng = .init(0xe16b);
+    inline for (.{ f64, C64 }) |T| for ([_]usize{ 1, 5, 20 }) |n| {
+        const a = try hermitianZeroDiag(T, prng.random(), n);
+        defer a.deinit(al);
+        const b = try hermitianPd(T, prng.random(), n);
+        defer b.deinit(al);
+        const e = try eigGeneralized(al, test_io, a, b, true);
+        defer e.deinit(al);
+        const h = e.hermitian;
+        for (1..n) |i| try testing.expect(h.values[i - 1] <= h.values[i]);
+        const v = h.vectors.?;
+        const av = try mul(al, test_io, a, v);
+        defer av.deinit(al);
+        const bv = try mul(al, test_io, b, v);
+        defer bv.deinit(al);
+        for (0..n) |j| for (bv.data[j * n ..][0..n]) |*x| {
+            x.* = ops.mulReal(T, x.*, h.values[j]);
+        };
+        const scale = (maxAbs(T, a.constView()) + maxAbs(T, b.constView()) * @abs(h.values[n - 1]) + 1) * @max(maxAbs(T, v.constView()), 1);
+        try testing.expect(maxDiff(T, av.constView(), bv.constView()) <= tolOf(T, n) * scale);
+        const vh = try ctranspose(al, test_io, v);
+        defer vh.deinit(al);
+        const bv2 = try mul(al, test_io, b, v);
+        defer bv2.deinit(al);
+        const vbv = try mul(al, test_io, vh, bv2);
+        defer vbv.deinit(al);
+        const id = try Mat(T).zeros(al, n, n);
+        defer id.deinit(al);
+        shiftDiag(T, id, 1);
+        try testing.expect(maxDiff(T, vbv.constView(), id.constView()) <= tolOf(T, n) * maxAbs(T, b.constView()) * @max(maxAbs(T, v.constView()), 1));
+        const vals = try eigGeneralized(al, test_io, a, b, false);
+        defer vals.deinit(al);
+        try testing.expect(vals.hermitian.vectors == null);
+    };
+    const g = try randomMat(f64, prng.random(), 3, 3);
+    defer g.deinit(al);
+    const pd = try hermitianPd(f64, prng.random(), 3);
+    defer pd.deinit(al);
+    try testing.expectError(error.NotHermitianPencil, eigGeneralized(al, test_io, g, pd, false));
+    const neg = try Mat(f64).zeros(al, 3, 3);
+    defer neg.deinit(al);
+    shiftDiag(f64, neg, -1);
+    try testing.expectError(error.NotPositiveDefinite, eigGeneralized(al, test_io, pd, neg, false));
 }
