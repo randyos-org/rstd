@@ -16,6 +16,7 @@ const relapack = @import("relapack.zig");
 const indefinite = @import("indefinite.zig");
 const sytrf_factor = @import("sytrf.zig");
 const sytrs_solve = @import("sytrs.zig");
+const sygv_solve = @import("sygv.zig");
 const householder = @import("householder.zig");
 const qr = @import("qr.zig");
 const qr_solve = @import("qr_solve.zig");
@@ -148,6 +149,13 @@ pub const syevd = evd.syevd;
 pub const heevd = evd.syevd;
 pub const syev = evd.syev;
 pub const heev = evd.syev;
+/// `sygv`, `sygvd`, `hegv`, `hegvd`: a bad shape, `B` not positive
+/// definite, or no convergence.
+pub const SygvError = sygv_solve.SygvError;
+pub const sygv = sygv_solve.sygv;
+pub const sygvd = sygv_solve.sygvd;
+pub const hegv = sygv_solve.hegv;
+pub const hegvd = sygv_solve.hegvd;
 
 /// `geev`: a NaN in `A` is `error.NanInA`; `error.NoConvergence` (also for
 /// an infinity in `A`), the count of eigenvalues not found in the last
@@ -270,6 +278,7 @@ test {
     _ = indefinite;
     _ = sytrf_factor;
     _ = sytrs_solve;
+    _ = sygv_solve;
     _ = relapack_tests;
     _ = evd_tests;
     _ = norm_tests;
