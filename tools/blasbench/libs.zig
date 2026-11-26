@@ -157,6 +157,16 @@ pub fn lookupPrefixed(h: *Dll, comptime T: type, name: []const u8) ?T {
     return h.lookup(T, full);
 }
 
+/// `lookup`, or `error.MissingSymbol` after naming it: never a null call (#649).
+fn need(comptime src: Src, comptime T: type, comptime name: [:0]const u8) error{MissingSymbol}!T {
+    if (lookup(src, T, name)) |f| return f;
+    const prefix = if (src == .openblas) ob_prefix else "";
+    std.debug.print("{t} has no `{s}{s}`", .{ src, prefix, name });
+    if (src == .openblas) std.debug.print("; is its symbol prefix (--openblas-prefix) right?", .{});
+    std.debug.print("\n", .{});
+    return error.MissingSymbol;
+}
+
 /// Fortran-ABI routine `base` (`dpotrf`) from `src`'s library: Accelerate's
 /// new LP64 interface first (`dpotrf$NEWLAPACK`, or with the underscore:
 /// `apple_accel.lp64Names`), else `base_`.
@@ -193,16 +203,23 @@ pub fn loadLibs(opts: LibOptions) !void {
     const Str = *const fn () callconv(.c) [*:0]const u8;
     const Int = *const fn () callconv(.c) c_int;
     if (loaded(.openblas)) {
-        const config = std.mem.span(lookup(.openblas, Str, "openblas_get_config").?());
+        // SciPy's wheels prefix every symbol
+        if (ob_prefix.len == 0 and lookup(.openblas, Str, "openblas_get_config") == null) {
+            if (lib_handles.getPtr(.openblas).*.?.lookup(Str, "scipy_openblas_get_config") != null) {
+                ob_prefix = "scipy_";
+                std.debug.print("openblas: symbols prefixed `scipy_`, as with --openblas-prefix=scipy_\n", .{});
+            }
+        }
+        const config = std.mem.span((try need(.openblas, Str, "openblas_get_config"))());
         // `int` indices here; an ILP64 build (`USE64BITINT`) would need `long`
         if (std.mem.find(u8, config, "USE64BITINT") != null) return error.OpenblasIsIlp64;
         // Windows' CRT may have copied the environment already: by call too
-        if (opts.threads) |t| lookup(.openblas, *const fn (c_int) callconv(.c) void, "openblas_set_num_threads").?(t);
+        if (opts.threads) |t| (try need(.openblas, *const fn (c_int) callconv(.c) void, "openblas_set_num_threads"))(t);
         std.debug.print("openblas: {s}\nopenblas core: {s}, config: {s}, threads: {d}, lapack: {s}\n", .{
             paths.get(.openblas).?,
-            lookup(.openblas, Str, "openblas_get_corename").?(),
+            (try need(.openblas, Str, "openblas_get_corename"))(),
             config,
-            lookup(.openblas, Int, "openblas_get_num_threads").?(),
+            (try need(.openblas, Int, "openblas_get_num_threads"))(),
             lapackVersion(.openblas, &buf),
         });
     }
@@ -216,13 +233,13 @@ pub fn loadLibs(opts: LibOptions) !void {
     if (loaded(.blis)) {
         // `dim_t` is 64 bits, `arch_t` an enum
         const Dim = *const fn () callconv(.c) i64;
-        if (opts.threads) |t| lookup(.blis, *const fn (i64) callconv(.c) void, "bli_thread_set_num_threads").?(t);
-        const arch = lookup(.blis, *const fn () callconv(.c) c_int, "bli_arch_query_id").?();
+        if (opts.threads) |t| (try need(.blis, *const fn (i64) callconv(.c) void, "bli_thread_set_num_threads"))(t);
+        const arch = (try need(.blis, *const fn () callconv(.c) c_int, "bli_arch_query_id"))();
         std.debug.print("blis: {s}\nblis version: {s}, config: {s}, threads: {d}, cblas: {s}\n", .{
             paths.get(.blis).?,
-            lookup(.blis, Str, "bli_info_get_version_str").?(),
-            lookup(.blis, *const fn (c_int) callconv(.c) [*:0]const u8, "bli_arch_string").?(arch),
-            lookup(.blis, Dim, "bli_thread_get_num_threads").?(),
+            (try need(.blis, Str, "bli_info_get_version_str"))(),
+            (try need(.blis, *const fn (c_int) callconv(.c) [*:0]const u8, "bli_arch_string"))(arch),
+            (try need(.blis, Dim, "bli_thread_get_num_threads"))(),
             if (lookup(.blis, *const anyopaque, "cblas_dgemm") != null) "yes" else "no",
         });
     }
