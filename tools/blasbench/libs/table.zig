@@ -106,6 +106,16 @@ pub const merge_labels = blk: {
     var l: []const merge.Label = &.{};
     for (lib_cols ++ ext_cols[4..] ++ lib3_cols[4..]) |c| l = l ++ [_]merge.Label{.{ .label = c.label, .short = c.short }};
     l = l ++ [_]merge.Label{.{ .label = "ob alone", .short = "ob alone" }};
+    // the `l1`, `sparse`, `inline` and `compensated` tables' (#567)
+    for ([_][2][]const u8{
+        .{ "asm GB/s", "asm" },    .{ "core", "core" },     .{ "portable", "portable" },
+        .{ "vec", "vec" },         .{ "vec x4", "vec x4" }, .{ "gemv N", "gemv N" },
+        .{ "CSC A x", "CSC A x" }, .{ "gemv T", "gemv T" },
+        .{ "CSC Aᵀ y", "CSC Aᵀ y" },
+        .{ "4 sums", "4 sums" },   .{ "gather", "gather" }, .{ "inline", "inline" },
+        .{ "library", "library" }, .{ "plain", "plain" },   .{ "comp.", "comp." },
+        .{ "fast", "fast" },
+    }) |c| l = l ++ [_]merge.Label{.{ .label = c[0], .short = c[1] }};
     break :blk l[0..l.len].*;
 };
 

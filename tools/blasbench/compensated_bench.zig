@@ -21,6 +21,7 @@ const modes = [_]Summation{ .plain, .compensated, .fast };
 
 pub fn run(io: Io, gpa: std.mem.Allocator) !void {
     _ = io;
+    libs.sectionMark("compensated");
     try bb.clock(libs.rstd_io, "compensated start");
     std.debug.print(
         \\
