@@ -165,7 +165,10 @@ pub fn main(init: std.process.Init) !void {
     try setThreadEnv(opts.threads);
     // OpenBLAS's workers would spin through rstd's timed calls (issue #690): idle
     // here, its own rates from the alone run; a caller's value stands
-    if (!alone and opts.threads != 1 and init.environ_map.get("OPENBLAS_THREAD_TIMEOUT") == null) libs.setEnv("OPENBLAS_THREAD_TIMEOUT", "4");
+    if (!alone and opts.threads != 1 and init.environ_map.get("OPENBLAS_THREAD_TIMEOUT") == null) {
+        libs.setEnv("OPENBLAS_THREAD_TIMEOUT", "4");
+        libs.ob_idle = true;
+    }
     // a program's default limits: `--threads` caps rstd by its ceiling alone, as
     // `Io.Threaded` frees a slot only after its task wakes the awaiter (issue #684)
     var threaded: Io.Threaded = .init(std.heap.c_allocator, .{});

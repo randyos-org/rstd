@@ -13,9 +13,9 @@ const types = @import("../types.zig");
 pub const team_grain: u64 = if (sysinfo.target.os.tag == .windows) 4_000_000 else 1_000_000;
 
 /// Bytes of matrix a level-2 call (`ger`, `symv`, `hemv`) needs per worker.
-/// Measured on the M6, not upstream's: memory bound, they peak at 4 to 8
-/// workers at 4 MiB and lose past them, a worker costing its start (#707).
-pub const matrix_grain: u64 = 640 * 1024;
+/// Measured on the M6, not upstream's: memory bound, they lose past one
+/// worker a grain (#707); on the pool (#710) 160 KiB beat 640 there.
+pub const matrix_grain: u64 = 160 * 1024;
 
 /// The workers a level-3 call of `madds` real multiply-adds (a complex one
 /// counting four) takes: `want`, at most one per `grain`. The drivers give

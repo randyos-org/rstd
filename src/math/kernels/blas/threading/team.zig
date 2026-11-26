@@ -6,6 +6,7 @@ const sysinfo = @import("builtin");
 const FpState = @import("../FpState.zig");
 const Qos = @import("Qos.zig");
 const Tasks = @import("tasks.zig").Tasks;
+const pool = @import("pool.zig");
 
 const Io = std.Io;
 
@@ -25,8 +26,8 @@ pub fn team(io: Io, job: anytype, want: u32) Io.Cancelable!void {
             var lent: Lent = .{ .want = fp };
             lent.take();
             defer lent.give();
-            const active = go.waitWhile(wio, 0, &lent) catch return wio.recancel();
-            if (i < active) j.work(wio, i, &lent) catch wio.recancel();
+            const active = go.waitWhile(wio, 0, &lent) catch return pool.recancel(wio);
+            if (i < active) j.work(wio, i, &lent) catch pool.recancel(wio);
         }
     };
     const fp: FpState = .capture();
@@ -98,7 +99,11 @@ pub const Signal = struct {
             if (x != old) return x;
             if (lent) |l| l.give();
             defer if (lent) |l| l.take();
-            try io.futexWait(u32, &s.value.raw, old);
+            // a pool worker looks for its call's cancel now and then
+            if (pool.onPool()) {
+                if (pool.aborted()) return error.Canceled;
+                try io.futexWaitTimeout(u32, &s.value.raw, old, pool.abort_poll);
+            } else try io.futexWait(u32, &s.value.raw, old);
         }
     }
 

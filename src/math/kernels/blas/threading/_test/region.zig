@@ -6,6 +6,7 @@ const util = @import("../../util.zig");
 const test_io = @import("../../_test/io.zig");
 const threading = @import("../../threading.zig");
 const region = @import("../region.zig");
+const pool = @import("../pool.zig");
 const zigstd = @import("../../../../../zigstd.zig");
 
 const Io = std.Io;
@@ -160,7 +161,8 @@ test "workers adopt the caller's rounding and flush to zero and leave the caller
     }
 }
 
-/// Chunks that block until their task is canceled.
+/// Chunks that block until their task is canceled: through `threading`'s
+/// `checkCancel`, which a pool worker needs (`pool.zig`).
 const Blocking = struct {
     io: Io,
     entered: std.atomic.Value(usize) = .init(0),
@@ -170,8 +172,8 @@ const Blocking = struct {
         _ = b.entered.fetchAdd(1, .acq_rel);
         defer _ = b.left.fetchAdd(1, .acq_rel);
         while (true) {
-            b.io.checkCancel() catch {
-                b.io.recancel();
+            threading.checkCancel(b.io) catch {
+                threading.recancel(b.io);
                 return;
             };
             std.Thread.yield() catch {};
@@ -222,6 +224,58 @@ test "worker tasks run on plain futures on Io.Dispatch only" {
         defer ev.deinit();
         try zigstd.testExpectEqual(test_io.evented_workers, usesFutures(ev.io()));
     }
+}
+
+/// Each chunk's thread, and whether it ran on the pool.
+const Threads = struct {
+    ids: [chunks_max]std.Thread.Id = undefined,
+    pooled: [chunks_max]bool = undefined,
+
+    fn chunk(t: *Threads, c: Chunk) void {
+        t.ids[c.index] = std.Thread.getCurrentId();
+        t.pooled[c.index] = threading.onPool();
+        // long enough that every worker claims one
+        var x: u64 = 0;
+        for (0..200_000) |k| x +%= k;
+        std.mem.doNotOptimizeAway(x);
+    }
+};
+
+test "regions on Io.Threaded run on the pool, whose workers serve the next call" {
+    if (comptime !test_io.hosted or !pool.built) return error.SkipZigTest;
+    var threaded: Io.Threaded = .init(zigstd.testAllocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const p: Plan = .{ .chunks = .init(chunks_max, chunks_max, .even, 1), .workers = 4 };
+    var first: Threads = .{};
+    try forEach(io, &p, &first, Threads.chunk);
+    var second: Threads = .{};
+    try forEach(io, &p, &second, Threads.chunk);
+    const me = std.Thread.getCurrentId();
+    var pooled: usize = 0;
+    for (first.ids, first.pooled) |id, on| {
+        try zigstd.testExpectEqual(id != me, on);
+        if (on) pooled += 1;
+    }
+    if (pooled == 0) return error.SkipZigTest;
+    // a worker of the first call runs a chunk of the second
+    var shared = false;
+    for (second.ids, second.pooled) |id, on| {
+        if (!on) continue;
+        for (first.ids) |f| shared = shared or f == id;
+    }
+    try zigstd.testExpectTrue(shared);
+}
+
+test "no pool on an Io.Threaded without concurrency, nor off Io.Threaded" {
+    try zigstd.testExpectEqual(@as(u32, 0), pool.allowance(Io.failing));
+    if (comptime !test_io.hosted or !pool.built) return;
+    var none: Io.Threaded = .init(zigstd.testAllocator, .{ .concurrent_limit = .nothing });
+    defer none.deinit();
+    try zigstd.testExpectEqual(@as(u32, 0), pool.allowance(none.io()));
+    var three: Io.Threaded = .init(zigstd.testAllocator, .{ .concurrent_limit = .limited(3) });
+    defer three.deinit();
+    try zigstd.testExpectEqual(@as(u32, 3), pool.allowance(three.io()));
 }
 
 threadlocal var probe: u32 = 7;

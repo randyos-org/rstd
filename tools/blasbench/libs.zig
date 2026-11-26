@@ -102,6 +102,9 @@ pub var io_note_buf: [96]u8 = undefined;
 /// SciPy's wheels).
 pub var ob_prefix: []const u8 = "";
 
+/// Whether the bench set `OPENBLAS_THREAD_TIMEOUT` to idle OpenBLAS's workers.
+pub var ob_idle = false;
+
 /// `--max-n`: rows of a larger `n` are skipped.
 pub var n_max: usize = std.math.maxInt(usize);
 
@@ -265,6 +268,9 @@ pub fn loadLibs(opts: LibOptions) !void {
     };
     const ceiling = blas.config.threadCeiling();
     std.debug.print("rstd core: {s}, accelerate: {}, io: {s}, ceiling: {?d}, cpus: {d}\n", .{ blas.coreName(), routed, io_name, ceiling, blas.config.cpu_count });
+    // the race idles OpenBLAS's workers by a variable rstd reads too: rstd's
+    // pool keeps its own default (#710)
+    if (ob_idle) blas.config.thread_timeout = (blas.Config{}).thread_timeout;
     io_note = if (ceiling) |c|
         try std.mem.print(&io_note_buf, "rstd runs on `{s}`, thread ceiling {d}.", .{ io_name, c })
     else

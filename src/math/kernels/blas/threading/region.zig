@@ -7,6 +7,7 @@ const Qos = @import("Qos.zig");
 const chunking = @import("chunks.zig");
 const Plan = @import("../threading.zig").Plan;
 const Tasks = @import("tasks.zig").Tasks;
+const pool = @import("pool.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -129,7 +130,7 @@ fn Region(comptime Ctx: type, comptime f: fn (Ctx, Chunk) void) type {
             defer if (own) |s| s.apply();
             r.qos.raise();
             r.claim(io) catch |err| switch (err) {
-                error.Canceled => io.recancel(),
+                error.Canceled => pool.recancel(io),
             };
         }
 
@@ -153,8 +154,10 @@ fn Region(comptime Ctx: type, comptime f: fn (Ctx, Chunk) void) type {
 }
 
 /// `io.checkCancel()`, or nothing on an `Io` without cancellation, whose
-/// `checkCancel` is unreachable (`Io.failing`, rstd's UEFI `Io`).
+/// `checkCancel` is unreachable (`Io.failing`, rstd's UEFI `Io`). A pool
+/// worker, which the `Io` never cancels, asks its call instead (`pool.zig`).
 pub fn checkCancel(io: Io) Io.Cancelable!void {
+    if (pool.aborted()) return error.Canceled;
     if (io.vtable.checkCancel == &Io.unreachableCheckCancel) return;
     return io.checkCancel();
 }

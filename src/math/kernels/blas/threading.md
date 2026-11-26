@@ -40,8 +40,8 @@ core no result depends on where its operands lie in memory. Pinning the core typ
 - **Server.** `driver/others/blas_server.c` keeps a global pthread pool. Workers spin
   (`YIELDING`) for `thread_timeout` ticks, then sleep on a condvar. `exec_blas` queues
   `queue[1..]` and runs `queue[0]` on the caller. Each worker has private `sa`/`sb` buffers
-  from `blas_memory_alloc`. `blas_server_win32.c` mirrors this; `blas_server_omp.c` uses
-  OpenMP.
+  from `blas_memory_alloc`. `blas_server_win32.c` keeps a pool too, whose workers wait on
+  events without spinning; `blas_server_omp.c` uses OpenMP.
 - **Level 1.** `blas_l1_thread.c` splits `n` into near-equal ranges, one per thread.
   Reductions are threaded inside per-arch kernels (`kernel/x86_64/ddot.c`, `dasum.c`,
   `drot.c`, `kernel/arm64/dot.c`) as per-thread partials summed in thread order.
@@ -121,12 +121,16 @@ w = min(cpu_count, ceiling, size_max)
 
 workers, where `ceiling` is `OPENBLAS_NUM_THREADS`, else `GOTO_NUM_THREADS`, else unbounded,
 and `size_max` is the most workers the routine's threshold justifies for the problem size.
-`OMP_NUM_THREADS`, `OMP_ADAPTIVE` and `OPENBLAS_THREAD_TIMEOUT` are not read, since there is
-no spinning server. The calling thread is worker 0.
+`OMP_NUM_THREADS` and `OMP_ADAPTIVE` are not read; `OPENBLAS_THREAD_TIMEOUT` sets how long
+the pool's workers spin ([below](#workers-between-calls)). The calling thread is worker 0.
 
 The worker count affects only speed. Targets that report one CPU (freestanding builds, the
 single-core qemu rigs through their `Thread` override) run serially without special cases. When the `Io`
 admits fewer than `w` workers, the caller and the workers it started share the work.
+
+### Workers between calls
+
+On `Io.Threaded`, for x86_64 and arm64 on Windows, Linux and macOS, a call's workers come from rstd's own pool (`threading/pool.zig`, [#710](https://github.com/randyos-org/rstd/issues/710)), as OpenBLAS's `blas_server.c`: threads started as calls first need them, at most 64, each waiting on its own slot. After a task a worker spins `2^OPENBLAS_THREAD_TIMEOUT` ticks of `rpcc` (20 unset, clamped to 4 to 30: `rdtsc`, or arm64's virtual count shifted to about 3 GHz, so 2^20 is about 0.3 ms) on eight `nop`s at a time, then sleeps on a futex until a call hands it the next. The caller hands tasks out without a syscall to spinning workers, runs its own share and spins the same while it waits for the rest. Upstream's Windows server waits on events instead; rstd spins there too, as its starts cost most there. A call takes at most the `Io.Threaded`'s `concurrent_limit` workers, and none on an `Io` without concurrency; every other `Io` keeps starting tasks through itself (`Tasks`: futures on `Dispatch`, else `Group.concurrent`). On the M6 at 12 threads mid-size `ger`, `symv` and `gemv_t` ran 1.2 to 1.8 times their `Io.Threaded` rates and on Zen 3 at 16 2 to 5 times ([#710](https://github.com/randyos-org/rstd/issues/710)). Upstream's 2^28, about 0.09 s, cost the M6 a third of real `syevd`'s rate at n = 512 and 1024, where `sytrd` runs serial columns between its block updates, and gained nothing on Zen 3; 2^16 lost mid-size `ger` and `gemv_t` on both. Chunks follow the size alone, so the bits are unchanged.
 
 ### Levels 1 and 2: fixed chunks, dynamic claiming, ordered combine
 
@@ -137,8 +141,8 @@ the problem size and the routine's chunk size, never on `w`:
   `work` units above `serial_max` makes `ceil(work / serial_max)` chunks (`hemv`: 50-column chunks, [#706](https://github.com/randyos-org/rstd/issues/706)), at most 64. Bounds
   split the range evenly, or by square roots where row costs grow or shrink (`Shape`), and
   round to a quantum the routine picks.
-- **Claiming.** The caller and up to `w - 1` helpers started through `Group.concurrent`
-  (futures on `Dispatch`, below), stopping at the first the `Io` refuses; each claims the next
+- **Claiming.** The caller and up to `w - 1` helpers from the pool (above), else started through
+  `Group.concurrent` (futures on `Dispatch`, below), stopping at the first refused; each claims the next
   chunk from an atomic counter until none remain. The work spreads over whatever actually runs:
   all workers when the `Io` runs them all, fewer when it admits fewer (late starters find
   nothing left), and the remaining workers absorb the load when a core is busy. Not
@@ -231,8 +235,8 @@ et al., "Anatomy of High-Performance Many-Threaded Matrix Multiplication", IPDPS
 - **Fused packing.** A worker multiplies each of its own chunks with its first row block of
   `op(A)` as it packs it, before the second barrier, while the chunk is in cache; OpenBLAS's
   `level3_thread.c` does the same with its own share of `B`.
-- **Start.** `threading.team` spawns `w - 1` workers through `Group.concurrent` (futures on
-  `Dispatch`, below); each waits until the caller has counted those that started, and the
+- **Start.** `threading.team` takes `w - 1` workers from the pool, else through `Group.concurrent`
+  (futures on `Dispatch`, below); each waits until the caller has counted those that started, and the
   ways are sized for that count. None started, the caller runs alone. No worker waits for a peer that does not exist, so the
   call cannot deadlock when the `Io` admits fewer; `Group.async`'s inline fallback would.
 - **Waiting.** BLIS and OpenBLAS both spin without bound inside a call: BLIS's
@@ -291,7 +295,7 @@ the problem size alone picks the algorithm, so its bits never depend on the work
 update the columns past it, every part on packing space allocated before the tasks start, and
 with `getrf_single.c`'s blocks, where upstream's depend on its thread count.
 
-Inside `potrf` a level-3 call takes one worker per `team_grain` (`threading/grain.zig`'s `crew`: 1000000 real multiply-adds, 4000000 on Windows, a complex one counting four), not the routine's whole count, and a block whose first `trsm` and `herk` would each take one worker at `block_grain` (1000000 everywhere) is factored by the single form, as upstream does on one thread (T193, [#546](https://github.com/randyos-org/rstd/issues/546)). Both follow the sizes alone, the drivers give the same bits for any count, and only `block_grain` picks an algorithm, so no result changes with the workers or the system. Upstream's `potrf_U_parallel.c` hands every `trsm` and `herk` all its threads, down to blocks of `4 * unroll_n`, which costs it nothing as its workers spin between calls. Here each call starts a team (`Group.concurrent`, a wake per worker) and waits for it. Measured on the M6 (`vortexm4`, 12 CPUs, `tools/blasbench`'s `potrf` section, and a scratch build calling the drivers at fixed worker counts, 2026-11-19): an order 16 `herk` takes 0.3 us on one worker, 2.5 on 2, 6 on 4 and 20 on 12, an order 16 `trsm` 0.7 and 4; an order 64 complex `potrf` ran 16 such teams around 16 us of arithmetic, 1.2 GFLOP/s against 21 on one worker. A team pays from about 2000000 multiply-adds (order 128: `herk` 47 us on one worker, 36 on 2, 67 on 4; `trsm` 91, 61 and 59), and `potrf`'s rate is flat for grains from 400000 to 2500000.
+Inside `potrf` a level-3 call takes one worker per `team_grain` (`threading/grain.zig`'s `crew`: 1000000 real multiply-adds, 4000000 on Windows, a complex one counting four), not the routine's whole count, and a block whose first `trsm` and `herk` would each take one worker at `block_grain` (1000000 everywhere) is factored by the single form, as upstream does on one thread (T193, [#546](https://github.com/randyos-org/rstd/issues/546)). Both follow the sizes alone, the drivers give the same bits for any count, and only `block_grain` picks an algorithm, so no result changes with the workers or the system. Upstream's `potrf_U_parallel.c` hands every `trsm` and `herk` all its threads, down to blocks of `4 * unroll_n`, which costs it nothing as its workers spin between calls. Here each call started a team (`Group.concurrent`, a wake per worker) and waited for it, before the pool ([#710](https://github.com/randyos-org/rstd/issues/710)); its grains stand until [#712](https://github.com/randyos-org/rstd/issues/712) times them again. Measured on the M6 (`vortexm4`, 12 CPUs, `tools/blasbench`'s `potrf` section, and a scratch build calling the drivers at fixed worker counts, 2026-11-19): an order 16 `herk` takes 0.3 us on one worker, 2.5 on 2, 6 on 4 and 20 on 12, an order 16 `trsm` 0.7 and 4; an order 64 complex `potrf` ran 16 such teams around 16 us of arithmetic, 1.2 GFLOP/s against 21 on one worker. A team pays from about 2000000 multiply-adds (order 128: `herk` 47 us on one worker, 36 on 2, 67 on 4; `trsm` 91, 61 and 59), and `potrf`'s rate is flat for grains from 400000 to 2500000.
 
 On Zen 3 (Windows, 16 CPUs) a team costs more (an order 16 `herk`: 0.8 us on one worker, 7 on 2, 16 on 4, 117 on 12), and so does fresh packing space: each driver asks its allocator, and with `malloc`'s new pages every call no team paid below order 512 (`herk` of order 256, `f64`: 466 us on one worker, 497 on 4 from `malloc`, 200 from a buffer touched before). With the grain alone `potrf` at n = 512 ran 12.5 GFLOP/s against 18.7 on one worker, and 25.2 from a warm buffer; at 1024, 23.0, 22.4 and 43.9. So `potrf` keeps what its calls free for the next ones (`../lapack/Kept.zig`), as upstream takes its buffer once per interface call (`blas_memory_alloc`). The M6 shows no difference between the two. Each `potrf` call still pays for its first buffer, which upstream's pool keeps between calls: at 1000000 the workers lost to one worker at n = 256 on Zen 3 (0.63 to 0.82 of its rate) and gained from 1024 (1.3 to 2.2), hence Windows' grain of 4000000, where n = 256 real runs on one worker.
 
@@ -309,7 +313,7 @@ What is left to upstream's rate past n = 128 is the drivers' own scaling at thes
 | `gemv` | `m * n >= 115200 * 4` | N: 4096-row chunks (arm64: 256-row); T: column chunks |
 | `gbmv` | `m * n >= 250000` (125000 complex), `kl + ku >= 15` | T: column chunks; N: partials |
 | `ger` | `m*n > 2048*4`: up to 3; `> 20480*4`: all | column chunks |
-| `symv`, `spmv` | `n >= 200` (rstd: real `n >= 512`, [#561](https://github.com/randyos-org/rstd/issues/561)); complex (`zsymv.c`, `zhpmv.c` for `hpmv`): `n < 50`: 1, `< 500`: 2 | column chunks, partials |
+| `symv`, `spmv` | `n >= 200` (rstd from [#710](https://github.com/randyos-org/rstd/issues/710); real `n >= 512` before, [#561](https://github.com/randyos-org/rstd/issues/561)); complex (`zsymv.c`, `zhpmv.c` for `hpmv`): `n < 50`: 1, `< 500`: 2 | column chunks, partials |
 | `hemv` | `zhemv.c`: `n >= 362` (rstd: 50-column chunks, [#706](https://github.com/randyos-org/rstd/issues/706)) | same |
 | `sbmv`, `hbmv` | none upstream; `gbmv`'s for `kl = ku = k` | same |
 | `trmv` | `n < 50`: 1, `< 500`: 2; complex `n*n > 36*s*s*4`, `< 64*s*s*4`: 2 | same |
@@ -322,9 +326,9 @@ What is left to upstream's rate past n = 128 is the drivers' own scaling at thes
 | extremes, indices | `iamax_thunderx2t99.c`, `izamax_thunderx2t99.c`: `n > 10000` | range chunks, exact fold |
 | `omatcopy` (`f32`, `f64`) | `omatcopy.c`: `rows * cols >= 65536 * 4`; transposed, at most `cols / 32` bands | bands of `A`'s columns, 32 wide at least where transposed |
 
-The level-3 rows decide whether to thread and the most workers; each call then takes at most one worker per `team_grain` of its real multiply-adds (`threading/grain.zig`'s `crew`, as inside `potrf` ([LAPACK](#lapack))), the public routines and LAPACK's own calls of them (`blas_calls.zig`, `relapack.zig`) alike, through `blas3/threaded.zig`'s `gemmWorkers` and its siblings: `gemm` `m * n * k`, `symm` `m * n * ka`, `syr2k` `(n+1)nk` and `syrk` half that, `trsm` and `trmm` all of `m * n * ka`, twice their products, as their drivers run well under `gemm`'s rate per product (half started teams too late at 128). OpenBLAS's workers spin between calls and lose nothing below it; a team here starts per call, and on the M6 (`vortexm4`, 12 CPUs) the default workers ran order 64 `symm` at a fifth of one worker's rate and `gemm` at 128 at 0.6 ([#591](https://github.com/randyos-org/rstd/issues/591)).
+The level-3 rows decide whether to thread and the most workers; each call then takes at most one worker per `team_grain` of its real multiply-adds (`threading/grain.zig`'s `crew`, as inside `potrf` ([LAPACK](#lapack))), the public routines and LAPACK's own calls of them (`blas_calls.zig`, `relapack.zig`) alike, through `blas3/threaded.zig`'s `gemmWorkers` and its siblings: `gemm` `m * n * k`, `symm` `m * n * ka`, `syr2k` `(n+1)nk` and `syrk` half that, `trsm` and `trmm` all of `m * n * ka`, twice their products, as their drivers run well under `gemm`'s rate per product (half started teams too late at 128). OpenBLAS's workers spin between calls and lose nothing below it; a team here started per call before the pool ([#710](https://github.com/randyos-org/rstd/issues/710)), and on the M6 (`vortexm4`, 12 CPUs) the default workers ran order 64 `symm` at a fifth of one worker's rate and `gemm` at 128 at 0.6 ([#591](https://github.com/randyos-org/rstd/issues/591)).
 
-Level 2 caps the same way by bytes, as its calls are memory bound: `ger`, `symv` and `hemv` take at most one worker per `matrix_grain` (640 KiB) of their matrix, the whole square for `symv` and `hemv` (`threading/grain.zig`'s `share`). On the M6 at 4 MiB they peaked at 4 to 8 workers and lost past them, where OpenBLAS gained to 12, and complex `symv` at n = 64 ran half one worker's rate on two ([#707](https://github.com/randyos-org/rstd/issues/707)). The rest of the gap is the team's start ([#710](https://github.com/randyos-org/rstd/issues/710)).
+Level 2 caps the same way by bytes, as its calls are memory bound: `ger`, `symv` and `hemv` take at most one worker per `matrix_grain` (160 KiB) of their matrix, the whole square for `symv` and `hemv` (`threading/grain.zig`'s `share`). On the M6 at 4 MiB they peaked at 4 to 8 workers and lost past them, where OpenBLAS gained to 12, and complex `symv` at n = 64 ran half one worker's rate on two ([#707](https://github.com/randyos-org/rstd/issues/707)). That grain was 640 KiB while each worker cost its start; on the pool 160 KiB ran `ger` s 1024 at 114 GFLOP/s against 86, complex `symv` at 724 155 against 117 ([#710](https://github.com/randyos-org/rstd/issues/710)).
 
 The `copy` and extremes rows are OpenBLAS's ThunderX2 kernels' own, taken as defaults for every
 core; the others are its generic interfaces' or x86_64 kernels'. Upstream threads `dot` only in
@@ -353,6 +357,7 @@ therefore infallible, and the allocator need not be thread safe. Level 1, `ger`,
 any task starts. Task
 arguments are a pointer to the shared job plus a worker index; `Group.concurrent` copies them with
 the `Io`'s own allocator, and fails if that allocation does, leaving the work to those started.
+The pool keeps them in the call's `Crew`, 64 bytes a task, and allocates nothing.
 
 ### Errors and cancellation
 
@@ -370,6 +375,7 @@ brings each to its cancelable futex wait.
   drops a task's `error.Canceled`, so a worker that takes one calls `io.recancel()`. An `Io`
   whose `checkCancel` is `Io.unreachableCheckCancel` (`Io.failing`, UEFI's) has no
   cancellation; workers skip the check there.
+- **Pool workers.** The `Io` never cancels a pool worker, which is not its thread. When the caller is canceled it sets its `Crew`'s abort and waits: `threading.checkCancel` fails on a worker whose call aborted, a worker waiting on a `Signal` or `Barrier` sleeps 1 ms at a time and looks, and `threading.recancel` does nothing on a pool worker, as `Io.Threaded`'s `recancel` would fault there.
 
 ### Futures on `Dispatch`
 

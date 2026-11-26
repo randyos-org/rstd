@@ -36,7 +36,7 @@ pub fn run(io: Io, arena: Allocator, environ: *const std.process.Environ.Map, ar
         else => return error.AloneRunFailed,
     }
     ob_rates = try rates(arena, text.items);
-    std.debug.print("\nthe race: rstd with OpenBLAS's workers idle between calls (`OPENBLAS_THREAD_TIMEOUT=4` unless set); `ob alone` is OpenBLAS's rate above\n", .{});
+    std.debug.print("\nthe race: rstd with OpenBLAS's workers idle between calls (`OPENBLAS_THREAD_TIMEOUT=4` unless set, which rstd's own pool then ignores); `ob alone` is OpenBLAS's rate above\n", .{});
 }
 
 /// OpenBLAS's rate in each row of `text`'s tables, by `key`.
