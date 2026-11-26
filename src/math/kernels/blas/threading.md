@@ -462,7 +462,7 @@ Reproducibility:
   a chunk may start anywhere.
 - **The caller's control state.** Threads do not inherit floating-point control state (x86
   Windows starts them at 53-bit x87 precision, 0x27f, where a MinGW main thread has 64-bit,
-  0x37f; on x86, seen during T03, no test records it; x64's convention fixes 0x27f at start,
+  0x37f; on x86 and x64 a test in `FpState.zig` checks a new thread's; x64's convention fixes 0x27f at start,
   Microsoft, "x64 calling convention", FPCSR, <https://learn.microsoft.com/en-us/cpp/build/x64-calling-convention>;
   MinGW's `crtexe.c:216` runs `_fpreset`, an `fninit`, in Zig's `lib/libc/mingw/crt`, but not on
   an exe's new threads, `tlssup.c:84`). Every task enters through `team`'s worker or `Region.work`; `team` and `forEachIn`

@@ -619,9 +619,9 @@ real types and multiplies by a reciprocal for complex (`blas2/triangular_driver.
 
 **References.**
 
-- Neither OpenBLAS nor BLIS sets FTZ/DAZ; MKL also leaves it to the application (from memory;
+- Neither OpenBLAS nor BLIS sets FTZ/DAZ. Whether MKL does is unsourced: its documentation says nothing on it that we found ([#121](https://github.com/randyos-org/rstd/issues/121)), while
   Intel's compilers set FTZ and DAZ from `main` at every `-O` level but `-O0`: oneAPI DPC++/C++
-  Compiler 2025.2, "ftz, Qftz", <https://www.intel.com/content/www/us/en/docs/dpcpp-cpp-compiler/developer-guide-reference/2025-2/ftz-qftz.html>).
+  Compiler 2025.2, "ftz, Qftz", <https://www.intel.com/content/www/us/en/docs/dpcpp-cpp-compiler/developer-guide-reference/2025-2/ftz-qftz.html>.
 - BLIS `configure:375-387`: pre-inversion is the default, and disabling it improves "numerical
   robustness ... for certain cases involving denormal numbers that would otherwise result in
   overflow in the pre-inverted values".

@@ -66,8 +66,8 @@ pub fn composeBytes(comptime F: type, comptime cs: usize, m: usize, unit_x: bool
 /// What the SSE `symv` and `hemv` assembly of x86_64 needs, whatever the
 /// buffer's alignment: `x` copied, a gap of up to 512 bytes, then `y` copied
 /// (`symv_L_sse2.S`, `zsymv_U_sse2.S` and the rest), and 4 elements of
-/// slack past each. The 1280 bytes are ours: the 512 with room to spare,
-/// not derived.
+/// slack past each, as their loops load the next 4 before the last pass
+/// ends. The 1280 bytes are ours: the 512 with room to spare, not derived.
 pub fn sseBytes(comptime F: type, comptime cs: usize, m: usize) usize {
     return 2 * cs * m * @sizeOf(F) + 1280;
 }
