@@ -3,10 +3,10 @@
 const std = @import("std");
 const types = @import("../types.zig");
 const threading = @import("../threading.zig");
-const portable = @import("../portable.zig");
 const util = @import("../util.zig");
 const accel = @import("../apple_accel.zig");
 const binding = @import("binding.zig");
+const routines = @import("routines.zig");
 const parts = @import("split.zig");
 const quirks = @import("quirks.zig");
 
@@ -16,6 +16,7 @@ const Float = types.Float;
 const isZero = util.isZero;
 const x86_64 = binding.x86_64;
 const Blas = binding.Blas;
+const routine = routines.routine;
 const Transpose = binding.Transpose;
 const covers = accel.covers;
 const use = accel.use;
@@ -44,7 +45,7 @@ const zeroColumn = quirks.zeroColumn;
 fn Gemv(comptime T: type) type {
     return struct {
         const Self = @This();
-        const name = "cblas_" ++ portable.letter(T).? ++ "gemv";
+        const name = routine(.gemv, T);
 
         b: *const Blas,
         t: Transpose,
@@ -93,7 +94,7 @@ pub inline fn gbmv(comptime T: type, trans: types.Trans, m: isize, n: isize, kl:
         const lenx = if (trans.transposed()) m else n;
         const leny = if (trans.transposed()) n else m;
         const ext = &.{ mat(lda, n, lda), span(lenx, incx), span(leny, incy) };
-        return call("cblas_" ++ portable.letter(T).? ++ "gbmv", b, ext, .{ col, t, m, n, kl, ku, scalar(T, &alpha), a, lda, x, incx, scalar(T, &beta), y, incy }) != null;
+        return call(routine(.gbmv, T), b, ext, .{ col, t, m, n, kl, ku, scalar(T, &alpha), a, lda, x, incx, scalar(T, &beta), y, incy }) != null;
     }
 }
 
@@ -101,7 +102,7 @@ pub inline fn gbmv(comptime T: type, trans: types.Trans, m: isize, n: isize, kl:
 fn Ger(comptime T: type, comptime conj: bool) type {
     return struct {
         const Self = @This();
-        const name = "cblas_" ++ portable.letter(T).? ++ "ger" ++ if (!isComplex(T)) "" else if (conj) "c" else "u";
+        const name = routine(if (!isComplex(T)) .ger else if (conj) .gerc else .geru, T);
 
         b: *const Blas,
         m: isize,
@@ -136,7 +137,7 @@ pub inline fn ger(io: Io, comptime T: type, comptime conj: bool, m: isize, n: is
 /// `symv`, or `hemv` for `herm`.
 pub inline fn symv(comptime T: type, comptime herm: bool, ul: types.Uplo, n: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) bool {
     if (comptime !covers(T) or herm != isComplex(T)) return false else {
-        const name = comptime "cblas_" ++ portable.letter(T).? ++ if (herm) "hemv" else "symv";
+        const name = comptime routine(if (herm) .hemv else .symv, T);
         const b = use(T) orelse return false;
         const u = uplo(ul) orelse return false;
         // real `symv`'s shows on arm64 only (issue #410)
@@ -148,7 +149,7 @@ pub inline fn symv(comptime T: type, comptime herm: bool, ul: types.Uplo, n: isi
 /// `sbmv` or `hbmv`, packed (`spmv`, `hpmv`) for `packed_`.
 pub inline fn sbmv(comptime T: type, comptime herm: bool, comptime packed_: bool, ul: types.Uplo, n: isize, k: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) bool {
     if (comptime !covers(T) or herm != isComplex(T)) return false else {
-        const name = comptime "cblas_" ++ portable.letter(T).? ++ if (herm) (if (packed_) "hpmv" else "hbmv") else (if (packed_) "spmv" else "sbmv");
+        const name = comptime routine(if (herm) (if (packed_) .hpmv else .hbmv) else (if (packed_) .spmv else .sbmv), T);
         const b = use(T) orelse return false;
         const u = uplo(ul) orelse return false;
         const al = scalar(T, &alpha);
@@ -167,7 +168,14 @@ pub inline fn tri(comptime T: type, comptime kind: TriKind, ul: types.Uplo, tran
         const t = transpose(T, trans) orelse return false;
         // real `trmv`'s shows on arm64 only
         if (!(x86_64 and kind == .trmv and !isComplex(T)) and nonFinite(T, n, x, incx)) return false;
-        const name = comptime "cblas_" ++ portable.letter(T).? ++ @tagName(kind);
+        const name = comptime routine(switch (kind) {
+            .trmv => .trmv,
+            .trsv => .trsv,
+            .tbmv => .tbmv,
+            .tbsv => .tbsv,
+            .tpmv => .tpmv,
+            .tpsv => .tpsv,
+        }, T);
         return switch (kind) {
             .trmv, .trsv => call(name, b, &.{ mat(n, n, lda), span(n, incx) }, .{ col, u, t, diag(dg), n, a, lda, x, incx }),
             .tbmv, .tbsv => call(name, b, &.{ mat(lda, n, lda), span(n, incx) }, .{ col, u, t, diag(dg), n, k, a, lda, x, incx }),
@@ -179,7 +187,7 @@ pub inline fn tri(comptime T: type, comptime kind: TriKind, ul: types.Uplo, tran
 /// `syr` or `her` (real `alpha`), packed (`spr`, `hpr`) for `packed_`.
 pub inline fn syr(comptime T: type, comptime herm: bool, comptime packed_: bool, ul: types.Uplo, n: isize, alpha: if (herm) Float(T) else T, x: [*]T, incx: isize, a: [*]T, lda: isize) bool {
     if (comptime !covers(T) or herm != isComplex(T)) return false else {
-        const name = comptime "cblas_" ++ portable.letter(T).? ++ if (herm) (if (packed_) "hpr" else "her") else (if (packed_) "spr" else "syr");
+        const name = comptime routine(if (herm) (if (packed_) .hpr else .her) else (if (packed_) .spr else .syr), T);
         const b = use(T) orelse return false;
         const u = uplo(ul) orelse return false;
         if (zeroColumn(T, n, x, incx, null, 0) and nonFinite(T, n, x, incx)) return false;
@@ -195,7 +203,7 @@ pub inline fn syr(comptime T: type, comptime herm: bool, comptime packed_: bool,
 /// `syr2` or `her2`, packed (`spr2`, `hpr2`) for `packed_`.
 pub inline fn syr2(comptime T: type, comptime herm: bool, comptime packed_: bool, ul: types.Uplo, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize, a: [*]T, lda: isize) bool {
     if (comptime !covers(T) or herm != isComplex(T)) return false else {
-        const name = comptime "cblas_" ++ portable.letter(T).? ++ if (herm) (if (packed_) "hpr2" else "her2") else (if (packed_) "spr2" else "syr2");
+        const name = comptime routine(if (herm) (if (packed_) .hpr2 else .her2) else (if (packed_) .spr2 else .syr2), T);
         const b = use(T) orelse return false;
         const u = uplo(ul) orelse return false;
         if (zeroColumn(T, n, x, incx, y, incy) and (nonFinite(T, n, x, incx) or nonFinite(T, n, y, incy))) return false;

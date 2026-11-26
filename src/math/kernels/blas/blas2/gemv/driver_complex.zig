@@ -4,11 +4,13 @@ const util = @import("../../util.zig");
 const types = @import("../../types.zig");
 const fma = @import("../../fma.zig");
 const driver = @import("driver.zig");
+const block_names = @import("names.zig");
 
 const BlasLong = types.BlasLong;
 const Slot = util.Slot;
 const off = driver.off;
 const choose = driver.choose;
+const names = block_names.names;
 
 /// What a complex slot is built as: `trans` is `TRANS`, `conj` `CONJ`
 /// (`A` conjugated), `xconj` `XCONJ` (`x` conjugated, written as the product
@@ -33,11 +35,6 @@ fn cform(comptime slot: Slot) Cform {
 /// The float type of complex `slot`.
 fn Cfloat(comptime slot: Slot) type {
     return if (@tagName(slot)[0] == 'c') f32 else f64;
-}
-
-/// The suffix of the converted blocks' form (`uk.zig`'s `Form.suffix`).
-fn suffix(comptime f: Cform) []const u8 {
-    return if (f.conj and f.xconj) "_cx" else if (f.conj) "_c" else if (f.xconj) "_x" else "";
 }
 
 /// `a*b + c*d` and `a*b - c*d` as clang contracts them: the first product
@@ -160,14 +157,13 @@ fn AddY(comptime F: type) type {
 pub fn ZgemvN(comptime slot: Slot, comptime M: type, comptime fuse: bool) type {
     const F = Cfloat(slot);
     const f = cform(slot);
-    const p = @tagName(slot)[0..1];
-    const sx = suffix(f);
+    const nm = names(slot);
     const C = CFallback(F, f, fuse);
-    const k4x4 = choose(CN4(F), M, void, p ++ "gemv_kernel_4x4" ++ sx, &C.n4x4);
-    const k4x2 = choose(CN4(F), M, void, p ++ "gemv_kernel_4x2" ++ sx, &C.n4x2);
-    const k4x1 = choose(CN1(F), M, void, p ++ "gemv_kernel_4x1" ++ sx, &C.n4x1);
+    const k4x4 = choose(CN4(F), M, void, nm.k4x4, &C.n4x4);
+    const k4x2 = choose(CN4(F), M, void, nm.k4x2, &C.n4x2);
+    const k4x1 = choose(CN1(F), M, void, nm.k4x1, &C.n4x1);
     // the microkernel's `add_y` past its strided C, which is `C.addY`
-    const add_asm: ?AddY(F) = if (@hasDecl(M, "add_y" ++ sx ++ "_asm")) &@field(M, "add_y" ++ sx ++ "_asm") else null;
+    const add_asm: ?AddY(F) = if (@hasDecl(M, nm.add_y.?)) &@field(M, nm.add_y.?) else null;
     const nb_max: BlasLong = if (F == f32) 2048 else 1024;
     return struct {
         fn addY(count: BlasLong, src: [*]F, dest: [*]F, inc_dest: BlasLong, ar: F, ai: F) void {
@@ -275,12 +271,11 @@ pub fn ZgemvN(comptime slot: Slot, comptime M: type, comptime fuse: bool) type {
 pub fn ZgemvT(comptime slot: Slot, comptime M: type, comptime fuse: bool) type {
     const F = Cfloat(slot);
     const f = cform(slot);
-    const p = @tagName(slot)[0..1];
-    const sx = suffix(f);
+    const nm = names(slot);
     const C = CFallback(F, f, fuse);
-    const k4x4 = choose(CT4(F), M, void, p ++ "gemv_kernel_4x4" ++ sx, &C.t4x4);
-    const k4x2 = choose(CT4(F), M, void, p ++ "gemv_kernel_4x2" ++ sx, &C.t4x2);
-    const k4x1 = choose(CT1(F), M, void, p ++ "gemv_kernel_4x1" ++ sx, &C.t4x1);
+    const k4x4 = choose(CT4(F), M, void, nm.k4x4, &C.t4x4);
+    const k4x2 = choose(CT4(F), M, void, nm.k4x2, &C.t4x2);
+    const k4x1 = choose(CT1(F), M, void, nm.k4x1, &C.t4x1);
     const nb_max: BlasLong = if (F == f32) 2048 else 1024;
     return struct {
         pub fn call(m: BlasLong, n: BlasLong, _: BlasLong, alpha_r: F, alpha_i: F, a_in: [*]F, lda_in: BlasLong, x_in: [*]F, inc_x_in: BlasLong, y: [*]F, inc_y_in: BlasLong, buffer: [*]F) callconv(.c) i32 {

@@ -233,6 +233,6 @@ test "on the 32-bit table, what does not fit c_int runs rstd's kernels" {
     try expectCalled(false, before, "past c_int");
     // an operand whose span is past `c_int`, though each argument fits
     const half: isize = std.math.maxInt(c_int) / 2 + 1;
-    try zigstd.testExpectTrue(call("cblas_ddot", &accel.loaded.?.blas, &.{ span(3, half), 3 }, .{ @as(isize, 3), &x, half, &y, @as(isize, 1) }) == null);
-    try zigstd.testExpectEqual(@as(f64, -10.5), call("cblas_ddot", &accel.loaded.?.blas, &.{ 3, 3 }, .{ @as(isize, 3), &x, @as(isize, 1), &y, @as(isize, 1) }).?);
+    try zigstd.testExpectTrue(call(.cblas_ddot, &accel.loaded.?.blas, &.{ span(3, half), 3 }, .{ @as(isize, 3), &x, half, &y, @as(isize, 1) }) == null);
+    try zigstd.testExpectEqual(@as(f64, -10.5), call(.cblas_ddot, &accel.loaded.?.blas, &.{ 3, 3 }, .{ @as(isize, 3), &x, @as(isize, 1), &y, @as(isize, 1) }).?);
 }

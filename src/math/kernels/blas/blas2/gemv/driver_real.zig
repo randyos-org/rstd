@@ -5,6 +5,7 @@ const types = @import("../../types.zig");
 const fma = @import("../../fma.zig");
 const coretypes = @import("../../cpu/coretypes.zig");
 const driver = @import("driver.zig");
+const block_names = @import("names.zig");
 
 const BlasLong = types.BlasLong;
 const Slot = util.Slot;
@@ -19,6 +20,7 @@ const T4 = driver.T4;
 const T2 = driver.T2;
 const T1 = driver.T1;
 const choose = driver.choose;
+const names = block_names.names;
 
 /// A chain `p0 + p1 + ... ` of the products `a[k]*b[k]`, as clang contracts
 /// it: the first product fused with the second, each later one fused into
@@ -117,12 +119,12 @@ const has_sse3 = util.x86Has(.sse3);
 /// `S`'s (`sgemv_n_microk_skylakex-8.c`: `n128`, `n64`), else void.
 pub fn GemvN(comptime slot: Slot, comptime core: Core, comptime M: type, comptime O: type, comptime fuse: bool, comptime S: type) type {
     const F = Elem(slot);
-    const p = if (F == f32) "s" else "d";
+    const nm = names(slot);
     const C = Fallback(F, fuse);
-    const k4x8 = if (F == f32) choose(N4x8(F), M, O, p ++ "gemv_kernel_4x8", &C.n4x8) else undefined;
-    const k4x4 = choose(N4(F), M, O, p ++ "gemv_kernel_4x4", &C.n4x4);
-    const k4x2 = if (S != void) undefined else choose(N4(F), M, O, p ++ "gemv_kernel_4x2", null);
-    const k4x1 = choose(N1(F), M, O, p ++ "gemv_kernel_4x1", null);
+    const k4x8 = if (nm.k4x8) |name| choose(N4x8(F), M, O, name, &C.n4x8) else undefined;
+    const k4x4 = choose(N4(F), M, O, nm.k4x4, &C.n4x4);
+    const k4x2 = if (S != void) undefined else choose(N4(F), M, O, nm.k4x2, null);
+    const k4x1 = choose(N1(F), M, O, nm.k4x1, null);
     const nb_max = nbmax(slot, core);
     return struct {
         /// `y` (stride `inc`) plus `src`, as `add_y` does where `inc` is not 1.
@@ -292,12 +294,12 @@ pub fn GemvN(comptime slot: Slot, comptime core: Core, comptime M: type, comptim
 /// `S`'s (`sgemv_t_microk_skylakex.c`: `t`), else void.
 pub fn GemvT(comptime slot: Slot, comptime core: Core, comptime M: type, comptime O: type, comptime fuse: bool, comptime S: type) type {
     const F = Elem(slot);
-    const p = if (F == f32) "s" else "d";
+    const nm = names(slot);
     const C = Fallback(F, fuse);
     const own = if (has_sse3) O else void;
-    const k4x4 = choose(T4(F), M, own, p ++ "gemv_kernel_4x4", &C.t4x4);
-    const k4x2 = choose(T2(F), M, own, p ++ "gemv_kernel_4x2", if (F == f64) &C.t4x2 else null);
-    const k4x1 = choose(T1(F), M, own, p ++ "gemv_kernel_4x1", if (F == f64) &C.t4x1 else null);
+    const k4x4 = choose(T4(F), M, own, nm.k4x4, &C.t4x4);
+    const k4x2 = choose(T2(F), M, own, nm.k4x2, if (F == f64) &C.t4x2 else null);
+    const k4x1 = choose(T1(F), M, own, nm.k4x1, if (F == f64) &C.t4x1 else null);
     const add_asm = own != void and @hasDecl(own, "add_y_asm");
     const nb_max = nbmax(slot, core);
     return struct {

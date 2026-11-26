@@ -7,11 +7,13 @@ const std = @import("std");
 const types = @import("../types.zig");
 const threading = @import("../threading.zig");
 const binding = @import("binding.zig");
+const routines = @import("routines.zig");
 
 const Io = std.Io;
 const isComplex = types.isComplex;
 const Float = types.Float;
 const Blas = binding.Blas;
+const Symbol = routines.Symbol;
 const Order = binding.Order;
 const Transpose = binding.Transpose;
 const Uplo = binding.Uplo;
@@ -58,13 +60,13 @@ pub fn rounded(comptime T: type, w: Sum(T)) T {
     return @floatCast(w);
 }
 
-/// Whether the table has `name` and, on LP64, every entry of `ints` (each
+/// Whether the table has `sym` and, on LP64, every entry of `ints` (each
 /// integer argument's magnitude and each operand's span) fits `c_int`; then
 /// so does any call over a part of the operands.
-pub fn fits(comptime name: []const u8, b: *const Blas, ints: []const isize) bool {
+pub fn fits(comptime sym: Symbol, b: *const Blas, ints: []const isize) bool {
     switch (b.*) {
         inline else => |*bound, tag| {
-            if (@field(bound.fns, name) == null) return false;
+            if (@field(bound.fns, @tagName(sym)) == null) return false;
             if (tag == .lp64) for (ints) |e| if (e > std.math.maxInt(c_int)) return false;
             return true;
         },
