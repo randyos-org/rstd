@@ -411,7 +411,7 @@ fn addKernelRun(b: *Build, m: Machine, k: Boot.Kernel, target: rstdbuild.Resolve
         // in on a test host and `tools/rig/qemu_watch.zig` here
         run.addArgs(&.{ "-drive", b.fmt("if=pflash,unit=0,format=raw,readonly=on,file=@qemu-data@/{s}", .{fw}), "-nic", "none", "-drive" });
         const drive = "if=none,id=esp,format=raw,readonly=on,file=fat:";
-        run.addPrefixedDirectoryArg(if (testHostFor(m, host) != null) drive ++ "local:" else drive, esp.getDirectory());
+        run.addDirectoryArg2(esp.getDirectory(), .{ .prefix = if (testHostFor(m, host) != null) drive ++ "local:" else drive });
         run.addArgs(&.{ "-device", "virtio-blk-pci,drive=esp,bootindex=0" });
     } else {
         run.addArg("-kernel");

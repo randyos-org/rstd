@@ -44,7 +44,7 @@ pub fn nixBlas(b: *Build, host: ?[]const u8, system: []const u8, reference: bool
     const run = try nixScript(b, host, "blas.sh", system);
     if (reference) {
         // `ssh_test` copies a `local:` directory over
-        if (host != null) run.addPrefixedDirectoryArg("local:", b.path("tools/blasbench/nix")) else run.addDirectoryArg(b.path("tools/blasbench/nix"));
+        run.addDirectoryArg2(b.path("tools/blasbench/nix"), .{ .prefix = if (host != null) "local:" else "" });
         // a directory argument's contents are not hashed
         for ([_][]const u8{ "eigen.nix", "eigen_shim.cpp" }) |f| run.addFileInput(b.path(b.fmt("tools/blasbench/nix/{s}", .{f})));
     }
