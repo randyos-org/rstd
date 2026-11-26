@@ -71,9 +71,13 @@ fn yielding() void {
 }
 
 /// Ticks a worker or a waiting caller spins before it sleeps:
-/// `blas_server.c`'s `thread_timeout`.
+/// `blas_server.c`'s `thread_timeout`. Callers publish it from `blas.config`
+/// as they hand tasks out; workers read only this, never the config, which
+/// another thread may rewrite (`select.shutdown`, #730).
+var spin_ticks: std.atomic.Value(u64) = .init(@as(u64, 1) << (blas.Config{}).thread_timeout);
+
 fn timeout() u64 {
-    return @as(u64, 1) << blas.config.thread_timeout;
+    return spin_ticks.load(.monotonic);
 }
 
 /// Spins on `done` until it is true or the timeout passes; whether it is.
@@ -239,6 +243,7 @@ pub const Crew = struct {
         // no pool here: `Tasks` never picks it, and its slots are empty
         if (comptime !built) return error.ConcurrencyUnavailable;
         if (c.len == @min(c.limit, cap)) return error.ConcurrencyUnavailable;
+        if (c.len == 0) spin_ticks.store(@as(u64, 1) << blas.config.thread_timeout, .monotonic);
         const s = claim() orelse return error.ConcurrencyUnavailable;
         const e = &c.entries[c.len];
         e.run = Task(function).run;
