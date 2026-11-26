@@ -111,6 +111,8 @@ pub const SchurError = schur_form.SchurError;
 pub const Schur = schur_form.Schur;
 pub const schur = schur_form.schur;
 pub const schurComplex = schur_form.schurComplex;
+pub const OrdschurError = schur_form.OrdschurError;
+pub const ordschur = schur_form.ordschur;
 
 const expm_ = @import("expm.zig");
 pub const ExpmError = expm_.ExpmError;
