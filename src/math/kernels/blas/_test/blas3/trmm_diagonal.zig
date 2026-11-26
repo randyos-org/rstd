@@ -45,14 +45,19 @@ fn checkGeometry(comptime F: type, comptime geo: gk.Geometry) !void {
                 const d1: usize = @intCast(@max(0, @min(o + width, @as(isize, @intCast(k)))));
                 K.diagonal(left, from, wn, d0, d1, o, &pa, &pb, &c0, ld, alpha);
                 K.diagonalScalar(left, from, false, mr, wn, d0, d1, o, &pa, &pb, &c1, ld, &.{alpha});
+                // a NaN's sign and payload are LLVM's to choose, which may
+                // swap an add's operands: NaN for NaN, bits for the rest
                 const U = if (F == f32) u32 else u64;
-                for (c0, c1) |x, y| try std.testing.expectEqual(@as(U, @bitCast(y)), @as(U, @bitCast(x)));
+                for (c0, c1) |x, y| {
+                    if (std.math.isNan(x) and std.math.isNan(y)) continue;
+                    try std.testing.expectEqual(@as(U, @bitCast(y)), @as(U, @bitCast(x)));
+                }
             }
         };
     }
 }
 
-test "trmm's vector diagonal block has the scalar loop's bits, infinities and NaNs too" {
+test "trmm's vector diagonal block has the scalar loop's bits, infinities too, and its NaNs" {
     inline for (.{ f32, f64 }) |F| {
         checkGeometry(F, gk.geometry(F)) catch |e| if (e != error.SkipZigTest) return e;
         try checkGeometry(F, .{ .vl = 4, .mv = 2, .nr = 3 });

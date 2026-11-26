@@ -176,7 +176,8 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
         /// The diagonal block of a whole tile, `mr` rows by `wn` columns, as
         /// `run`'s scalar loop sums it, a column of rows at a time: a product
         /// outside the triangle becomes an exact zero, which no sum here
-        /// changes by, so an infinity meets no zero and the bits are its own.
+        /// changes by, so an infinity meets no zero and the bits are its own,
+        /// a NaN's sign and payload aside (LLVM keeps neither).
         pub fn diagonal(left: bool, from: bool, wn: usize, d0: usize, d1: usize, off: isize, pa: [*]const F, pb: [*]const F, pc: [*]F, ld: usize, alpha: F) void {
             const V = @Vector(mr, F);
             const I = @Vector(mr, isize);
