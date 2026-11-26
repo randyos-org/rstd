@@ -123,6 +123,29 @@ fn appendVertices(shape: *Shape, allocator: Allocator, vertices: []const Vertex,
     };
 }
 
+/// The box of `vertices`' points and control points, as a `glyf` header's
+/// box covers every point; null for none.
+fn vertexBox(vertices: []const Vertex) ?aux_types.GlyphBoundingBox {
+    if (vertices.len == 0) return null;
+    var box: aux_types.GlyphBoundingBox = .{ .x_min = vertices[0].x, .y_min = vertices[0].y, .x_max = vertices[0].x, .y_max = vertices[0].y };
+    for (vertices) |v| {
+        const n: usize = switch (v.type) {
+            .vcurve => 2,
+            .vcubic => 3,
+            else => 1,
+        };
+        const xs = [3]i16{ v.x, v.cx, v.cx1 };
+        const ys = [3]i16{ v.y, v.cy, v.cy1 };
+        for (xs[0..n], ys[0..n]) |x, y| {
+            box.x_min = @min(box.x_min, x);
+            box.x_max = @max(box.x_max, x);
+            box.y_min = @min(box.y_min, y);
+            box.y_max = @max(box.y_max, y);
+        }
+    }
+    return box;
+}
+
 fn scaledVertexVec(x: i16, y: i16, scale: f64) V2f64 {
     return .{ f64i(x) * scale, f64i(y) * scale };
 }
@@ -148,7 +171,14 @@ pub fn generateSingle(
     defer allocator.free(outline_vertices);
     try appendVertices(&shape, allocator, outline_vertices, scale);
 
-    const metrics = self.sfnt.getGlyphMetrics(glyph_index);
+    var metrics = self.sfnt.getGlyphMetrics(glyph_index);
+    if (var_coords.len > 0) {
+        metrics.advance_width = try self.sfnt.advanceWidthAt(allocator, glyph_index, var_coords);
+        if (vertexBox(outline_vertices)) |box| {
+            metrics.bearing_x = @intCast(box.x_min);
+            metrics.bearing_y = @intCast(box.y_max);
+        }
+    }
     if (shape.contours.items.len == 0)
         return .{
             .metrics = .{
@@ -423,4 +453,14 @@ test {
     _ = Shape;
     _ = math;
     _ = error_correction;
+}
+
+test "vertexBox covers a curve's control point" {
+    var v: [3]Vertex = undefined;
+    v[0].set(.vmove, 0, 0, 0, 0);
+    v[1].set(.vcurve, 100, 0, 50, -40);
+    v[2].set(.vline, 0, 0, 0, 0);
+    const box = vertexBox(&v).?;
+    try zigstd.testExpectEqual(aux_types.GlyphBoundingBox{ .x_min = 0, .y_min = -40, .x_max = 100, .y_max = 0 }, box);
+    try zigstd.testExpectEqual(@as(?aux_types.GlyphBoundingBox, null), vertexBox(&.{}));
 }

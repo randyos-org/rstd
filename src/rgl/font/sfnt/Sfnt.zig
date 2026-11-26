@@ -6,6 +6,7 @@ const types = @import("types.zig");
 const aux_types = @import("aux_types.zig");
 const charstring = @import("tables/cff/charstring.zig");
 const glyf_shape = @import("tables/glyf/shape.zig");
+const advance = @import("advance.zig");
 
 const Vertex = aux_types.Vertex;
 const Allocator = zigstd.Allocator;
@@ -251,6 +252,14 @@ pub fn getGlyphBoundingBox(self: Self, glyph: GlyphIndex) ?aux_types.GlyphBoundi
         return glyf_shape.glyphBoxTT(loca, glyf, glyph);
     }
     return null;
+}
+
+/// `glyph`'s advance width at normalized coordinates (`coords.normalize`):
+/// `hmtx`'s, plus HVAR's or the `gvar` phantom points' delta, rounded.
+pub fn advanceWidthAt(self: Self, gpa: Allocator, glyph: GlyphIndex, coords: []const types.F2Dot14) advance.Error!types.UFWord {
+    const base: f32 = if (self.hmtx) |hmtx| @floatFromInt(hmtx.getMetrics(glyph).advance_width) else 0;
+    const varied = @round(base + try advance.advanceDelta(self, gpa, glyph, coords));
+    return @intFromFloat(std.math.clamp(varied, 0, std.math.maxInt(types.UFWord)));
 }
 
 /// Combines hmtx's advance width with the glyph outline's own bounding box.
