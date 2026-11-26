@@ -97,6 +97,12 @@ pub const realPart = elementwise.realPart;
 pub const imagPart = elementwise.imagPart;
 pub const conj = elementwise.conj;
 
+const balancing = @import("balancing.zig");
+pub const Balance = balancing.Balance;
+pub const BalanceError = balancing.BalanceError;
+pub const BalanceMode = balancing.BalanceMode;
+pub const balance = balancing.balance;
+
 const schur_form = @import("schur_form.zig");
 pub const HessError = schur_form.HessError;
 pub const Hess = schur_form.Hess;
@@ -138,6 +144,7 @@ test {
     _ = @import("sqrtm.zig");
     _ = @import("expm.zig");
     _ = @import("schur_form.zig");
+    _ = @import("balancing.zig");
     _ = @import("elementwise.zig");
     _ = @import("vector_norm.zig");
     _ = @import("condition.zig");
@@ -152,5 +159,6 @@ test {
     _ = @import("_test/products.zig");
     _ = @import("_test/inverse.zig");
     _ = @import("_test/factor.zig");
+    _ = @import("_test/balancing.zig");
     _ = @import("_test/paths.zig");
 }
