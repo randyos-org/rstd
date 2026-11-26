@@ -139,11 +139,12 @@ pub fn solveInto(allocator: Allocator, io: Io, out: anytype, a: anytype, b: anyt
     return solveOn(pathOf(&.{ ca.rows, cb.cols }), allocator, io, o, ca, cb);
 }
 
-pub const Structure = enum { upper, lower, hermitian, general };
+pub const Structure = enum { upper, lower, hermitian_positive, hermitian, general };
 
 /// `solve`'s route past the inline limit, from `a`'s values alone (MATLAB's
 /// order): triangular `trtrs`; Hermitian with a positive real diagonal
-/// `potrf` and `potrs`, LU if that fails; else `gesv`.
+/// `potrf` and `potrs`, `L D Lᴴ` if that fails; any other Hermitian `L D Lᴴ`
+/// (`sytrf` and `sytrs`, `hetrf` and `hetrs`); else `gesv`.
 pub fn structureOf(a: anytype) Structure {
     const T = @TypeOf(a).Element;
     const n = a.rows;
@@ -156,12 +157,29 @@ pub fn structureOf(a: anytype) Structure {
     };
     if (upper) return .upper;
     if (lower) return .lower;
+    if (!isHermitian(a)) return .general;
     for (0..n) |j| {
         const d = a.at(j, j);
         const positive = if (comptime isComplex(T)) d.re > 0 else d > 0;
-        if (!positive) return .general;
+        if (!positive) return .hermitian;
     }
-    return if (isHermitian(a)) .hermitian else .general;
+    return .hermitian_positive;
+}
+
+/// `x = a \ x` for the Hermitian `a` by `L D Lᴴ` (`a`'s lower triangle):
+/// `sytrf` and `sytrs` for real, `hetrf` and `hetrs` for complex;
+/// `error.Singular` for an exactly zero block of `D`, `x` untouched.
+fn ldlSolve(comptime T: type, allocator: Allocator, io: Io, a: ConstView(T), x: Mat(T)) (error{Singular} || Error)!void {
+    const n = a.rows;
+    const f = try copyOf(T, allocator, a);
+    defer f.deinit(allocator);
+    const ipiv = try allocator.alloc(lapack.Pivot, n);
+    defer allocator.free(ipiv);
+    const factor = if (comptime isComplex(T)) lapack.hetrf else lapack.sytrf;
+    const zero = factor(allocator, io, T, .l, n, f.data, n, ipiv) catch |e| return narrow(Error, e);
+    if (zero != null) return error.Singular;
+    const solveWith = if (comptime isComplex(T)) lapack.hetrs else lapack.sytrs;
+    solveWith(T, .l, n, x.cols, f.data, n, ipiv, x.data, x.rows) catch unreachable; // shapes and pivots are sytrf's
 }
 
 pub fn solveOn(path: Path, allocator: Allocator, io: Io, o: anytype, a: ConstView(@TypeOf(o).Element), b: ConstView(@TypeOf(o).Element)) SolveError!void {
@@ -178,20 +196,22 @@ pub fn solveOn(path: Path, allocator: Allocator, io: Io, o: anytype, a: ConstVie
             const uplo: lapack.Uplo = if (s == .upper) .u else .l;
             lapack.trtrs(allocator, io, T, uplo, .n, .n, n, b.cols, a.data, a.ld, x.data, ld) catch |e| return narrow(error{Singular} || Error, e);
         },
-        .hermitian, .general => |s| {
+        .hermitian_positive => cholesky: {
             const f = try copyOf(T, allocator, a);
             defer f.deinit(allocator);
-            if (s == .hermitian) cholesky: {
-                lapack.potrf(allocator, io, T, .u, n, f.data, ld) catch |e| switch (e) {
-                    error.NotPositiveDefinite => {
-                        copyInto(T, f.data, n, a);
-                        break :cholesky;
-                    },
-                    else => return narrow(Error, e),
-                };
-                lapack.potrs(allocator, io, T, .u, n, b.cols, f.data, ld, x.data, ld) catch |e| return narrow(Error, e);
-                return copyInto(T, o.data, o.ld, x.constView());
-            }
+            lapack.potrf(allocator, io, T, .u, n, f.data, ld) catch |e| switch (e) {
+                error.NotPositiveDefinite => {
+                    try ldlSolve(T, allocator, io, a, x);
+                    break :cholesky;
+                },
+                else => return narrow(Error, e),
+            };
+            lapack.potrs(allocator, io, T, .u, n, b.cols, f.data, ld, x.data, ld) catch |e| return narrow(Error, e);
+        },
+        .hermitian => try ldlSolve(T, allocator, io, a, x),
+        .general => {
+            const f = try copyOf(T, allocator, a);
+            defer f.deinit(allocator);
             const ipiv = try allocator.alloc(usize, n);
             defer allocator.free(ipiv);
             lapack.gesv(allocator, io, T, n, b.cols, f.data, ld, ipiv, x.data, ld) catch |e| return narrow(error{Singular} || Error, e);

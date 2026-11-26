@@ -32,6 +32,7 @@ const test_io = Io.failing;
 
 const test_inverse = @import("inverse.zig");
 const hermitianPd = test_inverse.hermitianPd;
+const hermitianZeroDiag = test_inverse.hermitianZeroDiag;
 const maxAbs = test_inverse.maxAbs;
 const maxDiff = test_inverse.maxDiff;
 const randomMat = test_inverse.randomMat;
@@ -43,6 +44,7 @@ const factor = @import("../factor.zig");
 const Lu = factor.Lu;
 const QrMode = factor.QrMode;
 const chol = factor.chol;
+const ldl = factor.ldl;
 const lu = factor.lu;
 const qr = factor.qr;
 const products = @import("../products.zig");
@@ -113,6 +115,54 @@ test "chol: Rᴴ R is A, R upper" {
         defer p.deinit(al);
         try testing.expect(maxDiff(T, p.constView(), a.constView()) <= tolOf(T, n) * maxAbs(T, a.constView()));
     };
+}
+
+test "ldl: Pᵀ A P = L D Lᴴ, L unit lower, D Hermitian block diagonal" {
+    const al = testing.allocator;
+    var prng: std.Random.DefaultPrng = .init(0x1d1);
+    inline for (.{ f32, f64, C64 }) |T| for ([_]usize{ 1, 2, 5, 20 }) |n| for ([_]bool{ false, true }) |zd| {
+        const a = if (zd) try hermitianZeroDiag(T, prng.random(), n) else try hermitianPd(T, prng.random(), n);
+        defer a.deinit(al);
+        // the upper triangle is not read
+        for (0..n) |j| for (0..j) |i| {
+            a.data[i + j * n] = ops.zero(T);
+        };
+        const f = try ldl(al, test_io, a);
+        defer f.deinit(al);
+        for (0..n) |j| for (0..j + 1) |i| {
+            const want = if (i == j) ops.one(T) else ops.zero(T);
+            try testing.expectEqual(want, f.l.at(i, j));
+        };
+        // `D`: blocks of 1 or 2 on the diagonal, Hermitian
+        for (0..n) |j| for (0..n) |i| {
+            const d = f.d.at(i, j);
+            if (i > j + 1 or j > i + 1) try testing.expect(ops.isZero(T, d));
+            try testing.expectEqual(ops.conj(T, d), f.d.at(j, i));
+        };
+        const seen = try al.alloc(bool, n);
+        defer al.free(seen);
+        @memset(seen, false);
+        for (f.perm) |p| seen[p] = true;
+        for (seen) |s| try testing.expect(s);
+        // `Pᵀ A P`, `A` Hermitian from its lower triangle
+        const pap = try Mat(T).init(al, n, n);
+        defer pap.deinit(al);
+        for (0..n) |j| for (0..n) |i| {
+            const r = f.perm[i];
+            const c = f.perm[j];
+            pap.data[i + j * n] = if (r >= c) a.at(r, c) else ops.conj(T, a.at(c, r));
+        };
+        const ld = try mul(al, test_io, f.l, f.d);
+        defer ld.deinit(al);
+        const lh = try ctranspose(al, test_io, f.l);
+        defer lh.deinit(al);
+        const ldlh = try mul(al, test_io, ld, lh);
+        defer ldlh.deinit(al);
+        try testing.expect(maxDiff(T, ldlh.constView(), pap.constView()) <= tolOf(T, n) * @max(maxAbs(T, pap.constView()), 1));
+    };
+    const wide = try Mat(f64).zeros(al, 2, 3);
+    defer wide.deinit(al);
+    try testing.expectError(error.NotSquare, ldl(al, test_io, wide));
 }
 
 pub fn expectQr(comptime T: type, a: Mat(T), mode: QrMode) !void {

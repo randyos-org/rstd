@@ -39,6 +39,8 @@ const inv = inverse.inv;
 const invInto = inverse.invInto;
 const solve = inverse.solve;
 const solveInto = inverse.solveInto;
+const Structure = inverse.Structure;
+const structureOf = inverse.structureOf;
 const products = @import("../products.zig");
 const ctranspose = products.ctranspose;
 const mul = products.mul;
@@ -102,6 +104,17 @@ pub fn hermitianPd(comptime T: type, rnd: std.Random, n: usize) !Mat(T) {
     return a;
 }
 
+/// A random Hermitian `n` by `n` with a zero diagonal: indefinite, and
+/// `sytrf` takes 2 by 2 pivots.
+pub fn hermitianZeroDiag(comptime T: type, rnd: std.Random, n: usize) !Mat(T) {
+    const a = try randomMat(T, rnd, n, n);
+    for (0..n) |j| {
+        for (j + 1..n) |i| a.data[j + i * n] = ops.conj(T, a.data[i + j * n]);
+        a.data[j + j * n] = ops.zero(T);
+    }
+    return a;
+}
+
 /// `‖a x - b‖ <= tol (n ‖a‖ ‖x‖ + ‖b‖)`, max norms.
 pub fn expectSolves(comptime T: type, a: ConstView(T), x: ConstView(T), b: ConstView(T)) !void {
     const al = testing.allocator;
@@ -131,14 +144,19 @@ pub fn expectSolveRoutes(comptime T: type, n: usize, rnd: std.Random) !void {
     shiftDiag(T, lower, 4);
     const pd = try hermitianPd(T, rnd, n);
     defer pd.deinit(al);
-    // Hermitian, positive diagonal, indefinite: `potrf` fails, LU solves
+    // Hermitian, positive diagonal, indefinite: `potrf` fails, `L D Lᴴ` solves
     const indefinite = try Mat(T).zeros(al, n, n);
     defer indefinite.deinit(al);
     shiftDiag(T, indefinite, 1);
     indefinite.data[1] = if (comptime isComplex(T)) T.init(2, 0) else 2;
     indefinite.data[n] = indefinite.data[1];
     try testing.expectError(error.NotPositiveDefinite, chol(al, test_io, indefinite));
-    for ([_]Mat(T){ general, upper, lower, pd, indefinite }) |a| {
+    try testing.expectEqual(Structure.hermitian_positive, structureOf(indefinite.constView()));
+    // Hermitian with a zero diagonal: straight to `L D Lᴴ`, 2 by 2 pivots
+    const zero_diag = try hermitianZeroDiag(T, rnd, n);
+    defer zero_diag.deinit(al);
+    try testing.expectEqual(Structure.hermitian, structureOf(zero_diag.constView()));
+    for ([_]Mat(T){ general, upper, lower, pd, indefinite, zero_diag }) |a| {
         const x = try solve(al, test_io, a, b);
         defer x.deinit(al);
         try expectSolves(T, a.constView(), x.constView(), b.constView());

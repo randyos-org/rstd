@@ -145,3 +145,72 @@ pub fn qr(allocator: Allocator, io: Io, a: anytype, mode: QrMode) (Allocator.Err
     if (m > 0) lapack.orgqr(allocator, io, T, m, qc, k, q.data, ld, tau) catch |e| return narrow(Error, e);
     return .{ .q = q, .r = r };
 }
+
+/// `ldl`'s result, `Pᵀ A P = L D Lᴴ` for the Hermitian `n` by `n` `A`, `P =
+/// I(:, perm)`.
+pub fn Ldl(comptime T: type) type {
+    return struct {
+        /// Unit lower triangular.
+        l: Mat(T),
+        /// Hermitian block diagonal, of 1 by 1 and 2 by 2 blocks.
+        d: Mat(T),
+        /// `(Pᵀ A P)(i, j) = A(perm[i], perm[j])`.
+        perm: []usize,
+        /// The first row of the first block of `D` exactly 0; a singular
+        /// matrix still factors completely, as `lu`'s.
+        zero_pivot: ?usize,
+
+        pub fn deinit(f: @This(), allocator: Allocator) void {
+            f.l.deinit(allocator);
+            f.d.deinit(allocator);
+            allocator.free(f.perm);
+        }
+    };
+}
+
+pub const LdlError = error{NotSquare} || Allocator.Error || Io.Cancelable;
+
+/// `Pᵀ A P = L D Lᴴ` (MATLAB's `[L, D, P] = ldl(A, "vector")`) by Bunch and
+/// Kaufman's pivoting, `sytrf` (complex: `hetrf`) on `a`'s lower triangle
+/// (the upper is not read). Each interchange `sytrf` makes at step `k` is
+/// applied to the columns of `L` before `k`, so `L` is unit lower triangular.
+pub fn ldl(allocator: Allocator, io: Io, a: anytype) LdlError!Ldl(ElementOf(@TypeOf(a))) {
+    const T = ElementOf(@TypeOf(a));
+    const ca = constOf(a);
+    if (ca.rows != ca.cols) return error.NotSquare;
+    const n = ca.rows;
+    const f = try copyOf(T, allocator, ca);
+    defer f.deinit(allocator);
+    const ipiv = try allocator.alloc(lapack.Pivot, n);
+    defer allocator.free(ipiv);
+    const factor = if (comptime isComplex(T)) lapack.hetrf else lapack.sytrf;
+    const zero_pivot = factor(allocator, io, T, .l, n, f.data, @max(n, 1), ipiv) catch |e| return narrow(Error, e);
+
+    const l = try Mat(T).zeros(allocator, n, n);
+    errdefer l.deinit(allocator);
+    const d = try Mat(T).zeros(allocator, n, n);
+    errdefer d.deinit(allocator);
+    const perm = try allocator.alloc(usize, n);
+    errdefer allocator.free(perm);
+    for (perm, 0..) |*p, i| p.* = i;
+    const swap = struct {
+        fn rows(lm: Mat(T), pm: []usize, r: usize, s: usize, cols: usize) void {
+            if (r == s) return;
+            std.mem.swap(usize, &pm[r], &pm[s]);
+            for (0..cols) |j| std.mem.swap(T, &lm.data[r + j * lm.rows], &lm.data[s + j * lm.rows]);
+        }
+    }.rows;
+    var k: usize = 0;
+    while (k < n) {
+        const w: usize = if (ipiv[k].block == .one) 1 else 2;
+        // a 2 by 2 block swaps its second row
+        swap(l, perm, k + w - 1, ipiv[k].row, k);
+        for (k..k + w) |j| {
+            l.data[j + j * n] = ops.one(T);
+            for (k + w..n) |i| l.data[i + j * n] = f.at(i, j);
+            for (k..k + w) |i| d.data[i + j * n] = if (i >= j) f.at(i, j) else ops.conj(T, f.at(j, i));
+        }
+        k += w;
+    }
+    return .{ .l = l, .d = d, .perm = perm, .zero_pivot = zero_pivot };
+}

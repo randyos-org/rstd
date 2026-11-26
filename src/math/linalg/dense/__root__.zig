@@ -39,10 +39,13 @@ pub const solveInto = inverse.solveInto;
 
 const factor = @import("factor.zig");
 pub const CholError = factor.CholError;
+pub const Ldl = factor.Ldl;
+pub const LdlError = factor.LdlError;
 pub const Lu = factor.Lu;
 pub const Qr = factor.Qr;
 pub const QrMode = factor.QrMode;
 pub const chol = factor.chol;
+pub const ldl = factor.ldl;
 pub const lu = factor.lu;
 pub const qr = factor.qr;
 
