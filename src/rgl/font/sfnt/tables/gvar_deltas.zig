@@ -10,6 +10,8 @@ const zigstd = @import("../../../../zigstd.zig");
 const GvarTable = @import("gvar.zig").GvarTable;
 const tv = @import("tuple_variation.zig");
 const iup = @import("iup.zig");
+const tent = @import("tent.zig").tent;
+const units = @import("tent.zig").units;
 const gvar_example = @import("_test/gvar_example.zig");
 
 const Allocator = zigstd.Allocator;
@@ -113,33 +115,17 @@ pub fn glyphDeltas(gpa: Allocator, gvar: GvarTable, glyph: usize, coords: []cons
 }
 
 /// How much one tuple applies at `coords`: the product over its axes of
-/// each axis's tent, 0 outside its region. An intermediate region whose
-/// start, peak and end are out of order, or that crosses 0, is ignored on
-/// that axis, as FreeType does.
+/// each axis's tent; without an intermediate region, from 0 to the peak.
 fn scalar(coords: []const F2Dot14, peak: tv.Tuple, start: ?tv.Tuple, end: ?tv.Tuple) f32 {
     var s: f32 = 1;
     for (coords, 0..) |c, i| {
-        const p = raw(peak.getValue(i));
-        if (p == 0) continue;
-        const v = raw(c);
-        if (start) |st_tuple| {
-            const st = raw(st_tuple.getValue(i));
-            const en = raw(end.?.getValue(i));
-            if (st > p or p > en or (st < 0 and en > 0)) continue;
-            if (v < st or v > en) return 0;
-            if (v == p) continue;
-            s *= if (v < p) (v - st) / (p - st) else (en - v) / (en - p);
-        } else {
-            if (v == 0 or v < @min(0, p) or v > @max(0, p)) return 0;
-            if (v == p) continue;
-            s *= v / p;
-        }
+        const p = units(peak.getValue(i));
+        const st = if (start) |t| units(t.getValue(i)) else @min(0, p);
+        const en = if (end) |t| units(t.getValue(i)) else @max(0, p);
+        s *= tent(units(c), st, p, en);
+        if (s == 0) return 0;
     }
     return s;
-}
-
-fn raw(v: F2Dot14) f32 {
-    return @floatFromInt(@as(i16, @bitCast(v)));
 }
 
 const Reader = struct {

@@ -21,6 +21,8 @@ pub const GvarTable = @import("gvar.zig").GvarTable;
 pub const gvar_deltas = @import("gvar_deltas.zig");
 pub const CvarTable = @import("cvar.zig").CvarTable;
 pub const HvarTable = @import("hvar.zig").HvarTable;
+/// An Item Variation Store's delta at normalized coordinates.
+pub const ivs_delta = @import("ivs_delta.zig");
 pub const VvarTable = @import("vvar.zig").VvarTable;
 pub const MvarTable = @import("mvar.zig").MvarTable;
 pub const StatTable = @import("stat.zig").StatTable;
