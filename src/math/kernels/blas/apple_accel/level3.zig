@@ -3,15 +3,16 @@
 const std = @import("std");
 const types = @import("../types.zig");
 const threading = @import("../threading.zig");
-const portable = @import("../portable.zig");
 const accel = @import("../apple_accel.zig");
 const binding = @import("binding.zig");
+const routines = @import("routines.zig");
 const parts = @import("split.zig");
 const quirks = @import("quirks.zig");
 
 const Io = std.Io;
 const isComplex = types.isComplex;
 const Blas = binding.Blas;
+const routine = routines.routine;
 const Transpose = binding.Transpose;
 const Uplo = binding.Uplo;
 const Diag = binding.Diag;
@@ -42,7 +43,7 @@ const nonFiniteMat = quirks.nonFiniteMat;
 fn Gemm(comptime T: type) type {
     return struct {
         const Self = @This();
-        const name = "cblas_" ++ portable.letter(T).? ++ "gemm";
+        const name = routine(.gemm, T);
 
         b: *const Blas,
         ta: Transpose,
@@ -102,7 +103,7 @@ pub inline fn gemm(io: Io, comptime T: type, transa: types.Trans, transb: types.
 fn Symm(comptime T: type, comptime herm: bool) type {
     return struct {
         const Self = @This();
-        const name = "cblas_" ++ portable.letter(T).? ++ if (herm) "hemm" else "symm";
+        const name = routine(if (herm) .hemm else .symm, T);
 
         b: *const Blas,
         sd: Side,
@@ -158,16 +159,15 @@ pub inline fn syrk(comptime T: type, comptime herm: bool, ul: types.Uplo, t: boo
         }
         const ea = if (t) mat(k, n, lda) else mat(n, k, lda);
         const ec = mat(n, n, ldc);
-        const l = comptime portable.letter(T).?;
         const ok = if (b_) |bb| blk: {
             const eb = if (t) mat(k, n, ldb) else mat(n, k, ldb);
             const ext = &.{ ea, eb, ec };
-            if (comptime herm) break :blk call("cblas_" ++ l ++ "her2k", b, ext, .{ col, u, tr, n, k, scalar(T, &alpha), a, lda, bb, ldb, beta.re, c, ldc }) != null;
-            break :blk call("cblas_" ++ l ++ "syr2k", b, ext, .{ col, u, tr, n, k, scalar(T, &alpha), a, lda, bb, ldb, scalar(T, &beta), c, ldc }) != null;
+            if (comptime herm) break :blk call(routine(.her2k, T), b, ext, .{ col, u, tr, n, k, scalar(T, &alpha), a, lda, bb, ldb, beta.re, c, ldc }) != null;
+            break :blk call(routine(.syr2k, T), b, ext, .{ col, u, tr, n, k, scalar(T, &alpha), a, lda, bb, ldb, scalar(T, &beta), c, ldc }) != null;
         } else if (comptime herm)
-            call("cblas_" ++ l ++ "herk", b, &.{ ea, ec }, .{ col, u, tr, n, k, alpha.re, a, lda, beta.re, c, ldc }) != null
+            call(routine(.herk, T), b, &.{ ea, ec }, .{ col, u, tr, n, k, alpha.re, a, lda, beta.re, c, ldc }) != null
         else
-            call("cblas_" ++ l ++ "syrk", b, &.{ ea, ec }, .{ col, u, tr, n, k, scalar(T, &alpha), a, lda, scalar(T, &beta), c, ldc }) != null;
+            call(routine(.syrk, T), b, &.{ ea, ec }, .{ col, u, tr, n, k, scalar(T, &alpha), a, lda, scalar(T, &beta), c, ldc }) != null;
         if (ok and herm) realDiagonal(T, n, c, ldc, ul == .l);
         return ok;
     }
@@ -178,7 +178,7 @@ pub inline fn syrk(comptime T: type, comptime herm: bool, ul: types.Uplo, t: boo
 fn Trmm(comptime T: type, comptime solve: bool) type {
     return struct {
         const Self = @This();
-        const name = "cblas_" ++ portable.letter(T).? ++ if (solve) "trsm" else "trmm";
+        const name = routine(if (solve) .trsm else .trmm, T);
 
         b: *const Blas,
         sd: Side,

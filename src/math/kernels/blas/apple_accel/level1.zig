@@ -3,21 +3,21 @@
 const std = @import("std");
 const types = @import("../types.zig");
 const threading = @import("../threading.zig");
-const portable = @import("../portable.zig");
 const util = @import("../util.zig");
 const accel = @import("../apple_accel.zig");
 const binding = @import("binding.zig");
+const routines = @import("routines.zig");
 const parts = @import("split.zig");
 const quirks = @import("quirks.zig");
 
 const Io = std.Io;
-const Complex32 = types.Complex32;
-const Complex64 = types.Complex64;
 const isComplex = types.isComplex;
 const Float = types.Float;
 const isZero = util.isZero;
 const x86_64 = binding.x86_64;
 const Blas = binding.Blas;
+const Symbol = routines.Symbol;
+const routine = routines.routine;
 const covers = accel.covers;
 const rosetta = accel.rosetta;
 const use = accel.use;
@@ -44,14 +44,13 @@ const Elem = enum { copy, swap, scal, rot, axpy };
 fn Elementwise(comptime T: type, comptime r: Elem) type {
     return struct {
         const Self = @This();
-        const name = "cblas_" ++ switch (r) {
-            .rot => switch (T) {
-                Complex32 => "csrot",
-                Complex64 => "zdrot",
-                else => portable.letter(T).? ++ "rot",
-            },
-            else => portable.letter(T).? ++ @tagName(r),
-        };
+        const name = routine(switch (r) {
+            .copy => .copy,
+            .swap => .swap,
+            .scal => .scal,
+            .rot => .rot,
+            .axpy => .axpy,
+        }, T);
 
         b: *const Blas,
         n: isize,
@@ -132,14 +131,10 @@ fn Reduction(comptime T: type, comptime r: Red) type {
         const Self = @This();
         /// `sdot` is `dsdot`: rstd's contract sums in `f64` (readme, One
         /// contract on every core).
-        const name = if (r == .asum) switch (T) {
-            Complex32 => "cblas_scasum",
-            Complex64 => "cblas_dzasum",
-            else => "cblas_" ++ portable.letter(T).? ++ "asum",
-        } else switch (T) {
-            f32 => "cblas_dsdot",
-            f64 => "cblas_ddot",
-            else => "cblas_" ++ portable.letter(T).? ++ (if (r == .dotc) "dotc" else "dotu") ++ "_sub",
+        const name: Symbol = if (r == .asum) routine(.asum, T) else switch (T) {
+            f32 => .cblas_dsdot,
+            f64 => .cblas_ddot,
+            else => routine(if (r == .dotc) .dotc else .dotu, T),
         };
         const W = if (r == .asum) Sum(Float(T)) else Sum(T);
 
@@ -203,17 +198,17 @@ pub inline fn nrm2(comptime T: type, n: isize, x: [*]T, incx: isize) ?Float(T) {
         if (comptime Float(T) == f32) {
             if (rosetta()) return null;
             const sq = if (comptime !isComplex(T))
-                call("cblas_dsdot", b, &.{span(n, incx)}, .{ n, f, incx, f, incx }) orelse return null
+                call(.cblas_dsdot, b, &.{span(n, incx)}, .{ n, f, incx, f, incx }) orelse return null
             else if (incx == 1)
-                call("cblas_dsdot", b, &.{2 * n}, .{ 2 * n, f, @as(isize, 1), f, @as(isize, 1) }) orelse return null
+                call(.cblas_dsdot, b, &.{2 * n}, .{ 2 * n, f, @as(isize, 1), f, @as(isize, 1) }) orelse return null
             else blk: {
-                const re = call("cblas_dsdot", b, &.{span(n, 2 * incx)}, .{ n, f, 2 * incx, f, 2 * incx }) orelse return null;
-                const im = call("cblas_dsdot", b, &.{span(n, 2 * incx)}, .{ n, f + 1, 2 * incx, f + 1, 2 * incx }) orelse return null;
+                const re = call(.cblas_dsdot, b, &.{span(n, 2 * incx)}, .{ n, f, 2 * incx, f, 2 * incx }) orelse return null;
+                const im = call(.cblas_dsdot, b, &.{span(n, 2 * incx)}, .{ n, f + 1, 2 * incx, f + 1, 2 * incx }) orelse return null;
                 break :blk re + im;
             };
             return @floatCast(@sqrt(sq));
         }
-        return call(if (comptime isComplex(T)) "cblas_dznrm2" else "cblas_dnrm2", b, &.{span(n, incx)}, .{ n, x, incx });
+        return call(routine(.nrm2, T), b, &.{span(n, incx)}, .{ n, x, incx });
     }
 }
 
@@ -242,7 +237,7 @@ pub inline fn rotm(comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, in
         if (!sent(.rotm, T, incx == 1 and incy == 1)) return false;
         const b = use(T) orelse return false;
         if (incx == 0 or incy == 0) return false;
-        return call("cblas_" ++ portable.letter(T).? ++ "rotm", b, &.{ span(n, incx), span(n, incy) }, .{ n, x, incx, y, incy, param }) != null;
+        return call(routine(.rotm, T), b, &.{ span(n, incx), span(n, incy) }, .{ n, x, incx, y, incy, param }) != null;
     }
 }
 
@@ -265,6 +260,6 @@ pub inline fn axpby(comptime T: type, n: isize, alpha: T, x: [*]T, incx: isize, 
         // arm64 only
         if (!x86_64 and (zeroPart(T, alpha) or zeroPart(T, beta))) return false;
         if (incy == 0) return false;
-        return call("catlas_" ++ portable.letter(T).? ++ "axpby", b, &.{ span(n, incx), span(n, incy) }, .{ n, scalar(T, &alpha), x, incx, scalar(T, &beta), y, incy }) != null;
+        return call(routine(.axpby, T), b, &.{ span(n, incx), span(n, incy) }, .{ n, scalar(T, &alpha), x, incx, scalar(T, &beta), y, incy }) != null;
     }
 }

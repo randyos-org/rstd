@@ -13,6 +13,7 @@ const sysinfo = @import("builtin");
 const types = @import("types.zig");
 const blas = @import("__root__.zig");
 const binding = @import("apple_accel/binding.zig");
+const routines = @import("apple_accel/routines.zig");
 const parts = @import("apple_accel/split.zig");
 const quirks = @import("apple_accel/quirks.zig");
 const level1 = @import("apple_accel/level1.zig");
@@ -44,6 +45,7 @@ pub const bindBlas = binding.bindBlas;
 pub const load = binding.load;
 pub const EnvError = binding.EnvError;
 pub const setMaxThreadsEnv = binding.setMaxThreadsEnv;
+pub const Symbol = routines.Symbol;
 
 pub const vector_quantum = parts.vector_quantum;
 pub const matrix_quantum = parts.matrix_quantum;
@@ -160,20 +162,20 @@ fn pin() void {
     if (loaded) |*acc| acc.singleThreadHere();
 }
 
-/// What `call` returns for `name`: its C result, an index as `isize`.
-fn Ret(comptime name: []const u8) type {
-    const R = @typeInfo(@typeInfo(@typeInfo(@FieldType(Table(i64), name)).optional.child).pointer.child).@"fn".return_type.?;
+/// What `call` returns for `sym`: its C result, an index as `isize`.
+fn Ret(comptime sym: Symbol) type {
+    const R = @typeInfo(@typeInfo(@typeInfo(@FieldType(Table(i64), @tagName(sym))).optional.child).pointer.child).@"fn".return_type.?;
     return if (R == i64) isize else R;
 }
 
-/// Calls `name` with `args`, every `isize` narrowed to the table's integer;
+/// Calls `sym` with `args`, every `isize` narrowed to the table's integer;
 /// null if the table lacks it or, on LP64, any argument or `extents` entry
 /// (an operand's span in elements) is past `c_int`. Pins the calling thread
 /// (`pin`).
-pub fn call(comptime name: []const u8, b: *const Blas, extents: []const isize, args: anytype) ?Ret(name) {
+pub fn call(comptime sym: Symbol, b: *const Blas, extents: []const isize, args: anytype) ?Ret(sym) {
     switch (b.*) {
         inline else => |*bound, tag| {
-            const f = @field(bound.fns, name) orelse return null;
+            const f = @field(bound.fns, @tagName(sym)) orelse return null;
             const I = if (tag == .ilp64) i64 else c_int;
             if (I != i64) for (extents) |e| if (e > std.math.maxInt(I)) return null;
             var conv: std.meta.ArgsTuple(@typeInfo(@TypeOf(f)).pointer.child) = undefined;

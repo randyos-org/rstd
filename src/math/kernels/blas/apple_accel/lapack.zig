@@ -3,12 +3,13 @@
 const std = @import("std");
 const sysinfo = @import("builtin");
 const types = @import("../types.zig");
-const portable = @import("../portable.zig");
 const accel = @import("../apple_accel.zig");
 const binding = @import("binding.zig");
+const routines = @import("routines.zig");
 
 const isComplex = types.isComplex;
 const x86_64 = binding.x86_64;
+const routine = routines.routine;
 const covers = accel.covers;
 const use = accel.use;
 const mat = accel.mat;
@@ -26,7 +27,7 @@ pub inline fn potrf(comptime T: type, ul: types.Uplo, n: isize, a: [*]T, lda: is
         };
         switch (b.*) {
             inline else => |*bound, tag| {
-                const f = @field(bound.fns, portable.letter(T).? ++ "potrf_") orelse return null;
+                const f = @field(bound.fns, @tagName(routine(.potrf, T))) orelse return null;
                 const I = if (tag == .ilp64) i64 else c_int;
                 if (I != i64 and mat(n, n, lda) > std.math.maxInt(I)) return null;
                 const nn = std.math.cast(I, n) orelse return null;

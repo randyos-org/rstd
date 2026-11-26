@@ -76,8 +76,8 @@ pub fn T1(comptime F: type) type {
     return *const fn (BlasLong, [*]F, [*]F, [*]F) void;
 }
 
-/// `<p>gemv_kernel_<shape>` from the microkernel `M`, else from the driver's
-/// own assembly `O`, else `fallback`, the driver's C.
+/// The block `name` (`names.zig`) from the microkernel `M`, else from the
+/// driver's own assembly `O`, else `fallback`, the driver's C.
 pub fn choose(comptime Fn: type, comptime M: type, comptime O: type, comptime name: []const u8, comptime fallback: ?Fn) Fn {
     if (@hasDecl(M, name)) return &@field(M, name);
     if (O != void and @hasDecl(O, name)) return &@field(O, name);
