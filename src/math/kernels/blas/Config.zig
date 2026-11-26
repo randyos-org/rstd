@@ -32,9 +32,10 @@ get_openblas_coretype: bool = false,
 l2_size_override: i32 = 0,
 
 /// `OPENBLAS_THREAD_TIMEOUT`: a pool worker spins `2^this` ticks before it
-/// sleeps (`threading/pool.zig`); clamped to 4 to 30, 28 unset or 0
-/// (`blas_server.c`'s `THREAD_TIMEOUT`, `blas_thread_init`).
-thread_timeout: u6 = 28,
+/// sleeps (`threading/pool.zig`); clamped to 4 to 30 (`blas_thread_init`).
+/// Unset or 0, 20, not `blas_server.c`'s 28: on the M6 the longer spin slowed
+/// real `syevd` by a third, and 20 lost nothing on Zen 3 (#710).
+thread_timeout: u6 = 20,
 
 /// Not from the environment: the CPU count `blas.init` caches
 /// (`threading.cpuCount`), 1 until then.
@@ -291,11 +292,11 @@ test "RSTD_BLAS_ACCELERATE=0 turns Accelerate off; unset or anything else leaves
     }
 }
 
-test "OPENBLAS_THREAD_TIMEOUT is clamped to 4 to 30, 28 unset or not positive" {
+test "OPENBLAS_THREAD_TIMEOUT is clamped to 4 to 30, 20 unset or not positive" {
     for ([_]struct { v: ?[]const u8, want: u6 }{
-        .{ .v = null, .want = 28 },
-        .{ .v = "0", .want = 28 },
-        .{ .v = "-3", .want = 28 },
+        .{ .v = null, .want = 20 },
+        .{ .v = "0", .want = 20 },
+        .{ .v = "-3", .want = 20 },
         .{ .v = "2", .want = 4 },
         .{ .v = "20", .want = 20 },
         .{ .v = "40", .want = 30 },

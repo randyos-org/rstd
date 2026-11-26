@@ -269,7 +269,7 @@ pub fn loadLibs(opts: LibOptions) !void {
     const ceiling = blas.config.threadCeiling();
     std.debug.print("rstd core: {s}, accelerate: {}, io: {s}, ceiling: {?d}, cpus: {d}\n", .{ blas.coreName(), routed, io_name, ceiling, blas.config.cpu_count });
     // the race idles OpenBLAS's workers by a variable rstd reads too: rstd's
-    // pool keeps upstream's default (#710)
+    // pool keeps its own default (#710)
     if (ob_idle) blas.config.thread_timeout = (blas.Config{}).thread_timeout;
     io_note = if (ceiling) |c|
         try std.mem.print(&io_note_buf, "rstd runs on `{s}`, thread ceiling {d}.", .{ io_name, c })
