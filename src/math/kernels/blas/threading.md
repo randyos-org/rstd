@@ -389,6 +389,8 @@ through the caller's deferred `cancel`. Tasks re-arm cancellation as before, and
 and their fold are unchanged, so the bits are too. `Uring`'s futures are reused too early
 ([#209](https://github.com/randyos-org/rstd/issues/209)), so a multithreaded `Uring` stays unsupported.
 
+`Dispatch` also asserts, now and then, when a cancel meets a wake of a fiber asleep on a futex ([#674](https://github.com/randyos-org/rstd/issues/674)). So there a `Signal` wait, the caller's and every worker's, never sleeps cancelably: it checks for cancellation (`threading.checkCancel`), then sleeps 1 ms at a time with cancellation blocked (`swapCancelProtection`), and looks again. A cancel takes effect within about a millisecond, as `error.Canceled` from the same places as before. **Revert:** once std fixes the race, go back to the plain `futexWait`.
+
 A fiber that sleeps or wakes others may resume on another thread, and the control state
 stays with the thread ([#210](https://github.com/randyos-org/rstd/issues/210)); `Dispatch` moves even the caller. On the M6,
 level 3 under rounding toward zero lost its bits that way. So a level 3 worker holds the
