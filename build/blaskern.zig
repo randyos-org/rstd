@@ -180,9 +180,6 @@ pub fn asmCheck(b: *Build, comp: *Compile, query: std.Target.Query) !*Build.Step
         check.addArg("-fno-PIC");
         if (target.cpu.arch.isMips()) check.addArg("-mno-abicalls");
     }
-    // wasm bitcode already has its `wasm-feature-*` flags, which clang adds again
-    // (issue #191)
-    if (target.cpu.arch.isWasm()) check.addArgs(&.{ "-Xclang", "-disable-llvm-verifier" });
     // a function per section, so calls are relocations the linker resolves; in
     // one section a large image's branches outrun their range (+-32 MiB on
     // PowerPC and 32-bit arm), which the assembler reports as an error
