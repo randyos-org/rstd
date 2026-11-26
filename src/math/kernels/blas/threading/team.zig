@@ -5,8 +5,12 @@ const std = @import("std");
 const sysinfo = @import("builtin");
 const FpState = @import("../FpState.zig");
 const Qos = @import("Qos.zig");
-const Tasks = @import("tasks.zig").Tasks;
+const tasking = @import("tasks.zig");
 const pool = @import("pool.zig");
+const region = @import("region.zig");
+
+const Tasks = tasking.Tasks;
+const usesFutures = tasking.usesFutures;
 
 const Io = std.Io;
 
@@ -103,6 +107,13 @@ pub const Signal = struct {
             if (pool.onPool()) {
                 if (pool.aborted()) return error.Canceled;
                 try io.futexWaitTimeout(u32, &s.value.raw, old, pool.abort_poll);
+            } else if (usesFutures(io)) {
+                // `Dispatch` asserts when a cancel meets a wake of a sleeping
+                // waiter (issue #674): sleep protected, look between sleeps
+                try region.checkCancel(io);
+                const prior = io.swapCancelProtection(.blocked);
+                defer _ = io.swapCancelProtection(prior);
+                io.futexWaitTimeout(u32, &s.value.raw, old, pool.abort_poll) catch {};
             } else try io.futexWait(u32, &s.value.raw, old);
         }
     }
