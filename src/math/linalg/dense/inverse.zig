@@ -220,10 +220,50 @@ pub fn solveOn(path: Path, allocator: Allocator, io: Io, o: anytype, a: ConstVie
     copyInto(T, o.data, o.ld, x.constView());
 }
 
-/// `gelsy`'s least-norm least-squares solution, for rectangular `a`.
+/// `gelsy`'s least-norm least-squares solution, for rectangular `a`, rank
+/// cut at `max(m, n) eps`.
 pub fn leastSquares(allocator: Allocator, io: Io, o: anytype, a: ConstView(@TypeOf(o).Element), b: ConstView(@TypeOf(o).Element)) (Allocator.Error || Io.Cancelable)!void {
-    const T = @TypeOf(o).Element;
+    const F = Real(@TypeOf(o).Element);
+    return leastSquaresWith(allocator, io, o, a, b, @as(F, @floatFromInt(@max(a.rows, a.cols))) * std.math.floatEps(F));
+}
+
+pub const LsqminnormError = error{DimensionMismatch} || Allocator.Error || Io.Cancelable;
+
+/// `lsqminnormWith`'s knobs.
+pub fn LsqminnormOptions(comptime F: type) type {
+    return struct {
+        /// `gelsy`'s `rcond`: the rank is that of the leading `R11` of `A P =
+        /// Q R` whose condition estimate stays below `1 / rcond`; null for
+        /// `max(m, n) eps`.
+        rcond: ?F = null,
+    };
+}
+
+/// The minimum-norm least-squares `X` of `A X = B` (MATLAB's
+/// `lsqminnorm(A, B)`), any shape and rank, by the complete orthogonal
+/// decomposition (`gelsy`), rank cut at `max(m, n) eps`.
+pub fn lsqminnorm(allocator: Allocator, io: Io, a: anytype, b: anytype) LsqminnormError!Mat(ElementOf(@TypeOf(a))) {
+    return lsqminnormWith(allocator, io, a, b, .{});
+}
+
+/// `lsqminnorm` with its rank tolerance. MATLAB's `tol` is absolute, on the
+/// decomposition; `rcond` here is `gelsy`'s relative one.
+pub fn lsqminnormWith(allocator: Allocator, io: Io, a: anytype, b: anytype, options: LsqminnormOptions(Real(ElementOf(@TypeOf(a))))) LsqminnormError!Mat(ElementOf(@TypeOf(a))) {
+    const T = ElementOf(@TypeOf(a));
     const F = Real(T);
+    const ca = constOf(a);
+    const cb = constOf(b);
+    if (cb.rows != ca.rows) return error.DimensionMismatch;
+    const r = try Mat(T).init(allocator, ca.cols, cb.cols);
+    errdefer r.deinit(allocator);
+    const rcond = options.rcond orelse (@as(F, @floatFromInt(@max(ca.rows, ca.cols))) * std.math.floatEps(F));
+    try leastSquaresWith(allocator, io, r.view(), ca, cb, rcond);
+    return r;
+}
+
+/// `leastSquares` at `gelsy`'s `rcond`.
+fn leastSquaresWith(allocator: Allocator, io: Io, o: anytype, a: ConstView(@TypeOf(o).Element), b: ConstView(@TypeOf(o).Element), rcond: Real(@TypeOf(o).Element)) (Allocator.Error || Io.Cancelable)!void {
+    const T = @TypeOf(o).Element;
     const m = a.rows;
     const n = a.cols;
     if (m == 0 or n == 0) {
@@ -239,7 +279,6 @@ pub fn leastSquares(allocator: Allocator, io: Io, o: anytype, a: ConstView(@Type
     const jpvt = try allocator.alloc(usize, n);
     defer allocator.free(jpvt);
     @memset(jpvt, 0);
-    const rcond = @as(F, @floatFromInt(ldx)) * std.math.floatEps(F);
     _ = lapack.gelsy(allocator, io, T, m, n, b.cols, f.data, m, x, ldx, jpvt, rcond) catch |e| return narrow(Error, e);
     for (0..o.cols) |j| @memcpy(o.col(j), x[j * ldx ..][0..n]);
 }

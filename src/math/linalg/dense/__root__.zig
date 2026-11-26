@@ -36,6 +36,10 @@ pub const inv = inverse.inv;
 pub const invInto = inverse.invInto;
 pub const solve = inverse.solve;
 pub const solveInto = inverse.solveInto;
+pub const LsqminnormError = inverse.LsqminnormError;
+pub const LsqminnormOptions = inverse.LsqminnormOptions;
+pub const lsqminnorm = inverse.lsqminnorm;
+pub const lsqminnormWith = inverse.lsqminnormWith;
 
 const factor = @import("factor.zig");
 pub const CholError = factor.CholError;
