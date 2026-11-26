@@ -15,6 +15,7 @@ const triangular = @import("triangular.zig");
 const relapack = @import("relapack.zig");
 const indefinite = @import("indefinite.zig");
 const sytrf_factor = @import("sytrf.zig");
+const sytrs_solve = @import("sytrs.zig");
 const householder = @import("householder.zig");
 const qr = @import("qr.zig");
 const qr_solve = @import("qr_solve.zig");
@@ -102,6 +103,13 @@ pub const sytrf = sytrf_factor.sytrf;
 pub const hetrf = sytrf_factor.hetrf;
 pub const sytrfRook = sytrf_factor.sytrfRook;
 pub const hetrfRook = sytrf_factor.hetrfRook;
+/// `sytrs`, `hetrs`, `sytrsRook`, `hetrsRook`: a bad pivot or shape, before
+/// `B` is touched.
+pub const SytrsError = sytrs_solve.SytrsError;
+pub const sytrs = sytrs_solve.sytrs;
+pub const hetrs = sytrs_solve.hetrs;
+pub const sytrsRook = sytrs_solve.sytrsRook;
+pub const hetrsRook = sytrs_solve.hetrsRook;
 pub const sygst = relapack.sygst;
 pub const hegst = relapack.hegst;
 
@@ -261,6 +269,7 @@ test {
     _ = tgsyl_solve;
     _ = indefinite;
     _ = sytrf_factor;
+    _ = sytrs_solve;
     _ = relapack_tests;
     _ = evd_tests;
     _ = norm_tests;
