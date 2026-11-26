@@ -2,6 +2,7 @@
 //! kernels (`trmmkernel_*.c`) over the gemm tile; the diagonal block sums its
 //! triangle alone, so an infinity meets no packed zero, unlike upstream.
 
+const std = @import("std");
 const types = @import("../../types.zig");
 const util = @import("../../util.zig");
 const gk = @import("../gemm/kernel.zig");
@@ -127,34 +128,75 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
                     const rest: [2]usize = if (from) .{ d1, ku } else .{ 0, d0 };
                     for (0..wn) |j| @memset(pc[j * ld ..][0..w], zero);
                     if (rest[1] > rest[0]) gk.sideKernel(G, F, complex, left, conj, w, wn, rest[1] - rest[0], alpha, pa + rest[0] * w, pb + rest[0] * wn, pc, ld);
-                    for (0..wn) |j| for (0..w) |i| {
-                        // the row (left) or column of `op(A)` this element is
-                        const at: isize = off + @as(isize, @intCast(if (left) i else j));
-                        var sr: A = 0;
-                        var si: A = 0;
-                        for (d0..d1) |d| {
-                            const di: isize = @intCast(d);
-                            // left: `D >= L` from, `D <= L` up to; right likewise
-                            if (if (from) di < at else di > at) continue;
-                            const x = pa[d * w + i];
-                            const y = pb[d * wn + j];
-                            if (comptime complex) {
-                                const xi: A = if (conj and left) -@as(A, x[1]) else x[1];
-                                const yi: A = if (conj and !left) -@as(A, y[1]) else y[1];
-                                sr += @as(A, x[0]) * y[0] - xi * yi;
-                                si += @as(A, x[0]) * yi + xi * y[0];
-                            } else sr += @as(A, x) * y;
-                        }
-                        const p = &pc[i + j * ld];
-                        if (comptime complex) {
-                            const ar: A = alpha[0];
-                            const ai: A = alpha[1];
-                            p.* = .{ util.scalar(F, @floatCast(p[0] + (ar * sr - ai * si))), util.scalar(F, @floatCast(p[1] + (ar * si + ai * sr))) };
-                        } else p.* = util.scalar(E, @floatCast(p.* + @as(A, alpha[0]) * sr));
-                    };
+                    if (vector_diag and w == mr) {
+                        diagonal(left, from, wn, d0, d1, off, @ptrCast(pa), @ptrCast(pb), @ptrCast(pc), ld, alpha[0]);
+                    } else diagonalScalar(left, from, conj, w, wn, d0, d1, off, pa, pb, pc, ld, alpha);
                     r0 += w;
                 }
                 c0 += wn;
+            }
+        }
+
+        /// The diagonal block of a `w x wn` tile at depths `d0` to `d1`, its
+        /// triangle alone, into `pc`: `alpha` times the sum of each element's
+        /// products, in depth order.
+        pub fn diagonalScalar(left: bool, from: bool, conj: bool, w: usize, wn: usize, d0: usize, d1: usize, off: isize, pa: [*]const E, pb: [*]const E, pc: [*]E, ld: usize, alpha: [*]const F) void {
+            for (0..wn) |j| for (0..w) |i| {
+                // the row (left) or column of `op(A)` this element is
+                const at: isize = off + @as(isize, @intCast(if (left) i else j));
+                var sr: A = 0;
+                var si: A = 0;
+                for (d0..d1) |d| {
+                    const di: isize = @intCast(d);
+                    // left: `D >= L` from, `D <= L` up to; right likewise
+                    if (if (from) di < at else di > at) continue;
+                    const x = pa[d * w + i];
+                    const y = pb[d * wn + j];
+                    if (comptime complex) {
+                        const xi: A = if (conj and left) -@as(A, x[1]) else x[1];
+                        const yi: A = if (conj and !left) -@as(A, y[1]) else y[1];
+                        sr += @as(A, x[0]) * y[0] - xi * yi;
+                        si += @as(A, x[0]) * yi + xi * y[0];
+                    } else sr += @as(A, x) * y;
+                }
+                const p = &pc[i + j * ld];
+                if (comptime complex) {
+                    const ar: A = alpha[0];
+                    const ai: A = alpha[1];
+                    p.* = .{ util.scalar(F, @floatCast(p[0] + (ar * sr - ai * si))), util.scalar(F, @floatCast(p[1] + (ar * si + ai * sr))) };
+                } else p.* = util.scalar(E, @floatCast(p.* + @as(A, alpha[0]) * sr));
+            };
+        }
+
+        /// Whether a whole tile's diagonal block runs `mr` lanes at a time:
+        /// real, on vectors that keep denormals (`geo.vl`), summed in `F`.
+        pub const vector_diag = !complex and geo.vl > 1 and A == F;
+        pub const tile_rows = mr;
+
+        /// The diagonal block of a whole tile, `mr` rows by `wn` columns, as
+        /// `run`'s scalar loop sums it, a column of rows at a time: a product
+        /// outside the triangle becomes an exact zero, which no sum here
+        /// changes by, so an infinity meets no zero and the bits are its own.
+        pub fn diagonal(left: bool, from: bool, wn: usize, d0: usize, d1: usize, off: isize, pa: [*]const F, pb: [*]const F, pc: [*]F, ld: usize, alpha: F) void {
+            const V = @Vector(mr, F);
+            const I = @Vector(mr, isize);
+            const zero: V = @splat(0);
+            // left: row `i` of the tile is row `off + i` of `op(A)`
+            const rows: I = @as(I, @splat(off)) + std.simd.iota(isize, mr);
+            for (0..wn) |j| {
+                // right: column `j` of the tile is column `off + j`
+                const col: isize = off + @as(isize, @intCast(j));
+                var s: V = zero;
+                for (d0..d1) |d| {
+                    const di: isize = @intCast(d);
+                    const p = @as(V, pa[d * mr ..][0..mr].*) * @as(V, @splat(pb[d * wn + j]));
+                    if (left) {
+                        const at: I = @splat(di);
+                        s += @select(F, if (from) at >= rows else at <= rows, p, zero);
+                    } else if (if (from) di >= col else di <= col) s += p;
+                }
+                const c = pc + j * ld;
+                c[0..mr].* = @as(V, c[0..mr].*) + @as(V, @splat(alpha)) * s;
             }
         }
 

@@ -26,5 +26,6 @@ test {
     _ = @import("blas3/params.zig");
     _ = @import("blas3/small.zig");
     _ = @import("blas3/threaded.zig");
+    _ = @import("blas3/trmm_diagonal.zig");
     _ = @import("from_openblas/__root__.zig");
 }
