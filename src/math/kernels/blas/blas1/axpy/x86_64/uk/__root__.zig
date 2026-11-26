@@ -1,0 +1,130 @@
+//! Which block kernel each core's C driver uses, read from the `#if` chain at the top of `kernel/x86_64/<p>axpy.c` (OpenBLAS `v0.3.34-794-gdbf2c24c9`); converted by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+const uk = @import("../../../../uk_block.zig");
+
+pub const Entry = uk.Entry;
+
+pub const entries = [_]Entry{
+    .{ .slot = .saxpy_k, .cores = &.{
+        .nehalem,
+    }, .mask = 32, .block = .assembly, .kernel = "saxpy_kernel_16", .module = @import("saxpy_nehalem.zig") },
+    .{ .slot = .saxpy_k, .cores = &.{
+        .haswell,
+        .zen,
+    }, .mask = 32, .block = .assembly, .kernel = "saxpy_kernel_16", .module = @import("saxpy_haswell.zig") },
+    .{ .slot = .saxpy_k, .cores = &.{
+        .cooperlake,
+        .sapphirerapids,
+        .skylakex,
+    }, .mask = 32, .block = .vector, .kernel = "", .module = void },
+    .{ .slot = .saxpy_k, .cores = &.{
+        .sandybridge,
+    }, .mask = 32, .block = .assembly, .kernel = "saxpy_kernel_16", .module = @import("saxpy_sandy.zig") },
+    .{ .slot = .saxpy_k, .cores = &.{
+        .excavator,
+        .piledriver,
+        .steamroller,
+    }, .mask = 32, .block = .assembly, .kernel = "saxpy_kernel_16", .module = @import("saxpy_piledriver.zig") },
+    .{ .slot = .daxpy_k, .cores = &.{
+        .nehalem,
+    }, .mask = 16, .block = .assembly, .kernel = "daxpy_kernel_8", .module = @import("daxpy_nehalem.zig") },
+    .{ .slot = .daxpy_k, .cores = &.{
+        .bulldozer,
+    }, .mask = 16, .block = .assembly, .kernel = "daxpy_kernel_8", .module = @import("daxpy_bulldozer.zig") },
+    .{ .slot = .daxpy_k, .cores = &.{
+        .excavator,
+        .steamroller,
+    }, .mask = 16, .block = .assembly, .kernel = "daxpy_kernel_8", .module = @import("daxpy_steamroller.zig") },
+    .{ .slot = .daxpy_k, .cores = &.{
+        .piledriver,
+    }, .mask = 16, .block = .assembly, .kernel = "daxpy_kernel_8", .module = @import("daxpy_piledriver.zig") },
+    .{ .slot = .daxpy_k, .cores = &.{
+        .haswell,
+        .zen,
+    }, .mask = 16, .block = .assembly, .kernel = "daxpy_kernel_8", .module = @import("daxpy_haswell.zig") },
+    .{ .slot = .daxpy_k, .cores = &.{
+        .cooperlake,
+        .sapphirerapids,
+        .skylakex,
+    }, .mask = 16, .block = .vector, .kernel = "", .module = void },
+    .{ .slot = .daxpy_k, .cores = &.{
+        .sandybridge,
+    }, .mask = 16, .block = .assembly, .kernel = "daxpy_kernel_8", .module = @import("daxpy_sandy.zig") },
+    .{ .slot = .caxpy_k, .cores = &.{
+        .excavator,
+        .piledriver,
+        .steamroller,
+    }, .mask = 32, .block = .assembly, .kernel = "caxpy_kernel_8", .module = @import("caxpy_steamroller.zig") },
+    .{ .slot = .caxpyc_k, .cores = &.{
+        .excavator,
+        .piledriver,
+        .steamroller,
+    }, .mask = 32, .block = .assembly, .kernel = "caxpyc_kernel_8", .module = @import("caxpy_steamroller.zig") },
+    .{ .slot = .caxpy_k, .cores = &.{
+        .bulldozer,
+    }, .mask = 32, .block = .assembly, .kernel = "caxpy_kernel_8", .module = @import("caxpy_bulldozer.zig") },
+    .{ .slot = .caxpyc_k, .cores = &.{
+        .bulldozer,
+    }, .mask = 32, .block = .assembly, .kernel = "caxpyc_kernel_8", .module = @import("caxpy_bulldozer.zig") },
+    .{ .slot = .caxpy_k, .cores = &.{
+        .cooperlake,
+        .haswell,
+        .sapphirerapids,
+        .skylakex,
+        .zen,
+    }, .mask = 32, .block = .assembly, .kernel = "caxpy_kernel_8", .module = @import("caxpy_haswell.zig") },
+    .{ .slot = .caxpyc_k, .cores = &.{
+        .cooperlake,
+        .haswell,
+        .sapphirerapids,
+        .skylakex,
+        .zen,
+    }, .mask = 32, .block = .assembly, .kernel = "caxpyc_kernel_8", .module = @import("caxpy_haswell.zig") },
+    .{ .slot = .caxpy_k, .cores = &.{
+        .sandybridge,
+    }, .mask = 32, .block = .assembly, .kernel = "caxpy_kernel_8", .module = @import("caxpy_sandy.zig") },
+    .{ .slot = .caxpyc_k, .cores = &.{
+        .sandybridge,
+    }, .mask = 32, .block = .assembly, .kernel = "caxpyc_kernel_8", .module = @import("caxpy_sandy.zig") },
+    .{ .slot = .zaxpy_k, .cores = &.{
+        .bulldozer,
+    }, .mask = 16, .block = .assembly, .kernel = "zaxpy_kernel_4", .module = @import("zaxpy_bulldozer.zig") },
+    .{ .slot = .zaxpyc_k, .cores = &.{
+        .bulldozer,
+    }, .mask = 16, .block = .assembly, .kernel = "zaxpyc_kernel_4", .module = @import("zaxpy_bulldozer.zig") },
+    .{ .slot = .zaxpy_k, .cores = &.{
+        .excavator,
+        .piledriver,
+        .steamroller,
+    }, .mask = 16, .block = .assembly, .kernel = "zaxpy_kernel_4", .module = @import("zaxpy_steamroller.zig") },
+    .{ .slot = .zaxpyc_k, .cores = &.{
+        .excavator,
+        .piledriver,
+        .steamroller,
+    }, .mask = 16, .block = .assembly, .kernel = "zaxpyc_kernel_4", .module = @import("zaxpy_steamroller.zig") },
+    .{ .slot = .zaxpy_k, .cores = &.{
+        .cooperlake,
+        .haswell,
+        .sapphirerapids,
+        .skylakex,
+        .zen,
+    }, .mask = 16, .block = .assembly, .kernel = "zaxpy_kernel_4", .module = @import("zaxpy_haswell.zig") },
+    .{ .slot = .zaxpyc_k, .cores = &.{
+        .cooperlake,
+        .haswell,
+        .sapphirerapids,
+        .skylakex,
+        .zen,
+    }, .mask = 16, .block = .assembly, .kernel = "zaxpyc_kernel_4", .module = @import("zaxpy_haswell.zig") },
+    .{ .slot = .zaxpy_k, .cores = &.{
+        .sandybridge,
+    }, .mask = 16, .block = .assembly, .kernel = "zaxpy_kernel_4", .module = @import("zaxpy_sandy.zig") },
+    .{ .slot = .zaxpyc_k, .cores = &.{
+        .sandybridge,
+    }, .mask = 16, .block = .assembly, .kernel = "zaxpyc_kernel_4", .module = @import("zaxpy_sandy.zig") },
+};
+
+/// The entry for `slot` on `core`, if its driver is C.
+pub fn find(comptime slot: uk.Slot, comptime core: anytype) ?Entry {
+    return uk.find(&entries, slot, core);
+}

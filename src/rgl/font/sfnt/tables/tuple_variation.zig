@@ -131,13 +131,13 @@ pub const GlyphVariationData = struct {
     axis_count: u16,
 
     pub inline fn tupleVariationCount(self: Self) TupleVariationCount {
-        return @bitCast(bytes.getU16BE(self.table_data[@offsetOf(DataHeader, "tuple_variation_count")..]));
+        return @bitCast(types.field(DataHeader, "tuple_variation_count", self.table_data));
     }
 
     /// Offset from the start of this GlyphVariationData table to the
     /// serialized data.
     pub inline fn dataOffset(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(DataHeader, "data_offset")..]);
+        return types.field(DataHeader, "data_offset", self.table_data);
     }
 
     pub fn getTupleVariationHeaderOffset(self: Self, index: usize) usize {

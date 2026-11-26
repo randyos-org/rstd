@@ -1,0 +1,297 @@
+//! `cscal` for cell, power6, ppc970 (32); cell, power6, ppc970 (32le), from OpenBLAS `kernel/power/zscal.S` (`v0.3.34-794-gdbf2c24c9`); converted by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+/// Each function's core and variant, and its parts (`__bk`'s arguments).
+pub const keys = .{
+    .{ .core = .cell, .variant = "32", .parts = "1, 0, 0" },
+    .{ .core = .power6, .variant = "32", .parts = "0, 1, 0" },
+    .{ .core = .ppc970, .variant = "32", .parts = "0, 0, 1" },
+    .{ .core = .cell, .variant = "32le", .parts = "1, 0, 0" },
+    .{ .core = .power6, .variant = "32le", .parts = "0, 1, 0" },
+    .{ .core = .ppc970, .variant = "32le", .parts = "0, 0, 1" },
+};
+
+/// The functions' one text, a macro whose parameters select the parts.
+const text =
+    \\ .macro __bk bp0, bp1, bp2
+    \\ .align 6
+    \\ addi 1, 1, -8
+    \\ li 0, 0
+    \\ stw 0, 0(1)
+    \\ lfs 0, 0(1)
+    \\ addi 1, 1, 8
+    \\ slwi 7, 7, 3
+    \\ .if \bp0
+    \\ li 5, (64 + 128 * 13)
+    \\ .endif
+    \\ .if \bp1
+    \\ li 5, (16 + 128 * 100)
+    \\ .endif
+    \\ .if \bp2
+    \\ li 5, (96 + 128 * 12)
+    \\ .endif
+    \\ cmpwi 0, 3, 0
+    \\ blelr- 0
+    \\ fcmpu 0, 0, 1
+    \\ bne- 0, 20007f
+    \\ fcmpu 0, 0, 2
+    \\ bne- 0, 20007f
+    \\ lwz 11, (((0) * 4) + 8)(1)
+    \\ cmpwi 0, 11, 1
+    \\ beq- 0, 20007f
+    \\ cmpwi 0, 7, 2 * 4
+    \\ bne- 0, 20003f
+    \\ srawi. 0, 3, 3
+    \\ mtspr 9, 0
+    \\ beq- 0, 20001f
+    \\ .align 4
+    \\ 20000:
+    \\ stfs 0, 0 * 4(6)
+    \\ stfs 0, 1 * 4(6)
+    \\ stfs 0, 2 * 4(6)
+    \\ stfs 0, 3 * 4(6)
+    \\ stfs 0, 4 * 4(6)
+    \\ stfs 0, 5 * 4(6)
+    \\ stfs 0, 6 * 4(6)
+    \\ stfs 0, 7 * 4(6)
+    \\ stfs 0, 8 * 4(6)
+    \\ stfs 0, 9 * 4(6)
+    \\ stfs 0, 10 * 4(6)
+    \\ stfs 0, 11 * 4(6)
+    \\ stfs 0, 12 * 4(6)
+    \\ stfs 0, 13 * 4(6)
+    \\ stfs 0, 14 * 4(6)
+    \\ stfs 0, 15 * 4(6)
+    \\ addi 6, 6, 16 * 4
+    \\ bdnz 20000b
+    \\ .align 4
+    \\ 20001:
+    \\ andi. 0, 3, 7
+    \\ mtspr 9, 0
+    \\ beqlr+
+    \\ .align 4
+    \\ 20002:
+    \\ stfs 0, 0 * 4(6)
+    \\ stfs 0, 1 * 4(6)
+    \\ addi 6, 6, 2 * 4
+    \\ bdnz 20002b
+    \\ blr
+    \\ .align 4
+    \\ 20003:
+    \\ srawi. 0, 3, 3
+    \\ mtspr 9, 0
+    \\ beq- 20005f
+    \\ .align 4
+    \\ 20004:
+    \\ dcbtst 6, 5
+    \\ stfs 0, 0 * 4(6)
+    \\ stfs 0, 1 * 4(6)
+    \\ add 6, 6, 7
+    \\ stfs 0, 0 * 4(6)
+    \\ stfs 0, 1 * 4(6)
+    \\ add 6, 6, 7
+    \\ stfs 0, 0 * 4(6)
+    \\ stfs 0, 1 * 4(6)
+    \\ add 6, 6, 7
+    \\ stfs 0, 0 * 4(6)
+    \\ stfs 0, 1 * 4(6)
+    \\ add 6, 6, 7
+    \\ stfs 0, 0 * 4(6)
+    \\ stfs 0, 1 * 4(6)
+    \\ add 6, 6, 7
+    \\ stfs 0, 0 * 4(6)
+    \\ stfs 0, 1 * 4(6)
+    \\ add 6, 6, 7
+    \\ stfs 0, 0 * 4(6)
+    \\ stfs 0, 1 * 4(6)
+    \\ add 6, 6, 7
+    \\ stfs 0, 0 * 4(6)
+    \\ stfs 0, 1 * 4(6)
+    \\ add 6, 6, 7
+    \\ bdnz 20004b
+    \\ .align 4
+    \\ 20005:
+    \\ andi. 0, 3, 7
+    \\ mtspr 9, 0
+    \\ beqlr+
+    \\ .align 4
+    \\ 20006:
+    \\ stfs 0, 0 * 4(6)
+    \\ stfs 0, 1 * 4(6)
+    \\ add 6, 6, 7
+    \\ bdnz 20006b
+    \\ blr
+    \\ .align 4
+    \\ 20007:
+    \\ cmpwi 0, 7, 2 * 4
+    \\ bne- 20011f
+    \\ mr 4, 6
+    \\ srawi. 0, 3, 3
+    \\ mtspr 9, 0
+    \\ beq+ 20009f
+    \\ .align 4
+    \\ 20008:
+    \\ lfs 3, 0 * 4(6)
+    \\ lfs 4, 1 * 4(6)
+    \\ lfs 5, 2 * 4(6)
+    \\ lfs 6, 3 * 4(6)
+    \\ lfs 7, 4 * 4(6)
+    \\ lfs 8, 5 * 4(6)
+    \\ lfs 9, 6 * 4(6)
+    \\ lfs 10, 7 * 4(6)
+    \\ fmuls 0, 2, 4
+    \\ fmuls 4, 1, 4
+    \\ fmuls 11, 2, 6
+    \\ fmuls 6, 1, 6
+    \\ fmuls 12, 2, 8
+    \\ fmuls 8, 1, 8
+    \\ fmuls 13, 2, 10
+    \\ fmuls 10, 1, 10
+    \\ fmadds 4, 2, 3, 4
+    \\ fmsubs 3, 1, 3, 0
+    \\ fmadds 6, 2, 5, 6
+    \\ fmsubs 5, 1, 5, 11
+    \\ fmadds 8, 2, 7, 8
+    \\ fmsubs 7, 1, 7, 12
+    \\ fmadds 10, 2, 9, 10
+    \\ fmsubs 9, 1, 9, 13
+    \\ stfs 3, 0 * 4(6)
+    \\ stfs 4, 1 * 4(6)
+    \\ stfs 5, 2 * 4(6)
+    \\ stfs 6, 3 * 4(6)
+    \\ stfs 7, 4 * 4(6)
+    \\ stfs 8, 5 * 4(6)
+    \\ stfs 9, 6 * 4(6)
+    \\ stfs 10, 7 * 4(6)
+    \\ lfs 3, 8 * 4(6)
+    \\ lfs 4, 9 * 4(6)
+    \\ lfs 5, 10 * 4(6)
+    \\ lfs 6, 11 * 4(6)
+    \\ lfs 7, 12 * 4(6)
+    \\ lfs 8, 13 * 4(6)
+    \\ lfs 9, 14 * 4(6)
+    \\ lfs 10,15 * 4(6)
+    \\ fmuls 0, 2, 4
+    \\ fmuls 4, 1, 4
+    \\ fmuls 11, 2, 6
+    \\ fmuls 6, 1, 6
+    \\ fmuls 12, 2, 8
+    \\ fmuls 8, 1, 8
+    \\ fmuls 13, 2, 10
+    \\ fmuls 10, 1, 10
+    \\ fmadds 4, 2, 3, 4
+    \\ fmsubs 3, 1, 3, 0
+    \\ fmadds 6, 2, 5, 6
+    \\ fmsubs 5, 1, 5, 11
+    \\ fmadds 8, 2, 7, 8
+    \\ fmsubs 7, 1, 7, 12
+    \\ fmadds 10, 2, 9, 10
+    \\ fmsubs 9, 1, 9, 13
+    \\ stfs 3, 8 * 4(6)
+    \\ stfs 4, 9 * 4(6)
+    \\ stfs 5, 10 * 4(6)
+    \\ stfs 6, 11 * 4(6)
+    \\ stfs 7, 12 * 4(6)
+    \\ stfs 8, 13 * 4(6)
+    \\ stfs 9, 14 * 4(6)
+    \\ stfs 10,15 * 4(6)
+    \\ addi 6, 6, 16 * 4
+    \\ dcbtst 6, 5
+    \\ bdnz 20008b
+    \\ .align 4
+    \\ 20009:
+    \\ andi. 0, 3, 7
+    \\ mtspr 9, 0
+    \\ beqlr+
+    \\ .align 4
+    \\ 20010:
+    \\ lfs 3, 0 * 4(6)
+    \\ lfs 4, 1 * 4(6)
+    \\ fmuls 5, 2, 4
+    \\ fmuls 4, 1, 4
+    \\ fmadds 4, 2, 3, 4
+    \\ fmsubs 3, 1, 3, 5
+    \\ stfs 3, 0 * 4(6)
+    \\ stfs 4, 1 * 4(6)
+    \\ addi 6, 6, 2 * 4
+    \\ bdnz 20010b
+    \\ blr
+    \\ .align 4
+    \\ 20011:
+    \\ mr 4, 6
+    \\ srawi. 0, 3, 2
+    \\ mtspr 9, 0
+    \\ beq- 20013f
+    \\ .align 4
+    \\ 20012:
+    \\ lfs 3, 0 * 4(4)
+    \\ lfs 4, 1 * 4(4)
+    \\ add 4, 4, 7
+    \\ lfs 5, 0 * 4(4)
+    \\ lfs 6, 1 * 4(4)
+    \\ add 4, 4, 7
+    \\ lfs 7, 0 * 4(4)
+    \\ lfs 8, 1 * 4(4)
+    \\ add 4, 4, 7
+    \\ lfs 9, 0 * 4(4)
+    \\ lfs 10, 1 * 4(4)
+    \\ add 4, 4, 7
+    \\ fmuls 0, 2, 4
+    \\ fmuls 4, 1, 4
+    \\ fmuls 11, 2, 6
+    \\ fmuls 6, 1, 6
+    \\ fmuls 12, 2, 8
+    \\ fmuls 8, 1, 8
+    \\ fmuls 13, 2, 10
+    \\ fmuls 10, 1, 10
+    \\ fmadds 4, 2, 3, 4
+    \\ fmsubs 3, 1, 3, 0
+    \\ fmadds 6, 2, 5, 6
+    \\ fmsubs 5, 1, 5, 11
+    \\ fmadds 8, 2, 7, 8
+    \\ fmsubs 7, 1, 7, 12
+    \\ fmadds 10, 2, 9, 10
+    \\ fmsubs 9, 1, 9, 13
+    \\ stfs 3, 0 * 4(6)
+    \\ stfs 4, 1 * 4(6)
+    \\ add 6, 6, 7
+    \\ stfs 5, 0 * 4(6)
+    \\ stfs 6, 1 * 4(6)
+    \\ add 6, 6, 7
+    \\ stfs 7, 0 * 4(6)
+    \\ stfs 8, 1 * 4(6)
+    \\ add 6, 6, 7
+    \\ stfs 9, 0 * 4(6)
+    \\ stfs 10, 1 * 4(6)
+    \\ add 6, 6, 7
+    \\ dcbtst 6, 5
+    \\ bdnz 20012b
+    \\ .align 4
+    \\ 20013:
+    \\ andi. 0, 3, 3
+    \\ mtspr 9, 0
+    \\ beqlr+
+    \\ .align 4
+    \\ 20014:
+    \\ lfs 3, 0 * 4(4)
+    \\ lfs 4, 1 * 4(4)
+    \\ add 4, 4, 7
+    \\ fmuls 5, 2, 4
+    \\ fmuls 4, 1, 4
+    \\ fmadds 4, 2, 3, 4
+    \\ fmsubs 3, 1, 3, 5
+    \\ stfs 3, 0 * 4(6)
+    \\ stfs 4, 1 * 4(6)
+    \\ add 6, 6, 7
+    \\ bdnz 20014b
+    \\ blr
+    \\ .endm
+    \\
+;
+
+pub fn Body(comptime args: []const u8) type {
+    return struct {
+        pub fn entry() callconv(.naked) void {
+            asm volatile (text ++ (" __bk " ++ args ++ "\n .purgem __bk\n"));
+        }
+    };
+}

@@ -3,7 +3,7 @@ pub const Image = image.Image;
 pub const RgbaImage = image.RgbaImage;
 pub const Surface = @import("Surface.zig");
 pub const codecs = @import("codecs/__root__.zig");
-pub const color = @import("color.zig");
+pub const color = @import("color/__root__.zig");
 pub const draw = @import("draw.zig");
 pub const geometry = @import("geometry.zig");
 pub const pack = @import("pack.zig");
@@ -21,6 +21,8 @@ test {
     // layout has none),
     // vulkan.gpu (needs the vulkan-zig bindings, below) and renderdoc
     // (conditionally included).
+    // shaderlib's math has no @embedFile: its GLSL names are tested here
+    _ = @import("shaders/lib/math.zig");
     zigstd.testRefAllDecls(image);
     zigstd.testRefAllDecls(Surface);
     zigstd.testRefAllDecls(codecs);

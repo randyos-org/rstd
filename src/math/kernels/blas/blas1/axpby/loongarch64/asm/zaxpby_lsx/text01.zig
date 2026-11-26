@@ -1,0 +1,265 @@
+//! Section 1 of 2 of the text of `zaxpby`, which `__root__.zig` joins, from OpenBLAS `kernel/loongarch64/caxpby_lsx.S` (`v0.3.34-794-gdbf2c24c9`); converted by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+pub const text =
+    \\ .align 5
+    \\ bge $r0, $r4, 20029f
+    \\ movgr2fr.d $f12, $r0
+    \\ ffint.d.l $f12, $f12
+    \\ slli.d $r6, $r6, 4
+    \\ slli.d $r8, $r8, 4
+    \\ movfr2gr.d $r14, $f0
+    \\ vreplgr2vr.d $vr23, $r14
+    \\ movfr2gr.d $r16, $f1
+    \\ vreplgr2vr.d $vr19, $r16
+    \\ movfr2gr.d $r15, $f2
+    \\ vreplgr2vr.d $vr14, $r15
+    \\ movfr2gr.d $r17, $f3
+    \\ vreplgr2vr.d $vr13, $r17
+    \\ vxor.v $vr12, $vr12, $vr12
+    \\ and $r13, $r6, $r8
+    \\ or $r12, $r4, $r4
+    \\ beqz $r13, 20024f
+    \\ li.d $r13, 1
+    \\ slli.d $r13, $r13, 4
+    \\ srai.d $r12, $r4, 2
+    \\ bne $r6, $r13, 20000f
+    \\ bne $r8, $r13, 20008f
+    \\ b 20001f
+    \\ 20000:
+    \\ bne $r8, $r13, 20016f
+    \\ b 20012f
+    \\ 20001:
+    \\ bge $r0, $r12, 20023f
+    \\ fcmp.ceq.d $fcc0, $f2, $f12
+    \\ fcmp.ceq.d $fcc1, $f3, $f12
+    \\ fcmp.ceq.d $fcc2, $f0, $f12
+    \\ fcmp.ceq.d $fcc3, $f1, $f12
+    \\ bceqz $fcc0, 20002f
+    \\ bceqz $fcc1, 20002f
+    \\ b 20003f
+    \\ .align 3
+    \\ 20002:
+    \\ bceqz $fcc2, 20007f
+    \\ bceqz $fcc3, 20007f
+    \\ b 20006f
+    \\ 20003:
+    \\ bceqz $fcc2, 20005f
+    \\ bceqz $fcc3, 20005f
+    \\ b 20004f
+    \\ .align 3
+    \\ 20004:
+    \\ vst $vr12, $r7, 0 * 8
+    \\ vst $vr12, $r7, 2 * 8
+    \\ vst $vr12, $r7, 4 * 8
+    \\ vst $vr12, $r7, 6 * 8
+    \\ addi.d $r7, $r7, 8 * 8
+    \\ addi.d $r12, $r12, -1
+    \\ blt $r0, $r12, 20004b
+    \\ b 20023f
+    \\ .align 3
+    \\ 20005:
+    \\ vld $vr8, $r5, 0 * 8
+    \\ vld $vr20, $r5, 2 * 8
+    \\ vpickev.d $vr18, $vr20, $vr8
+    \\ vpickod.d $vr17, $vr20, $vr8
+    \\ vfmul.d $vr16, $vr19, $vr17
+    \\ vfmul.d $vr15, $vr19, $vr18
+    \\ vfmsub.d $vr16, $vr23, $vr18, $vr16
+    \\ vfmadd.d $vr15, $vr23, $vr17, $vr15
+    \\ vilvl.d $vr21, $vr15 ,$vr16
+    \\ vilvh.d $vr22, $vr15, $vr16
+    \\ vst $vr21, $r7, 0 * 8
+    \\ vst $vr22, $r7, 2 * 8
+    \\ vld $vr8, $r5, 4 * 8
+    \\ vld $vr20, $r5, 6 * 8
+    \\ vpickev.d $vr18, $vr20, $vr8
+    \\ vpickod.d $vr17, $vr20, $vr8
+    \\ vfmul.d $vr16, $vr19, $vr17
+    \\ vfmul.d $vr15, $vr19, $vr18
+    \\ vfmsub.d $vr16, $vr23, $vr18, $vr16
+    \\ vfmadd.d $vr15, $vr23, $vr17, $vr15
+    \\ vilvl.d $vr21, $vr15 ,$vr16
+    \\ vilvh.d $vr22, $vr15, $vr16
+    \\ vst $vr21, $r7, 4 * 8
+    \\ vst $vr22, $r7, 6 * 8
+    \\ addi.d $r5, $r5, 8 * 8
+    \\ addi.d $r7, $r7, 8 * 8
+    \\ addi.d $r12, $r12, -1
+    \\ blt $r0, $r12, 20005b
+    \\ b 20023f
+    \\ .align 3
+    \\ 20006:
+    \\ vld $vr8, $r7, 0 * 8
+    \\ vld $vr20, $r7, 2 * 8
+    \\ vpickev.d $vr18, $vr20, $vr8
+    \\ vpickod.d $vr17, $vr20, $vr8
+    \\ vfmul.d $vr16, $vr13, $vr17
+    \\ vfmul.d $vr15, $vr13, $vr18
+    \\ vfmsub.d $vr16, $vr14, $vr18, $vr16
+    \\ vfmadd.d $vr15, $vr14, $vr17, $vr15
+    \\ vilvl.d $vr21, $vr15 ,$vr16
+    \\ vilvh.d $vr22, $vr15, $vr16
+    \\ vst $vr21, $r7, 0 * 8
+    \\ vst $vr22, $r7, 2 * 8
+    \\ vld $vr8, $r7, 4 * 8
+    \\ vld $vr20, $r7, 6 * 8
+    \\ vpickev.d $vr18, $vr20, $vr8
+    \\ vpickod.d $vr17, $vr20, $vr8
+    \\ vfmul.d $vr16, $vr13, $vr17
+    \\ vfmul.d $vr15, $vr13, $vr18
+    \\ vfmsub.d $vr16, $vr14, $vr18, $vr16
+    \\ vfmadd.d $vr15, $vr14, $vr17, $vr15
+    \\ vilvl.d $vr21, $vr15 ,$vr16
+    \\ vilvh.d $vr22, $vr15, $vr16
+    \\ vst $vr21, $r7, 4 * 8
+    \\ vst $vr22, $r7, 6 * 8
+    \\ addi.d $r7, $r7, 8 * 8
+    \\ addi.d $r12, $r12, -1
+    \\ blt $r0, $r12, 20006b
+    \\ b 20023f
+    \\ .align 3
+    \\ 20007:
+    \\ vld $vr8, $r5, 0 * 8
+    \\ vld $vr20, $r5, 2 * 8
+    \\ vld $vr21, $r7, 0 * 8
+    \\ vld $vr22, $r7, 2 * 8
+    \\ vpickev.d $vr18, $vr20, $vr8
+    \\ vpickod.d $vr17, $vr20, $vr8
+    \\ vpickev.d $vr16, $vr22, $vr21
+    \\ vpickod.d $vr15, $vr22, $vr21
+    \\ vfmul.d $vr8, $vr19, $vr17
+    \\ vfmul.d $vr20, $vr19, $vr18
+    \\ vfmul.d $vr21, $vr13, $vr15
+    \\ vfmul.d $vr22, $vr13, $vr16
+    \\ vfmsub.d $vr8, $vr23, $vr18, $vr8
+    \\ vfmadd.d $vr20, $vr23, $vr17, $vr20
+    \\ vfmsub.d $vr21, $vr14, $vr16, $vr21
+    \\ vfmadd.d $vr22, $vr14, $vr15, $vr22
+    \\ vfadd.d $vr16, $vr8, $vr21
+    \\ vfadd.d $vr15, $vr20, $vr22
+    \\ vilvl.d $vr21, $vr15 ,$vr16
+    \\ vilvh.d $vr22, $vr15, $vr16
+    \\ vst $vr21, $r7, 0 * 8
+    \\ vst $vr22, $r7, 2 * 8
+    \\ vld $vr8, $r5, 4 * 8
+    \\ vld $vr20, $r5, 6 * 8
+    \\ vld $vr21, $r7, 4 * 8
+    \\ vld $vr22, $r7, 6 * 8
+    \\ vpickev.d $vr18, $vr20, $vr8
+    \\ vpickod.d $vr17, $vr20, $vr8
+    \\ vpickev.d $vr16, $vr22, $vr21
+    \\ vpickod.d $vr15, $vr22, $vr21
+    \\ vfmul.d $vr8, $vr19, $vr17
+    \\ vfmul.d $vr20, $vr19, $vr18
+    \\ vfmul.d $vr21, $vr13, $vr15
+    \\ vfmul.d $vr22, $vr13, $vr16
+    \\ vfmsub.d $vr8, $vr23, $vr18, $vr8
+    \\ vfmadd.d $vr20, $vr23, $vr17, $vr20
+    \\ vfmsub.d $vr21, $vr14, $vr16, $vr21
+    \\ vfmadd.d $vr22, $vr14, $vr15, $vr22
+    \\ vfadd.d $vr16, $vr8, $vr21
+    \\ vfadd.d $vr15, $vr20, $vr22
+    \\ vilvl.d $vr21, $vr15 ,$vr16
+    \\ vilvh.d $vr22, $vr15, $vr16
+    \\ vst $vr21, $r7, 4 * 8
+    \\ vst $vr22, $r7, 6 * 8
+    \\ addi.d $r5, $r5, 8 * 8
+    \\ addi.d $r7, $r7, 8 * 8
+    \\ addi.d $r12, $r12, -1
+    \\ blt $r0, $r12, 20007b
+    \\ b 20023f
+    \\ .align 3
+    \\ 20008:
+    \\ bge $r0, $r12, 20023f
+    \\ fcmp.ceq.d $fcc0, $f2, $f12
+    \\ fcmp.ceq.d $fcc1, $f3, $f12
+    \\ fcmp.ceq.d $fcc2, $f0, $f12
+    \\ fcmp.ceq.d $fcc3, $f1, $f12
+    \\ bceqz $fcc0, 20009f
+    \\ bcnez $fcc1, 20016f
+    \\ 20009:
+    \\ bceqz $fcc2, 20010f
+    \\ bcnez $fcc3, 20016f
+    \\ 20010:
+    \\ move $r19, $r7
+    \\ .align 3
+    \\ 20011:
+    \\ vld $vr8, $r5, 0 * 8
+    \\ vld $vr20, $r5, 2 * 8
+    \\ ld.d $r14, $r7, 0 * 8
+    \\ ld.d $r16, $r7, 1 * 8
+    \\ add.d $r7, $r7, $r8
+    \\ ld.d $r15, $r7, 0 * 8
+    \\ ld.d $r17, $r7, 1 * 8
+    \\ vinsgr2vr.d $vr16, $r14, 0
+    \\ vinsgr2vr.d $vr15, $r16, 0
+    \\ vinsgr2vr.d $vr16, $r15, 1
+    \\ vinsgr2vr.d $vr15, $r17, 1
+    \\ add.d $r7, $r7, $r8
+    \\ vpickev.d $vr18, $vr20, $vr8
+    \\ vpickod.d $vr17, $vr20, $vr8
+    \\ vfmul.d $vr8, $vr19, $vr17
+    \\ vfmul.d $vr20, $vr19, $vr18
+    \\ vfmul.d $vr21, $vr13, $vr15
+    \\ vfmul.d $vr22, $vr13, $vr16
+    \\ vfmsub.d $vr8, $vr23, $vr18, $vr8
+    \\ vfmadd.d $vr20, $vr23, $vr17, $vr20
+    \\ vfmsub.d $vr21, $vr14, $vr16, $vr21
+    \\ vfmadd.d $vr22, $vr14, $vr15, $vr22
+    \\ vfadd.d $vr16, $vr8, $vr21
+    \\ vfadd.d $vr15, $vr20, $vr22
+    \\ vstelm.d $vr16, $r19, 0 * 8, 0
+    \\ vstelm.d $vr15, $r19, 1 * 8, 0
+    \\ add.d $r19, $r19, $r8
+    \\ vstelm.d $vr16, $r19, 0 * 8, 1
+    \\ vstelm.d $vr15, $r19, 1 * 8, 1
+    \\ add.d $r19, $r19, $r8
+    \\ vld $vr8, $r5, 4 * 8
+    \\ vld $vr20, $r5, 6 * 8
+    \\ ld.d $r14, $r7, 0 * 8
+    \\ ld.d $r16, $r7, 1 * 8
+    \\ add.d $r7, $r7, $r8
+    \\ ld.d $r15, $r7, 0 * 8
+    \\ ld.d $r17, $r7, 1 * 8
+    \\ vinsgr2vr.d $vr16, $r14, 0
+    \\ vinsgr2vr.d $vr15, $r16, 0
+    \\ vinsgr2vr.d $vr16, $r15, 1
+    \\ vinsgr2vr.d $vr15, $r17, 1
+    \\ add.d $r7, $r7, $r8
+    \\ vpickev.d $vr18, $vr20, $vr8
+    \\ vpickod.d $vr17, $vr20, $vr8
+    \\ vfmul.d $vr8, $vr19, $vr17
+    \\ vfmul.d $vr20, $vr19, $vr18
+    \\ vfmul.d $vr21, $vr13, $vr15
+    \\ vfmul.d $vr22, $vr13, $vr16
+    \\ vfmsub.d $vr8, $vr23, $vr18, $vr8
+    \\ vfmadd.d $vr20, $vr23, $vr17, $vr20
+    \\ vfmsub.d $vr21, $vr14, $vr16, $vr21
+    \\ vfmadd.d $vr22, $vr14, $vr15, $vr22
+    \\ vfadd.d $vr16, $vr8, $vr21
+    \\ vfadd.d $vr15, $vr20, $vr22
+    \\ addi.d $r12, $r12, -1
+    \\ vstelm.d $vr16, $r19, 0 * 8, 0
+    \\ vstelm.d $vr15, $r19, 1 * 8, 0
+    \\ add.d $r19, $r19, $r8
+    \\ vstelm.d $vr16, $r19, 0 * 8, 1
+    \\ vstelm.d $vr15, $r19, 1 * 8, 1
+    \\ add.d $r19, $r19, $r8
+    \\ addi.d $r5, $r5, 8 * 8
+    \\ blt $r0, $r12, 20011b
+    \\ b 20023f
+    \\ .align 3
+    \\ 20012:
+    \\ bge $r0, $r12, 20023f
+    \\ fcmp.ceq.d $fcc0, $f2, $f12
+    \\ fcmp.ceq.d $fcc1, $f3, $f12
+    \\ fcmp.ceq.d $fcc2, $f0, $f12
+    \\ fcmp.ceq.d $fcc3, $f1, $f12
+    \\ bceqz $fcc0, 20013f
+    \\ bcnez $fcc1, 20016f
+    \\ 20013:
+    \\ bceqz $fcc2, 20014f
+    \\ bcnez $fcc3, 20016f
+    \\ 20014:
+    \\
+;

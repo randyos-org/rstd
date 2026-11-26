@@ -33,71 +33,71 @@ pub const HheaTable = struct {
     }
 
     pub inline fn version(self: Self) types.Fixed {
-        return types.Fixed.fromBytes(self.table_data[@offsetOf(StreamLayout, "version")..]);
+        return types.field(StreamLayout, "version", self.table_data);
     }
 
     pub inline fn ascent(self: Self) types.FWord {
-        return bytes.readIntBE(types.FWord, self.table_data[@offsetOf(StreamLayout, "ascent")..]);
+        return types.field(StreamLayout, "ascent", self.table_data);
     }
 
     pub inline fn descent(self: Self) types.FWord {
-        return bytes.readIntBE(types.FWord, self.table_data[@offsetOf(StreamLayout, "descent")..]);
+        return types.field(StreamLayout, "descent", self.table_data);
     }
 
     pub inline fn lineGap(self: Self) types.FWord {
-        return bytes.readIntBE(types.FWord, self.table_data[@offsetOf(StreamLayout, "line_gap")..]);
+        return types.field(StreamLayout, "line_gap", self.table_data);
     }
 
     pub inline fn advanceWidthMax(self: Self) types.UFWord {
-        return bytes.readIntBE(types.UFWord, self.table_data[@offsetOf(StreamLayout, "advance_width_max")..]);
+        return types.field(StreamLayout, "advance_width_max", self.table_data);
     }
 
     pub inline fn minLeftSideBearing(self: Self) types.FWord {
-        return bytes.readIntBE(types.FWord, self.table_data[@offsetOf(StreamLayout, "min_left_side_bearing")..]);
+        return types.field(StreamLayout, "min_left_side_bearing", self.table_data);
     }
 
     pub inline fn minRightSideBearing(self: Self) types.FWord {
-        return bytes.readIntBE(types.FWord, self.table_data[@offsetOf(StreamLayout, "min_right_side_bearing")..]);
+        return types.field(StreamLayout, "min_right_side_bearing", self.table_data);
     }
 
     pub inline fn xMaxExtent(self: Self) types.FWord {
-        return bytes.readIntBE(types.FWord, self.table_data[@offsetOf(StreamLayout, "x_max_extent")..]);
+        return types.field(StreamLayout, "x_max_extent", self.table_data);
     }
 
     pub inline fn caretSlopeRise(self: Self) i16 {
-        return bytes.getI16BE(self.table_data[@offsetOf(StreamLayout, "caret_slope_rise")..]);
+        return types.field(StreamLayout, "caret_slope_rise", self.table_data);
     }
 
     pub inline fn caretSlopeRun(self: Self) i16 {
-        return bytes.getI16BE(self.table_data[@offsetOf(StreamLayout, "caret_slope_run")..]);
+        return types.field(StreamLayout, "caret_slope_run", self.table_data);
     }
 
     pub inline fn caretOffset(self: Self) i16 {
-        return bytes.getI16BE(self.table_data[@offsetOf(StreamLayout, "caret_offset")..]);
+        return types.field(StreamLayout, "caret_offset", self.table_data);
     }
 
     pub inline fn reserved1(self: Self) i16 {
-        return bytes.getI16BE(self.table_data[@offsetOf(StreamLayout, "reserved1")..]);
+        return types.field(StreamLayout, "reserved1", self.table_data);
     }
 
     pub inline fn reserved2(self: Self) i16 {
-        return bytes.getI16BE(self.table_data[@offsetOf(StreamLayout, "reserved2")..]);
+        return types.field(StreamLayout, "reserved2", self.table_data);
     }
 
     pub inline fn reserved3(self: Self) i16 {
-        return bytes.getI16BE(self.table_data[@offsetOf(StreamLayout, "reserved3")..]);
+        return types.field(StreamLayout, "reserved3", self.table_data);
     }
 
     pub inline fn reserved4(self: Self) i16 {
-        return bytes.getI16BE(self.table_data[@offsetOf(StreamLayout, "reserved4")..]);
+        return types.field(StreamLayout, "reserved4", self.table_data);
     }
 
     pub inline fn metricDataFormat(self: Self) i16 {
-        return bytes.getI16BE(self.table_data[@offsetOf(StreamLayout, "metric_data_format")..]);
+        return types.field(StreamLayout, "metric_data_format", self.table_data);
     }
 
     pub inline fn numOfLongHorMetrics(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "num_of_long_hor_metrics")..]);
+        return types.field(StreamLayout, "num_of_long_hor_metrics", self.table_data);
     }
 };
 

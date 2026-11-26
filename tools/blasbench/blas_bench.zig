@@ -1,5 +1,5 @@
-//! rstd's BLAS and LAPACK raced against OpenBLAS, BLIS, Accelerate and the reference binaries, and its arm64 kernels against
-//! OpenBLAS's own `.S`, printing Markdown table rows. Sections, options and steps: `readme.md`.
+//! rstd's BLAS and LAPACK raced against OpenBLAS, BLIS, Accelerate and the reference binaries, and its kernels against
+//! OpenBLAS's own (arm64's `.S`, x86_64's level 1), printing Markdown table rows. Sections, options and steps: `readme.md`.
 
 const std = @import("std");
 const sysinfo = @import("builtin");
@@ -7,12 +7,22 @@ const Io = std.Io;
 const rstd = @import("rstd");
 const bench_options = @import("bench_options");
 const bench = @import("bench.zig");
+const alone_run = @import("alone.zig");
 const merge = @import("merge.zig");
 const kernels = @import("kernels.zig");
+const l3thread = @import("l3thread.zig");
 const libs = @import("libs.zig");
 const ext = @import("ext.zig");
+const obx86 = @import("obx86.zig");
+const compensated_bench = @import("compensated_bench.zig");
+const calls_bench = @import("calls_bench.zig");
+const matcopy_bench = @import("matcopy_bench.zig");
+const sparse_bench = @import("sparse_bench.zig");
+const potrf_bench = @import("potrf_bench.zig");
+const inline_bench = @import("inline_bench.zig");
+const rot_reals_bench = @import("rot_reals_bench.zig");
 
-const blas = rstd.linalg.blas;
+const blas = rstd.math.kernels.blas;
 const Vtable = blas.Vtable;
 const os_tag = sysinfo.target.os.tag;
 
@@ -39,6 +49,8 @@ const libLapack = ext.libLapack;
 pub const arm = sysinfo.target.cpu.arch == .aarch64;
 /// OpenBLAS's vortex gemm `.S` is linked (`-Dopenblas`): `l3`, `ob .S`.
 pub const ob_asm = bench_options.ob_asm;
+/// OpenBLAS's HASWELL and ZEN level-1 kernels are linked (`-Dopenblas`, x86_64): `l1`'s references.
+pub const ob_x86 = bench_options.ob_x86;
 
 comptime {
     if (!arm and sysinfo.target.cpu.arch != .x86_64) @compileError("blas_bench runs on arm64 and x86_64");
@@ -55,6 +67,8 @@ const Tables = struct {
     vortexm4: Vtable,
     armv8: Vtable,
     portable: Vtable,
+    /// the selected core's, which x86_64's `l1` races
+    core: Vtable,
 };
 pub var tables: Tables = undefined;
 
@@ -109,33 +123,36 @@ pub fn main(init: std.process.Init) !void {
             const v = a[eq + 1 ..];
             const k = std.meta.stringToEnum(Opt, a[2..eq]) orelse return error.BadOption;
             switch (k) {
-                .openblas => opts.paths[0] = v,
-                .blis => opts.paths[1] = v,
-                .accelerate => opts.paths[2] = v,
-                .reference => opts.paths[3] = v,
-                .eigen => opts.paths[4] = v,
-                .@"aocl-libflame" => opts.paths[5] = v,
+                .openblas => opts.paths.set(.openblas, v),
+                .blis => opts.paths.set(.blis, v),
+                .accelerate => opts.paths.set(.accelerate, v),
+                .reference => opts.paths.set(.reference, v),
+                .eigen => opts.paths.set(.eigen, v),
+                .@"aocl-libflame" => opts.paths.set(.aoclflame, v),
                 .threads => {
                     opts.threads = if (std.mem.eql(u8, v, "default")) null else std.fmt.parseInt(u31, v, 10) catch return error.BadOption;
                     if (opts.threads == 0) return error.BadOption;
                 },
                 .@"rstd-io" => opts.rstd_io = std.meta.stringToEnum(RstdIo, v) orelse return error.BadOption,
                 .@"max-n" => libs.n_max = std.fmt.parseInt(usize, v, 10) catch return error.BadOption,
+                .only => libs.only = v,
                 .@"ob-core" => opts.ob_core = v,
+                .@"openblas-prefix" => libs.ob_prefix = v,
                 .@"rstd-accelerate" => opts.rstd_accelerate = !std.mem.eql(u8, v, "0"),
+                .routines => kernels.l1_only = v,
                 .@"accelerate-alone" => alone = !std.mem.eql(u8, v, "0"),
             }
         } else try sections.append(init.arena.allocator(), a);
     }
 
-    // the parent's rstd set `VECLIB_MAXIMUM_THREADS=1`, which this process
-    // inherited: Accelerate takes its own count unless `--threads` sets one
+    // Accelerate takes its own count unless `--threads` sets one
     if (comptime os_tag.isDarwin()) {
         if (alone and opts.threads == null) _ = unsetenv("VECLIB_MAXIMUM_THREADS");
     }
     // rstd's tables select nothing, but the alone run leaves rstd untouched
     if (!alone) {
         tables.portable = blas.cpu.generic.vtableFromCoreType(.generic);
+        if (!arm) tables.core = blas.cpu.vtableFromCoreType(blas.cpu.detect());
         if (arm) {
             tables.vortex = blas.cpu.vtableFromCoreType(.vortex);
             tables.vortexm4 = blas.cpu.vtableFromCoreType(.vortexm4);
@@ -146,7 +163,15 @@ pub fn main(init: std.process.Init) !void {
     } else std.debug.print("zig {s}, {t}-{t}, cpu model {s}; the libraries alone, rstd never initialized\n", .{ sysinfo.zig_version_string, sysinfo.target.cpu.arch, os_tag, sysinfo.target.cpu.model.name });
     // before anything selects rstd's core, which reads its ceiling then
     try setThreadEnv(opts.threads);
-    var threaded: Io.Threaded = .init(std.heap.c_allocator, if (opts.threads) |t| .{ .async_limit = .limited(t - 1), .concurrent_limit = .limited(t - 1) } else .{});
+    // OpenBLAS's workers would spin through rstd's timed calls (issue #690): idle
+    // here, its own rates from the alone run; a caller's value stands
+    if (!alone and opts.threads != 1 and init.environ_map.get("OPENBLAS_THREAD_TIMEOUT") == null) {
+        libs.setEnv("OPENBLAS_THREAD_TIMEOUT", "4");
+        libs.ob_idle = true;
+    }
+    // a program's default limits: `--threads` caps rstd by its ceiling alone, as
+    // `Io.Threaded` frees a slot only after its task wakes the awaiter (issue #684)
+    var threaded: Io.Threaded = .init(std.heap.c_allocator, .{});
     defer threaded.deinit();
     if (opts.rstd_io == .threaded) libs.rstd_io = threaded.io();
     const all = sections.items.len == 0;
@@ -157,7 +182,7 @@ pub fn main(init: std.process.Init) !void {
         }
     }.f;
     if (!arm) {
-        for ([_][]const u8{ "probe", "l1", "l2", "l3" }) |s| if (want(sections.items, s)) return error.ArmOnlySection;
+        for ([_][]const u8{ "probe", "l2", "l3" }) |s| if (want(sections.items, s)) return error.ArmOnlySection;
     }
     if (!ob_asm and want(sections.items, "l3")) return error.NeedsOpenblasAsm;
     if (arm and !alone) {
@@ -165,46 +190,57 @@ pub fn main(init: std.process.Init) !void {
         if (all or want(sections.items, "l1")) try level1(io, gpa);
         if (all or want(sections.items, "l2")) try level2(io, gpa);
     }
+    // x86_64's `l1` races the selected core against OpenBLAS's, when linked
+    if (!arm and !alone and (want(sections.items, "l1") or (all and ob_x86))) try level1(io, gpa);
     if (ob_asm and !alone) {
         if (all or want(sections.items, "l3")) try level3(io, gpa);
     }
     // only when named: it times rstd alone, which the flyoff's runs don't want
     if (!alone and want(sections.items, "kern3")) try ownLevel3(io, gpa);
+    if (!alone and want(sections.items, "l3thread")) try l3thread.run(gpa);
+    if (!alone and want(sections.items, "sparse")) try sparse_bench.run(io, gpa);
+    if (!alone and want(sections.items, "matcopy")) try matcopy_bench.run(io, gpa);
+    if (!alone and want(sections.items, "potrf")) try potrf_bench.run();
+    if (!alone and want(sections.items, "inline")) try inline_bench.run(io, gpa);
+    // OpenBLAS's sums race there too, when given
+    var libs_loaded = false;
+    if (!alone and want(sections.items, "compensated")) {
+        if (opts.paths.get(.openblas) != null) {
+            try loadLibs(opts);
+            libs_loaded = true;
+        }
+        try compensated_bench.run(io, gpa);
+    }
+    if (!alone and want(sections.items, "calls")) {
+        if (!libs_loaded and opts.paths.get(.openblas) != null) {
+            try loadLibs(opts);
+            libs_loaded = true;
+        }
+        try calls_bench.run(io, gpa);
+    }
+    if (!alone and want(sections.items, "rotreals")) try rot_reals_bench.run(io, gpa);
     const lib_sections = want(sections.items, "lib1") or want(sections.items, "lib2") or want(sections.items, "lib3") or want(sections.items, "lapack");
-    if (lib_sections or (all and (opts.paths[0] != null or alone))) {
-        try loadLibs(opts);
+    if (lib_sections or (all and (opts.paths.get(.openblas) != null or alone))) {
+        // each library alone on its own threads first: rstd's init makes
+        // Accelerate single-threaded here (T07), and OpenBLAS idles here
+        const threads = opts.paths.get(.openblas) != null or opts.paths.get(.accelerate) != null;
+        if (!alone and opts.threads != 1 and threads) try alone_run.run(io, init.arena.allocator(), init.environ_map, args);
+        if (!libs_loaded) try loadLibs(opts);
         if (all or want(sections.items, "lib1")) try libLevel1(io, gpa);
         if (all or want(sections.items, "lib2")) try libLevel2(io, gpa);
         if (all or want(sections.items, "lib3")) try libLevel3(io, gpa);
         if (all or want(sections.items, "lapack")) try libLapack(io, gpa);
-        // rstd's init made Accelerate single-threaded here: its own threads
-        // run in a process that never initializes rstd (T07)
-        if (!alone and opts.threads != 1 and loaded(.accelerate)) try runAlone(io, args);
     }
     try clock(io, "end");
 }
 
 /// `--name=value` options.
-const Opt = enum { openblas, blis, accelerate, reference, eigen, @"aocl-libflame", threads, @"rstd-io", @"max-n", @"ob-core", @"rstd-accelerate", @"accelerate-alone" };
+const Opt = enum { openblas, blis, accelerate, reference, eigen, @"aocl-libflame", threads, @"rstd-io", @"max-n", only, @"ob-core", @"openblas-prefix", @"rstd-accelerate", @"accelerate-alone", routines };
 
-/// `--accelerate-alone`: only the libraries race; nothing of rstd's runs, so
-/// nothing sets `VECLIB_MAXIMUM_THREADS` or `BLASSetThreading`.
+/// `--accelerate-alone`: only the libraries race (`alone.zig`); nothing of
+/// rstd's runs, so nothing sets `VECLIB_MAXIMUM_THREADS` or `BLASSetThreading`,
+/// and OpenBLAS keeps its spin.
 pub var alone = false;
-
-/// This bench again with `args` and `--accelerate-alone=1`: the libraries'
-/// tables, Accelerate on its own threads.
-fn runAlone(io: Io, args: []const [:0]const u8) !void {
-    var argv: [64][]const u8 = undefined;
-    if (args.len + 1 > argv.len) return error.TooManyArguments;
-    for (args, argv[0..args.len]) |a, *v| v.* = a;
-    argv[args.len] = "--accelerate-alone=1";
-    std.debug.print("\n{s}: the libraries again in a process without rstd, Accelerate on its own threads\n", .{args[0]});
-    var child = try std.process.spawn(io, .{ .argv = argv[0 .. args.len + 1], .stdin = .ignore, .stdout = .inherit, .stderr = .inherit });
-    switch (try child.wait(io)) {
-        .exited => |code| if (code != 0) return error.AloneRunFailed,
-        else => return error.AloneRunFailed,
-    }
-}
 
 extern "c" fn pthread_set_qos_class_self_np(qos: c_uint, relpri: c_int) c_int;
 const qos_class_user_interactive: c_uint = 0x21;
@@ -273,7 +309,7 @@ const peak_text = blk: {
 const LoopCtx = struct {
     iters: usize,
     f: *const fn (usize) void,
-    fn run(o: *anyopaque) void {
+    pub fn run(o: *anyopaque) void {
         const c: *LoopCtx = @ptrCast(@alignCast(o));
         c.f(c.iters);
     }
@@ -283,7 +319,7 @@ const LoopCtx = struct {
 fn ghz(io: Io) !f64 {
     var ctx: LoopCtx = .{ .iters = 1_000_000, .f = clockLoop };
     var out: [1]f64 = undefined;
-    try bench.race(io, .{ .min_ns = 5 * std.time.ns_per_ms, .batches = 9 }, &.{.{ .ctx = &ctx, .run = LoopCtx.run }}, &out);
+    try bench.race(io, .{ .min_ns = 5 * std.time.ns_per_ms, .batches = 9 }, &.{.of(&ctx)}, &out);
     return 8.0 * @as(f64, @floatFromInt(ctx.iters)) / out[0] / 1e9;
 }
 
@@ -304,7 +340,7 @@ fn probe(io: Io) !void {
         }
     }.f };
     var out: [2]f64 = undefined;
-    try bench.race(io, l1_timing, &.{ .{ .ctx = &s, .run = LoopCtx.run }, .{ .ctx = &d, .run = LoopCtx.run } }, &out);
+    try bench.race(io, l1_timing, &.{ .of(&s), .of(&d) }, &out);
     const flops = 16.0 * 2.0 * @as(f64, @floatFromInt(s.iters));
     std.debug.print("peak fmla: {d:.1} GFLOP/s single, {d:.1} double\n", .{ flops * 4 / out[0] / 1e9, flops * 2 / out[1] / 1e9 });
     try clock(io, "probe");

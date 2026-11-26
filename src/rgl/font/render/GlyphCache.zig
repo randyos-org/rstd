@@ -7,6 +7,7 @@ const types = @import("../sfnt/types.zig");
 const GlyphIndex = types.GlyphIndex;
 const pack = @import("../../pack.zig");
 const Image = @import("../../image.zig").Image;
+const rasterize = @import("rasterize.zig");
 const test_font = @import("_test/font.zig");
 
 // A persistent, incrementally-populated glyph atlas: unlike
@@ -18,7 +19,7 @@ const test_font = @import("_test/font.zig");
 // compound key this doesn't bother with.
 const Self = @This();
 
-/// 8bpp coverage, same convention as Sfnt.glyphBitmap. Grows (see grow())
+/// 8bpp coverage, same convention as rasterize.glyphBitmap. Grows (see grow())
 /// but is never shrunk or relocated mid-cell, so every previously-returned
 /// PixelRect stays valid for the cache's whole lifetime.
 atlas: Image(u8),
@@ -64,7 +65,7 @@ pub fn reset(self: *Self) !void {
 /// Returns this glyph's placement within `atlas`, lazily
 /// rasterizing and packing it on first request; later requests for the same
 /// glyph are a hashmap lookup. Returns null for a glyph with no visible
-/// outline (space, ...), matching Sfnt.glyphBitmap's "empty" convention.
+/// outline (space, ...), matching rasterize.glyphBitmap's "empty" convention.
 pub fn getOrAdd(self: *Self, gpa: Allocator, sfnt: Sfnt, glyph: GlyphIndex, scale: f32) !?PixelRect {
     if (self.locations.get(glyph)) |rect| {
         return if (rect.w == 0) null else rect;
@@ -73,7 +74,7 @@ pub fn getOrAdd(self: *Self, gpa: Allocator, sfnt: Sfnt, glyph: GlyphIndex, scal
     var raster_pixels: std.ArrayList(u8) = .empty;
     defer raster_pixels.deinit(gpa);
 
-    const bmp = try sfnt.glyphBitmap(gpa, &raster_pixels, glyph, scale, scale);
+    const bmp = try rasterize.glyphBitmap(sfnt, gpa, &raster_pixels, glyph, scale, scale);
     if (bmp.width == 0 or bmp.height == 0) {
         try self.locations.put(gpa, glyph, empty_rect);
         return null;

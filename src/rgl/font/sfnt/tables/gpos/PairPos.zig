@@ -57,23 +57,23 @@ pub const PairPosFormat1 = struct {
     table_data: []const u8,
 
     pub inline fn format(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(Format1Header, "format")..]);
+        return types.field(Format1Header, "format", self.table_data);
     }
 
     pub inline fn coverageOffset(self: Self) Offset16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(Format1Header, "coverage_offset")..]);
+        return types.field(Format1Header, "coverage_offset", self.table_data);
     }
 
     pub inline fn valueFormat1(self: Self) ValueFormat {
-        return @bitCast(bytes.getU16BE(self.table_data[@offsetOf(Format1Header, "value_format1")..]));
+        return @bitCast(types.field(Format1Header, "value_format1", self.table_data));
     }
 
     pub inline fn valueFormat2(self: Self) ValueFormat {
-        return @bitCast(bytes.getU16BE(self.table_data[@offsetOf(Format1Header, "value_format2")..]));
+        return @bitCast(types.field(Format1Header, "value_format2", self.table_data));
     }
 
     pub inline fn pairSetCount(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(Format1Header, "pair_set_count")..]);
+        return types.field(Format1Header, "pair_set_count", self.table_data);
     }
 
     pub fn getCoverage(self: Self) Coverage {
@@ -145,35 +145,35 @@ pub const PairPosFormat2 = struct {
     table_data: []const u8,
 
     pub inline fn format(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(Format2Header, "format")..]);
+        return types.field(Format2Header, "format", self.table_data);
     }
 
     pub inline fn coverageOffset(self: Self) Offset16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(Format2Header, "coverage_offset")..]);
+        return types.field(Format2Header, "coverage_offset", self.table_data);
     }
 
     pub inline fn valueFormat1(self: Self) ValueFormat {
-        return @bitCast(bytes.getU16BE(self.table_data[@offsetOf(Format2Header, "value_format1")..]));
+        return @bitCast(types.field(Format2Header, "value_format1", self.table_data));
     }
 
     pub inline fn valueFormat2(self: Self) ValueFormat {
-        return @bitCast(bytes.getU16BE(self.table_data[@offsetOf(Format2Header, "value_format2")..]));
+        return @bitCast(types.field(Format2Header, "value_format2", self.table_data));
     }
 
     pub inline fn classDef1Offset(self: Self) Offset16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(Format2Header, "class_def1_offset")..]);
+        return types.field(Format2Header, "class_def1_offset", self.table_data);
     }
 
     pub inline fn classDef2Offset(self: Self) Offset16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(Format2Header, "class_def2_offset")..]);
+        return types.field(Format2Header, "class_def2_offset", self.table_data);
     }
 
     pub inline fn class1Count(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(Format2Header, "class1_count")..]);
+        return types.field(Format2Header, "class1_count", self.table_data);
     }
 
     pub inline fn class2Count(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(Format2Header, "class2_count")..]);
+        return types.field(Format2Header, "class2_count", self.table_data);
     }
 
     pub fn getCoverage(self: Self) Coverage {

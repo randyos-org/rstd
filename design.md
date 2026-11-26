@@ -1,13 +1,13 @@
 # rstd design
 
 This document specifies rstd's modules beyond linear algebra's own (that is in
-[`src/linalg/design.md`](src/linalg/design.md)): statistics, sorting and sets, the FFT, signal
-processing, and the N-d arrays and sparse matrices that extend `rstd.linalg`. It describes the
+[`src/math/linalg/design.md`](src/math/linalg/design.md)): statistics, sorting and sets, the FFT, signal
+processing, and the N-d arrays and sparse matrices that extend `rstd.math.linalg`. It describes the
 code as it is, and says "Planned" where it is not. The work left is in [the issues](https://github.com/randyos-org/rstd/issues).
 
 ## Requirements
 
-Shared with the public `rstd.linalg` layer ([`design.md`](src/linalg/design.md), "Operations over
+Shared with the public `rstd.math.linalg` layer ([`design.md`](src/math/linalg/design.md), "Operations over
 views"):
 
 - `(allocator, io, ...)` where a function allocates, `(io, ...)` where it only calls the BLAS;
@@ -18,7 +18,7 @@ views"):
 - Error sets are exact and named, with plain error names. Operands are slices, not pointers and
   lengths. Storage is column-major.
 - Results are bit-identical for any thread count, as the BLAS's are
-  ([`threading.md`](src/linalg/blas/threading.md)).
+  ([`threading.md`](src/math/kernels/blas/threading.md)).
 - Zig-native: no dependencies but Apple's Accelerate on macOS, which ships with the OS.
 
 Until a body lands, it returns `error.NotImplemented`, which is in its error set until then, and
@@ -61,9 +61,9 @@ For sparse matrices, SuiteSparse's orderings (AMD, COLAMD) are BSD-3, but its fa
 
 ## Design
 
-### Statistics: `rstd.stats`
+### Statistics: `rstd.math.stats`
 
-[`src/stats.zig`](src/stats.zig), over slices. The forms along a dimension are planned with N-d
+[`src/math/stats/`](src/math/stats/__root__.zig), over slices, on the kernels of [`src/math/kernels/stats/`](src/math/kernels/stats/__root__.zig) (`deviationSums`, `RunningMoments`, `histogramInto`; #613). The forms along a dimension are planned with N-d
 arrays; `cov` and `corrcoef` with the public layer's `ConstView` and `Mat`.
 
 ```zig
@@ -71,15 +71,18 @@ pub const Normalize = enum { sample, population }; // n - 1 (MATLAB's default) o
 pub fn mean(io, xs: []const F) error{ EmptyInput, Canceled }!F
 pub fn variance(io, xs, normalize: Normalize) error{ EmptyInput, Canceled }!F
 pub fn stdDev(io, xs, normalize: Normalize) error{ EmptyInput, Canceled }!F
-pub fn Running(comptime F: type) type; // streaming mean and variance (Welford's update)
+// meanWith, varianceWith, stdDevWith: the same, with options: MomentOptions last
+pub const MomentOptions = struct { summation: Summation = .plain }; // blas.Summation
+pub fn RunningMoments(comptime F: type) type; // streaming mean and variance (Welford's update)
 pub fn median(allocator, xs) error{ EmptyInput, OutOfMemory }!F // selects on a copy
 pub const QuantileMethod = enum {
     inverted_cdf, averaged_inverted_cdf, closest_observation, interpolated_inverted_cdf,
     hazen, weibull, linear, median_unbiased, normal_unbiased,
 };
 pub const QuantileOptions = struct { method: QuantileMethod = .linear };
-pub fn quantile(allocator, xs, p: []const F, options) error{ ... }![]F
-pub fn quantileInto(allocator, out: []F, xs, p: []const F, options) error{ ... }!void
+pub fn quantile(allocator, xs, p: []const F) error{ ... }![]F
+pub fn quantileInto(allocator, out: []F, xs, p: []const F) error{ ... }!void
+// quantileWith, quantileIntoWith: the same, with options: QuantileOptions last
 pub fn Bins(comptime F: type) type; // union(enum) { count: usize, edges: []const F }
 pub fn histogram(allocator, xs, bins: Bins(F)) error{ ... }!Histogram(F) // counts, edges
 pub fn histogramInto(counts: []u64, xs, edges: []const F) error{ ... }!void // adds to counts
@@ -93,15 +96,15 @@ pub fn corrcoef(allocator, io, x: ConstView(F)) error{ ... }!Mat(F)
   sorted values: for `[1, 2, 3, 4]` at 0.25, `linear` (type 7; NumPy, R, Excel's `.INC`) gives
   1.75, `hazen` (type 5; MATLAB) 1.5, `weibull` (type 6; SPSS, Excel's `.EXC`) 1.25. The gap
   shrinks below one spacing as `n` grows. The default is `.linear`, the modern common choice; a
-  caller matching MATLAB passes `.{ .method = .hazen }`.
+  caller matching MATLAB calls `quantileWith` with `.{ .method = .hazen }`.
 - **NaN** propagates, as in MATLAB. Planned: an option to omit NaNs.
-- **Variance** takes two passes (mean, then squared deviations) through the BLAS `sum`, and a
-  sample of one has variance 0 either way, as MATLAB's `var`. `Running` is the streaming form;
+- **Variance** is the corrected two-pass formula (Chan, Golub and LeVeque), `(Σd² − |Σd|²/n) / (n − 1)` for `d = x − mean`: the mean through the BLAS `sum`, then `kernels.stats.deviationSums` takes `Σd` and `Σd²` in one pass, in every `Summation` mode (#605); integers and mixed types sum in order here. A
+  sample of one has variance 0 either way, as MATLAB's `var`. `RunningMoments` is the streaming form;
   its bits differ from `variance`'s. `cov` is `syrk` over the centered columns.
 - **Histogram:** the last bin includes its right edge, as MATLAB's `histcounts` and NumPy do.
   Values outside the edges, and NaNs, are not counted. Errors include `EdgesNotSorted`,
   `ZeroBins` and `SliceTooShort`.
-- **Status:** `Running` is real; the rest are stubs.
+- **Status:** `RunningMoments` is real; the rest are stubs.
 - num.zig's `stats/describe.zig` and `stats/correlate.zig` informed this.
 
 ### Sorting and sets: `rstd.sort`
@@ -133,28 +136,27 @@ pub fn isMember(allocator, a, set) error{OutOfMemory}![]?usize // ismember's; fo
   and `partitionPoint`; the set operations are stubs.
 - num.zig's `sort/ordering.zig` and `sort/search.zig` informed this.
 
-### FFT: `rstd.fft`
+### FFT: `rstd.math.kernels.fft` and `rstd.math.fft`
 
-[`src/fft/__root__.zig`](src/fft/__root__.zig). PocketFFT's algorithms in Zig as the baseline
+[`src/math/kernels/fft/__root__.zig`](src/math/kernels/fft/__root__.zig), the plans; [`src/math/fft.zig`](src/math/fft.zig), NumPy's `fft`, `ifft`, `rfft` and `irfft` over them, with `*With` siblings taking `FftOptions` (`.normalization`) ([`src/math/design.md`](src/math/design.md), #611). PocketFFT's algorithms in Zig as the baseline
 (its C++ header), pffft's SIMD kernels ported for speed, Accelerate on macOS by default. The use
 cases are audio, numerics and images.
 
 ```zig
 pub const Direction = enum { forward, backward }; // forward is exp(-2πi jk/n), as NumPy and FFTW
-pub const Norm = enum { backward, ortho, forward }; // which way divides by n; ortho: √n both ways
-pub const Options = struct { norm: Norm = .backward }; // NumPy's default: round trips are exact
-pub const Layout = struct { count: usize = 1, stride: usize = 1, distance: ?usize = null };
-pub const Layouts = struct { in: Layout = .{}, out: Layout = .{} }; // out of place
+pub const Normalization = enum { backward, ortho, forward }; // which way divides by n; ortho: √n both ways
+pub const BatchLayout = struct { count: usize = 1, stride: usize = 1, distance: ?usize = null };
+pub const BatchLayouts = struct { in: BatchLayout = .{}, out: BatchLayout = .{} }; // out of place
 
 // complex, any n; immutable once built, so one plan serves every thread
 pub fn Plan(comptime T: type) type; // init(allocator, n), deinit(allocator), scratchLen()
-fn transform(plan, io, data: []Complex(T), scratch: []Complex(T), dir, layout, options) !void
-fn transformInto(plan, io, out, in: []const Complex(T), scratch, dir, layouts, options) !void
+fn transform(plan, io, data: []Complex(T), scratch: []Complex(T), dir, layout, normalization) !void
+fn transformInto(plan, io, out, in: []const Complex(T), scratch, dir, layouts, normalization) !void
 
 // real input: n reals to the n/2 + 1 complex values of the half spectrum (NumPy's rfft)
 pub fn RealPlan(comptime T: type) type;
-fn forward(plan, io, out: []Complex(T), in: []const T, scratch: []T, layouts, options) !void
-fn backward(plan, io, out: []T, in: []const Complex(T), scratch: []T, layouts, options) !void
+fn forward(plan, io, out: []Complex(T), in: []const T, scratch: []T, layouts, normalization) !void
+fn backward(plan, io, out: []T, in: []const Complex(T), scratch: []T, layouts, normalization) !void
 
 // fast convolution in the plan's own order (pffft's), skipping the reordering both ways
 fn forwardUnordered(plan, out: []T, in: []const T, scratch) !void
@@ -166,13 +168,13 @@ pub fn StaticPlan(comptime n: usize, comptime T: type) type;
 pub fn StaticRealPlan(comptime n: usize, comptime T: type) type;
 
 // DCT and DST types 1 to 4; the MDCT (audio codecs) on DCT-IV
-pub const TrigKind = enum { dct1, dct2, dct3, dct4, dst1, dst2, dst3, dst4 };
-pub fn TrigPlan(comptime T: type) type; // init(allocator, n, kind)
-pub fn Mdct(comptime T: type) type; // init(allocator, n), forward, backward
+pub const TrigTransformKind = enum { dct1, dct2, dct3, dct4, dst1, dst2, dst3, dst4 };
+pub fn TrigTransformPlan(comptime T: type) type; // init(allocator, n, kind)
+pub fn ModifiedCosineTransform(comptime T: type) type; // init(allocator, n), forward, backward
 
 // planned, with N-d arrays: several axes of a view; plans per axis, scratch allocated
-pub fn transformAxes(allocator, io, v: ArrayView(Complex(T)), axes: []const u8, dir, options) !void
-pub fn realForwardAxes(allocator, io, out, in: ConstArrayView(T), axes, options) !void
+pub fn transformAxes(allocator, io, v: ArrayView(Complex(T)), axes: []const u8, dir, normalization) !void
+pub fn realForwardAxes(allocator, io, out, in: ConstArrayView(T), axes, normalization) !void
 ```
 
 - **Real time:** a transform allocates nothing; the plan and the scratch are made up front.
@@ -185,32 +187,32 @@ pub fn realForwardAxes(allocator, io, out, in: ConstArrayView(T), axes, options)
 - **`io`** runs a batch's transforms concurrently, as many at once as the scratch holds
   (`scratch.len / scratchLen()`). They are independent, so the bits depend on neither. Planned: a
   single huge transform's threads, by a fixed split.
-- **Frames:** the unordered forms and the `Mdct` take no `io` or layout, one frame at a time. The
-  `Mdct` leaves windowing to the caller; its scaling makes windowed overlap-add with a
+- **Frames:** the unordered forms and the `ModifiedCosineTransform` take no `io` or layout, one frame at a time. It
+  leaves windowing to the caller; its scaling makes windowed overlap-add with a
   Princen-Bradley window (sine, KBD) reconstruct the input (TDAC).
-- **Element types:** every float type through the portable code, f16 to f128. Planned: f32 SIMD
-  first (audio), then f64 (numerics).
+- **Element types:** every float type through the portable code, f16 to f128; f32 at pffft's sizes through its SIMD (below). Planned: f64 SIMD (numerics).
+- **pffft (f32):** `Plan(f32)` takes pffft's complex kernels at `n = 16 2^a 3^b 5^c`, `RealPlan(f32)` its real ones at `n = 32 2^a 3^b 5^c`, both up to `2^26`; other sizes and types stay on PocketFFT. Every target runs pffft's 4-lane algorithm: its SSE header on x86, its NEON header on arm and aarch64, its 4xScalar mode elsewhere (the PowerPC 750), so the unordered layout is the same everywhere. Its multiply-adds fuse where pffft's do: SSE with FMA3, aarch64 NEON, arm NEON with VFPv4. The unordered forms exist only there: `UnsupportedType` for any type but f32 (until f64 SIMD), `UnsupportedSize` for other sizes, never a panic. Matched bit-for-bit with pffft's C on x86_64; the port reads callers' slices unaligned, where pffft asserts 16-byte alignment.
 - **Bits:** the plan depends on `n`, the type and the core only, never on timing. The SIMD
   kernels change the operation order, so bits may differ between cores, as with the BLAS.
   `StaticPlan` dispatches by size alone, so it gives `Plan`'s bits.
 - **Tests:** a direct DFT in a wider type (as the BLAS's `Wide` reference), round trips,
   Parseval's identity, and every size from 1 to a few hundred (primes take Bluestein's path).
-- **Status:** stubs; `init` already rejects `n = 0`.
+- **Status:** `Plan` is PocketFFT's `cfftp` and `fftblue` (`plan.zig`, `cfftp/`, `bluestein.zig`), `RealPlan` its `rfftp` and `fftblue`'s real path (`real_plan.zig`, `rfftp/`); a batch runs through `io`, as many transforms at once as the scratch holds (`batch.zig`, on the BLAS's `threading.forEach`). f32 at pffft's sizes takes pffft's kernels (`pffft/`, N10), with the unordered forms. The rest are stubs, and `init` already rejects `n = 0`.
 
-### Planned: signal processing, `rstd.signal`
+### Signal processing: `rstd.math.signal`
 
-Built on `rstd.fft`, for audio first:
+In `src/math/signal/`, built on `rstd.math.kernels.fft`, for audio first:
 
 - **Window functions:** Hann, Hamming, Blackman, Kaiser, and the Princen-Bradley windows the
-  `Mdct` needs (sine, KBD); symmetric or periodic (MATLAB's `'symmetric'`, `'periodic'`).
+  `ModifiedCosineTransform` needs (sine, KBD); symmetric or periodic (MATLAB's `'symmetric'`, `'periodic'`). Done (`src/math/kernels/dsp/window.zig`, `rstd.math.kernels.dsp`, re-exported by `rstd.math.signal`; #612): MATLAB's definitions, SciPy's for the sine and KBD windows, which are even-length and symmetric only.
 - **STFT** and its inverse by weighted overlap-add, over `RealPlan`; hop, window and FFT size
   free.
-- **Partitioned convolution:** uniform-partitioned overlap-add over the unordered forms, for long
+- **Partitioned convolution:** uniformly partitioned overlap-save (`signal.Convolver`) over the unordered forms, for long
   filters (reverb) in real time: fixed latency, no allocation per block.
 
 ### Planned: N-d arrays
 
-In `rstd.linalg` beside `Mat(T)`, in two kinds, as the public layer's `StaticMat` and
+In `rstd.math.linalg` beside `Mat(T)`, in two kinds, as the public layer's `StaticMat` and
 `Mat`:
 
 - **`StaticArray`:** the shape, and so the rank, is comptime. It's a value with no allocator,
@@ -262,26 +264,31 @@ pub fn sumDim(allocator, io, v, dim: u8) error{ ... }!Array(T) // and prod, max,
   chunks combined in order elsewhere.
 - num.zig's `core/shape.zig`, `core/iterator.zig`, `ops/broadcast.zig` and `manip/` informed this.
 
-### Planned: sparse matrices
+### Sparse matrices
 
-In `rstd.linalg.sparse`, with 0-based indices.
+In `rstd.math.linalg.sparse`, with 0-based indices. The kernels landed in T150 ([#84](https://github.com/randyos-org/rstd/issues/84)); the iterative solvers are stubs (N2), and [`src/math/linalg/sparse/`](src/math/linalg/sparse/__root__.zig) is the reference.
 
 ```zig
 pub fn Csc(comptime T: type) type; // rows, cols: u32, col_start: []u32, row: []u32, value: []T
 pub fn Csr(comptime T: type) type; // the row-major twin: a Csc of A is a Csr of Aᵀ, same arrays
-pub fn Triplets(comptime T: type) type; // builder: append(allocator, i, j, x), then toCsc
-fn toCsc(allocator, t) error{OutOfMemory}!Csc(T) // sums duplicates in insertion order
-fn fromDense(allocator, a: ConstView(T), drop_below: F) error{OutOfMemory}!Csc(T)
-fn toDense(allocator, a) error{OutOfMemory}!Mat(T)
-fn mulVec(io, a, trans: Trans, alpha: T, x: []const T, beta: T, y: []T) error{ ... }!void
-fn mulDense(allocator, io, a, b: ConstView(T)) error{ ... }!Mat(T)
+pub fn Triplets(comptime T: type) type; // init(rows, cols), append(allocator, i, j, x), toCsc
+pub fn Vector(comptime T: type) type; // one column or row: axpy, dot, dotc into dense slices
+
+// Csc(T)'s methods
+fn fromDense(allocator, a: ConstView(T), drop_below: Float(T)) Error!Csc(T)
+fn toDense(a, allocator) error{OutOfMemory}!Mat(T)
+fn mulVec(a, allocator, io, trans: Trans, alpha: T, x: []const T, beta: T, y: []T) MulError!void
+fn mulDense(a, allocator, io, b: ConstView(T)) MulError!Mat(T)
+fn spgemm(a, allocator, b) SpgemmError!Csc(T) // also spgemmSymbolic, then spgemmNumeric
+fn solveTri(a, uplo: Uplo, trans: Trans, diag: Diag, x: []T) TriSolveError!void
+fn scal, sub, selectCols, transpose, ctranspose, toCsr, asCsrOfTranspose, col, nonzeros
 
 // iterative solvers, matrix-free: anything with apply
 pub fn Operator(comptime T: type) type; // context plus apply(io, x: []const T, y: []T)
 pub fn Options(comptime T: type) type; // tol (relative residual), max_iterations, preconditioner
 pub const Stats = struct { iterations: usize, residual: f64 };
-pub fn cg(allocator, io, a: Operator(T), b: []const T, x: []T, options) error{ ... }!Stats
-pub fn gmres(allocator, io, a, b, x, options, restart: usize) error{ ... }!Stats
+pub fn cg(allocator, io, comptime T, a: Operator(T), b: []const T, x: []T, options) SolveError!Stats
+pub fn gmres(allocator, io, comptime T, a, b, x, options, restart: usize) SolveError!Stats
 ```
 
 - **Indices:** `u32` throughout (shape, column starts, rows), so under 2³² rows, columns and
@@ -290,7 +297,9 @@ pub fn gmres(allocator, io, a, b, x, options, restart: usize) error{ ... }!Stats
   costs 12 bytes, not 16, and `A x` is bandwidth-bound.
 - **CSC comes first**, as in MATLAB and SuiteSparse. A threaded `A x` on CSC combines per-chunk
   partial vectors in chunk order (the BLAS's ordered combine); on CSR each row's sum stays whole.
-- **Errors** beyond `OutOfMemory` and `Canceled`: `DimensionMismatch`, `NoConvergence`,
+- **Errors:** exact sets per operation (`csc.zig`); beyond `OutOfMemory` and `Canceled`,
+  `DimensionMismatch`, `TooLarge`, `IndexOutOfRange`, `PatternMismatch` (a numeric `spgemm`
+  into another product's pattern), `Singular`, and the solvers' `NoConvergence` and
   `NotPositiveDefinite` (CG's breakdown).
 - num.zig's `core/sparse.zig` and `linalg/sparse_solve.zig` (CG, restarted GMRES, no
   preconditioner) informed this.
@@ -299,8 +308,8 @@ pub fn gmres(allocator, io, a, b, x, options, restart: usize) error{ ... }!Stats
 
 By the user, 2026-10-31:
 
-- `rstd.stats`, `rstd.sort` and `rstd.fft` are top-level modules; N-d arrays and sparse matrices
-  go in `rstd.linalg`.
+- `rstd.stats`, `rstd.sort` and `rstd.fft` are top-level modules (stats and the FFT moved under `rstd.math` in #613 and #611); N-d arrays and sparse matrices
+  go in `rstd.math.linalg`.
 - Broadcasting needs equal ranks; MATLAB's implicit expansion is the fallback if padding is ever
   added.
 - Sparse indices are `u32` throughout.
@@ -314,7 +323,7 @@ By the user, 2026-10-31:
 - The API sketches are approved. N-d arrays and sparse matrices start after the public layer
   (linalg's M10), on its real `View(T)` and `Mat(T)`.
 - The stubs' changes to the sketches stand for now (explicit `comptime` element types,
-  `stats.quantile`, `sort.Keep`, `Selected(T)`, `[]?usize`, `fft.Layouts`, scratch-bounded
+  `stats.quantile`, `sort.Keep`, `Selected(T)`, `[]?usize`, `fft.BatchLayouts`, scratch-bounded
   batches); they may be revisited.
 - The FFT comes before statistics and sets.
 - PocketFFT's source is its C++ header (cpp branch), pinned to one commit for provenance.
@@ -325,7 +334,7 @@ By the user, 2026-10-31:
 - pffft is C intrinsics behind a macro layer, so its faithful port maps each macro to the
   `@Vector` or `@shuffle` form that emits the same instruction, in pffft's order, without fused
   multiply-adds pffft lacks; checked by reading the code generated and by matching pffft's bits.
-  The port is a chance to improve `rstd.linalg`'s APIs for such code: its
+  The port is a chance to improve `rstd.math.linalg`'s APIs for such code: its
   vector primitives (interleave, transpose, half-swap) go in the `Vec` and `StaticMat` code that
   linalg's M7 redesigns around `@Matrix`, which also decides the N-d arrays' fixed-size kind.
 - Kernels per platform: pffft's own first (SSE on x86_64, NEON on aarch64 and the Pi 3's 32-bit
@@ -339,8 +348,8 @@ By the user, 2026-10-31:
   function no access to its result type. So `stats.mean(io, R, xs)` takes the result type `R`,
   and the element type comes from `xs`; for floats today's calls keep their form. The matlab
   port gets the same (linalg's M6).
-- Signal processing gets its own module, `rstd.signal`: window functions, the STFT and
-  partitioned convolution (Planned: signal processing, above).
+- Signal processing gets its own module, `rstd.signal` (since #612 `rstd.math.signal`): window functions, the STFT and
+  partitioned convolution (Signal processing, above).
 - Front ends are type-agnostic, as the BLAS's: any element type, dispatched on it, integers and
   `Complex` included where the operation means something to them.
 - Complex values sort in MATLAB's order (by magnitude, then angle), and everything that orders

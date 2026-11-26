@@ -1,0 +1,465 @@
+//! `casum` for cell (32); cell (32le); cell (64); cell (64be), from OpenBLAS `kernel/power/zasum_cell.S` (`v0.3.34-794-gdbf2c24c9`); converted by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+/// Each function's core and variant, and its parts (`__bk`'s arguments).
+pub const keys = .{
+    .{ .core = .cell, .variant = "32", .parts = "1, 0" },
+    .{ .core = .cell, .variant = "32le", .parts = "1, 0" },
+    .{ .core = .cell, .variant = "64", .parts = "0, 1" },
+    .{ .core = .cell, .variant = "64be", .parts = "0, 1" },
+};
+
+/// The functions' one text, a macro whose parameters select the parts.
+const text =
+    \\ .macro __bk bp0, bp1
+    \\ .align 6
+    \\ addi 1, 1, -16
+    \\ li 0, 0
+    \\ stw 0, 0(1)
+    \\ lfs 0, 0(1)
+    \\ .if \bp0
+    \\ slwi 5, 5, 3
+    \\ .endif
+    \\ .if \bp1
+    \\ sldi 5, 5, 3
+    \\ .endif
+    \\ fmr 1, 0
+    \\ li 8, 8 * 16 * 4
+    \\ fmr 2, 0
+    \\ subi 9, 5, 4
+    \\ .if \bp0
+    \\ cmpwi 0, 3, 0
+    \\ .endif
+    \\ .if \bp1
+    \\ cmpdi 0, 3, 0
+    \\ .endif
+    \\ fmr 3, 0
+    \\ ble- 20011f
+    \\ .if \bp0
+    \\ cmpwi 0, 5, 0
+    \\ .endif
+    \\ .if \bp1
+    \\ cmpdi 0, 5, 0
+    \\ .endif
+    \\ ble- 20011f
+    \\ .if \bp0
+    \\ cmpwi 0, 5, 4 * 2
+    \\ .endif
+    \\ .if \bp1
+    \\ cmpdi 0, 5, 4 * 2
+    \\ .endif
+    \\ bne- 0, 20005f
+    \\ .if \bp0
+    \\ srawi. 0, 3, 3
+    \\ .endif
+    \\ .if \bp1
+    \\ sradi. 0, 3, 3
+    \\ .endif
+    \\ mtspr 9, 0
+    \\ beq- 0, 20002f
+    \\ .align 4
+    \\ lfs 8, 0 * 4(4)
+    \\ lfs 9, 1 * 4(4)
+    \\ fabs 4, 8
+    \\ lfs 10, 2 * 4(4)
+    \\ fabs 5, 9
+    \\ lfs 11, 3 * 4(4)
+    \\ fabs 6, 10
+    \\ lfs 8, 4 * 4(4)
+    \\ fabs 7, 11
+    \\ bdz 20001f
+    \\ .align 4
+    \\ 20000:
+    \\ fadds 0, 0, 4
+    \\ dcbt 4, 8
+    \\ fabs 4, 8
+    \\ lfs 9, 5 * 4(4)
+    \\ fadds 1, 1, 5
+    \\ nop
+    \\ fabs 5, 9
+    \\ lfs 10, 6 * 4(4)
+    \\ fadds 2, 2, 6
+    \\ nop
+    \\ fabs 6, 10
+    \\ lfs 11, 7 * 4(4)
+    \\ fadds 3, 3, 7
+    \\ nop
+    \\ fabs 7, 11
+    \\ lfs 8, 8 * 4(4)
+    \\ fadds 0, 0, 4
+    \\ nop
+    \\ fabs 4, 8
+    \\ lfs 9, 9 * 4(4)
+    \\ fadds 1, 1, 5
+    \\ nop
+    \\ fabs 5, 9
+    \\ lfs 10, 10 * 4(4)
+    \\ fadds 2, 2, 6
+    \\ nop
+    \\ fabs 6, 10
+    \\ lfs 11, 11 * 4(4)
+    \\ fadds 3, 3, 7
+    \\ nop
+    \\ fabs 7, 11
+    \\ lfs 8, 12 * 4(4)
+    \\ fadds 0, 0, 4
+    \\ nop
+    \\ fabs 4, 8
+    \\ lfs 9, 13 * 4(4)
+    \\ fadds 1, 1, 5
+    \\ nop
+    \\ fabs 5, 9
+    \\ lfs 10, 14 * 4(4)
+    \\ fadds 2, 2, 6
+    \\ nop
+    \\ fabs 6, 10
+    \\ lfs 11, 15 * 4(4)
+    \\ fadds 3, 3, 7
+    \\ nop
+    \\ fabs 7, 11
+    \\ lfs 8, 16 * 4(4)
+    \\ fadds 0, 0, 4
+    \\ nop
+    \\ fabs 4, 8
+    \\ lfs 9, 17 * 4(4)
+    \\ fadds 1, 1, 5
+    \\ addi 4, 4, 16 * 4
+    \\ fabs 5, 9
+    \\ lfs 10, 2 * 4(4)
+    \\ fadds 2, 2, 6
+    \\ nop
+    \\ fabs 6, 10
+    \\ lfs 11, 3 * 4(4)
+    \\ fadds 3, 3, 7
+    \\ lfs 8, 4 * 4(4)
+    \\ fabs 7, 11
+    \\ bdnz 20000b
+    \\ .align 4
+    \\ 20001:
+    \\ fadds 0, 0, 4
+    \\ nop
+    \\ fabs 4, 8
+    \\ lfs 9, 5 * 4(4)
+    \\ fadds 1, 1, 5
+    \\ nop
+    \\ fabs 5, 9
+    \\ lfs 10, 6 * 4(4)
+    \\ fadds 2, 2, 6
+    \\ nop
+    \\ fabs 6, 10
+    \\ lfs 11, 7 * 4(4)
+    \\ fadds 3, 3, 7
+    \\ nop
+    \\ fabs 7, 11
+    \\ lfs 8, 8 * 4(4)
+    \\ fadds 0, 0, 4
+    \\ nop
+    \\ fabs 4, 8
+    \\ lfs 9, 9 * 4(4)
+    \\ fadds 1, 1, 5
+    \\ nop
+    \\ fabs 5, 9
+    \\ lfs 10, 10 * 4(4)
+    \\ fadds 2, 2, 6
+    \\ nop
+    \\ fabs 6, 10
+    \\ lfs 11, 11 * 4(4)
+    \\ fadds 3, 3, 7
+    \\ nop
+    \\ fabs 7, 11
+    \\ lfs 8, 12 * 4(4)
+    \\ fadds 0, 0, 4
+    \\ nop
+    \\ fabs 4, 8
+    \\ lfs 9, 13 * 4(4)
+    \\ fadds 1, 1, 5
+    \\ nop
+    \\ fabs 5, 9
+    \\ lfs 10, 14 * 4(4)
+    \\ fadds 2, 2, 6
+    \\ addi 4, 4, 16 * 4
+    \\ fabs 6, 10
+    \\ lfs 11, -1 * 4(4)
+    \\ fadds 3, 3, 7
+    \\ fabs 7, 11
+    \\ fadds 0, 0, 4
+    \\ fadds 1, 1, 5
+    \\ fadds 2, 2, 6
+    \\ fadds 3, 3, 7
+    \\ .align 4
+    \\ 20002:
+    \\ andi. 0, 3, 7
+    \\ beq 20011f
+    \\ andi. 0, 3, 4
+    \\ beq 20003f
+    \\ lfs 8, 0 * 4(4)
+    \\ lfs 9, 1 * 4(4)
+    \\ fabs 4, 8
+    \\ lfs 10, 2 * 4(4)
+    \\ fabs 5, 9
+    \\ lfs 11, 3 * 4(4)
+    \\ fabs 6, 10
+    \\ lfs 8, 4 * 4(4)
+    \\ fabs 7, 11
+    \\ fadds 0, 0, 4
+    \\ nop
+    \\ fabs 4, 8
+    \\ lfs 9, 5 * 4(4)
+    \\ fadds 1, 1, 5
+    \\ nop
+    \\ fabs 5, 9
+    \\ lfs 10, 6 * 4(4)
+    \\ fadds 2, 2, 6
+    \\ addi 4, 4, 8 * 4
+    \\ fabs 6, 10
+    \\ lfs 11, -1 * 4(4)
+    \\ fadds 3, 3, 7
+    \\ fabs 7, 11
+    \\ fadds 0, 0, 4
+    \\ fadds 1, 1, 5
+    \\ fadds 2, 2, 6
+    \\ fadds 3, 3, 7
+    \\ .align 4
+    \\ 20003:
+    \\ andi. 0, 3, 2
+    \\ beq 20004f
+    \\ lfs 8, 0 * 4(4)
+    \\ lfs 9, 1 * 4(4)
+    \\ fabs 4, 8
+    \\ lfs 10, 2 * 4(4)
+    \\ fabs 5, 9
+    \\ lfs 11, 3 * 4(4)
+    \\ fabs 6, 10
+    \\ addi 4, 4, 4 * 4
+    \\ fabs 7, 11
+    \\ nop
+    \\ fadds 0, 0, 4
+    \\ fadds 1, 1, 5
+    \\ fadds 2, 2, 6
+    \\ fadds 3, 3, 7
+    \\ .align 4
+    \\ 20004:
+    \\ andi. 0, 3, 1
+    \\ beq 20011f
+    \\ lfs 8, 0 * 4(4)
+    \\ lfs 9, 1 * 4(4)
+    \\ fabs 4, 8
+    \\ fabs 5, 9
+    \\ fadds 0, 0, 4
+    \\ addi 4, 4, 2 * 4
+    \\ fadds 1, 1, 5
+    \\ b 20011f
+    \\ .align 4
+    \\ 20005:
+    \\ sub 4, 4, 9
+    \\ .if \bp0
+    \\ srawi. 0, 3, 3
+    \\ .endif
+    \\ .if \bp1
+    \\ sradi. 0, 3, 3
+    \\ .endif
+    \\ mtspr 9, 0
+    \\ beq- 0, 20008f
+    \\ lfsx 8, 4, 9
+    \\ lfsux 9, 4, 5
+    \\ fabs 4, 8
+    \\ lfsx 10, 4, 9
+    \\ fabs 5, 9
+    \\ lfsux 11, 4, 5
+    \\ fabs 6, 10
+    \\ lfsx 8, 4, 9
+    \\ fabs 7, 11
+    \\ bdz 20007f
+    \\ .align 4
+    \\ 20006:
+    \\ fadds 0, 0, 4
+    \\ dcbt 4, 8
+    \\ fabs 4, 8
+    \\ lfsux 9, 4, 5
+    \\ fadds 1, 1, 5
+    \\ nop
+    \\ fabs 5, 9
+    \\ lfsx 10, 4, 9
+    \\ fadds 2, 2, 6
+    \\ nop
+    \\ fabs 6, 10
+    \\ lfsux 11, 4, 5
+    \\ fadds 3, 3, 7
+    \\ nop
+    \\ fabs 7, 11
+    \\ lfsx 8, 4, 9
+    \\ fadds 0, 0, 4
+    \\ nop
+    \\ fabs 4, 8
+    \\ lfsux 9, 4, 5
+    \\ fadds 1, 1, 5
+    \\ nop
+    \\ fabs 5, 9
+    \\ lfsx 10, 4, 9
+    \\ fadds 2, 2, 6
+    \\ nop
+    \\ fabs 6, 10
+    \\ lfsux 11, 4, 5
+    \\ fadds 3, 3, 7
+    \\ nop
+    \\ fabs 7, 11
+    \\ lfsx 8, 4, 9
+    \\ fadds 0, 0, 4
+    \\ nop
+    \\ fabs 4, 8
+    \\ lfsux 9, 4, 5
+    \\ fadds 1, 1, 5
+    \\ nop
+    \\ fabs 5, 9
+    \\ lfsx 10, 4, 9
+    \\ fadds 2, 2, 6
+    \\ nop
+    \\ fabs 6, 10
+    \\ lfsux 11, 4, 5
+    \\ fadds 3, 3, 7
+    \\ nop
+    \\ fabs 7, 11
+    \\ lfsx 8, 4, 9
+    \\ fadds 0, 0, 4
+    \\ nop
+    \\ fabs 4, 8
+    \\ lfsux 9, 4, 5
+    \\ fadds 1, 1, 5
+    \\ nop
+    \\ fabs 5, 9
+    \\ lfsx 10, 4, 9
+    \\ fadds 2, 2, 6
+    \\ nop
+    \\ fabs 6, 10
+    \\ lfsux 11, 4, 5
+    \\ fadds 3, 3, 7
+    \\ lfsx 8, 4, 9
+    \\ fabs 7, 11
+    \\ bdnz 20006b
+    \\ .align 4
+    \\ 20007:
+    \\ fadds 0, 0, 4
+    \\ nop
+    \\ fabs 4, 8
+    \\ lfsux 9, 4, 5
+    \\ fadds 1, 1, 5
+    \\ nop
+    \\ fabs 5, 9
+    \\ lfsx 10, 4, 9
+    \\ fadds 2, 2, 6
+    \\ nop
+    \\ fabs 6, 10
+    \\ lfsux 11, 4, 5
+    \\ fadds 3, 3, 7
+    \\ nop
+    \\ fabs 7, 11
+    \\ lfsx 8, 4, 9
+    \\ fadds 0, 0, 4
+    \\ nop
+    \\ fabs 4, 8
+    \\ lfsux 9, 4, 5
+    \\ fadds 1, 1, 5
+    \\ nop
+    \\ fabs 5, 9
+    \\ lfsx 10, 4, 9
+    \\ fadds 2, 2, 6
+    \\ nop
+    \\ fabs 6, 10
+    \\ lfsux 11, 4, 5
+    \\ fadds 3, 3, 7
+    \\ nop
+    \\ fabs 7, 11
+    \\ lfsx 8, 4, 9
+    \\ fadds 0, 0, 4
+    \\ nop
+    \\ fabs 4, 8
+    \\ lfsux 9, 4, 5
+    \\ fadds 1, 1, 5
+    \\ nop
+    \\ fabs 5, 9
+    \\ lfsx 10, 4, 9
+    \\ fadds 2, 2, 6
+    \\ nop
+    \\ fabs 6, 10
+    \\ lfsux 11, 4, 5
+    \\ fadds 3, 3, 7
+    \\ fabs 7, 11
+    \\ fadds 0, 0, 4
+    \\ fadds 1, 1, 5
+    \\ fadds 2, 2, 6
+    \\ fadds 3, 3, 7
+    \\ .align 4
+    \\ 20008:
+    \\ andi. 0, 3, 7
+    \\ beq 20011f
+    \\ andi. 0, 3, 4
+    \\ beq 20009f
+    \\ lfsx 8, 4, 9
+    \\ lfsux 9, 4, 5
+    \\ fabs 4, 8
+    \\ lfsx 10, 4, 9
+    \\ fabs 5, 9
+    \\ lfsux 11, 4, 5
+    \\ fabs 6, 10
+    \\ lfsx 8, 4, 9
+    \\ fabs 7, 11
+    \\ fadds 0, 0, 4
+    \\ nop
+    \\ fabs 4, 8
+    \\ lfsux 9, 4, 5
+    \\ fadds 1, 1, 5
+    \\ nop
+    \\ fabs 5, 9
+    \\ lfsx 10, 4, 9
+    \\ fadds 2, 2, 6
+    \\ fabs 6, 10
+    \\ lfsux 11, 4, 5
+    \\ fadds 3, 3, 7
+    \\ fabs 7, 11
+    \\ fadds 0, 0, 4
+    \\ fadds 1, 1, 5
+    \\ fadds 2, 2, 6
+    \\ fadds 3, 3, 7
+    \\ .align 4
+    \\ 20009:
+    \\ andi. 0, 3, 2
+    \\ beq 20010f
+    \\ lfsx 8, 4, 9
+    \\ lfsux 9, 4, 5
+    \\ fabs 4, 8
+    \\ lfsx 10, 4, 9
+    \\ fabs 5, 9
+    \\ lfsux 11, 4, 5
+    \\ fabs 6, 10
+    \\ fabs 7, 11
+    \\ fadds 0, 0, 4
+    \\ fadds 1, 1, 5
+    \\ fadds 2, 2, 6
+    \\ fadds 3, 3, 7
+    \\ .align 4
+    \\ 20010:
+    \\ andi. 0, 3, 1
+    \\ beq 20011f
+    \\ lfsx 8, 4, 9
+    \\ lfsux 9, 4, 5
+    \\ fabs 4, 8
+    \\ fabs 5, 9
+    \\ fadds 0, 0, 4
+    \\ fadds 1, 1, 5
+    \\ .align 4
+    \\ 20011:
+    \\ fadds 0, 0, 1
+    \\ fadds 2, 2, 3
+    \\ fadds 1, 0, 2
+    \\ addi 1, 1, 16
+    \\ blr
+    \\ .endm
+    \\
+;
+
+pub fn Body(comptime args: []const u8) type {
+    return struct {
+        pub fn entry() callconv(.naked) void {
+            asm volatile (text ++ (" __bk " ++ args ++ "\n .purgem __bk\n"));
+        }
+    };
+}

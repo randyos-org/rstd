@@ -1,5 +1,5 @@
 #!/bin/bash
-# Settings for the Apple silicon Mac that runs the rigs and timings over ssh: headless, logged in, waking on ssh, indexing stopped (src/linalg/
+# Settings for the Apple silicon Mac that runs the rigs and timings over ssh: headless, logged in, waking on ssh, indexing stopped (src/math/linalg/
 # design.md, "Timing on a host macOS keeps busy"). Run as the rigs' account: `bash configure_mac_host_arm.sh [--check]`; steps a script cannot take say
 # what to do by hand. Running it again is harmless.
 
@@ -52,7 +52,7 @@ else note "(failed: Lock Screen > Require password after screen saver begins or 
 # ignores disksleep), sleep after 60. An incoming ssh connection wakes it
 # through a Bonjour sleep proxy (a HomePod or Apple TV) or a magic packet; no
 # standby, so the network stays able to. rstd's ssh tools hold `caffeinate
-# -i` for their runs. Back after a power cut.
+# -is` for their runs (`-s`: a dark wake ignores `-i`). Back after a power cut.
 step "sleep after 60 minutes, wake on network, restart after power loss" \
     sudo pmset -a sleep 60 displaysleep 10 disksleep 10 standby 0 womp 1 autorestart 1 tcpkeepalive 1
 note "$(pmset -g | grep -E '^ (sleep|displaysleep|disksleep|standby|womp|autorestart) ' | tr -s ' ' | tr '\n' ';')"

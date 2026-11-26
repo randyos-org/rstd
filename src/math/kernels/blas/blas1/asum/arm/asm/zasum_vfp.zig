@@ -1,0 +1,152 @@
+//! `zasum` for armv6, armv7, cortexa15, cortexa9 (hf); armv6, armv7, cortexa15, cortexa9 (sf), from OpenBLAS `kernel/arm/asum_vfp.S` (`v0.3.34-794-gdbf2c24c9`); converted by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+/// Each function's core and variant, and its parts (`__bk`'s arguments).
+pub const keys = .{
+    .{ .core = .armv6, .variant = "hf", .parts = "0" },
+    .{ .core = .armv7, .variant = "hf", .parts = "0" },
+    .{ .core = .cortexa15, .variant = "hf", .parts = "0" },
+    .{ .core = .cortexa9, .variant = "hf", .parts = "0" },
+    .{ .core = .armv6, .variant = "sf", .parts = "1" },
+    .{ .core = .armv7, .variant = "sf", .parts = "1" },
+    .{ .core = .cortexa15, .variant = "sf", .parts = "1" },
+    .{ .core = .cortexa9, .variant = "sf", .parts = "1" },
+};
+
+/// The functions' one text, a macro whose parameters select the parts.
+const text =
+    \\ .macro __bk bp0
+    \\ .macro KERNEL_F4
+    \\ pld [ r1, #512 ]
+    \\ vldmia.f64 r1!, { d4 - d5 }
+    \\ vabs.f64 d4, d4
+    \\ vadd.f64 d0 , d0, d4
+    \\ vabs.f64 d5, d5
+    \\ vldmia.f64 r1!, { d6 - d7 }
+    \\ vabs.f64 d6, d6
+    \\ vadd.f64 d1 , d1, d5
+    \\ vabs.f64 d7, d7
+    \\ vadd.f64 d0 , d0, d6
+    \\ vadd.f64 d1 , d1, d7
+    \\ pld [ r1, #512 ]
+    \\ vldmia.f64 r1!, { d4 - d5 }
+    \\ vabs.f64 d4, d4
+    \\ vadd.f64 d0 , d0, d4
+    \\ vabs.f64 d5, d5
+    \\ vldmia.f64 r1!, { d6 - d7 }
+    \\ vabs.f64 d6, d6
+    \\ vadd.f64 d1 , d1, d5
+    \\ vabs.f64 d7, d7
+    \\ vadd.f64 d0 , d0, d6
+    \\ vadd.f64 d1 , d1, d7
+    \\ .endm
+    \\ .macro KERNEL_F1
+    \\ vldmia.f64 r1!, { d4 }
+    \\ vabs.f64 d4, d4
+    \\ vadd.f64 d0 , d0, d4
+    \\ vldmia.f64 r1!, { d4 }
+    \\ vabs.f64 d4, d4
+    \\ vadd.f64 d0 , d0, d4
+    \\ .endm
+    \\ .macro KERNEL_S4
+    \\ vldmia.f64 r1, { d4 -d5 }
+    \\ vabs.f64 d4, d4
+    \\ vadd.f64 d0 , d0, d4
+    \\ vabs.f64 d5, d5
+    \\ vadd.f64 d0 , d0, d5
+    \\ add r1, r1, r2
+    \\ vldmia.f64 r1, { d4 -d5 }
+    \\ vabs.f64 d4, d4
+    \\ vadd.f64 d0 , d0, d4
+    \\ vabs.f64 d5, d5
+    \\ vadd.f64 d0 , d0, d5
+    \\ add r1, r1, r2
+    \\ vldmia.f64 r1, { d4 -d5 }
+    \\ vabs.f64 d4, d4
+    \\ vadd.f64 d0 , d0, d4
+    \\ vabs.f64 d5, d5
+    \\ vadd.f64 d0 , d0, d5
+    \\ add r1, r1, r2
+    \\ vldmia.f64 r1, { d4 -d5 }
+    \\ vabs.f64 d4, d4
+    \\ vadd.f64 d0 , d0, d4
+    \\ vabs.f64 d5, d5
+    \\ vadd.f64 d0 , d0, d5
+    \\ add r1, r1, r2
+    \\ .endm
+    \\ .macro KERNEL_S1
+    \\ vldmia.f64 r1, { d4 -d5 }
+    \\ vabs.f64 d4, d4
+    \\ vadd.f64 d0 , d0, d4
+    \\ vabs.f64 d5, d5
+    \\ vadd.f64 d0 , d0, d5
+    \\ add r1, r1, r2
+    \\ .endm
+    \\ .arm
+    \\ .align 5
+    \\ movs r12, #0
+    \\ vmov s0, r12
+    \\ vmov s1, r12
+    \\ vcvt.f64.f32 d0, s0
+    \\ vcvt.f64.f32 d1, s1
+    \\ cmp r0, #0
+    \\ ble 20008f
+    \\ cmp r2, #0
+    \\ beq 20008f
+    \\ cmp r2, #1
+    \\ bne 20004f
+    \\ 20000:
+    \\ asrs r12, r0, #2
+    \\ ble 20002f
+    \\ .align 5
+    \\ 20001:
+    \\ KERNEL_F4
+    \\ subs r12, r12, #1
+    \\ ble 20002f
+    \\ KERNEL_F4
+    \\ subs r12, r12, #1
+    \\ bne 20001b
+    \\ 20002:
+    \\ ands r12, r0, #3
+    \\ ble 20008f
+    \\ 20003:
+    \\ KERNEL_F1
+    \\ subs r12, r12, #1
+    \\ bne 20003b
+    \\ b 20008f
+    \\ 20004:
+    \\ lsl r2, r2, #4
+    \\ asrs r12, r0, #2
+    \\ ble 20006f
+    \\ .align 5
+    \\ 20005:
+    \\ KERNEL_S4
+    \\ subs r12, r12, #1
+    \\ bne 20005b
+    \\ 20006:
+    \\ ands r12, r0, #3
+    \\ ble 20008f
+    \\ 20007:
+    \\ KERNEL_S1
+    \\ subs r12, r12, #1
+    \\ bne 20007b
+    \\ 20008:
+    \\ vadd.f64 d0 , d0, d1
+    \\ .if \bp0
+    \\ vmov r0, r1, d0
+    \\ .endif
+    \\ bx lr
+    \\ .purgem KERNEL_F4
+    \\ .purgem KERNEL_F1
+    \\ .purgem KERNEL_S4
+    \\ .purgem KERNEL_S1
+    \\ .endm
+    \\
+;
+
+pub fn Body(comptime args: []const u8) type {
+    return struct {
+        pub fn entry() callconv(.naked) void {
+            asm volatile (text ++ (" __bk " ++ args ++ "\n .purgem __bk\n"));
+        }
+    };
+}

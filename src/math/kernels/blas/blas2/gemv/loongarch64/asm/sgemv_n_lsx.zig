@@ -1,0 +1,119 @@
+//! `sgemv_n` for la264, from OpenBLAS `kernel/loongarch64/sgemv_n_lsx.S` (`v0.3.34-794-gdbf2c24c9`); converted by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+/// Each function's core and variant.
+pub const keys = .{
+    .{ .core = .la264, .variant = "" },
+};
+
+pub const Body = struct {
+    pub fn entry() callconv(.naked) void {
+        asm volatile (
+            \\ .align 5
+            \\ ld.d $r6, $sp, 0
+            \\ ld.d $r16, $sp, 8
+            \\ addi.d $sp, $sp, -80
+            \\ st.d $r23, $sp, 0
+            \\ st.d $r24, $sp, 8
+            \\ st.d $r25, $sp, 16
+            \\ st.d $r26, $sp, 32
+            \\ st.d $r27, $sp, 40
+            \\ st.d $r28, $sp, 48
+            \\ st.d $r29, $sp, 56
+            \\ st.d $r30, $sp, 64
+            \\ fst.s $f0, $sp, 72
+            \\ vldrepl.w $vr10, $sp, 72
+            \\ slli.d $r8, $r8, 2
+            \\ slli.d $r10, $r10, 2
+            \\ slli.d $r6, $r6, 2
+            \\ bge $r0, $r4, 20005f
+            \\ bge $r0, $r5, 20005f
+            \\ move $r15, $r0
+            \\ move $r25, $r0
+            \\ move $r23, $r7
+            \\ move $r12, $r9
+            \\ move $r13, $r11
+            \\ beq $r15, $r4, 20005f
+            \\ 20000:
+            \\ vldx $vr11, $r12, $r25
+            \\ vpermi.w $vr11, $vr11, 0x00
+            \\ vfmul.s $vr12, $vr10, $vr11
+            \\ move $r26, $r0
+            \\ move $r27, $r0
+            \\ move $r14, $r0
+            \\ srai.d $r19, $r4, 2
+            \\ beq $r14, $r19, 20002f
+            \\ 20001:
+            \\ vldx $vr2, $r23, $r27
+            \\ move $r20, $r26
+            \\ add.d $r28, $r20, $r6
+            \\ add.d $r29, $r28, $r6
+            \\ add.d $r30, $r29, $r6
+            \\ fldx.s $f3, $r13, $r20
+            \\ fldx.s $f4, $r13, $r28
+            \\ fldx.s $f5, $r13, $r29
+            \\ fldx.s $f6, $r13, $r30
+            \\ vextrins.w $vr3, $vr4, 0x10
+            \\ vextrins.w $vr3, $vr5, 0x20
+            \\ vextrins.w $vr3, $vr6, 0x30
+            \\ vfmadd.s $vr3, $vr12, $vr2, $vr3
+            \\ vextrins.w $vr4, $vr3, 0x01
+            \\ vextrins.w $vr5, $vr3, 0x02
+            \\ vextrins.w $vr6, $vr3, 0x03
+            \\ fstx.s $f3, $r13, $r20
+            \\ fstx.s $f4, $r13, $r28
+            \\ fstx.s $f5, $r13, $r29
+            \\ fstx.s $f6, $r13, $r30
+            \\ add.d $r26, $r30, $r6
+            \\ addi.d $r27, $r27, 16
+            \\ addi.d $r14, $r14, 1
+            \\ blt $r14, $r19, 20001b
+            \\ 20002:
+            \\ andi $r19, $r4, 2
+            \\ beq $r0, $r19, 20003f
+            \\ addi.d $r20, $r0, 4
+            \\ mod.d $r20, $r4, $r20
+            \\ sub.d $r27, $r4, $r20
+            \\ slli.d $r27, $r27, 2
+            \\ move $r20, $r26
+            \\ add.d $r28, $r20, $r6
+            \\ fldx.s $f3, $r23, $r27
+            \\ addi.d $r19, $r27, 4
+            \\ fldx.s $f4, $r23, $r19
+            \\ fldx.s $f5, $r13, $r20
+            \\ fldx.s $f6, $r13, $r28
+            \\ fmadd.s $f5, $f12, $f3, $f5
+            \\ fmadd.s $f6, $f12, $f4, $f6
+            \\ fstx.s $f5, $r13, $r20
+            \\ fstx.s $f6, $r13, $r28
+            \\ add.d $r26, $r28, $r6
+            \\ 20003:
+            \\ andi $r19, $r4, 1
+            \\ beq $r0, $r19, 20004f
+            \\ addi.d $r27, $r4, -1
+            \\ slli.d $r27, $r27, 2
+            \\ fldx.s $f3, $r23, $r27
+            \\ fldx.s $f5, $r13, $r26
+            \\ fmadd.s $f5, $f12, $f3, $f5
+            \\ fstx.s $f5, $r13, $r26
+            \\ add.d $r26, $r26, $r6
+            \\ 20004:
+            \\ add.d $r23, $r23, $r8
+            \\ add.d $r25, $r25, $r10
+            \\ addi.d $r15, $r15, 1
+            \\ blt $r15, $r5, 20000b
+            \\ 20005:
+            \\ ld.d $r23, $sp, 0
+            \\ ld.d $r24, $sp, 8
+            \\ ld.d $r25, $sp, 16
+            \\ ld.d $r26, $sp, 32
+            \\ ld.d $r27, $sp, 40
+            \\ ld.d $r28, $sp, 48
+            \\ ld.d $r29, $sp, 56
+            \\ ld.d $r30, $sp, 64
+            \\ fld.s $f0, $sp, 72
+            \\ addi.d $sp, $sp, 80
+            \\ jirl $r0, $r1, 0x0
+            \\
+        );
+    }
+};

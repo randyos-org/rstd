@@ -1,0 +1,329 @@
+//! Section 1 of 3 of the text of `scopy`, which `__root__.zig` joins, from OpenBLAS `kernel/x86_64/copy_sse.S` (`v0.3.34-794-gdbf2c24c9`); converted by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+pub const text =
+    \\ .macro __bk bp0, bp1, bp2, bp3, bp4, bp5, bp6
+    \\ .balign 512
+    \\ movq 40(%rsp), %r10
+    \\ subq $256, %rsp
+    \\ movups %xmm6, 0(%rsp)
+    \\ movups %xmm7, 16(%rsp)
+    \\ movups %xmm8, 32(%rsp)
+    \\ movups %xmm9, 48(%rsp)
+    \\ movups %xmm10, 64(%rsp)
+    \\ movups %xmm11, 80(%rsp)
+    \\ movups %xmm12, 96(%rsp)
+    \\ movups %xmm13, 112(%rsp)
+    \\ movups %xmm14, 128(%rsp)
+    \\ movups %xmm15, 144(%rsp)
+    \\ leaq (, %r8, 4), %r8
+    \\ leaq (, %r10, 4), %r10
+    \\ cmpq $4, %r8
+    \\ jne 20037f
+    \\ cmpq $4, %r10
+    \\ jne 20037f
+    \\ cmpq $3, %rcx
+    \\ jle 20039f
+    \\ subq $-32 * 4, %rdx
+    \\ subq $-32 * 4, %r9
+    \\ testq $4, %r9
+    \\ je 20000f
+    \\ movss -32 * 4(%rdx), %xmm0
+    \\ movss %xmm0, -32 * 4(%r9)
+    \\ addq $1 * 4, %rdx
+    \\ addq $1 * 4, %r9
+    \\ decq %rcx
+    \\ .balign 16
+    \\ 20000:
+    \\ testq $2 * 4, %r9
+    \\ je 20001f
+    \\ .if \bp0
+    \\ movsd -32 * 4(%rdx), %xmm0
+    \\ .endif
+    \\ .if \bp1
+    \\ movlps -32 * 4(%rdx), %xmm0
+    \\ .endif
+    \\ movlps %xmm0, -32 * 4(%r9)
+    \\ addq $2 * 4, %rdx
+    \\ addq $2 * 4, %r9
+    \\ subq $2, %rcx
+    \\ jle 20009f
+    \\ .balign 16
+    \\ 20001:
+    \\ testq $3 * 4, %rdx
+    \\ jne 20010f
+    \\ movq %rcx, %rax
+    \\ sarq $5, %rax
+    \\ jle 20004f
+    \\ movaps -32 * 4(%rdx), %xmm0
+    \\ movaps -28 * 4(%rdx), %xmm1
+    \\ movaps -24 * 4(%rdx), %xmm2
+    \\ movaps -20 * 4(%rdx), %xmm3
+    \\ movaps -16 * 4(%rdx), %xmm4
+    \\ movaps -12 * 4(%rdx), %xmm5
+    \\ movaps -8 * 4(%rdx), %xmm6
+    \\ movaps -4 * 4(%rdx), %xmm7
+    \\ decq %rax
+    \\ jle 20003f
+    \\ .balign 8
+    \\ 20002:
+    \\ .if \bp2
+    \\ prefetchw ((128 * 5) + 0) - 128(%r9)
+    \\ .endif
+    \\ .if \bp3
+    \\ prefetcht0 ((128 * 4) + 0) - 128(%r9)
+    \\ .endif
+    \\ .if \bp4
+    \\ prefetcht0 ((128 * 12) + 0) - 128(%r9)
+    \\ .endif
+    \\ .if \bp1
+    \\ prefetchw ((128 * 3) + 0) - 128(%r9)
+    \\ .endif
+    \\ movaps %xmm0, -32 * 4(%r9)
+    \\ movaps 0 * 4(%rdx), %xmm0
+    \\ movaps %xmm1, -28 * 4(%r9)
+    \\ movaps 4 * 4(%rdx), %xmm1
+    \\ .if \bp5
+    \\ prefetcht0 (( 64 * 12 + 32) + 0) - 128(%rdx)
+    \\ .endif
+    \\ .if \bp2
+    \\ prefetch ((128 * 5) + 0) - 128(%rdx)
+    \\ .endif
+    \\ .if \bp3
+    \\ prefetcht0 ((128 * 4) + 0) - 128(%rdx)
+    \\ .endif
+    \\ .if \bp4
+    \\ prefetcht0 ((128 * 12) + 0) - 128(%rdx)
+    \\ .endif
+    \\ .if \bp1
+    \\ prefetch ((128 * 3) + 0) - 128(%rdx)
+    \\ .endif
+    \\ .if \bp6
+    \\ prefetcht0 ((128 * 10) + 0) - 128(%rdx)
+    \\ .endif
+    \\ movaps %xmm2, -24 * 4(%r9)
+    \\ movaps 8 * 4(%rdx), %xmm2
+    \\ movaps %xmm3, -20 * 4(%r9)
+    \\ movaps 12 * 4(%rdx), %xmm3
+    \\ .if \bp2
+    \\ prefetchw ((128 * 5) + 64) - 128(%r9)
+    \\ .endif
+    \\ .if \bp3
+    \\ prefetcht0 ((128 * 4) + 64) - 128(%r9)
+    \\ .endif
+    \\ .if \bp4
+    \\ prefetcht0 ((128 * 12) + 64) - 128(%r9)
+    \\ .endif
+    \\ .if \bp1
+    \\ prefetchw ((128 * 3) + 64) - 128(%r9)
+    \\ .endif
+    \\ movaps %xmm4,-16 * 4(%r9)
+    \\ movaps 16 * 4(%rdx), %xmm4
+    \\ movaps %xmm5,-12 * 4(%r9)
+    \\ movaps 20 * 4(%rdx), %xmm5
+    \\ .if \bp5
+    \\ prefetcht0 (( 64 * 12 + 32) + 64) - 128(%rdx)
+    \\ .endif
+    \\ .if \bp2
+    \\ prefetch ((128 * 5) + 64) - 128(%rdx)
+    \\ .endif
+    \\ .if \bp3
+    \\ prefetcht0 ((128 * 4) + 64) - 128(%rdx)
+    \\ .endif
+    \\ .if \bp4
+    \\ prefetcht0 ((128 * 12) + 64) - 128(%rdx)
+    \\ .endif
+    \\ .if \bp1
+    \\ prefetch ((128 * 3) + 64) - 128(%rdx)
+    \\ .endif
+    \\ movaps %xmm6, -8 * 4(%r9)
+    \\ movaps 24 * 4(%rdx), %xmm6
+    \\ movaps %xmm7, -4 * 4(%r9)
+    \\ movaps 28 * 4(%rdx), %xmm7
+    \\ subq $-32 * 4, %r9
+    \\ subq $-32 * 4, %rdx
+    \\ decq %rax
+    \\ jg 20002b
+    \\ .balign 8
+    \\ 20003:
+    \\ movaps %xmm0, -32 * 4(%r9)
+    \\ movaps %xmm1, -28 * 4(%r9)
+    \\ movaps %xmm2, -24 * 4(%r9)
+    \\ movaps %xmm3, -20 * 4(%r9)
+    \\ movaps %xmm4, -16 * 4(%r9)
+    \\ movaps %xmm5, -12 * 4(%r9)
+    \\ movaps %xmm6, -8 * 4(%r9)
+    \\ movaps %xmm7, -4 * 4(%r9)
+    \\ subq $-32 * 4, %r9
+    \\ subq $-32 * 4, %rdx
+    \\ .balign 8
+    \\ 20004:
+    \\ testq $16, %rcx
+    \\ jle 20005f
+    \\ movaps -32 * 4(%rdx), %xmm0
+    \\ movaps -28 * 4(%rdx), %xmm1
+    \\ movaps -24 * 4(%rdx), %xmm2
+    \\ movaps -20 * 4(%rdx), %xmm3
+    \\ movaps %xmm0, -32 * 4(%r9)
+    \\ movaps %xmm1, -28 * 4(%r9)
+    \\ movaps %xmm2, -24 * 4(%r9)
+    \\ movaps %xmm3, -20 * 4(%r9)
+    \\ addq $16 * 4, %rdx
+    \\ addq $16 * 4, %r9
+    \\ .balign 8
+    \\ 20005:
+    \\ testq $8, %rcx
+    \\ jle 20006f
+    \\ movaps -32 * 4(%rdx), %xmm0
+    \\ movaps -28 * 4(%rdx), %xmm1
+    \\ movaps %xmm0, -32 * 4(%r9)
+    \\ movaps %xmm1, -28 * 4(%r9)
+    \\ addq $8 * 4, %rdx
+    \\ addq $8 * 4, %r9
+    \\ .balign 8
+    \\ 20006:
+    \\ testq $4, %rcx
+    \\ jle 20007f
+    \\ movaps -32 * 4(%rdx), %xmm0
+    \\ movaps %xmm0, -32 * 4(%r9)
+    \\ addq $4 * 4, %rdx
+    \\ addq $4 * 4, %r9
+    \\ .balign 8
+    \\ 20007:
+    \\ testq $2, %rcx
+    \\ jle 20008f
+    \\ .if \bp0
+    \\ movsd -32 * 4(%rdx), %xmm0
+    \\ .endif
+    \\ .if \bp1
+    \\ movlps -32 * 4(%rdx), %xmm0
+    \\ .endif
+    \\ movlps %xmm0, -32 * 4(%r9)
+    \\ addq $2 * 4, %rdx
+    \\ addq $2 * 4, %r9
+    \\ .balign 8
+    \\ 20008:
+    \\ testq $1, %rcx
+    \\ jle 20009f
+    \\ movss -32 * 4(%rdx), %xmm0
+    \\ movss %xmm0, -32 * 4(%r9)
+    \\ .balign 8
+    \\ 20009:
+    \\ xorq %rax,%rax
+    \\ movups 0(%rsp), %xmm6
+    \\ movups 16(%rsp), %xmm7
+    \\ movups 32(%rsp), %xmm8
+    \\ movups 48(%rsp), %xmm9
+    \\ movups 64(%rsp), %xmm10
+    \\ movups 80(%rsp), %xmm11
+    \\ movups 96(%rsp), %xmm12
+    \\ movups 112(%rsp), %xmm13
+    \\ movups 128(%rsp), %xmm14
+    \\ movups 144(%rsp), %xmm15
+    \\ addq $256, %rsp
+    \\ ret
+    \\ .balign 8
+    \\ 20010:
+    \\ testq $4, %rdx
+    \\ jne 20019f
+    \\ movhps -32 * 4(%rdx), %xmm0
+    \\ movq %rcx, %rax
+    \\ sarq $5, %rax
+    \\ jle 20013f
+    \\ movaps -30 * 4(%rdx), %xmm1
+    \\ movaps -26 * 4(%rdx), %xmm2
+    \\ movaps -22 * 4(%rdx), %xmm3
+    \\ movaps -18 * 4(%rdx), %xmm4
+    \\ movaps -14 * 4(%rdx), %xmm5
+    \\ movaps -10 * 4(%rdx), %xmm6
+    \\ movaps -6 * 4(%rdx), %xmm7
+    \\ decq %rax
+    \\ jle 20012f
+    \\ .balign 16
+    \\ 20011:
+    \\ .if \bp2
+    \\ prefetchw ((128 * 5) + 0) - 128(%r9)
+    \\ .endif
+    \\ .if \bp3
+    \\ prefetcht0 ((128 * 4) + 0) - 128(%r9)
+    \\ .endif
+    \\ .if \bp4
+    \\ prefetcht0 ((128 * 12) + 0) - 128(%r9)
+    \\ .endif
+    \\ .if \bp1
+    \\ prefetchw ((128 * 3) + 0) - 128(%r9)
+    \\ .endif
+    \\ shufps $0x4e, %xmm1, %xmm0
+    \\ movaps %xmm0, -32 * 4(%r9)
+    \\ movaps -2 * 4(%rdx), %xmm0
+    \\ shufps $0x4e, %xmm2, %xmm1
+    \\ movaps %xmm1, -28 * 4(%r9)
+    \\ movaps 2 * 4(%rdx), %xmm1
+    \\ .if \bp5
+    \\ prefetcht0 (( 64 * 12 + 32) + 0) - 128(%rdx)
+    \\ .endif
+    \\ .if \bp2
+    \\ prefetch ((128 * 5) + 0) - 128(%rdx)
+    \\ .endif
+    \\ .if \bp3
+    \\ prefetcht0 ((128 * 4) + 0) - 128(%rdx)
+    \\ .endif
+    \\ .if \bp4
+    \\ prefetcht0 ((128 * 12) + 0) - 128(%rdx)
+    \\ .endif
+    \\ .if \bp1
+    \\ prefetch ((128 * 3) + 0) - 128(%rdx)
+    \\ .endif
+    \\ .if \bp6
+    \\ prefetcht0 ((128 * 10) + 0) - 128(%rdx)
+    \\ .endif
+    \\ shufps $0x4e, %xmm3, %xmm2
+    \\ movaps %xmm2, -24 * 4(%r9)
+    \\ movaps 6 * 4(%rdx), %xmm2
+    \\ shufps $0x4e, %xmm4, %xmm3
+    \\ movaps %xmm3, -20 * 4(%r9)
+    \\ movaps 10 * 4(%rdx), %xmm3
+    \\ .if \bp2
+    \\ prefetchw ((128 * 5) + 64) - 128(%r9)
+    \\ .endif
+    \\ .if \bp3
+    \\ prefetcht0 ((128 * 4) + 64) - 128(%r9)
+    \\ .endif
+    \\ .if \bp4
+    \\ prefetcht0 ((128 * 12) + 64) - 128(%r9)
+    \\ .endif
+    \\ .if \bp1
+    \\ prefetchw ((128 * 3) + 64) - 128(%r9)
+    \\ .endif
+    \\ shufps $0x4e, %xmm5, %xmm4
+    \\ movaps %xmm4, -16 * 4(%r9)
+    \\ movaps 14 * 4(%rdx), %xmm4
+    \\ shufps $0x4e, %xmm6, %xmm5
+    \\ movaps %xmm5, -12 * 4(%r9)
+    \\ movaps 18 * 4(%rdx), %xmm5
+    \\ .if \bp5
+    \\ prefetcht0 (( 64 * 12 + 32) + 64) - 128(%rdx)
+    \\ .endif
+    \\ .if \bp2
+    \\ prefetch ((128 * 5) + 64) - 128(%rdx)
+    \\ .endif
+    \\ .if \bp3
+    \\ prefetcht0 ((128 * 4) + 64) - 128(%rdx)
+    \\ .endif
+    \\ .if \bp4
+    \\ prefetcht0 ((128 * 12) + 64) - 128(%rdx)
+    \\ .endif
+    \\ .if \bp1
+    \\ prefetch ((128 * 3) + 64) - 128(%rdx)
+    \\ .endif
+    \\ shufps $0x4e, %xmm7, %xmm6
+    \\ movaps %xmm6, -8 * 4(%r9)
+    \\ movaps 22 * 4(%rdx), %xmm6
+    \\ shufps $0x4e, %xmm0, %xmm7
+    \\ movaps %xmm7, -4 * 4(%r9)
+    \\ movaps 26 * 4(%rdx), %xmm7
+    \\ subq $-32 * 4, %rdx
+    \\ subq $-32 * 4, %r9
+    \\ decq %rax
+    \\ jg 20011b
+    \\
+;

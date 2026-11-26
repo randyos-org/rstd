@@ -1,0 +1,117 @@
+//! `casum` for armv8, cortexa53, cortexa55, cortexa57, cortexa72, cortexa73, cortexa76, cortexx1, emag8180, falkor, ft2000, thunderx, tsv110, from OpenBLAS `kernel/arm64/casum.S` (`v0.3.34-794-gdbf2c24c9`); converted by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+/// Each function's core and variant.
+pub const keys = .{
+    .{ .core = .armv8, .variant = "" },
+    .{ .core = .cortexa53, .variant = "" },
+    .{ .core = .cortexa55, .variant = "" },
+    .{ .core = .cortexa57, .variant = "" },
+    .{ .core = .cortexa72, .variant = "" },
+    .{ .core = .cortexa73, .variant = "" },
+    .{ .core = .cortexa76, .variant = "" },
+    .{ .core = .cortexx1, .variant = "" },
+    .{ .core = .emag8180, .variant = "" },
+    .{ .core = .falkor, .variant = "" },
+    .{ .core = .ft2000, .variant = "" },
+    .{ .core = .thunderx, .variant = "" },
+    .{ .core = .tsv110, .variant = "" },
+};
+
+pub const Body = struct {
+    pub fn entry() callconv(.naked) void {
+        asm volatile (
+            \\ .macro PROLOGUE
+            \\ .p2align 2
+            \\ .endm
+            \\ .macro KERNEL_F1
+            \\ ld1 {v1.2s}, [x1], #8
+            \\ fabs v1.2s, v1.2s
+            \\ ext v2.8b, v1.8b, v1.8b, #4
+            \\ fadd s1, s1, s2
+            \\ fadd s0, s0, s1
+            \\ .endm
+            \\ .macro KERNEL_F8
+            \\ ld1 {v1.4s, v2.4s, v3.4s, v4.4s}, [x1]
+            \\ add x1, x1, #64
+            \\ fabs v1.4s, v1.4s
+            \\ fabs v2.4s, v2.4s
+            \\ fabs v3.4s, v3.4s
+            \\ fabs v4.4s, v4.4s
+            \\ PRFM PLDL1KEEP, [x1, #1024]
+            \\ fadd v1.4s, v1.4s, v2.4s
+            \\ fadd v3.4s, v3.4s, v4.4s
+            \\ fadd v0.4s, v0.4s, v1.4s
+            \\ fadd v0.4s, v0.4s, v3.4s
+            \\ .endm
+            \\ .macro KERNEL_F8_FINALIZE
+            \\ ext v1.16b, v0.16b, v0.16b, #8
+            \\ fadd v0.2s, v0.2s, v1.2s
+            \\ faddp s0, v0.2s
+            \\ .endm
+            \\ .macro INIT_S
+            \\ lsl x2, x2, #3
+            \\ .endm
+            \\ .macro KERNEL_S1
+            \\ ld1 {v1.2s}, [x1], x2
+            \\ fabs v1.2s, v1.2s
+            \\ ext v2.8b, v1.8b, v1.8b, #4
+            \\ fadd s1, s1, s2
+            \\ fadd s0, s0, s1
+            \\ .endm
+            \\ PROLOGUE
+            \\ fmov s0, wzr
+            \\ fmov s1, s0
+            \\ cmp x0, xzr
+            \\ ble 20004f
+            \\ cmp x2, xzr
+            \\ ble 20004f
+            \\ cmp x2, #1
+            \\ bne 20005f
+            \\ 20000:
+            \\ asr x5, x0, #3
+            \\ cmp x5, xzr
+            \\ beq 20002f
+            \\ 20001:
+            \\ KERNEL_F8
+            \\ subs x5, x5, #1
+            \\ bne 20001b
+            \\ KERNEL_F8_FINALIZE
+            \\ 20002:
+            \\ ands x5, x0, #7
+            \\ ble 20004f
+            \\ 20003:
+            \\ KERNEL_F1
+            \\ subs x5, x5, #1
+            \\ bne 20003b
+            \\ 20004:
+            \\ ret
+            \\ 20005:
+            \\ INIT_S
+            \\ asr x5, x0, #2
+            \\ cmp x5, xzr
+            \\ ble 20007f
+            \\ 20006:
+            \\ KERNEL_S1
+            \\ KERNEL_S1
+            \\ KERNEL_S1
+            \\ KERNEL_S1
+            \\ subs x5, x5, #1
+            \\ bne 20006b
+            \\ 20007:
+            \\ ands x5, x0, #3
+            \\ ble 20004b
+            \\ 20008:
+            \\ KERNEL_S1
+            \\ subs x5, x5, #1
+            \\ bne 20008b
+            \\ ret
+            \\ .purgem PROLOGUE
+            \\ .purgem KERNEL_F1
+            \\ .purgem KERNEL_F8
+            \\ .purgem KERNEL_F8_FINALIZE
+            \\ .purgem INIT_S
+            \\ .purgem KERNEL_S1
+            \\
+        );
+    }
+};

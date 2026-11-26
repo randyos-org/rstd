@@ -3,14 +3,16 @@ const bytes = @import("../../../../../bytes.zig");
 
 const GlyphIndex = types.GlyphIndex;
 const Offset32 = types.Offset32;
-const Format0 = @import("fmt0.zig").Format0;
+const groups = @import("groups.zig");
+const trimmed = @import("trimmed.zig");
+const Format0 = trimmed.Format(0);
 const Format2 = @import("fmt2.zig").Format2;
 const Format4 = @import("fmt4.zig").Format4;
-const Format6 = @import("fmt6.zig").Format6;
-const Format8 = @import("fmt8.zig").Format8;
-const Format10 = @import("fmt10.zig").Format10;
-const Format12 = @import("fmt12.zig").Format12;
-const Format13 = @import("fmt13.zig").Format13;
+const Format6 = trimmed.Format(6);
+const Format8 = groups.Format(8);
+const Format10 = trimmed.Format(10);
+const Format12 = groups.Format(12);
+const Format13 = groups.Format(13);
 const Format14 = @import("fmt14.zig").Format14;
 const zigstd = @import("../../../../../zigstd.zig");
 
@@ -166,11 +168,11 @@ pub const CmapTable = struct {
     }
 
     pub inline fn version(self: Self) u16 {
-        return bytes.getU16BE(self.cmap_bytes[@offsetOf(StreamLayout, "version")..]);
+        return types.field(StreamLayout, "version", self.cmap_bytes);
     }
 
     pub inline fn numTables(self: Self) u16 {
-        return bytes.getU16BE(self.cmap_bytes[@offsetOf(StreamLayout, "num_tables")..]);
+        return types.field(StreamLayout, "num_tables", self.cmap_bytes);
     }
 
     /// Decodes one encoding record. index isn't bounds-checked against

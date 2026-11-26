@@ -13,7 +13,7 @@ const geometry = @import("../geometry.zig");
 const Point = geometry.Point;
 const PointF32 = geometry.PointF32;
 const Rect = geometry.Rect;
-const color = @import("../color.zig");
+const color = @import("../color/__root__.zig");
 const RGBA = color.RGBA;
 const RgbaImage = @import("../image.zig").RgbaImage;
 const vga_font = @import("../font/vga/__root__.zig");
@@ -172,7 +172,7 @@ pub fn drawCustom(surface: *VkSurface, pipeline: PipelineId, comptime Instance: 
 
 pub fn drawLine(surface: *VkSurface, p0: PointF32, p1: PointF32, width: f32, c: RGBA) !void {
     const d = p1.sub(p0);
-    const length = @sqrt(d.x * d.x + d.y * d.y);
+    const length = d.length();
     const mid = p0.add(p1).scaled(0.5);
     // A zero-length line degenerates to a dot: draw it as a small square
     // rather than a zero-area rect that'd rasterize to nothing.

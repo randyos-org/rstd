@@ -1,0 +1,222 @@
+# `swap` kernel coverage
+
+Surveyed from OpenBLAS `kernel/` (`v0.3.34-794-gdbf2c24c9`) and rstd's kernel indexes by `tools/blas_asm` (retired: [#618](https://github.com/randyos-org/rstd/issues/618)); maintained by hand. How to read it: [`coverage.md`](../../coverage.md).
+
+## x86_64
+
+| core           | sswap                 | dswap                 | cswap                  | zswap                  | qswap               | xswap                |
+| -------------- | --------------------- | --------------------- | ---------------------- | ---------------------- | ------------------- | -------------------- |
+| ATOM           | `swap_sse.S` → asm    | `swap_sse2.S` → asm   | `zswap_sse.S` → asm    | `zswap_sse2.S` → asm   | `swap.S` → portable | `zswap.S` → portable |
+| BARCELONA      | `swap_sse.S` → asm    | `swap_sse2.S` → asm   | `zswap_sse.S` → asm    | `zswap_sse2.S` → asm   | `swap.S` → portable | `zswap.S` → portable |
+| BOBCAT         | `swap_sse.S` → asm    | `swap_sse2.S` → asm   | `zswap_sse.S` → asm    | `zswap_sse2.S` → asm   | `swap.S` → portable | `zswap.S` → portable |
+| BULLDOZER      | `swap_sse.S` → asm    | `swap_sse2.S` → asm   | `zswap_sse.S` → asm    | `zswap_sse2.S` → asm   | `swap.S` → portable | `zswap.S` → portable |
+| COOPERLAKE     | `swap_sse.S` → asm    | `swap_sse2.S` → asm   | `zswap_sse.S` → asm    | `zswap_sse2.S` → asm   | `swap.S` → portable | `zswap.S` → portable |
+| CORE2          | `swap_sse.S` → asm    | `swap_sse2.S` → asm   | `zswap_sse.S` → asm    | `zswap_sse2.S` → asm   | `swap.S` → portable | `zswap.S` → portable |
+| DUNNINGTON     | `swap_sse.S` → asm    | `swap_sse2.S` → asm   | `zswap_sse.S` → asm    | `zswap_sse2.S` → asm   | `swap.S` → portable | `zswap.S` → portable |
+| EXCAVATOR      | `swap_sse.S` → asm    | `swap_sse2.S` → asm   | `zswap_sse.S` → asm    | `zswap_sse2.S` → asm   | `swap.S` → portable | `zswap.S` → portable |
+| generic        | `../arm/swap.c` → n/a | `../arm/swap.c` → n/a | `../arm/zswap.c` → n/a | `../arm/zswap.c` → n/a | `swap.S` → n/a      | `zswap.S` → n/a      |
+| HASWELL        | `swap_sse.S` → asm    | `swap_sse2.S` → asm   | `zswap_sse.S` → asm    | `zswap_sse2.S` → asm   | `swap.S` → portable | `zswap.S` → portable |
+| NANO           | `swap_sse.S` → asm    | `swap_sse2.S` → asm   | `zswap_sse.S` → asm    | `zswap_sse2.S` → asm   | `swap.S` → portable | `zswap.S` → portable |
+| NEHALEM        | `swap_sse.S` → asm    | `swap_sse2.S` → asm   | `zswap_sse.S` → asm    | `zswap_sse2.S` → asm   | `swap.S` → portable | `zswap.S` → portable |
+| OPTERON        | `swap_sse.S` → asm    | `swap_sse2.S` → asm   | `zswap_sse.S` → asm    | `zswap_sse2.S` → asm   | `swap.S` → portable | `zswap.S` → portable |
+| OPTERON_SSE3   | `swap_sse.S` → asm    | `swap_sse2.S` → asm   | `zswap_sse.S` → asm    | `zswap_sse2.S` → asm   | `swap.S` → portable | `zswap.S` → portable |
+| PENRYN         | `swap_sse.S` → asm    | `swap_sse2.S` → asm   | `zswap_sse.S` → asm    | `zswap_sse2.S` → asm   | `swap.S` → portable | `zswap.S` → portable |
+| PILEDRIVER     | `swap_sse.S` → asm    | `swap_sse2.S` → asm   | `zswap_sse.S` → asm    | `zswap_sse2.S` → asm   | `swap.S` → portable | `zswap.S` → portable |
+| PRESCOTT       | `swap_sse.S` → asm    | `swap_sse2.S` → asm   | `zswap_sse.S` → asm    | `zswap_sse2.S` → asm   | `swap.S` → portable | `zswap.S` → portable |
+| SANDYBRIDGE    | `swap_sse.S` → asm    | `swap_sse2.S` → asm   | `zswap_sse.S` → asm    | `zswap_sse2.S` → asm   | `swap.S` → portable | `zswap.S` → portable |
+| SAPPHIRERAPIDS | `swap_sse.S` → asm    | `swap_sse2.S` → asm   | `zswap_sse.S` → asm    | `zswap_sse2.S` → asm   | `swap.S` → portable | `zswap.S` → portable |
+| SKYLAKEX       | `swap_sse.S` → asm    | `swap_sse2.S` → asm   | `zswap_sse.S` → asm    | `zswap_sse2.S` → asm   | `swap.S` → portable | `zswap.S` → portable |
+| STEAMROLLER    | `swap_sse.S` → asm    | `swap_sse2.S` → asm   | `zswap_sse.S` → asm    | `zswap_sse2.S` → asm   | `swap.S` → portable | `zswap.S` → portable |
+| ZEN            | `swap_sse.S` → asm    | `swap_sse2.S` → asm   | `zswap_sse.S` → asm    | `zswap_sse2.S` → asm   | `swap.S` → portable | `zswap.S` → portable |
+
+## x86
+
+| core         | sswap                 | dswap                 | cswap                  | zswap                  | qswap               | xswap                |
+| ------------ | --------------------- | --------------------- | ---------------------- | ---------------------- | ------------------- | -------------------- |
+| ATHLON       | `swap.S` → asm        | `swap.S` → asm        | `zswap.S` → asm        | `zswap.S` → asm        | `swap.S` → portable | `zswap.S` → portable |
+| ATOM         | `swap.S` → asm        | `swap.S` → asm        | `zswap.S` → asm        | `zswap.S` → asm        | `swap.S` → portable | `zswap.S` → portable |
+| BANIAS       | `swap.S` → asm        | `swap.S` → asm        | `zswap.S` → asm        | `zswap.S` → asm        | `swap.S` → portable | `zswap.S` → portable |
+| BARCELONA    | `swap.S` → asm        | `swap.S` → asm        | `zswap.S` → asm        | `zswap.S` → asm        | `swap.S` → portable | `zswap.S` → portable |
+| BOBCAT       | `swap.S` → asm        | `swap.S` → asm        | `zswap.S` → asm        | `zswap.S` → asm        | `swap.S` → portable | `zswap.S` → portable |
+| BULLDOZER    | `swap.S` → asm        | `swap.S` → asm        | `zswap.S` → asm        | `zswap.S` → asm        | `swap.S` → portable | `zswap.S` → portable |
+| COPPERMINE   | `swap.S` → asm        | `swap.S` → asm        | `zswap.S` → asm        | `zswap.S` → asm        | `swap.S` → portable | `zswap.S` → portable |
+| CORE2        | `swap.S` → asm        | `swap.S` → asm        | `zswap.S` → asm        | `zswap.S` → asm        | `swap.S` → portable | `zswap.S` → portable |
+| DUNNINGTON   | `swap.S` → asm        | `swap.S` → asm        | `zswap.S` → asm        | `zswap.S` → asm        | `swap.S` → portable | `zswap.S` → portable |
+| generic      | `../arm/swap.c` → n/a | `../arm/swap.c` → n/a | `../arm/zswap.c` → n/a | `../arm/zswap.c` → n/a | `swap.S` → n/a      | `zswap.S` → n/a      |
+| HASWELL      | `swap.S` → asm        | `swap.S` → asm        | `zswap.S` → asm        | `zswap.S` → asm        | `swap.S` → portable | `zswap.S` → portable |
+| KATMAI       | `swap.S` → asm        | `swap.S` → asm        | `zswap.S` → asm        | `zswap.S` → asm        | `swap.S` → portable | `zswap.S` → portable |
+| NANO         | `swap.S` → asm        | `swap.S` → asm        | `zswap.S` → asm        | `zswap.S` → asm        | `swap.S` → portable | `zswap.S` → portable |
+| NEHALEM      | `swap.S` → asm        | `swap.S` → asm        | `zswap.S` → asm        | `zswap.S` → asm        | `swap.S` → portable | `zswap.S` → portable |
+| NORTHWOOD    | `swap.S` → asm        | `swap.S` → asm        | `zswap.S` → asm        | `zswap.S` → asm        | `swap.S` → portable | `zswap.S` → portable |
+| OPTERON      | `swap.S` → asm        | `swap.S` → asm        | `zswap.S` → asm        | `zswap.S` → asm        | `swap.S` → portable | `zswap.S` → portable |
+| OPTERON_SSE3 | `swap.S` → asm        | `swap.S` → asm        | `zswap.S` → asm        | `zswap.S` → asm        | `swap.S` → portable | `zswap.S` → portable |
+| P5           | `swap.S` → asm        | `swap.S` → asm        | `zswap.S` → asm        | `zswap.S` → asm        | `swap.S` → portable | `zswap.S` → portable |
+| P6           | `swap.S` → asm        | `swap.S` → asm        | `zswap.S` → asm        | `zswap.S` → asm        | `swap.S` → portable | `zswap.S` → portable |
+| PENRYN       | `swap.S` → asm        | `swap.S` → asm        | `zswap.S` → asm        | `zswap.S` → asm        | `swap.S` → portable | `zswap.S` → portable |
+| PILEDRIVER   | `swap.S` → asm        | `swap.S` → asm        | `zswap.S` → asm        | `zswap.S` → asm        | `swap.S` → portable | `zswap.S` → portable |
+| PRESCOTT     | `swap.S` → asm        | `swap.S` → asm        | `zswap.S` → asm        | `zswap.S` → asm        | `swap.S` → portable | `zswap.S` → portable |
+| SANDYBRIDGE  | `swap.S` → asm        | `swap.S` → asm        | `zswap.S` → asm        | `zswap.S` → asm        | `swap.S` → portable | `zswap.S` → portable |
+| VIAC3        | `swap.S` → asm        | `swap.S` → asm        | `zswap.S` → asm        | `zswap.S` → asm        | `swap.S` → portable | `zswap.S` → portable |
+| YONAH        | `swap.S` → asm        | `swap.S` → asm        | `zswap.S` → asm        | `zswap.S` → asm        | `swap.S` → portable | `zswap.S` → portable |
+| ZEN          | `swap.S` → asm        | `swap.S` → asm        | `zswap.S` → asm        | `zswap.S` → asm        | `swap.S` → portable | `zswap.S` → portable |
+
+## arm64
+
+| core          | sswap                       | dswap                       | cswap                       | zswap                       | qswap               | xswap                          |
+| ------------- | --------------------------- | --------------------------- | --------------------------- | --------------------------- | ------------------- | ------------------------------ |
+| A64FX         | `swap.c` +intrinsics → vec  | `swap.c` +intrinsics → vec  | `swap_thunderx2t99.S` → asm | `swap_thunderx2t99.S` → asm | `swap.S` → portable | `zswap.S` (missing) → portable |
+| AMPERE1       | `swap_thunderx2t99.S` → asm | `swap_thunderx2t99.S` → asm | `swap_thunderx2t99.S` → asm | `swap_thunderx2t99.S` → asm | `swap.S` → portable | `zswap.S` (missing) → portable |
+| ARMV8         | `swap.S` → asm              | `swap.S` → asm              | `swap.S` → asm              | `swap.S` → asm              | `swap.S` → portable | `zswap.S` (missing) → portable |
+| ARMV8SVE      | `swap.c` +intrinsics → vec  | `swap.c` +intrinsics → vec  | `swap_thunderx2t99.S` → asm | `swap_thunderx2t99.S` → asm | `swap.S` → portable | `zswap.S` (missing) → portable |
+| ARMV9SME      | `swap.c` +intrinsics → vec  | `swap.c` +intrinsics → vec  | `swap_thunderx2t99.S` → asm | `swap_thunderx2t99.S` → asm | `swap.S` → portable | `zswap.S` (missing) → portable |
+| CORTEXA510    | `swap.c` +intrinsics → vec  | `swap.c` +intrinsics → vec  | `swap_thunderx2t99.S` → asm | `swap_thunderx2t99.S` → asm | `swap.S` → portable | `zswap.S` (missing) → portable |
+| CORTEXA53     | `swap.S` → asm              | `swap.S` → asm              | `swap.S` → asm              | `swap.S` → asm              | `swap.S` → portable | `zswap.S` (missing) → portable |
+| CORTEXA55     | `swap.S` → asm              | `swap.S` → asm              | `swap.S` → asm              | `swap.S` → asm              | `swap.S` → portable | `zswap.S` (missing) → portable |
+| CORTEXA57     | `swap.S` → asm              | `swap.S` → asm              | `swap.S` → asm              | `swap.S` → asm              | `swap.S` → portable | `zswap.S` (missing) → portable |
+| CORTEXA710    | `swap.c` +intrinsics → vec  | `swap.c` +intrinsics → vec  | `swap_thunderx2t99.S` → asm | `swap_thunderx2t99.S` → asm | `swap.S` → portable | `zswap.S` (missing) → portable |
+| CORTEXA72     | `swap.S` → asm              | `swap.S` → asm              | `swap.S` → asm              | `swap.S` → asm              | `swap.S` → portable | `zswap.S` (missing) → portable |
+| CORTEXA73     | `swap.S` → asm              | `swap.S` → asm              | `swap.S` → asm              | `swap.S` → asm              | `swap.S` → portable | `zswap.S` (missing) → portable |
+| CORTEXA76     | `swap.S` → asm              | `swap.S` → asm              | `swap.S` → asm              | `swap.S` → asm              | `swap.S` → portable | `zswap.S` (missing) → portable |
+| CORTEXX1      | `swap.S` → asm              | `swap.S` → asm              | `swap.S` → asm              | `swap.S` → asm              | `swap.S` → portable | `zswap.S` (missing) → portable |
+| CORTEXX2      | `swap.c` +intrinsics → vec  | `swap.c` +intrinsics → vec  | `swap_thunderx2t99.S` → asm | `swap_thunderx2t99.S` → asm | `swap.S` → portable | `zswap.S` (missing) → portable |
+| EMAG8180      | `swap.S` → asm              | `swap.S` → asm              | `swap.S` → asm              | `swap.S` → asm              | `swap.S` → portable | `zswap.S` (missing) → portable |
+| FALKOR        | `swap.S` → asm              | `swap.S` → asm              | `swap.S` → asm              | `swap.S` → asm              | `swap.S` → portable | `zswap.S` (missing) → portable |
+| FT2000        | `swap.S` → asm              | `swap.S` → asm              | `swap.S` → asm              | `swap.S` → asm              | `swap.S` → portable | `zswap.S` (missing) → portable |
+| generic       | `../arm/swap.c` → n/a       | `../arm/swap.c` → n/a       | `../arm/zswap.c` → n/a      | `../arm/zswap.c` → n/a      | `swap.S` → n/a      | `zswap.S` (missing) → n/a      |
+| NEOVERSEN1    | `swap_thunderx2t99.S` → asm | `swap_thunderx2t99.S` → asm | `swap_thunderx2t99.S` → asm | `swap_thunderx2t99.S` → asm | `swap.S` → portable | `zswap.S` (missing) → portable |
+| NEOVERSEN2    | `swap_thunderx2t99.S` → asm | `swap_thunderx2t99.S` → asm | `swap_thunderx2t99.S` → asm | `swap_thunderx2t99.S` → asm | `swap.S` → portable | `zswap.S` (missing) → portable |
+| NEOVERSEV1    | `swap.c` +intrinsics → vec  | `swap.c` +intrinsics → vec  | `swap_thunderx2t99.S` → asm | `swap_thunderx2t99.S` → asm | `swap.S` → portable | `zswap.S` (missing) → portable |
+| NEOVERSEV2    | `swap_thunderx2t99.S` → asm | `swap_thunderx2t99.S` → asm | `swap_thunderx2t99.S` → asm | `swap_thunderx2t99.S` → asm | `swap.S` → portable | `zswap.S` (missing) → portable |
+| THUNDERX      | `swap.S` → asm              | `swap.S` → asm              | `swap.S` → asm              | `swap.S` → asm              | `swap.S` → portable | `zswap.S` (missing) → portable |
+| THUNDERX2T99  | `swap_thunderx2t99.S` → asm | `swap_thunderx2t99.S` → asm | `swap_thunderx2t99.S` → asm | `swap_thunderx2t99.S` → asm | `swap.S` → portable | `zswap.S` (missing) → portable |
+| THUNDERX3T110 | `swap_thunderx2t99.S` → asm | `swap_thunderx2t99.S` → asm | `swap_thunderx2t99.S` → asm | `swap_thunderx2t99.S` → asm | `swap.S` → portable | `zswap.S` (missing) → portable |
+| TSV110        | `swap.S` → asm              | `swap.S` → asm              | `swap.S` → asm              | `swap.S` → asm              | `swap.S` → portable | `zswap.S` (missing) → portable |
+| VORTEX        | `swap_thunderx2t99.S` → vec | `swap_thunderx2t99.S` → vec | `swap_thunderx2t99.S` → vec | `swap_thunderx2t99.S` → vec | `swap.S` → portable | `zswap.S` (missing) → portable |
+| VORTEXM4      | `swap_thunderx2t99.S` → vec | `swap_thunderx2t99.S` → vec | `swap_thunderx2t99.S` → vec | `swap_thunderx2t99.S` → vec | `swap.S` → portable | `zswap.S` (missing) → portable |
+
+## arm
+
+| core      | sswap                      | dswap                      | cswap                       | zswap                       | qswap                         | xswap                          |
+| --------- | -------------------------- | -------------------------- | --------------------------- | --------------------------- | ----------------------------- | ------------------------------ |
+| ARMV5     | `../arm/swap.c` → portable | `../arm/swap.c` → portable | `../arm/zswap.c` → portable | `../arm/zswap.c` → portable | `swap.S` (missing) → portable | `zswap.S` (missing) → portable |
+| ARMV6     | `swap_vfp.S` → asm         | `swap_vfp.S` → asm         | `swap_vfp.S` → asm          | `swap_vfp.S` → asm          | `swap.S` (missing) → portable | `zswap.S` (missing) → portable |
+| ARMV7     | `swap_vfp.S` → asm         | `swap_vfp.S` → asm         | `swap_vfp.S` → asm          | `swap_vfp.S` → asm          | `swap.S` (missing) → portable | `zswap.S` (missing) → portable |
+| CORTEXA15 | `swap_vfp.S` → asm         | `swap_vfp.S` → asm         | `swap_vfp.S` → asm          | `swap_vfp.S` → asm          | `swap.S` (missing) → portable | `zswap.S` (missing) → portable |
+| CORTEXA9  | `swap_vfp.S` → asm         | `swap_vfp.S` → asm         | `swap_vfp.S` → asm          | `swap_vfp.S` → asm          | `swap.S` (missing) → portable | `zswap.S` (missing) → portable |
+
+## power
+
+| core      | sswap                                    | dswap                                    | cswap                                     | zswap                                     | qswap               | xswap                |
+| --------- | ---------------------------------------- | ---------------------------------------- | ----------------------------------------- | ----------------------------------------- | ------------------- | -------------------- |
+| CELL      | `swap.S` → asm                           | `swap.S` → asm                           | `zswap.S` → asm                           | `zswap.S` → asm                           | `swap.S` → portable | `zswap.S` → portable |
+| POWER10   | `sswap.c` +asm → **portable**            | `dswap.c` +asm → **portable**            | `cswap.c` +asm → **portable**             | `zswap.c` +asm → **portable**             | `swap.S` → portable | `zswap.S` → portable |
+| POWER3    | `swap.S` → asm                           | `swap.S` → asm                           | `zswap.S` → asm                           | `zswap.S` → asm                           | `swap.S` → portable | `zswap.S` → portable |
+| POWER4    | `swap.S` → asm                           | `swap.S` → asm                           | `zswap.S` → asm                           | `zswap.S` → asm                           | `swap.S` → portable | `zswap.S` → portable |
+| POWER5    | `swap.S` → asm                           | `swap.S` → asm                           | `zswap.S` → asm                           | `zswap.S` → asm                           | `swap.S` → portable | `zswap.S` → portable |
+| POWER6    | `swap.S` → asm                           | `swap.S` → asm                           | `zswap.S` → asm                           | `zswap.S` → asm                           | `swap.S` → portable | `zswap.S` → portable |
+| POWER8    | `sswap.c` +asm → **portable**            | `dswap.c` +asm → **portable**            | `cswap.c` +asm → **portable**             | `zswap.c` +asm → **portable**             | `swap.S` → portable | `zswap.S` → portable |
+| POWER9    | `sswap.c` +asm → **portable**            | `dswap.c` +asm → **portable**            | `cswap.c` +asm → **portable**             | `zswap.c` +asm → **portable**             | `swap.S` → portable | `zswap.S` → portable |
+| PPC440    | `swap.S` → asm                           | `swap.S` → asm                           | `zswap.S` → asm                           | `zswap.S` → asm                           | `swap.S` → portable | `zswap.S` → portable |
+| PPC440FP2 | `swap_hummer.S` (unsupported) → portable | `swap_hummer.S` (unsupported) → portable | `zswap_hummer.S` (unsupported) → portable | `zswap_hummer.S` (unsupported) → portable | `swap.S` → portable | `zswap.S` → portable |
+| PPC970    | `swap.S` → asm                           | `swap.S` → asm                           | `zswap.S` → asm                           | `zswap.S` → asm                           | `swap.S` → portable | `zswap.S` → portable |
+| PPCG4     | `swap.S` → asm                           | `swap.S` → asm                           | `zswap.S` → asm                           | `zswap.S` → asm                           | `swap.S` → portable | `zswap.S` → portable |
+
+## mips64
+
+| core           | sswap                                                               | dswap                                                               | cswap                       | zswap                       | qswap               | xswap                |
+| -------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------- | --------------------------- | --------------------------- | ------------------- | -------------------- |
+| generic        | `../arm/swap.c` → n/a                                               | `../arm/swap.c` → n/a                                               | `../arm/zswap.c` → n/a      | `../arm/zswap.c` → n/a      | `swap.S` → n/a      | `zswap.S` → n/a      |
+| I6400          | `../mips/sswap_msa.c` +intrinsics \| `../arm/swap.c` → **portable** | `../mips/dswap_msa.c` +intrinsics \| `../arm/swap.c` → **portable** | `../arm/zswap.c` → portable | `../arm/zswap.c` → portable | `swap.S` → portable | `zswap.S` → portable |
+| I6500          | `../mips/sswap_msa.c` +intrinsics \| `../arm/swap.c` → **portable** | `../mips/dswap_msa.c` +intrinsics \| `../arm/swap.c` → **portable** | `../arm/zswap.c` → portable | `../arm/zswap.c` → portable | `swap.S` → portable | `zswap.S` → portable |
+| LOONGSON3R3    | `swap.S` → asm                                                      | `swap.S` → asm                                                      | `../arm/zswap.c` → portable | `../arm/zswap.c` → portable | `swap.S` → portable | `zswap.S` → portable |
+| LOONGSON3R4    | `../mips/sswap_msa.c` +intrinsics → **portable**                    | `../mips/dswap_msa.c` +intrinsics → **portable**                    | `../arm/zswap.c` → portable | `../arm/zswap.c` → portable | `swap.S` → portable | `zswap.S` → portable |
+| MIPS64_GENERIC | `../arm/swap.c` → portable                                          | `../arm/swap.c` → portable                                          | `../arm/zswap.c` → portable | `../arm/zswap.c` → portable | `swap.S` → portable | `zswap.S` → portable |
+| P6600          | `../mips/sswap_msa.c` +intrinsics \| `../arm/swap.c` → **portable** | `../mips/dswap_msa.c` +intrinsics \| `../arm/swap.c` → **portable** | `../arm/zswap.c` → portable | `../arm/zswap.c` → portable | `swap.S` → portable | `zswap.S` → portable |
+
+## mips
+
+| core      | sswap                                                                    | dswap                                                                    | cswap                                                                     | zswap                                                                     | qswap                         | xswap                          |
+| --------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------ | ------------------------------------------------------------------------- | ------------------------------------------------------------------------- | ----------------------------- | ------------------------------ |
+| generic   | `../arm/swap.c` → n/a                                                    | `../arm/swap.c` → n/a                                                    | `../arm/zswap.c` → n/a                                                    | `../arm/zswap.c` → n/a                                                    | `swap.S` (missing) → n/a      | `zswap.S` (missing) → n/a      |
+| MIPS1004K | `../mips/sswap_msa.c` +intrinsics (no msa) \| `../arm/swap.c` → portable | `../mips/dswap_msa.c` +intrinsics (no msa) \| `../arm/swap.c` → portable | `../mips/cswap_msa.c` +intrinsics (no msa) \| `../arm/zswap.c` → portable | `../mips/zswap_msa.c` +intrinsics (no msa) \| `../arm/zswap.c` → portable | `swap.S` (missing) → portable | `zswap.S` (missing) → portable |
+| MIPS24K   | `../mips/sswap_msa.c` +intrinsics (no msa) \| `../arm/swap.c` → portable | `../mips/dswap_msa.c` +intrinsics (no msa) \| `../arm/swap.c` → portable | `../mips/cswap_msa.c` +intrinsics (no msa) \| `../arm/zswap.c` → portable | `../mips/zswap_msa.c` +intrinsics (no msa) \| `../arm/zswap.c` → portable | `swap.S` (missing) → portable | `zswap.S` (missing) → portable |
+| P5600     | `../mips/sswap_msa.c` +intrinsics \| `../arm/swap.c` → **portable**      | `../mips/dswap_msa.c` +intrinsics \| `../arm/swap.c` → **portable**      | `../mips/cswap_msa.c` +intrinsics \| `../arm/zswap.c` → **portable**      | `../mips/zswap_msa.c` +intrinsics \| `../arm/zswap.c` → **portable**      | `swap.S` (missing) → portable | `zswap.S` (missing) → portable |
+
+## riscv64
+
+| core            | sswap                                      | dswap                                      | cswap                                       | zswap                                       | qswap                         | xswap                          |
+| --------------- | ------------------------------------------ | ------------------------------------------ | ------------------------------------------- | ------------------------------------------- | ----------------------------- | ------------------------------ |
+| C910V           | `swap_vector.c` +intrinsics → **portable** | `swap_vector.c` +intrinsics → **portable** | `zswap_vector.c` +intrinsics → **portable** | `zswap_vector.c` +intrinsics → **portable** | `swap.S` (missing) → portable | `zswap.S` (missing) → portable |
+| RISCV64_GENERIC | `../riscv64/swap.c` → portable             | `../riscv64/swap.c` → portable             | `../riscv64/zswap.c` → portable             | `../riscv64/zswap.c` → portable             | `swap.S` (missing) → portable | `zswap.S` (missing) → portable |
+| RISCV64_ZVL128B | `swap_rvv.c` +intrinsics → vec             | `swap_rvv.c` +intrinsics → vec             | `zswap_rvv.c` +intrinsics → vec             | `zswap_rvv.c` +intrinsics → vec             | `swap.S` (missing) → portable | `zswap.S` (missing) → portable |
+| RISCV64_ZVL256B | `swap_vector.c` +intrinsics → vec          | `swap_vector.c` +intrinsics → vec          | `zswap_vector.c` +intrinsics → vec          | `zswap_vector.c` +intrinsics → vec          | `swap.S` (missing) → portable | `zswap.S` (missing) → portable |
+| U74             | `../riscv64/swap.c` → portable             | `../riscv64/swap.c` → portable             | `../riscv64/zswap.c` → portable             | `../riscv64/zswap.c` → portable             | `swap.S` (missing) → portable | `zswap.S` (missing) → portable |
+| x280            | `swap_rvv.c` +intrinsics → vec             | `swap_rvv.c` +intrinsics → vec             | `zswap_rvv.c` +intrinsics → vec             | `zswap_rvv.c` +intrinsics → vec             | `swap.S` (missing) → portable | `zswap.S` (missing) → portable |
+
+## loongarch64
+
+| core         | sswap                 | dswap                 | cswap                       | zswap                       | qswap               | xswap                          |
+| ------------ | --------------------- | --------------------- | --------------------------- | --------------------------- | ------------------- | ------------------------------ |
+| generic      | `../arm/swap.c` → n/a | `../arm/swap.c` → n/a | `../arm/zswap.c` → n/a      | `../arm/zswap.c` → n/a      | `swap.S` → n/a      | `zswap.S` (missing) → n/a      |
+| LA264        | `swap_lsx.S` → asm    | `swap_lsx.S` → asm    | `cswap_lsx.S` → asm         | `cswap_lsx.S` → asm         | `swap.S` → portable | `zswap.S` (missing) → portable |
+| LA464        | `swap_lasx.S` → asm   | `swap_lasx.S` → asm   | `cswap_lasx.S` → asm        | `cswap_lasx.S` → asm        | `swap.S` → portable | `zswap.S` (missing) → portable |
+| LA64_GENERIC | `swap.S` → asm        | `swap.S` → asm        | `../arm/zswap.c` → portable | `../arm/zswap.c` → portable | `swap.S` → portable | `zswap.S` (missing) → portable |
+
+## zarch
+
+| core          | sswap                         | dswap                         | cswap                         | zswap                         | qswap                         | xswap                          |
+| ------------- | ----------------------------- | ----------------------------- | ----------------------------- | ----------------------------- | ----------------------------- | ------------------------------ |
+| Z13           | `../arm/swap.c` → portable    | `dswap.c` +asm → **portable** | `../arm/zswap.c` → portable   | `zswap.c` +asm → **portable** | `swap.S` (missing) → portable | `zswap.S` (missing) → portable |
+| Z14           | `sswap.c` +asm → **portable** | `dswap.c` +asm → **portable** | `cswap.c` +asm → **portable** | `zswap.c` +asm → **portable** | `swap.S` (missing) → portable | `zswap.S` (missing) → portable |
+| ZARCH_GENERIC | `../arm/swap.c` → portable    | `../arm/swap.c` → portable    | `../arm/zswap.c` → portable   | `../arm/zswap.c` → portable   | `swap.S` (missing) → portable | `zswap.S` (missing) → portable |
+
+## sparc
+
+| core    | sswap          | dswap          | cswap                       | zswap                       | qswap               | xswap                |
+| ------- | -------------- | -------------- | --------------------------- | --------------------------- | ------------------- | -------------------- |
+| sparc   | `swap.S` → asm | `swap.S` → asm | `../arm/zswap.c` → portable | `../arm/zswap.c` → portable | `swap.S` → portable | `zswap.S` → portable |
+| sparcv7 | `swap.S` → asm | `swap.S` → asm | `zswap.S` → asm             | `zswap.S` → asm             | `swap.S` → portable | `zswap.S` → portable |
+
+## alpha
+
+rstd has no target here.
+
+| core  | sswap          | dswap          | cswap           | zswap           | qswap          | xswap           |
+| ----- | -------------- | -------------- | --------------- | --------------- | -------------- | --------------- |
+| (all) | `swap.S` → n/a | `swap.S` → n/a | `zswap.S` → n/a | `zswap.S` → n/a | `swap.S` → n/a | `zswap.S` → n/a |
+
+## ia64
+
+rstd has no target here.
+
+| core  | sswap          | dswap          | cswap           | zswap           | qswap          | xswap           |
+| ----- | -------------- | -------------- | --------------- | --------------- | -------------- | --------------- |
+| (all) | `swap.S` → n/a | `swap.S` → n/a | `zswap.S` → n/a | `zswap.S` → n/a | `swap.S` → n/a | `zswap.S` → n/a |
+
+## wasm
+
+| core            | sswap                          | dswap                          | cswap                           | zswap                           | qswap                         | xswap                          |
+| --------------- | ------------------------------ | ------------------------------ | ------------------------------- | ------------------------------- | ----------------------------- | ------------------------------ |
+| WASM128_GENERIC | `../riscv64/swap.c` → portable | `../riscv64/swap.c` → portable | `../riscv64/zswap.c` → portable | `../riscv64/zswap.c` → portable | `swap.S` (missing) → portable | `zswap.S` (missing) → portable |
+
+## Gaps
+
+The roles a core runs portable where upstream is tuned. By architecture: power 12, mips64 8, mips 4, riscv64 4, zarch 6.
+
+| architecture | core        | roles                      |
+| ------------ | ----------- | -------------------------- |
+| power        | POWER10     | sswap, dswap, cswap, zswap |
+| power        | POWER8      | sswap, dswap, cswap, zswap |
+| power        | POWER9      | sswap, dswap, cswap, zswap |
+| mips64       | I6400       | sswap, dswap               |
+| mips64       | I6500       | sswap, dswap               |
+| mips64       | LOONGSON3R4 | sswap, dswap               |
+| mips64       | P6600       | sswap, dswap               |
+| mips         | P5600       | sswap, dswap, cswap, zswap |
+| riscv64      | C910V       | sswap, dswap, cswap, zswap |
+| zarch        | Z13         | dswap, zswap               |
+| zarch        | Z14         | sswap, dswap, cswap, zswap |
+
+## Totals
+
+(core, role) pairs by what rstd serves: `asm` 340, `portable` 316, `n/a` 48, `vec` 34. 34 gaps.

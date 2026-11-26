@@ -1,0 +1,43 @@
+//! `zgemv_n` block kernel, the assembly as written, the source preprocessed with `XCONJ`, from OpenBLAS `kernel/x86_64/zgemv_n_microk_bulldozer-4.c` (`v0.3.34-794-gdbf2c24c9`); converted by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+/// `add_y` past its C branch `if (inc_dest != 2)`, which is the driver's.
+pub noinline fn add_y_x_asm(n_in: isize, src: [*]f64, dest: [*]f64, inc_dest: isize, alpha_r: f64, alpha_i: f64) void {
+    _ = inc_dest;
+    var n = n_in;
+    var i: isize = undefined;
+    i = 0;
+    asm volatile (
+        \\vzeroupper
+        \\        vbroadcastsd      (%[op4]), %%ymm0
+        \\        vbroadcastsd      (%[op5]), %%ymm1
+        \\        1:
+        \\        vmovups (%[src],%[i],8), %%ymm8
+        \\        vmovups      32(%[src],%[i],8), %%ymm9
+        \\        vmulpd      %%ymm8 , %%ymm0, %%ymm12
+        \\        vmulpd      %%ymm8 , %%ymm1, %%ymm13
+        \\        vmulpd      %%ymm9 , %%ymm0, %%ymm14
+        \\        vmulpd      %%ymm9 , %%ymm1, %%ymm15
+        \\        vmovups   (%[dest],%[i],8),  %%ymm10
+        \\        vmovups 32(%[dest],%[i],8),  %%ymm11
+        \\        vpermilpd      $0x5 , %%ymm12, %%ymm12
+        \\        vpermilpd      $0x5 , %%ymm14, %%ymm14
+        \\        vaddsubpd      %%ymm12, %%ymm13, %%ymm8
+        \\        vaddsubpd      %%ymm14, %%ymm15, %%ymm9
+        \\        vpermilpd      $0x5 , %%ymm8 , %%ymm8
+        \\        vpermilpd      $0x5 , %%ymm9 , %%ymm9
+        \\        vaddpd         %%ymm8, %%ymm10, %%ymm12
+        \\        vaddpd         %%ymm9, %%ymm11, %%ymm13
+        \\        vmovups  %%ymm12,   (%[dest],%[i],8)
+        \\        vmovups  %%ymm13, 32(%[dest],%[i],8)
+        \\        addq            $8 , %[i]
+        \\        subq            $4 , %[n]
+        \\        jnz             1b
+        \\        vzeroupper
+        : [i] "+r" (i),
+          [n] "+r" (n),
+        : [src] "r" (src),
+          [dest] "r" (dest),
+          [op4] "r" (&alpha_r),
+          [op5] "r" (&alpha_i),
+        : .{ .cc = true, .ymm0 = true, .ymm1 = true, .xmm2 = true, .xmm3 = true, .xmm4 = true, .xmm5 = true, .xmm6 = true, .xmm7 = true, .ymm8 = true, .ymm9 = true, .ymm10 = true, .ymm11 = true, .ymm12 = true, .ymm13 = true, .ymm14 = true, .ymm15 = true, .memory = true });
+}

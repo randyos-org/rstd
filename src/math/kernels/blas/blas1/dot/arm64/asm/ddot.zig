@@ -1,0 +1,108 @@
+//! `ddot` for armv8, cortexa53, cortexa55, cortexa57, cortexa72, cortexa73, cortexa76, cortexx1, emag8180, falkor, ft2000, tsv110, from OpenBLAS `kernel/arm64/dot.S` (`v0.3.34-794-gdbf2c24c9`); converted by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+/// Each function's core and variant.
+pub const keys = .{
+    .{ .core = .armv8, .variant = "" },
+    .{ .core = .cortexa53, .variant = "" },
+    .{ .core = .cortexa55, .variant = "" },
+    .{ .core = .cortexa57, .variant = "" },
+    .{ .core = .cortexa72, .variant = "" },
+    .{ .core = .cortexa73, .variant = "" },
+    .{ .core = .cortexa76, .variant = "" },
+    .{ .core = .cortexx1, .variant = "" },
+    .{ .core = .emag8180, .variant = "" },
+    .{ .core = .falkor, .variant = "" },
+    .{ .core = .ft2000, .variant = "" },
+    .{ .core = .tsv110, .variant = "" },
+};
+
+pub const Body = struct {
+    pub fn entry() callconv(.naked) void {
+        asm volatile (
+            \\ .macro PROLOGUE
+            \\ .p2align 2
+            \\ .endm
+            \\ .macro KERNEL_F1
+            \\ ldr d2, [x1], #8
+            \\ ldr d3, [x3], #8
+            \\ fmadd d0, d2, d3, d0
+            \\ .endm
+            \\ .macro KERNEL_F4
+            \\ ld1 {v2.2d, v3.2d}, [x1], #32
+            \\ ld1 {v4.2d, v5.2d}, [x3], #32
+            \\ fmul v2.2d, v2.2d, v4.2d
+            \\ fmul v3.2d, v3.2d, v5.2d
+            \\ fadd v0.2d, v0.2d, v2.2d
+            \\ fadd v0.2d, v0.2d, v3.2d
+            \\ PRFM PLDL1KEEP, [x1, #1024]
+            \\ PRFM PLDL1KEEP, [x3, #1024]
+            \\ .endm
+            \\ .macro KERNEL_F4_FINALIZE
+            \\ faddp d0, v0.2d
+            \\ .endm
+            \\ .macro INIT_S
+            \\ lsl x2, x2, #3
+            \\ lsl x4, x4, #3
+            \\ .endm
+            \\ .macro KERNEL_S1
+            \\ ld1 {v2.d}[0], [x1], x2
+            \\ ld1 {v3.d}[0], [x3], x4
+            \\ fmadd d0, d2, d3, d0
+            \\ .endm
+            \\ PROLOGUE
+            \\ fmov d0, xzr
+            \\ fmov d6, d0
+            \\ cmp x0, xzr
+            \\ ble 20008f
+            \\ cmp x2, #1
+            \\ bne 20004f
+            \\ cmp x4, #1
+            \\ bne 20004f
+            \\ 20000:
+            \\ asr x5, x0, #2
+            \\ cmp x5, xzr
+            \\ beq 20002f
+            \\ 20001:
+            \\ KERNEL_F4
+            \\ subs x5, x5, #1
+            \\ bne 20001b
+            \\ KERNEL_F4_FINALIZE
+            \\ 20002:
+            \\ ands x5, x0, #3
+            \\ ble 20008f
+            \\ 20003:
+            \\ KERNEL_F1
+            \\ subs x5, x5, #1
+            \\ bne 20003b
+            \\ ret
+            \\ 20004:
+            \\ INIT_S
+            \\ asr x5, x0, #2
+            \\ cmp x5, xzr
+            \\ ble 20006f
+            \\ 20005:
+            \\ KERNEL_S1
+            \\ KERNEL_S1
+            \\ KERNEL_S1
+            \\ KERNEL_S1
+            \\ subs x5, x5, #1
+            \\ bne 20005b
+            \\ 20006:
+            \\ ands x5, x0, #3
+            \\ ble 20008f
+            \\ 20007:
+            \\ KERNEL_S1
+            \\ subs x5, x5, #1
+            \\ bne 20007b
+            \\ 20008:
+            \\ ret
+            \\ .purgem PROLOGUE
+            \\ .purgem KERNEL_F1
+            \\ .purgem KERNEL_F4
+            \\ .purgem KERNEL_F4_FINALIZE
+            \\ .purgem INIT_S
+            \\ .purgem KERNEL_S1
+            \\
+        );
+    }
+};

@@ -1,0 +1,359 @@
+//! `caxpy` for la464, from OpenBLAS `kernel/loongarch64/caxpy_lasx.S` (`v0.3.34-794-gdbf2c24c9`); converted by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+/// Each function's core and variant.
+pub const keys = .{
+    .{ .core = .la464, .variant = "" },
+};
+
+pub const Body = struct {
+    pub fn entry() callconv(.naked) void {
+        asm volatile (
+            \\ .align 5
+            \\ bge $r0, $r4, 20013f
+            \\ li.d $r13, 1
+            \\ movgr2fr.d $f12, $r0
+            \\ ffint.s.l $f12, $f12
+            \\ fcmp.ceq.s $fcc0, $f0, $f12
+            \\ fcmp.ceq.s $fcc1, $f1, $f12
+            \\ 20000:
+            \\ slli.d $r13, $r13, 3
+            \\ slli.d $r8, $r8, 3
+            \\ slli.d $r10, $r10, 3
+            \\ movfr2gr.s $r14, $f0
+            \\ movfr2gr.s $r16, $f1
+            \\ xvreplgr2vr.w $xr23, $r14
+            \\ xvreplgr2vr.w $xr19, $r16
+            \\ srai.d $r12, $r4, 3
+            \\ bne $r10, $r0, 20001f
+            \\ move $r12, $r4
+            \\ b 20012f
+            \\ 20001:
+            \\ bne $r8, $r13, 20002f
+            \\ bne $r10, $r13, 20005f
+            \\ b 20003f
+            \\ 20002:
+            \\ bne $r10, $r13, 20009f
+            \\ b 20007f
+            \\ 20003:
+            \\ bge $r0, $r12, 20011f
+            \\ .align 3
+            \\ 20004:
+            \\ xvld $xr8, $r7, 0 * 4
+            \\ xvld $xr21, $r9, 0 * 4
+            \\ xvld $xr20, $r7, 8 * 4
+            \\ xvld $xr22, $r9, 8 * 4
+            \\ xvpickev.w $xr18, $xr20, $xr8
+            \\ xvpickod.w $xr17, $xr20, $xr8
+            \\ xvpickev.w $xr16, $xr22, $xr21
+            \\ xvpickod.w $xr15, $xr22, $xr21
+            \\ xvfmul.s $xr8, $xr19, $xr17
+            \\ xvfmul.s $xr21, $xr19, $xr18
+            \\ xvfmsub.s $xr20, $xr23, $xr18, $xr8
+            \\ xvfmadd.s $xr22, $xr17, $xr23, $xr21
+            \\ xvfadd.s $xr16, $xr16, $xr20
+            \\ xvfadd.s $xr15, $xr15, $xr22
+            \\ xvilvl.w $xr21, $xr15 ,$xr16
+            \\ xvilvh.w $xr22, $xr15, $xr16
+            \\ xvst $xr21, $r9, 0 * 4
+            \\ xvst $xr22, $r9, 8 * 4
+            \\ addi.d $r7, $r7, 16 * 4
+            \\ addi.d $r9, $r9, 16 * 4
+            \\ addi.d $r12, $r12, -1
+            \\ blt $r0, $r12, 20004b
+            \\ b 20011f
+            \\ .align 3
+            \\ 20005:
+            \\ bge $r0, $r12, 20011f
+            \\ move $r6, $r9
+            \\ .align 3
+            \\ 20006:
+            \\ xvld $xr8, $r7, 0 * 4
+            \\ ld.w $r14, $r9, 0 * 4
+            \\ ld.w $r16, $r9, 1 * 4
+            \\ add.d $r9, $r9, $r10
+            \\ ld.w $r15, $r9, 0 * 4
+            \\ ld.w $r17, $r9, 1 * 4
+            \\ add.d $r9, $r9, $r10
+            \\ xvinsgr2vr.w $xr16, $r14, 0
+            \\ xvinsgr2vr.w $xr15, $r16, 0
+            \\ xvinsgr2vr.w $xr16, $r15, 1
+            \\ xvinsgr2vr.w $xr15, $r17, 1
+            \\ ld.w $r14, $r9, 0 * 4
+            \\ ld.w $r16, $r9, 1 * 4
+            \\ add.d $r9, $r9, $r10
+            \\ ld.w $r15, $r9, 0 * 4
+            \\ ld.w $r17, $r9, 1 * 4
+            \\ add.d $r9, $r9, $r10
+            \\ xvinsgr2vr.w $xr16, $r14, 4
+            \\ xvinsgr2vr.w $xr15, $r16, 4
+            \\ xvinsgr2vr.w $xr16, $r15, 5
+            \\ xvinsgr2vr.w $xr15, $r17, 5
+            \\ xvld $xr20, $r7, 8 * 4
+            \\ ld.w $r14, $r9, 0 * 4
+            \\ ld.w $r16, $r9, 1 * 4
+            \\ add.d $r9, $r9, $r10
+            \\ ld.w $r15, $r9, 0 * 4
+            \\ ld.w $r17, $r9, 1 * 4
+            \\ add.d $r9, $r9, $r10
+            \\ xvinsgr2vr.w $xr16, $r14, 2
+            \\ xvinsgr2vr.w $xr15, $r16, 2
+            \\ xvinsgr2vr.w $xr16, $r15, 3
+            \\ xvinsgr2vr.w $xr15, $r17, 3
+            \\ ld.w $r14, $r9, 0 * 4
+            \\ ld.w $r16, $r9, 1 * 4
+            \\ add.d $r9, $r9, $r10
+            \\ ld.w $r15, $r9, 0 * 4
+            \\ ld.w $r17, $r9, 1 * 4
+            \\ xvinsgr2vr.w $xr16, $r14, 6
+            \\ xvinsgr2vr.w $xr15, $r16, 6
+            \\ xvinsgr2vr.w $xr16, $r15, 7
+            \\ xvinsgr2vr.w $xr15, $r17, 7
+            \\ add.d $r9, $r9, $r10
+            \\ xvpickev.w $xr18, $xr20, $xr8
+            \\ xvpickod.w $xr17, $xr20, $xr8
+            \\ xvfmul.s $xr8, $xr19, $xr17
+            \\ xvfmul.s $xr21, $xr19, $xr18
+            \\ xvfmsub.s $xr20, $xr23, $xr18, $xr8
+            \\ xvfmadd.s $xr22, $xr17, $xr23, $xr21
+            \\ xvfadd.s $xr16, $xr16, $xr20
+            \\ xvfadd.s $xr15, $xr15, $xr22
+            \\ addi.d $r12, $r12, -1
+            \\ xvstelm.w $xr16, $r6, 0 * 4, 0
+            \\ xvstelm.w $xr15, $r6, 1 * 4, 0
+            \\ add.d $r6, $r6, $r10
+            \\ xvstelm.w $xr16, $r6, 0 * 4, 1
+            \\ xvstelm.w $xr15, $r6, 1 * 4, 1
+            \\ add.d $r6, $r6, $r10
+            \\ xvstelm.w $xr16, $r6, 0 * 4, 4
+            \\ xvstelm.w $xr15, $r6, 1 * 4, 4
+            \\ add.d $r6, $r6, $r10
+            \\ xvstelm.w $xr16, $r6, 0 * 4, 5
+            \\ xvstelm.w $xr15, $r6, 1 * 4, 5
+            \\ add.d $r6, $r6, $r10
+            \\ xvstelm.w $xr16, $r6, 0 * 4, 2
+            \\ xvstelm.w $xr15, $r6, 1 * 4, 2
+            \\ add.d $r6, $r6, $r10
+            \\ xvstelm.w $xr16, $r6, 0 * 4, 3
+            \\ xvstelm.w $xr15, $r6, 1 * 4, 3
+            \\ add.d $r6, $r6, $r10
+            \\ xvstelm.w $xr16, $r6, 0 * 4, 6
+            \\ xvstelm.w $xr15, $r6, 1 * 4, 6
+            \\ add.d $r6, $r6, $r10
+            \\ xvstelm.w $xr16, $r6, 0 * 4, 7
+            \\ xvstelm.w $xr15, $r6, 1 * 4, 7
+            \\ add.d $r6, $r6, $r10
+            \\ addi.d $r7, $r7, 16 * 4
+            \\ blt $r0, $r12, 20006b
+            \\ b 20011f
+            \\ .align 3
+            \\ 20007:
+            \\ bge $r0, $r12, 20011f
+            \\ .align 3
+            \\ 20008:
+            \\ xvld $xr21, $r9, 0 * 4
+            \\ ld.w $r14, $r7, 0 * 4
+            \\ ld.w $r16, $r7, 1 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ ld.w $r15, $r7, 0 * 4
+            \\ ld.w $r17, $r7, 1 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ xvinsgr2vr.w $xr18, $r14, 0
+            \\ xvinsgr2vr.w $xr17, $r16, 0
+            \\ xvinsgr2vr.w $xr18, $r15, 1
+            \\ xvinsgr2vr.w $xr17, $r17, 1
+            \\ ld.w $r14, $r7, 0 * 4
+            \\ ld.w $r16, $r7, 1 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ ld.w $r15, $r7, 0 * 4
+            \\ ld.w $r17, $r7, 1 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ xvinsgr2vr.w $xr18, $r14, 4
+            \\ xvinsgr2vr.w $xr17, $r16, 4
+            \\ xvinsgr2vr.w $xr18, $r15, 5
+            \\ xvinsgr2vr.w $xr17, $r17, 5
+            \\ xvld $xr22, $r9, 8 * 4
+            \\ ld.w $r14, $r7, 0 * 4
+            \\ ld.w $r16, $r7, 1 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ ld.w $r15, $r7, 0 * 4
+            \\ ld.w $r17, $r7, 1 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ xvinsgr2vr.w $xr18, $r14, 2
+            \\ xvinsgr2vr.w $xr17, $r16, 2
+            \\ xvinsgr2vr.w $xr18, $r15, 3
+            \\ xvinsgr2vr.w $xr17, $r17, 3
+            \\ ld.w $r14, $r7, 0 * 4
+            \\ ld.w $r16, $r7, 1 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ ld.w $r15, $r7, 0 * 4
+            \\ ld.w $r17, $r7, 1 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ xvinsgr2vr.w $xr18, $r14, 6
+            \\ xvinsgr2vr.w $xr17, $r16, 6
+            \\ xvinsgr2vr.w $xr18, $r15, 7
+            \\ xvinsgr2vr.w $xr17, $r17, 7
+            \\ xvpickev.w $xr16, $xr22, $xr21
+            \\ xvpickod.w $xr15, $xr22, $xr21
+            \\ xvfmul.s $xr8, $xr19, $xr17
+            \\ xvfmul.s $xr21, $xr19, $xr18
+            \\ xvfmsub.s $xr20, $xr23, $xr18, $xr8
+            \\ xvfmadd.s $xr22, $xr17, $xr23, $xr21
+            \\ xvfadd.s $xr16, $xr16, $xr20
+            \\ xvfadd.s $xr15, $xr15, $xr22
+            \\ xvilvl.w $xr21, $xr15 ,$xr16
+            \\ xvilvh.w $xr22, $xr15, $xr16
+            \\ addi.d $r12, $r12, -1
+            \\ xvst $xr21, $r9, 0 * 4
+            \\ xvst $xr22, $r9, 8 * 4
+            \\ addi.d $r9, $r9, 16 * 4
+            \\ blt $r0, $r12, 20008b
+            \\ b 20011f
+            \\ .align 3
+            \\ 20009:
+            \\ bge $r0, $r12, 20011f
+            \\ move $r6, $r9
+            \\ .align 3
+            \\ 20010:
+            \\ ld.w $r14, $r7, 0 * 4
+            \\ ld.w $r16, $r7, 1 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ ld.w $r15, $r7, 0 * 4
+            \\ ld.w $r17, $r7, 1 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ xvinsgr2vr.w $xr18, $r14, 0
+            \\ xvinsgr2vr.w $xr17, $r16, 0
+            \\ xvinsgr2vr.w $xr18, $r15, 1
+            \\ xvinsgr2vr.w $xr17, $r17, 1
+            \\ ld.w $r14, $r7, 0 * 4
+            \\ ld.w $r16, $r7, 1 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ ld.w $r15, $r7, 0 * 4
+            \\ ld.w $r17, $r7, 1 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ xvinsgr2vr.w $xr18, $r14, 2
+            \\ xvinsgr2vr.w $xr17, $r16, 2
+            \\ xvinsgr2vr.w $xr18, $r15, 3
+            \\ xvinsgr2vr.w $xr17, $r17, 3
+            \\ ld.w $r14, $r9, 0 * 4
+            \\ ld.w $r16, $r9, 1 * 4
+            \\ add.d $r9, $r9, $r10
+            \\ ld.w $r15, $r9, 0 * 4
+            \\ ld.w $r17, $r9, 1 * 4
+            \\ add.d $r9, $r9, $r10
+            \\ xvinsgr2vr.w $xr16, $r14, 0
+            \\ xvinsgr2vr.w $xr15, $r16, 0
+            \\ xvinsgr2vr.w $xr16, $r15, 1
+            \\ xvinsgr2vr.w $xr15, $r17, 1
+            \\ ld.w $r14, $r9, 0 * 4
+            \\ ld.w $r16, $r9, 1 * 4
+            \\ add.d $r9, $r9, $r10
+            \\ ld.w $r15, $r9, 0 * 4
+            \\ ld.w $r17, $r9, 1 * 4
+            \\ add.d $r9, $r9, $r10
+            \\ xvinsgr2vr.w $xr16, $r14, 2
+            \\ xvinsgr2vr.w $xr15, $r16, 2
+            \\ xvinsgr2vr.w $xr16, $r15, 3
+            \\ xvinsgr2vr.w $xr15, $r17, 3
+            \\ ld.w $r14, $r7, 0 * 4
+            \\ ld.w $r16, $r7, 1 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ ld.w $r15, $r7, 0 * 4
+            \\ ld.w $r17, $r7, 1 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ xvinsgr2vr.w $xr18, $r14, 4
+            \\ xvinsgr2vr.w $xr17, $r16, 4
+            \\ xvinsgr2vr.w $xr18, $r15, 5
+            \\ xvinsgr2vr.w $xr17, $r17, 5
+            \\ ld.w $r14, $r7, 0 * 4
+            \\ ld.w $r16, $r7, 1 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ ld.w $r15, $r7, 0 * 4
+            \\ ld.w $r17, $r7, 1 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ xvinsgr2vr.w $xr18, $r14, 6
+            \\ xvinsgr2vr.w $xr17, $r16, 6
+            \\ xvinsgr2vr.w $xr18, $r15, 7
+            \\ xvinsgr2vr.w $xr17, $r17, 7
+            \\ ld.w $r14, $r9, 0 * 4
+            \\ ld.w $r16, $r9, 1 * 4
+            \\ add.d $r9, $r9, $r10
+            \\ ld.w $r15, $r9, 0 * 4
+            \\ ld.w $r17, $r9, 1 * 4
+            \\ add.d $r9, $r9, $r10
+            \\ xvinsgr2vr.w $xr16, $r14, 4
+            \\ xvinsgr2vr.w $xr15, $r16, 4
+            \\ xvinsgr2vr.w $xr16, $r15, 5
+            \\ xvinsgr2vr.w $xr15, $r17, 5
+            \\ ld.w $r14, $r9, 0 * 4
+            \\ ld.w $r16, $r9, 1 * 4
+            \\ add.d $r9, $r9, $r10
+            \\ ld.w $r15, $r9, 0 * 4
+            \\ ld.w $r17, $r9, 1 * 4
+            \\ add.d $r9, $r9, $r10
+            \\ xvinsgr2vr.w $xr16, $r14, 6
+            \\ xvinsgr2vr.w $xr15, $r16, 6
+            \\ xvinsgr2vr.w $xr16, $r15, 7
+            \\ xvinsgr2vr.w $xr15, $r17, 7
+            \\ xvfmul.s $xr8, $xr19, $xr17
+            \\ xvfmul.s $xr21, $xr19, $xr18
+            \\ xvfmsub.s $xr20, $xr23, $xr18, $xr8
+            \\ xvfmadd.s $xr22, $xr17, $xr23, $xr21
+            \\ xvfadd.s $xr16, $xr16, $xr20
+            \\ xvfadd.s $xr15, $xr15, $xr22
+            \\ addi.d $r12, $r12, -1
+            \\ xvstelm.w $xr16, $r6, 0 * 4, 0
+            \\ xvstelm.w $xr15, $r6, 1 * 4, 0
+            \\ add.d $r6, $r6, $r10
+            \\ xvstelm.w $xr16, $r6, 0 * 4, 1
+            \\ xvstelm.w $xr15, $r6, 1 * 4, 1
+            \\ add.d $r6, $r6, $r10
+            \\ xvstelm.w $xr16, $r6, 0 * 4, 2
+            \\ xvstelm.w $xr15, $r6, 1 * 4, 2
+            \\ add.d $r6, $r6, $r10
+            \\ xvstelm.w $xr16, $r6, 0 * 4, 3
+            \\ xvstelm.w $xr15, $r6, 1 * 4, 3
+            \\ add.d $r6, $r6, $r10
+            \\ xvstelm.w $xr16, $r6, 0 * 4, 4
+            \\ xvstelm.w $xr15, $r6, 1 * 4, 4
+            \\ add.d $r6, $r6, $r10
+            \\ xvstelm.w $xr16, $r6, 0 * 4, 5
+            \\ xvstelm.w $xr15, $r6, 1 * 4, 5
+            \\ add.d $r6, $r6, $r10
+            \\ xvstelm.w $xr16, $r6, 0 * 4, 6
+            \\ xvstelm.w $xr15, $r6, 1 * 4, 6
+            \\ add.d $r6, $r6, $r10
+            \\ xvstelm.w $xr16, $r6, 0 * 4, 7
+            \\ xvstelm.w $xr15, $r6, 1 * 4, 7
+            \\ add.d $r6, $r6, $r10
+            \\ blt $r0, $r12, 20010b
+            \\ .align 3
+            \\ 20011:
+            \\ andi $r12, $r4, 7
+            \\ bge $r0, $r12, 20013f
+            \\ .align 3
+            \\ 20012:
+            \\ fld.s $f12, $r7, 0 * 4
+            \\ fld.s $f13, $r7, 1 * 4
+            \\ fld.s $f14, $r9, 0 * 4
+            \\ fld.s $f15, $r9, 1 * 4
+            \\ addi.d $r12, $r12, -1
+            \\ fmul.s $f16, $f1, $f13
+            \\ fmul.s $f17, $f1, $f12
+            \\ fmsub.s $f18, $f0, $f12, $f16
+            \\ fmadd.s $f19, $f13, $f0, $f17
+            \\ fadd.s $f18, $f18, $f14
+            \\ fadd.s $f19, $f19, $f15
+            \\ fst.s $f18, $r9, 0 * 4
+            \\ fst.s $f19, $r9, 1 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ add.d $r9, $r9, $r10
+            \\ blt $r0, $r12, 20012b
+            \\ .align 3
+            \\ 20013:
+            \\ move $r4, $r12
+            \\ jirl $r0, $r1, 0x0
+            \\ .align 3
+            \\
+        );
+    }
+};

@@ -1,0 +1,115 @@
+//! `zsum` for loongson3r3, loongson3r4, from OpenBLAS `kernel/mips64/zsum.S` (`v0.3.34-794-gdbf2c24c9`); converted by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+/// Each function's core and variant.
+pub const keys = .{
+    .{ .core = .loongson3r3, .variant = "" },
+    .{ .core = .loongson3r4, .variant = "" },
+};
+
+pub const Body = struct {
+    pub fn entry() callconv(.naked) void {
+        asm volatile (
+            \\ .set mips64
+            \\ .align 5
+            \\ .set noreorder
+            \\ .set nomacro
+            \\ dmtc1 $0, $f0
+            \\ dmtc1 $0, $f1
+            \\ blez $6, 20004f
+            \\ dsll $6, $6, 4
+            \\ blez $4, 20004f
+            \\ dsra $2, $4, 2
+            \\ blez $2, 20002f
+            \\ move $0, $0
+            \\ ldc1 $f2, 0 * 8($5)
+            \\ ldc1 $f3, 1 * 8($5)
+            \\ daddu $5, $5, $6
+            \\ ldc1 $f4, 0 * 8($5)
+            \\ ldc1 $f5, 1 * 8($5)
+            \\ daddu $5, $5, $6
+            \\ ldc1 $f6, 0 * 8($5)
+            \\ ldc1 $f7, 1 * 8($5)
+            \\ daddu $5, $5, $6
+            \\ mov.d $f10, $f2
+            \\ mov.d $f11, $f3
+            \\ ldc1 $f8, 0 * 8($5)
+            \\ ldc1 $f9, 1 * 8($5)
+            \\ mov.d $f12, $f4
+            \\ mov.d $f13, $f5
+            \\ daddiu $2, $2, -1
+            \\ blez $2, 20001f
+            \\ daddu $5, $5, $6
+            \\ .align 3
+            \\ 20000:
+            \\ add.d $f0, $f0, $f10
+            \\ ldc1 $f2, 0 * 8($5)
+            \\ mov.d $f10, $f6
+            \\ daddiu $2, $2, -1
+            \\ add.d $f1, $f1, $f11
+            \\ ldc1 $f3, 1 * 8($5)
+            \\ mov.d $f11, $f7
+            \\ daddu $5, $5, $6
+            \\ add.d $f0, $f0, $f12
+            \\ ldc1 $f4, 0 * 8($5)
+            \\ mov.d $f12, $f8
+            \\ move $0, $0
+            \\ add.d $f1, $f1, $f13
+            \\ ldc1 $f5, 1 * 8($5)
+            \\ mov.d $f13, $f9
+            \\ daddu $5, $5, $6
+            \\ add.d $f0, $f0, $f10
+            \\ ldc1 $f6, 0 * 8($5)
+            \\ mov.d $f10, $f2
+            \\ move $0, $0
+            \\ add.d $f1, $f1, $f11
+            \\ ldc1 $f7, 1 * 8($5)
+            \\ mov.d $f11, $f3
+            \\ daddu $5, $5, $6
+            \\ add.d $f0, $f0, $f12
+            \\ ldc1 $f8, 0 * 8($5)
+            \\ mov.d $f12, $f4
+            \\ ldc1 $f9, 1 * 8($5)
+            \\ add.d $f1, $f1, $f13
+            \\ daddu $5, $5, $6
+            \\ bgtz $2, 20000b
+            \\ mov.d $f13, $f5
+            \\ .align 3
+            \\ 20001:
+            \\ add.d $f0, $f0, $f10
+            \\ mov.d $f10, $f6
+            \\ add.d $f1, $f1, $f11
+            \\ mov.d $f11, $f7
+            \\ add.d $f0, $f0, $f12
+            \\ mov.d $f12, $f8
+            \\ add.d $f1, $f1, $f13
+            \\ mov.d $f13, $f9
+            \\ add.d $f0, $f0, $f10
+            \\ add.d $f1, $f1, $f11
+            \\ add.d $f0, $f0, $f12
+            \\ add.d $f1, $f1, $f13
+            \\ .align 3
+            \\ 20002:
+            \\ andi $2, $4, 3
+            \\ blez $2, 20004f
+            \\ move $0, $0
+            \\ .align 3
+            \\ 20003:
+            \\ ldc1 $f2, 0 * 8($5)
+            \\ ldc1 $f3, 1 * 8($5)
+            \\ mov.d $f10, $f2
+            \\ daddiu $2, $2, -1
+            \\ mov.d $f11, $f3
+            \\ daddu $5, $5, $6
+            \\ add.d $f0, $f0, $f10
+            \\ bgtz $2, 20003b
+            \\ add.d $f1, $f1, $f11
+            \\ .align 3
+            \\ 20004:
+            \\ j $31
+            \\ add.d $f0, $f0, $f1
+            \\ .set macro
+            \\ .set reorder
+            \\
+        );
+    }
+};

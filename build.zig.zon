@@ -33,48 +33,6 @@
         //     .hash = "rc-0.0.0-rMftL9REAADo6nZWJwkxvJGHVKNNwXT-SxFQGdbiv5DW",
         //     .lazy = true,
         // },
-        .osx_kvm = .{
-            .url = "git+https://github.com/kholia/OSX-KVM#4c378a4b5e0b219783683012bec680325eb40719",
-            .hash = "N-V-__8AAKUnqQKGAifHk6tDAjx9sNpxjFjWRJi9cvVxV9x9",
-            // only with the macOS rigs (build/qemu/__root__.zig: when rstd is the root project, unless -Dmacos-vm-off)
-            .lazy = true,
-        },
-        // Debian 13 netboot kernels for the Linux rigs (build/qemu/__root__.zig: when
-        // rstd is the root project, unless -Dlinux-vm-off); a dated installer
-        // build, so the archive stays put
-        // arm64's is Debian 14's (forky, kernel 7.0.13): 13's 6.12 has no SME,
-        // which Linux allows from 6.16
-        .debian_netboot_arm64 = .{
-            .url = "https://deb.debian.org/debian/dists/sid/main/installer-arm64/20260628/images/netboot/netboot.tar.gz",
-            .hash = "N-V-__8AAEMW7AW3mrKJsjEmKEDbWifDL_TdYW5m06zBqmb7",
-            .lazy = true,
-        },
-        .debian_netboot_amd64 = .{
-            .url = "https://deb.debian.org/debian/dists/trixie/main/installer-amd64/20250803+deb13u7/images/netboot/netboot.tar.gz",
-            .hash = "N-V-__8AAHk0iAORDawnDVweOxTXYqxa6CP4pg0bt3O96Yr0",
-            .lazy = true,
-        },
-        .debian_netboot_armhf = .{
-            .url = "https://deb.debian.org/debian/dists/trixie/main/installer-armhf/20250803+deb13u7/images/netboot/netboot.tar.gz",
-            .hash = "N-V-__8AAKhLRQRIQiqWgh8o9GAvkzj2dO5berJQbiljpYIa",
-            .lazy = true,
-        },
-        .debian_netboot_riscv64 = .{
-            .url = "https://deb.debian.org/debian/dists/trixie/main/installer-riscv64/20250803+deb13u7/images/netboot/netboot.tar.gz",
-            .hash = "N-V-__8AACySyARjh_Xnw5gzJNOwYW1TWg6kK7H_ZPsDyNmb",
-            .lazy = true,
-        },
-        .debian_netboot_ppc64el = .{
-            .url = "https://deb.debian.org/debian/dists/trixie/main/installer-ppc64el/20250803+deb13u7/images/netboot/netboot.tar.gz",
-            .hash = "N-V-__8AAJ40ZgQ-s_-r8DXsEHoApUx9VY_olOhfIADCHR63",
-            .lazy = true,
-        },
-        // Debian 12's: 13 has no i386 installer
-        .debian_netboot_i386 = .{
-            .url = "https://deb.debian.org/debian/dists/bookworm/main/installer-i386/20230607+deb12u15/images/netboot/netboot.tar.gz",
-            .hash = "N-V-__8AAPlKiQI6Ff4yPGDDl3AfuWMrf7hwQswZLDKyV9md",
-            .lazy = true,
-        },
         // Its Aro does not build on current Zig master (issue #217);
         // src/buildutils/renderdoc.zig uses the built-in translate-c until it does.
         // .translate_c = .{
@@ -92,5 +50,7 @@
         "build",
         "LICENSE",
         "src",
+        // rgui builds this through the dependency (addGenIconStep)
+        "tools/gen_icon.zig",
     },
 }

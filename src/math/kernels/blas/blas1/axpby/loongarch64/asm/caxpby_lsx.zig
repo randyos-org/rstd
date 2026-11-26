@@ -1,0 +1,494 @@
+//! `caxpby` for la264, from OpenBLAS `kernel/loongarch64/caxpby_lsx.S` (`v0.3.34-794-gdbf2c24c9`); converted by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+/// Each function's core and variant.
+pub const keys = .{
+    .{ .core = .la264, .variant = "" },
+};
+
+pub const Body = struct {
+    pub fn entry() callconv(.naked) void {
+        asm volatile (
+            \\ .align 5
+            \\ bge $r0, $r4, 20029f
+            \\ movgr2fr.d $f12, $r0
+            \\ ffint.s.l $f12, $f12
+            \\ slli.d $r6, $r6, 3
+            \\ slli.d $r8, $r8, 3
+            \\ movfr2gr.s $r14, $f0
+            \\ vreplgr2vr.w $vr23, $r14
+            \\ movfr2gr.s $r16, $f1
+            \\ vreplgr2vr.w $vr19, $r16
+            \\ movfr2gr.s $r15, $f2
+            \\ vreplgr2vr.w $vr14, $r15
+            \\ movfr2gr.s $r17, $f3
+            \\ vreplgr2vr.w $vr13, $r17
+            \\ vxor.v $vr12, $vr12, $vr12
+            \\ and $r13, $r6, $r8
+            \\ or $r12, $r4, $r4
+            \\ beqz $r13, 20024f
+            \\ li.d $r13, 1
+            \\ slli.d $r13, $r13, 3
+            \\ srai.d $r12, $r4, 2
+            \\ bne $r6, $r13, 20000f
+            \\ bne $r8, $r13, 20008f
+            \\ b 20001f
+            \\ 20000:
+            \\ bne $r8, $r13, 20016f
+            \\ b 20012f
+            \\ 20001:
+            \\ bge $r0, $r12, 20023f
+            \\ fcmp.ceq.s $fcc0, $f2, $f12
+            \\ fcmp.ceq.s $fcc1, $f3, $f12
+            \\ fcmp.ceq.s $fcc2, $f0, $f12
+            \\ fcmp.ceq.s $fcc3, $f1, $f12
+            \\ bceqz $fcc0, 20002f
+            \\ bceqz $fcc1, 20002f
+            \\ b 20003f
+            \\ .align 3
+            \\ 20002:
+            \\ bceqz $fcc2, 20007f
+            \\ bceqz $fcc3, 20007f
+            \\ b 20006f
+            \\ 20003:
+            \\ bceqz $fcc2, 20005f
+            \\ bceqz $fcc3, 20005f
+            \\ b 20004f
+            \\ .align 3
+            \\ 20004:
+            \\ vst $vr12, $r7, 0 * 4
+            \\ vst $vr12, $r7, 4 * 4
+            \\ addi.d $r7, $r7, 8 * 4
+            \\ addi.d $r12, $r12, -1
+            \\ blt $r0, $r12, 20004b
+            \\ b 20023f
+            \\ .align 3
+            \\ 20005:
+            \\ vld $vr8, $r5, 0 * 4
+            \\ vld $vr20, $r5, 4 * 4
+            \\ vpickev.w $vr18, $vr20, $vr8
+            \\ vpickod.w $vr17, $vr20, $vr8
+            \\ vfmul.s $vr16, $vr19, $vr17
+            \\ vfmul.s $vr15, $vr19, $vr18
+            \\ vfmsub.s $vr16, $vr23, $vr18, $vr16
+            \\ vfmadd.s $vr15, $vr23, $vr17, $vr15
+            \\ vilvl.w $vr21, $vr15 ,$vr16
+            \\ vilvh.w $vr22, $vr15, $vr16
+            \\ vst $vr21, $r7, 0 * 4
+            \\ vst $vr22, $r7, 4 * 4
+            \\ addi.d $r5, $r5, 8 * 4
+            \\ addi.d $r7, $r7, 8 * 4
+            \\ addi.d $r12, $r12, -1
+            \\ blt $r0, $r12, 20005b
+            \\ b 20023f
+            \\ .align 3
+            \\ 20006:
+            \\ vld $vr8, $r7, 0 * 4
+            \\ vld $vr20, $r7, 4 * 4
+            \\ vpickev.w $vr18, $vr20, $vr8
+            \\ vpickod.w $vr17, $vr20, $vr8
+            \\ vfmul.s $vr16, $vr13, $vr17
+            \\ vfmul.s $vr15, $vr13, $vr18
+            \\ vfmsub.s $vr16, $vr14, $vr18, $vr16
+            \\ vfmadd.s $vr15, $vr14, $vr17, $vr15
+            \\ vilvl.w $vr21, $vr15 ,$vr16
+            \\ vilvh.w $vr22, $vr15, $vr16
+            \\ vst $vr21, $r7, 0 * 4
+            \\ vst $vr22, $r7, 4 * 4
+            \\ addi.d $r7, $r7, 8 * 4
+            \\ addi.d $r12, $r12, -1
+            \\ blt $r0, $r12, 20006b
+            \\ b 20023f
+            \\ .align 3
+            \\ 20007:
+            \\ vld $vr8, $r5, 0 * 4
+            \\ vld $vr20, $r5, 4 * 4
+            \\ vld $vr21, $r7, 0 * 4
+            \\ vld $vr22, $r7, 4 * 4
+            \\ vpickev.w $vr18, $vr20, $vr8
+            \\ vpickod.w $vr17, $vr20, $vr8
+            \\ vpickev.w $vr16, $vr22, $vr21
+            \\ vpickod.w $vr15, $vr22, $vr21
+            \\ vfmul.s $vr8, $vr19, $vr17
+            \\ vfmul.s $vr20, $vr19, $vr18
+            \\ vfmul.s $vr21, $vr13, $vr15
+            \\ vfmul.s $vr22, $vr13, $vr16
+            \\ vfmsub.s $vr8, $vr23, $vr18, $vr8
+            \\ vfmadd.s $vr20, $vr23, $vr17, $vr20
+            \\ vfmsub.s $vr21, $vr14, $vr16, $vr21
+            \\ vfmadd.s $vr22, $vr14, $vr15, $vr22
+            \\ vfadd.s $vr16, $vr8, $vr21
+            \\ vfadd.s $vr15, $vr20, $vr22
+            \\ vilvl.w $vr21, $vr15 ,$vr16
+            \\ vilvh.w $vr22, $vr15, $vr16
+            \\ vst $vr21, $r7, 0 * 4
+            \\ vst $vr22, $r7, 4 * 4
+            \\ addi.d $r5, $r5, 8 * 4
+            \\ addi.d $r7, $r7, 8 * 4
+            \\ addi.d $r12, $r12, -1
+            \\ blt $r0, $r12, 20007b
+            \\ b 20023f
+            \\ .align 3
+            \\ 20008:
+            \\ bge $r0, $r12, 20023f
+            \\ fcmp.ceq.s $fcc0, $f2, $f12
+            \\ fcmp.ceq.s $fcc1, $f3, $f12
+            \\ fcmp.ceq.s $fcc2, $f0, $f12
+            \\ fcmp.ceq.s $fcc3, $f1, $f12
+            \\ bceqz $fcc0, 20009f
+            \\ bcnez $fcc1, 20016f
+            \\ 20009:
+            \\ bceqz $fcc2, 20010f
+            \\ bcnez $fcc3, 20016f
+            \\ 20010:
+            \\ move $r19, $r7
+            \\ .align 3
+            \\ 20011:
+            \\ vld $vr8, $r5, 0 * 4
+            \\ ld.w $r14, $r7, 0 * 4
+            \\ ld.w $r16, $r7, 1 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ ld.w $r15, $r7, 0 * 4
+            \\ ld.w $r17, $r7, 1 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ vinsgr2vr.w $vr16, $r14, 0
+            \\ vinsgr2vr.w $vr15, $r16, 0
+            \\ vinsgr2vr.w $vr16, $r15, 1
+            \\ vinsgr2vr.w $vr15, $r17, 1
+            \\ vld $vr20, $r5, 4 * 4
+            \\ ld.w $r14, $r7, 0 * 4
+            \\ ld.w $r16, $r7, 1 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ ld.w $r15, $r7, 0 * 4
+            \\ ld.w $r17, $r7, 1 * 4
+            \\ vinsgr2vr.w $vr16, $r14, 2
+            \\ vinsgr2vr.w $vr15, $r16, 2
+            \\ vinsgr2vr.w $vr16, $r15, 3
+            \\ vinsgr2vr.w $vr15, $r17, 3
+            \\ add.d $r7, $r7, $r8
+            \\ vpickev.w $vr18, $vr20, $vr8
+            \\ vpickod.w $vr17, $vr20, $vr8
+            \\ vfmul.s $vr8, $vr19, $vr17
+            \\ vfmul.s $vr20, $vr19, $vr18
+            \\ vfmul.s $vr21, $vr13, $vr15
+            \\ vfmul.s $vr22, $vr13, $vr16
+            \\ vfmsub.s $vr8, $vr23, $vr18, $vr8
+            \\ vfmadd.s $vr20, $vr23, $vr17, $vr20
+            \\ vfmsub.s $vr21, $vr14, $vr16, $vr21
+            \\ vfmadd.s $vr22, $vr14, $vr15, $vr22
+            \\ vfadd.s $vr16, $vr8, $vr21
+            \\ vfadd.s $vr15, $vr20, $vr22
+            \\ addi.d $r12, $r12, -1
+            \\ vstelm.w $vr16, $r19, 0 * 4, 0
+            \\ vstelm.w $vr15, $r19, 1 * 4, 0
+            \\ add.d $r19, $r19, $r8
+            \\ vstelm.w $vr16, $r19, 0 * 4, 1
+            \\ vstelm.w $vr15, $r19, 1 * 4, 1
+            \\ add.d $r19, $r19, $r8
+            \\ vstelm.w $vr16, $r19, 0 * 4, 2
+            \\ vstelm.w $vr15, $r19, 1 * 4, 2
+            \\ add.d $r19, $r19, $r8
+            \\ vstelm.w $vr16, $r19, 0 * 4, 3
+            \\ vstelm.w $vr15, $r19, 1 * 4, 3
+            \\ add.d $r19, $r19, $r8
+            \\ addi.d $r5, $r5, 8 * 4
+            \\ blt $r0, $r12, 20011b
+            \\ b 20023f
+            \\ .align 3
+            \\ 20012:
+            \\ bge $r0, $r12, 20023f
+            \\ fcmp.ceq.s $fcc0, $f2, $f12
+            \\ fcmp.ceq.s $fcc1, $f3, $f12
+            \\ fcmp.ceq.s $fcc2, $f0, $f12
+            \\ fcmp.ceq.s $fcc3, $f1, $f12
+            \\ bceqz $fcc0, 20013f
+            \\ bcnez $fcc1, 20016f
+            \\ 20013:
+            \\ bceqz $fcc2, 20014f
+            \\ bcnez $fcc3, 20016f
+            \\ 20014:
+            \\ .align 3
+            \\ 20015:
+            \\ vld $vr21, $r7, 0 * 4
+            \\ ld.w $r14, $r5, 0 * 4
+            \\ ld.w $r16, $r5, 1 * 4
+            \\ add.d $r5, $r5, $r6
+            \\ ld.w $r15, $r5, 0 * 4
+            \\ ld.w $r17, $r5, 1 * 4
+            \\ add.d $r5, $r5, $r6
+            \\ vinsgr2vr.w $vr18, $r14, 0
+            \\ vinsgr2vr.w $vr17, $r16, 0
+            \\ vinsgr2vr.w $vr18, $r15, 1
+            \\ vinsgr2vr.w $vr17, $r17, 1
+            \\ vld $vr22, $r7, 4 * 4
+            \\ ld.w $r14, $r5, 0 * 4
+            \\ ld.w $r16, $r5, 1 * 4
+            \\ add.d $r5, $r5, $r6
+            \\ ld.w $r15, $r5, 0 * 4
+            \\ ld.w $r17, $r5, 1 * 4
+            \\ vinsgr2vr.w $vr18, $r14, 2
+            \\ vinsgr2vr.w $vr17, $r16, 2
+            \\ vinsgr2vr.w $vr18, $r15, 3
+            \\ vinsgr2vr.w $vr17, $r17, 3
+            \\ add.d $r5, $r5, $r6
+            \\ vpickev.w $vr16, $vr22, $vr21
+            \\ vpickod.w $vr15, $vr22, $vr21
+            \\ vfmul.s $vr8, $vr19, $vr17
+            \\ vfmul.s $vr20, $vr19, $vr18
+            \\ vfmul.s $vr21, $vr13, $vr15
+            \\ vfmul.s $vr22, $vr13, $vr16
+            \\ vfmsub.s $vr8, $vr23, $vr18, $vr8
+            \\ vfmadd.s $vr20, $vr23, $vr17, $vr20
+            \\ vfmsub.s $vr21, $vr14, $vr16, $vr21
+            \\ vfmadd.s $vr22, $vr14, $vr15, $vr22
+            \\ vfadd.s $vr16, $vr8, $vr21
+            \\ vfadd.s $vr15, $vr20, $vr22
+            \\ vilvl.w $vr21, $vr15 ,$vr16
+            \\ vilvh.w $vr22, $vr15, $vr16
+            \\ addi.d $r12, $r12, -1
+            \\ vst $vr21, $r7, 0 * 4
+            \\ vst $vr22, $r7, 4 * 4
+            \\ addi.d $r7, $r7, 8 * 4
+            \\ blt $r0, $r12, 20015b
+            \\ b 20023f
+            \\ .align 3
+            \\ 20016:
+            \\ bge $r0, $r12, 20023f
+            \\ move $r19, $r7
+            \\ fcmp.ceq.s $fcc0, $f2, $f12
+            \\ fcmp.ceq.s $fcc1, $f3, $f12
+            \\ fcmp.ceq.s $fcc2, $f0, $f12
+            \\ fcmp.ceq.s $fcc3, $f1, $f12
+            \\ bceqz $fcc0, 20017f
+            \\ bceqz $fcc1, 20017f
+            \\ b 20018f
+            \\ .align 3
+            \\ 20017:
+            \\ bceqz $fcc2, 20022f
+            \\ bceqz $fcc3, 20022f
+            \\ b 20021f
+            \\ .align 3
+            \\ 20018:
+            \\ bceqz $fcc2, 20020f
+            \\ bceqz $fcc3, 20020f
+            \\ b 20019f
+            \\ .align 3
+            \\ 20019:
+            \\ vstelm.w $vr12, $r7, 0 * 4, 0
+            \\ vstelm.w $vr12, $r7, 1 * 4, 0
+            \\ add.d $r7, $r7, $r8
+            \\ vstelm.w $vr12, $r7, 0 * 4, 0
+            \\ vstelm.w $vr12, $r7, 1 * 4, 0
+            \\ add.d $r7, $r7, $r8
+            \\ vstelm.w $vr12, $r7, 0 * 4, 0
+            \\ vstelm.w $vr12, $r7, 1 * 4, 0
+            \\ add.d $r7, $r7, $r8
+            \\ vstelm.w $vr12, $r7, 0 * 4, 0
+            \\ vstelm.w $vr12, $r7, 1 * 4, 0
+            \\ add.d $r7, $r7, $r8
+            \\ addi.d $r12, $r12, -1
+            \\ blt $r0, $r12, 20019b
+            \\ b 20023f
+            \\ .align 3
+            \\ 20020:
+            \\ ld.w $r14, $r5, 0 * 4
+            \\ ld.w $r16, $r5, 1 * 4
+            \\ add.d $r5, $r5, $r6
+            \\ ld.w $r15, $r5, 0 * 4
+            \\ ld.w $r17, $r5, 1 * 4
+            \\ add.d $r5, $r5, $r6
+            \\ vinsgr2vr.w $vr18, $r14, 0
+            \\ vinsgr2vr.w $vr17, $r16, 0
+            \\ vinsgr2vr.w $vr18, $r15, 1
+            \\ vinsgr2vr.w $vr17, $r17, 1
+            \\ ld.w $r14, $r5, 0 * 4
+            \\ ld.w $r16, $r5, 1 * 4
+            \\ add.d $r5, $r5, $r6
+            \\ ld.w $r15, $r5, 0 * 4
+            \\ ld.w $r17, $r5, 1 * 4
+            \\ vinsgr2vr.w $vr18, $r14, 2
+            \\ vinsgr2vr.w $vr17, $r16, 2
+            \\ vinsgr2vr.w $vr18, $r15, 3
+            \\ vinsgr2vr.w $vr17, $r17, 3
+            \\ add.d $r5, $r5, $r6
+            \\ vfmul.s $vr16, $vr19, $vr17
+            \\ vfmul.s $vr15, $vr19, $vr18
+            \\ vfmsub.s $vr16, $vr23, $vr18, $vr16
+            \\ vfmadd.s $vr15, $vr23, $vr17, $vr15
+            \\ addi.d $r12, $r12, -1
+            \\ vstelm.w $vr16, $r19, 0 * 4, 0
+            \\ vstelm.w $vr15, $r19, 1 * 4, 0
+            \\ add.d $r19, $r19, $r8
+            \\ vstelm.w $vr16, $r19, 0 * 4, 1
+            \\ vstelm.w $vr15, $r19, 1 * 4, 1
+            \\ add.d $r19, $r19, $r8
+            \\ vstelm.w $vr16, $r19, 0 * 4, 2
+            \\ vstelm.w $vr15, $r19, 1 * 4, 2
+            \\ add.d $r19, $r19, $r8
+            \\ vstelm.w $vr16, $r19, 0 * 4, 3
+            \\ vstelm.w $vr15, $r19, 1 * 4, 3
+            \\ add.d $r19, $r19, $r8
+            \\ blt $r0, $r12, 20020b
+            \\ move $r7, $r19
+            \\ b 20023f
+            \\ .align 3
+            \\ 20021:
+            \\ ld.w $r14, $r7, 0 * 4
+            \\ ld.w $r16, $r7, 1 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ ld.w $r15, $r7, 0 * 4
+            \\ ld.w $r17, $r7, 1 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ vinsgr2vr.w $vr18, $r14, 0
+            \\ vinsgr2vr.w $vr17, $r16, 0
+            \\ vinsgr2vr.w $vr18, $r15, 1
+            \\ vinsgr2vr.w $vr17, $r17, 1
+            \\ ld.w $r14, $r7, 0 * 4
+            \\ ld.w $r16, $r7, 1 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ ld.w $r15, $r7, 0 * 4
+            \\ ld.w $r17, $r7, 1 * 4
+            \\ vinsgr2vr.w $vr18, $r14, 2
+            \\ vinsgr2vr.w $vr17, $r16, 2
+            \\ vinsgr2vr.w $vr18, $r15, 3
+            \\ vinsgr2vr.w $vr17, $r17, 3
+            \\ add.d $r7, $r7, $r8
+            \\ vfmul.s $vr16, $vr13, $vr17
+            \\ vfmul.s $vr15, $vr13, $vr18
+            \\ vfmsub.s $vr16, $vr14, $vr18, $vr16
+            \\ vfmadd.s $vr15, $vr14, $vr17, $vr15
+            \\ addi.d $r12, $r12, -1
+            \\ vstelm.w $vr16, $r19, 0 * 4, 0
+            \\ vstelm.w $vr15, $r19, 1 * 4, 0
+            \\ add.d $r19, $r19, $r8
+            \\ vstelm.w $vr16, $r19, 0 * 4, 1
+            \\ vstelm.w $vr15, $r19, 1 * 4, 1
+            \\ add.d $r19, $r19, $r8
+            \\ vstelm.w $vr16, $r19, 0 * 4, 2
+            \\ vstelm.w $vr15, $r19, 1 * 4, 2
+            \\ add.d $r19, $r19, $r8
+            \\ vstelm.w $vr16, $r19, 0 * 4, 3
+            \\ vstelm.w $vr15, $r19, 1 * 4, 3
+            \\ add.d $r19, $r19, $r8
+            \\ blt $r0, $r12, 20021b
+            \\ b 20023f
+            \\ .align 3
+            \\ 20022:
+            \\ ld.w $r14, $r5, 0 * 4
+            \\ ld.w $r16, $r5, 1 * 4
+            \\ add.d $r5, $r5, $r6
+            \\ ld.w $r15, $r5, 0 * 4
+            \\ ld.w $r17, $r5, 1 * 4
+            \\ add.d $r5, $r5, $r6
+            \\ vinsgr2vr.w $vr18, $r14, 0
+            \\ vinsgr2vr.w $vr17, $r16, 0
+            \\ vinsgr2vr.w $vr18, $r15, 1
+            \\ vinsgr2vr.w $vr17, $r17, 1
+            \\ ld.w $r14, $r5, 0 * 4
+            \\ ld.w $r16, $r5, 1 * 4
+            \\ add.d $r5, $r5, $r6
+            \\ ld.w $r15, $r5, 0 * 4
+            \\ ld.w $r17, $r5, 1 * 4
+            \\ add.d $r5, $r5, $r6
+            \\ vinsgr2vr.w $vr18, $r14, 2
+            \\ vinsgr2vr.w $vr17, $r16, 2
+            \\ vinsgr2vr.w $vr18, $r15, 3
+            \\ vinsgr2vr.w $vr17, $r17, 3
+            \\ ld.w $r14, $r7, 0 * 4
+            \\ ld.w $r16, $r7, 1 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ ld.w $r15, $r7, 0 * 4
+            \\ ld.w $r17, $r7, 1 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ vinsgr2vr.w $vr16, $r14, 0
+            \\ vinsgr2vr.w $vr15, $r16, 0
+            \\ vinsgr2vr.w $vr16, $r15, 1
+            \\ vinsgr2vr.w $vr15, $r17, 1
+            \\ ld.w $r14, $r7, 0 * 4
+            \\ ld.w $r16, $r7, 1 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ ld.w $r15, $r7, 0 * 4
+            \\ ld.w $r17, $r7, 1 * 4
+            \\ vinsgr2vr.w $vr16, $r14, 2
+            \\ vinsgr2vr.w $vr15, $r16, 2
+            \\ vinsgr2vr.w $vr16, $r15, 3
+            \\ vinsgr2vr.w $vr15, $r17, 3
+            \\ add.d $r7, $r7, $r8
+            \\ vfmul.s $vr8, $vr19, $vr17
+            \\ vfmul.s $vr20, $vr19, $vr18
+            \\ vfmul.s $vr21, $vr13, $vr15
+            \\ vfmul.s $vr22, $vr13, $vr16
+            \\ vfmsub.s $vr8, $vr23, $vr18, $vr8
+            \\ vfmadd.s $vr20, $vr23, $vr17, $vr20
+            \\ vfmsub.s $vr21, $vr14, $vr16, $vr21
+            \\ vfmadd.s $vr22, $vr14, $vr15, $vr22
+            \\ vfadd.s $vr16, $vr8, $vr21
+            \\ vfadd.s $vr15, $vr20, $vr22
+            \\ addi.d $r12, $r12, -1
+            \\ vstelm.w $vr16, $r19, 0 * 4, 0
+            \\ vstelm.w $vr15, $r19, 1 * 4, 0
+            \\ add.d $r19, $r19, $r8
+            \\ vstelm.w $vr16, $r19, 0 * 4, 1
+            \\ vstelm.w $vr15, $r19, 1 * 4, 1
+            \\ add.d $r19, $r19, $r8
+            \\ vstelm.w $vr16, $r19, 0 * 4, 2
+            \\ vstelm.w $vr15, $r19, 1 * 4, 2
+            \\ add.d $r19, $r19, $r8
+            \\ vstelm.w $vr16, $r19, 0 * 4, 3
+            \\ vstelm.w $vr15, $r19, 1 * 4, 3
+            \\ add.d $r19, $r19, $r8
+            \\ blt $r0, $r12, 20022b
+            \\ b 20023f
+            \\ .align 3
+            \\ 20023:
+            \\ andi $r12, $r4, 3
+            \\ bge $r0, $r12, 20029f
+            \\ .align 3
+            \\ 20024:
+            \\ movgr2fr.d $f16, $r0
+            \\ fcmp.ceq.s $fcc0, $f0, $f16
+            \\ fcmp.ceq.s $fcc1, $f1, $f16
+            \\ fcmp.ceq.s $fcc2, $f2, $f16
+            \\ fcmp.ceq.s $fcc3, $f3, $f16
+            \\ addi.d $r12, $r12, -1
+            \\ bceqz $fcc0, 20026f
+            \\ bceqz $fcc1, 20026f
+            \\ fmov.s $f17, $f16
+            \\ bceqz $fcc2, 20025f
+            \\ bcnez $fcc3, 20028f
+            \\ 20025:
+            \\ fneg.s $f16, $f16
+            \\ fneg.s $f17, $f17
+            \\ b 20027f
+            \\ 20026:
+            \\ fld.s $f12, $r5, 0 * 4
+            \\ fld.s $f13, $r5, 1 * 4
+            \\ fmul.s $f16, $f1, $f13
+            \\ fmul.s $f17, $f1, $f12
+            \\ fmsub.s $f16, $f0, $f12, $f16
+            \\ fmadd.s $f17, $f13, $f0, $f17
+            \\ bceqz $fcc2, 20027f
+            \\ bcnez $fcc3, 20028f
+            \\ 20027:
+            \\ fld.s $f14, $r7, 0 * 4
+            \\ fld.s $f15, $r7, 1 * 4
+            \\ fmul.s $f18, $f3, $f15
+            \\ fmul.s $f19, $f3, $f14
+            \\ fmsub.s $f18, $f2, $f14, $f18
+            \\ fmadd.s $f19, $f15, $f2, $f19
+            \\ fadd.s $f16, $f18, $f16
+            \\ fadd.s $f17, $f19, $f17
+            \\ 20028:
+            \\ fst.s $f16, $r7, 0 * 4
+            \\ fst.s $f17, $r7, 1 * 4
+            \\ add.d $r5, $r5, $r6
+            \\ add.d $r7, $r7, $r8
+            \\ blt $r0, $r12, 20024b
+            \\ .align 3
+            \\ 20029:
+            \\ move $r4, $r12
+            \\ jirl $r0, $r1, 0x0
+            \\ .align 3
+            \\
+        );
+    }
+};

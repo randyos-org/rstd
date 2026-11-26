@@ -1,0 +1,342 @@
+//! Section 2 of 2 of the text of `cgemv_o`, which `__root__.zig` joins, from OpenBLAS `kernel/loongarch64/cgemv_n_4_lsx.S` (`v0.3.34-794-gdbf2c24c9`); converted by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+pub const text =
+    \\ .macro GMOV pre_op:req, out:req, in:req, more:vararg
+    \\ \pre_op\()or.v \out, \in, \in
+    \\ .ifnb \more
+    \\ GMOV \pre_op, \more
+    \\ .endif
+    \\ .endm
+    \\ .macro GCOMPLEXACC pre_op:req, suf_op:req, out:req, in:req, more:vararg
+    \\ .ifeqs "\pre_op\()\suf_op", "xvfd"
+    \\ xvpermi.q \out, \in, 0x01
+    \\ \pre_op\()add.\suf_op \out, \out, \in
+    \\ .endif
+    \\ .ifeqs "\pre_op\()\suf_op", "xvfs"
+    \\ xvpermi.q \out, \in, 0x01
+    \\ \pre_op\()add.\suf_op \in, \out, \in
+    \\ xvpackod.d \out, \in, \in
+    \\ \pre_op\()add.\suf_op \out, \out, \in
+    \\ .endif
+    \\ .ifeqs "\pre_op\()\suf_op", "vfd"
+    \\ vor.v \out, \in, \in
+    \\ .endif
+    \\ .ifeqs "\pre_op\()\suf_op", "vfs"
+    \\ vpackod.d \out, \in, \in
+    \\ \pre_op\()add.\suf_op \out, \out, \in
+    \\ .endif
+    \\ .ifnb \more
+    \\ GCOMPLEXACC \pre_op, \suf_op, \more
+    \\ .endif
+    \\ .endm
+    \\ .macro GCOMPLEXMUL xconj=0, pre_op:req, suf_op:req, out:req, in0:req, in1:req, tmp0:req, tmp1:req, tmp2:req, more:vararg
+    \\ TRANSF2G GXOR, \pre_op, s, \tmp1, \tmp1, \tmp1
+    \\ TRANSF2G GPACKEV, \pre_op, \suf_op, \tmp0, \in0, \in0
+    \\ \pre_op\()sub.\suf_op \tmp1, \tmp1, \in0
+    \\ .ifeqs "\xconj", "0"
+    \\ TRANSF2G GPACKOD, \pre_op, \suf_op, \tmp1, \in0, \tmp1
+    \\ .else
+    \\ TRANSF2G GPACKOD, \pre_op, \suf_op, \tmp1, \tmp1, \in0
+    \\ .endif
+    \\ .ifeqs "\suf_op", "s"
+    \\ TRANSF2G GSHUF4I, \pre_op, \suf_op, \tmp2, \in1, 0xb1
+    \\ .else
+    \\ TRANSF2G GSHUF4I, \pre_op, \suf_op, \tmp2, \in1, 0x0b
+    \\ .endif
+    \\ \pre_op\()mul.\suf_op \out, \tmp0, \in1
+    \\ \pre_op\()madd.\suf_op \out, \tmp1, \tmp2, \out
+    \\ .ifnb \more
+    \\ GCOMPLEXMUL \xconj, \pre_op, \suf_op, \more
+    \\ .endif
+    \\ .endm
+    \\ .macro GCOMPLEXMADD xconj=0, conj=0, pre_op:req, suf_op:req, out:req, in0:req, in1:req, in2:req, tmp0:req, tmp1:req, tmp2:req, more:vararg
+    \\ TRANSF2G GXOR, \pre_op, s, \tmp1, \tmp1, \tmp1
+    \\ TRANSF2G GPACKEV, \pre_op, \suf_op, \tmp0, \in0, \in0
+    \\ \pre_op\()madd.\suf_op \tmp2, \tmp0, \in1, \in2
+    \\ .ifeqs "\conj\()\suf_op", "1s"
+    \\ \pre_op\()nmsub.\suf_op \tmp0, \tmp0, \in1, \in2
+    \\ TRANSF2G GSHUF4I, \pre_op, \suf_op, \tmp0, \tmp0, 0xb1
+    \\ TRANSF2G GPACKEV, \pre_op, \suf_op, \out, \tmp0, \tmp2
+    \\ .endif
+    \\ .ifeqs "\conj\()\suf_op", "1d"
+    \\ \pre_op\()nmsub.\suf_op \tmp0, \tmp0, \in1, \in2
+    \\ TRANSF2G GSHUF4I, \pre_op, \suf_op, \tmp0, \tmp0, 0x0b
+    \\ TRANSF2G GPACKEV, \pre_op, \suf_op, \out, \tmp0, \tmp2
+    \\ .endif
+    \\ .ifeqs "\conj", "0"
+    \\ \pre_op\()add.\suf_op \out, \tmp2, \tmp1
+    \\ .endif
+    \\ \pre_op\()sub.\suf_op \tmp1, \tmp1, \in0
+    \\ .ifeqs "\xconj\()\conj\()\suf_op", "00s"
+    \\ TRANSF2G GPACKOD, \pre_op, \suf_op, \tmp1, \in0, \tmp1
+    \\ TRANSF2G GSHUF4I, \pre_op, \suf_op, \tmp2, \in1, 0xb1
+    \\ .endif
+    \\ .ifeqs "\xconj\()\conj\()\suf_op", "10s"
+    \\ TRANSF2G GPACKOD, \pre_op, \suf_op, \tmp1, \tmp1, \in0
+    \\ TRANSF2G GSHUF4I, \pre_op, \suf_op, \tmp2, \in1, 0xb1
+    \\ .endif
+    \\ .ifeqs "\xconj\()\conj\()\suf_op", "01s"
+    \\ TRANSF2G GPACKOD, \pre_op, \suf_op, \tmp1, \in0, \in0
+    \\ TRANSF2G GSHUF4I, \pre_op, \suf_op, \tmp2, \in1, 0xb1
+    \\ .endif
+    \\ .ifeqs "\xconj\()\conj\()\suf_op", "11s"
+    \\ TRANSF2G GPACKOD, \pre_op, \suf_op, \tmp1, \tmp1, \tmp1
+    \\ TRANSF2G GSHUF4I, \pre_op, \suf_op, \tmp2, \in1, 0xb1
+    \\ .endif
+    \\ .ifeqs "\xconj\()\conj\()\suf_op", "00d"
+    \\ TRANSF2G GPACKOD, \pre_op, \suf_op, \tmp1, \in0, \tmp1
+    \\ TRANSF2G GSHUF4I, \pre_op, \suf_op, \tmp2, \in1, 0x0b
+    \\ .endif
+    \\ .ifeqs "\xconj\()\conj\()\suf_op", "10d"
+    \\ TRANSF2G GPACKOD, \pre_op, \suf_op, \tmp1, \tmp1, \in0
+    \\ TRANSF2G GSHUF4I, \pre_op, \suf_op, \tmp2, \in1, 0x0b
+    \\ .endif
+    \\ .ifeqs "\xconj\()\conj\()\suf_op", "01d"
+    \\ TRANSF2G GPACKOD, \pre_op, \suf_op, \tmp1, \in0, \in0
+    \\ TRANSF2G GSHUF4I, \pre_op, \suf_op, \tmp2, \in1, 0x0b
+    \\ .endif
+    \\ .ifeqs "\xconj\()\conj\()\suf_op", "11d"
+    \\ TRANSF2G GPACKOD, \pre_op, \suf_op, \tmp1, \tmp1, \tmp1
+    \\ TRANSF2G GSHUF4I, \pre_op, \suf_op, \tmp2, \in1, 0x0b
+    \\ .endif
+    \\ \pre_op\()madd.\suf_op \out, \tmp1, \tmp2, \out
+    \\ .ifnb \more
+    \\ GCOMPLEXMADD \xconj, \conj, \pre_op, \suf_op, \more
+    \\ .endif
+    \\ .endm
+    \\ .macro GSBUTTERFLY pre_op, suf_op, out0, out1, in0, in1
+    \\ \pre_op\()ilvl.\suf_op \out0, \in0, \in1
+    \\ \pre_op\()ilvh.\suf_op \out1, \in0, \in1
+    \\ .endm
+    \\ .macro GINTERLACE pre_op, suf_op, out0, out1, in0, in1
+    \\ \pre_op\()pickev.\suf_op \out0, \in0, \in1
+    \\ \pre_op\()pickod.\suf_op \out1, \in0, \in1
+    \\ .endm
+    \\ .macro GTRANSPOSE4x4_D in0, in1, in2, in3, out0, out1, out2, out3, vt0, vt1
+    \\ GSBUTTERFLY xv, d, \vt0, \out1, \in1, \in0
+    \\ GSBUTTERFLY xv, d, \vt1, \out3, \in3, \in2
+    \\ GMOV xv, \out0, \vt0, \out2, \vt1, \vt1, \out3
+    \\ GPERMI xv, q, \out0, \out2, 0x02, \out2, \vt0, 0x31, \out3, \out1, 0x31, \out1, \vt1, 0x02
+    \\ .endm
+    \\ .macro GTRANSPOSE8x8_W out0, out1, out2, out3, out4, out5, out6, out7, in0, in1, in2, in3, in4, in5, in6, in7, tmp0, tmp1, tmp2, tmp3
+    \\ GSBUTTERFLY xv, w, \tmp0, \tmp2, \in2, \in0
+    \\ GSBUTTERFLY xv, w, \tmp1, \tmp3, \in3, \in1
+    \\ GSBUTTERFLY xv, w, \out0, \out1, \tmp1, \tmp0
+    \\ GSBUTTERFLY xv, w, \out2, \out3, \tmp3, \tmp2
+    \\ GSBUTTERFLY xv, w, \tmp0, \tmp2, \in6, \in4
+    \\ GSBUTTERFLY xv, w, \tmp1, \tmp3, \in7, \in5
+    \\ GSBUTTERFLY xv, w, \out4, \out5, \tmp1, \tmp0
+    \\ GSBUTTERFLY xv, w, \out6, \out7, \tmp3, \tmp2
+    \\ GMOV xv, \tmp0, \out0, \tmp1, \out1, \tmp2, \out2, \tmp3, \out3
+    \\ GPERMI xv, q, \out0, \out4, 0x02, \out1, \out5, 0x02, \out2, \out6, 0x02, \out3, \out7, 0x02, \out4, \tmp0, 0x31, \out5, \tmp1, 0x31, \out6, \tmp2, 0x31, \out7, \tmp3, 0x31
+    \\ .endm
+    \\ .macro CLOAD_X_4
+    \\ GLDREPL v, d, $vr2, $r9, 0x00, $vr3, $r9, 0x08, $vr4, $r9, 0x10, $vr5, $r9, 0x18
+    \\ GCOMPLEXMUL 1, vf, s, $vr2, $vr1, $vr2, $vr28, $vr29, $vr30, $vr3, $vr1, $vr3, $vr28, $vr29, $vr30, $vr4, $vr1, $vr4, $vr28, $vr29, $vr30, $vr5, $vr1, $vr5, $vr28, $vr29, $vr30
+    \\ .endm
+    \\ .macro CLOAD_X_4_GAP
+    \\ vldrepl.d $vr2, $r9, 0x00
+    \\ add.d $r19, $r9, $r10
+    \\ vldrepl.d $vr3, $r19, 0x00
+    \\ add.d $r19, $r19, $r10
+    \\ vldrepl.d $vr4, $r19, 0x00
+    \\ add.d $r19, $r19, $r10
+    \\ vldrepl.d $vr5, $r19, 0x00
+    \\ GCOMPLEXMUL 1, vf, s, $vr2, $vr1, $vr2, $vr28, $vr29, $vr30, $vr3, $vr1, $vr3, $vr28, $vr29, $vr30, $vr4, $vr1, $vr4, $vr28, $vr29, $vr30, $vr5, $vr1, $vr5, $vr28, $vr29, $vr30
+    \\ .endm
+    \\ .macro CLOAD_X_1
+    \\ GLDREPL v, d, $vr2, $r9, 0x00
+    \\ GCOMPLEXMUL 1, vf, s, $vr2, $vr1, $vr2, $vr28, $vr29, $vr30
+    \\ .endm
+    \\ .macro CLOAD_Y_4
+    \\ GLD v, , $vr10, $r11, 0, $vr11, $r11, 0x10
+    \\ .endm
+    \\ .macro CLOAD_Y_4_GAP
+    \\ fld.d $f10, $r11, 0
+    \\ fldx.d $f13, $r11, $r6
+    \\ alsl.d $r19, $r6, $r11, 1
+    \\ fld.d $f11, $r19, 0
+    \\ fldx.d $f17, $r19, $r6
+    \\ vpackev.d $vr10, $vr13, $vr10
+    \\ vpackev.d $vr11, $vr17, $vr11
+    \\ .endm
+    \\ .macro CLOAD_Y_1
+    \\ fld.d $f10, $r11, 0
+    \\ .endm
+    \\ .macro CSTORE_Y_4
+    \\ GST v, , $vr10, $r11, 0, $vr11, $r11, 0x10
+    \\ .endm
+    \\ .macro CSTORE_Y_4_GAP
+    \\ vstelm.d $vr10, $r11, 0, 0
+    \\ add.d $r19, $r11, $r6
+    \\ vstelm.d $vr10, $r19, 0, 1
+    \\ add.d $r19, $r19, $r6
+    \\ vstelm.d $vr11, $r19, 0, 0
+    \\ add.d $r19, $r19, $r6
+    \\ vstelm.d $vr11, $r19, 0, 1
+    \\ .endm
+    \\ .macro CSTORE_Y_1
+    \\ fst.d $f10, $r11, 0
+    \\ .endm
+    \\ .macro CGEMV_N_4x4
+    \\ GLD_INC v, , 0x10, $vr12, $r20, 0, $vr13, $r20, 0, $vr14, $r23, 0, $vr15, $r23, 0, $vr16, $r24, 0, $vr17, $r24, 0, $vr18, $r25, 0, $vr19, $r25, 0
+    \\ GCOMPLEXMADD 1, 0, vf, s, $vr10, $vr2, $vr12, $vr10, $vr28, $vr29, $vr30, $vr11, $vr2, $vr13, $vr11, $vr28, $vr29, $vr30, $vr10, $vr3, $vr14, $vr10, $vr28, $vr29, $vr30, $vr11, $vr3, $vr15, $vr11, $vr28, $vr29, $vr30, $vr10, $vr4, $vr16, $vr10, $vr28, $vr29, $vr30, $vr11, $vr4, $vr17, $vr11, $vr28, $vr29, $vr30, $vr10, $vr5, $vr18, $vr10, $vr28, $vr29, $vr30, $vr11, $vr5, $vr19, $vr11, $vr28, $vr29, $vr30
+    \\ .endm
+    \\ .macro CGEMV_N_1x4
+    \\ GLD_INC f, d, 0x08, $f12, $r20, 0, $f14, $r23, 0, $f16, $r24, 0, $f18, $r25, 0
+    \\ GCOMPLEXMADD 1, 0, vf, s, $vr10, $vr2, $vr12, $vr10, $vr28, $vr29, $vr30, $vr10, $vr3, $vr14, $vr10, $vr28, $vr29, $vr30, $vr10, $vr4, $vr16, $vr10, $vr28, $vr29, $vr30, $vr10, $vr5, $vr18, $vr10, $vr28, $vr29, $vr30
+    \\ .endm
+    \\ .macro CGEMV_N_1x1
+    \\ fld.d $f12, $r20, 0
+    \\ addi.d $r20, $r20, 0x08
+    \\ GCOMPLEXMADD 1, 0, vf, s, $vr10, $vr2, $vr12, $vr10, $vr28, $vr29, $vr30
+    \\ .endm
+    \\ .macro CGEMV_N_LSX XW:req, X_4:req, X_1:req, Y_4:req, Y_1:req
+    \\ srli.d $r12, $r5, 2
+    \\ beqz $r12, 20005f
+    \\ slli.d $r17, $r8, 2
+    \\ sub.d $r17, $r17, $r18
+    \\ 20000:
+    \\ CLOAD_\X_4
+    \\ xor $r14, $r14, $r14
+    \\ move $r11, $r15
+    \\ srli.d $r13, $r4, 2
+    \\ beqz $r13, 20002f
+    \\ .align 5
+    \\ 20001:
+    \\ CLOAD_\Y_4
+    \\ CGEMV_N_4x4
+    \\ CSTORE_\Y_4
+    \\ addi.d $r13, $r13, -1
+    \\ alsl.d $r11, $r6, $r11, 2
+    \\ addi.d $r14, $r14, 4
+    \\ bnez $r13, 20001b
+    \\ 20002:
+    \\ andi $r13, $r4, 3
+    \\ beqz $r13, 20004f
+    \\ .align 5
+    \\ 20003:
+    \\ CLOAD_\Y_1
+    \\ CGEMV_N_1x4
+    \\ CSTORE_\Y_1
+    \\ addi.d $r13, $r13, -1
+    \\ add.d $r11, $r11, $r6
+    \\ addi.d $r14, $r14, 1
+    \\ bnez $r13, 20003b
+    \\ 20004:
+    \\ addi.d $r12, $r12, -1
+    \\ GADD , d, $r20, $r20, $r17, $r23, $r23, $r17, $r24, $r24, $r17, $r25, $r25, $r17
+    \\ alsl.d $r9, $r10, $r9, 2
+    \\ bnez $r12, 20000b
+    \\ 20005:
+    \\ andi $r12, $r5, 3
+    \\ beqz $r12, 20014f
+    \\ 20006:
+    \\ CLOAD_\X_1
+    \\ xor $r14, $r14, $r14
+    \\ move $r11, $r15
+    \\ move $r13, $r4
+    \\ beqz $r13, 20014f
+    \\ .align 5
+    \\ 20007:
+    \\ CLOAD_\Y_1
+    \\ CGEMV_N_1x1
+    \\ CSTORE_\Y_1
+    \\ addi.d $r13, $r13, -1
+    \\ add.d $r11, $r11, $r6
+    \\ addi.d $r14, $r14, 1
+    \\ bnez $r13, 20007b
+    \\ 20008:
+    \\ addi.d $r12, $r12, -1
+    \\ sub.d $r17, $r8, $r18
+    \\ add.d $r20, $r20, $r17
+    \\ add.d $r9, $r9, $r10
+    \\ bnez $r12, 20006b
+    \\ b 20014f
+    \\ .endm
+    \\ .align 5
+    \\ ld.d $r6, $sp, 0
+    \\ push_if_used 7, 7
+    \\ addi.d $r14, $r0, 0x01
+    \\ sub.d $r13, $r10, $r14
+    \\ sub.d $r12, $r6, $r14
+    \\ maskeqz $r13, $r14, $r13
+    \\ maskeqz $r12, $r14, $r12
+    \\ alsl.d $r13, $r13, $r12, 1
+    \\ GSLLI , d, $r8, $r8, 3, $r10, $r10, 3, $r6, $r6, 3, $r18, $r4, 3
+    \\ vpackev.w $vr0, $vr1, $vr0
+    \\ vpackev.d $vr1, $vr0, $vr0
+    \\ move $r15, $r11
+    \\ move $r20, $r7
+    \\ GADD , d, $r23, $r20, $r8, $r24, $r23, $r8, $r25, $r24, $r8, $r26, $r25, $r8
+    \\ la.local $r19, 20009f
+    \\ alsl.d $r13, $r13, $r19, 1
+    \\ ld.h $r14, $r13, 0
+    \\ add.d $r19, $r19, $r14
+    \\ jirl $r0, $r19, 0
+    \\ 20009:
+    \\ .hword 20010f - 20009b
+    \\ .hword 20011f - 20009b
+    \\ .hword 20012f - 20009b
+    \\ .hword 20013f - 20009b
+    \\ 20010:
+    \\ CGEMV_N_LSX GAP_0_0, X_4, X_1, Y_4, Y_1
+    \\ 20011:
+    \\ CGEMV_N_LSX GAP_0_1, X_4, X_1, Y_4_GAP, Y_1
+    \\ 20012:
+    \\ CGEMV_N_LSX GAP_1_0, X_4_GAP, X_1, Y_4, Y_1
+    \\ 20013:
+    \\ CGEMV_N_LSX GAP_1_1, X_4_GAP, X_1, Y_4_GAP, Y_1
+    \\ 20014:
+    \\ pop_if_used 7, 7
+    \\ jirl $r0, $r1, 0x0
+    \\ .purgem push_if_used
+    \\ .purgem pop_if_used
+    \\ .purgem push_regs
+    \\ .purgem pop_regs
+    \\ .purgem push_fregs
+    \\ .purgem pop_fregs
+    \\ .purgem GLD
+    \\ .purgem GLD_INC
+    \\ .purgem GLDX
+    \\ .purgem GLDREPL
+    \\ .purgem GST
+    \\ .purgem GMUL
+    \\ .purgem GMADD
+    \\ .purgem GADD
+    \\ .purgem GADDI
+    \\ .purgem GSUB
+    \\ .purgem GSLLI
+    \\ .purgem GINSVE0
+    \\ .purgem GXOR
+    \\ .purgem GPERMI
+    \\ .purgem GNMSUB
+    \\ .purgem GPRELD
+    \\ .purgem GPACKEV
+    \\ .purgem GPACKOD
+    \\ .purgem GSHUF4I
+    \\ .purgem TRANSF2G
+    \\ .purgem GACC
+    \\ .purgem GMOV
+    \\ .purgem GCOMPLEXACC
+    \\ .purgem GCOMPLEXMUL
+    \\ .purgem GCOMPLEXMADD
+    \\ .purgem GSBUTTERFLY
+    \\ .purgem GINTERLACE
+    \\ .purgem GTRANSPOSE4x4_D
+    \\ .purgem GTRANSPOSE8x8_W
+    \\ .purgem CLOAD_X_4
+    \\ .purgem CLOAD_X_4_GAP
+    \\ .purgem CLOAD_X_1
+    \\ .purgem CLOAD_Y_4
+    \\ .purgem CLOAD_Y_4_GAP
+    \\ .purgem CLOAD_Y_1
+    \\ .purgem CSTORE_Y_4
+    \\ .purgem CSTORE_Y_4_GAP
+    \\ .purgem CSTORE_Y_1
+    \\ .purgem CGEMV_N_4x4
+    \\ .purgem CGEMV_N_1x4
+    \\ .purgem CGEMV_N_1x1
+    \\ .purgem CGEMV_N_LSX
+    \\
+;

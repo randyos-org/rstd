@@ -1,0 +1,437 @@
+//! `rstd.math.linalg`'s fixed-size vector math (design.md, "Planned: the public
+//! `rstd.math.linalg` layer"): free functions over a `Vec(N, T)` or an `[N]T`, `T`
+//! a float or, for arrays, its `std.math.Complex` (interleaved), inferring `N`
+//! and `T`. All inline; shaderlib re-exports them under GLSL names.
+
+const std = @import("std");
+const sysinfo = @import("builtin");
+const fma = @import("../kernels/blas/fma.zig");
+const types = @import("../kernels/blas/types.zig");
+
+/// SPIR-V (rgl's shaders) has no f64, which `length`'s `hypot` fallback
+/// needs; shader inputs never near its extremes, so `length` skips it there.
+pub const on_spirv = switch (sysinfo.target.cpu.arch) {
+    .spirv32, .spirv64 => true,
+    else => false,
+};
+
+/// Whether `V` is a SPIR-V vector type, `@Vector(N, T)` with `N` 2 to 4 and
+/// float `T`, which takes SPIR-V's own instructions (design.md, "Dispatch
+/// under SPIR-V"); the rest take the inline code. Callers test `on_spirv`
+/// first: the call alone spends a CPU caller's comptime branch quota.
+pub fn spirvVec(comptime V: type) bool {
+    if (!on_spirv) return false;
+    return switch (@typeInfo(V)) {
+        .vector => |info| info.len >= 2 and info.len <= 4 and @typeInfo(info.child) == .float,
+        else => false,
+    };
+}
+
+// SPIR-V's instructions by inline asm. Templates stay literal:
+// `std.fmt.comptimePrint` as a template crashes the backend
+// (src/rgl/shaders/lib/readme.md).
+
+inline fn spvDot(a: anytype, b: @TypeOf(a)) Elem(@TypeOf(a)) {
+    return asm (
+        \\%ret = OpDot %T %a %b
+        : [ret] "" (-> Elem(@TypeOf(a))),
+        : [T] "t" (Elem(@TypeOf(a))),
+          [a] "" (a),
+          [b] "" (b),
+    );
+}
+
+inline fn spvLength(v: anytype) Elem(@TypeOf(v)) {
+    return asm (
+        \\%set = OpExtInstImport "GLSL.std.450"
+        \\%ret = OpExtInst %T %set 66 %v
+        : [ret] "" (-> Elem(@TypeOf(v))),
+        : [T] "t" (Elem(@TypeOf(v))),
+          [v] "" (v),
+    );
+}
+
+inline fn spvDistance(a: anytype, b: @TypeOf(a)) Elem(@TypeOf(a)) {
+    return asm (
+        \\%set = OpExtInstImport "GLSL.std.450"
+        \\%ret = OpExtInst %T %set 67 %a %b
+        : [ret] "" (-> Elem(@TypeOf(a))),
+        : [T] "t" (Elem(@TypeOf(a))),
+          [a] "" (a),
+          [b] "" (b),
+    );
+}
+
+inline fn spvCross(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+    return asm (
+        \\%set = OpExtInstImport "GLSL.std.450"
+        \\%ret = OpExtInst %T %set 68 %a %b
+        : [ret] "" (-> @TypeOf(a)),
+        : [T] "t" (@TypeOf(a)),
+          [a] "" (a),
+          [b] "" (b),
+    );
+}
+
+inline fn spvNormalize(v: anytype) @TypeOf(v) {
+    return asm (
+        \\%set = OpExtInstImport "GLSL.std.450"
+        \\%ret = OpExtInst %T %set 69 %v
+        : [ret] "" (-> @TypeOf(v)),
+        : [T] "t" (@TypeOf(v)),
+          [v] "" (v),
+    );
+}
+
+inline fn spvMix(a: anytype, b: @TypeOf(a), t: @TypeOf(a)) @TypeOf(a) {
+    return asm (
+        \\%set = OpExtInstImport "GLSL.std.450"
+        \\%ret = OpExtInst %T %set 46 %a %b %t
+        : [ret] "" (-> @TypeOf(a)),
+        : [T] "t" (@TypeOf(a)),
+          [a] "" (a),
+          [b] "" (b),
+          [t] "" (t),
+    );
+}
+
+/// `@Vector(N, T)`, real `T` only; a complex fixed-size vector is `[N]Complex(T)`.
+pub fn Vec(comptime N: comptime_int, comptime T: type) type {
+    return @Vector(N, T);
+}
+
+pub const V2f32 = Vec(2, f32);
+pub const V3f32 = Vec(3, f32);
+pub const V4f32 = Vec(4, f32);
+pub const V2f64 = Vec(2, f64);
+pub const V3f64 = Vec(3, f64);
+pub const V4f64 = Vec(4, f64);
+
+/// The element type of a `Vec` or an array.
+pub fn Elem(comptime V: type) type {
+    return switch (@typeInfo(V)) {
+        .vector => |info| info.child,
+        .array => |info| info.child,
+        else => @compileError("expects a Vec or an array, found " ++ @typeName(V)),
+    };
+}
+
+/// The length of a `Vec` or an array.
+pub fn count(comptime V: type) comptime_int {
+    return switch (@typeInfo(V)) {
+        .vector => |info| info.len,
+        .array => |info| info.len,
+        else => @compileError("expects a Vec or an array, found " ++ @typeName(V)),
+    };
+}
+
+/// Whether `T` is a `std.math.Complex`.
+pub const isComplex = types.isComplex;
+
+/// The real type under element type `T`.
+pub const Real = types.Float;
+
+/// `Σ a b` over the real parts in storage order (`re`, then `im`, per complex
+/// element), each product after the first fused into the sum as `mulAdd` says.
+/// The caller passes `R` and `complex`: every comptime call here counts
+/// against the caller's branch quota, once per inline call.
+inline fn partDot(comptime R: type, comptime complex: bool, a: anytype, b: @TypeOf(a)) R {
+    if (!complex) {
+        var acc: R = a[0] * b[0];
+        inline for (1..count(@TypeOf(a))) |i| acc = mulAdd(R, a[i], b[i], acc);
+        return acc;
+    }
+    var acc: R = a[0].re * b[0].re;
+    acc = mulAdd(R, a[0].im, b[0].im, acc);
+    inline for (1..count(@TypeOf(a))) |i| {
+        acc = mulAdd(R, a[i].re, b[i].re, acc);
+        acc = mulAdd(R, a[i].im, b[i].im, acc);
+    }
+    return acc;
+}
+
+/// Every element `x`.
+pub inline fn splat(comptime V: type, x: Elem(V)) V {
+    return @splat(x);
+}
+
+/// Every element 0.
+pub inline fn zero(comptime V: type) V {
+    const E = Elem(V);
+    return splat(V, if (comptime isComplex(E)) E.init(0, 0) else 0);
+}
+
+/// `Σ conj(a[i]) b[i]`: `aᴴ b` for complex, as MATLAB's `dot`. In element
+/// order, each product after the first fused into the sum as `mulAdd` says;
+/// a complex real part adds `re re` then `im im`, its imaginary part `re im`
+/// then `-im re`. Under SPIR-V `OpDot`.
+/// A plain `fn`, as `length`.
+pub fn dot(a: anytype, b: @TypeOf(a)) Elem(@TypeOf(a)) {
+    // builtins, not `Elem` and `Real` again: calls cost the caller's quota
+    const T = @TypeOf(a[0]);
+    if (on_spirv and comptime spirvVec(@TypeOf(a))) return spvDot(a, b);
+    if (comptime !isComplex(T)) return partDot(T, false, a, b);
+    const R = @FieldType(T, "re");
+    var im: R = a[0].re * b[0].im;
+    im = mulAdd(R, -a[0].im, b[0].re, im);
+    inline for (1..count(@TypeOf(a))) |i| {
+        im = mulAdd(R, a[i].re, b[i].im, im);
+        im = mulAdd(R, -a[i].im, b[i].re, im);
+    }
+    return .{ .re = partDot(R, true, a, b), .im = im };
+}
+
+/// `dot(v, v)`'s real part, `Σ |v[i]|²`, as the real type.
+/// A plain `fn`, as `length`.
+pub fn dot2(v: anytype) Real(Elem(@TypeOf(v))) {
+    if (on_spirv and comptime spirvVec(@TypeOf(v))) return spvDot(v, v);
+    const E = Elem(@TypeOf(v));
+    const complex = comptime isComplex(E);
+    return partDot(if (complex) @FieldType(E, "re") else E, complex, v, v);
+}
+
+/// The 2-norm (MATLAB's `norm`, GLSL's `length`). Tries `sqrt(dot2(v))`
+/// first and falls back to a `std.math.hypot` fold on overflow or underflow
+/// (except on SPIR-V, which can't use that fallback). Under SPIR-V `Length`.
+/// A plain `fn`: its comptime work is paid once per type, not against each
+/// caller's branch quota (T157, issue #352).
+pub fn length(v: anytype) Real(Elem(@TypeOf(v))) {
+    if (on_spirv and comptime spirvVec(@TypeOf(v))) return spvLength(v);
+    const sq = dot2(v);
+    const looks_fine = on_spirv or (std.math.isFinite(sq) and (sq != 0 or isZero(v)));
+    if (looks_fine) return @sqrt(sq);
+
+    if (comptime !isComplex(Elem(@TypeOf(v)))) {
+        var acc = @abs(v[0]);
+        inline for (1..count(@TypeOf(v))) |i| acc = std.math.hypot(acc, v[i]);
+        return acc;
+    }
+    var acc = std.math.hypot(@abs(v[0].re), v[0].im);
+    inline for (1..count(@TypeOf(v))) |i| acc = std.math.hypot(std.math.hypot(acc, v[i].re), v[i].im);
+    return acc;
+}
+
+inline fn isZero(v: anytype) bool {
+    const complex = comptime isComplex(Elem(@TypeOf(v)));
+    inline for (0..count(@TypeOf(v))) |i| {
+        if (if (complex) v[i].re != 0 or v[i].im != 0 else v[i] != 0) return false;
+    }
+    return true;
+}
+
+/// `length(b - a)`. Under SPIR-V `Distance`.
+/// A plain `fn`, as `length`.
+pub fn distance(a: anytype, b: @TypeOf(a)) Real(Elem(@TypeOf(a))) {
+    if (on_spirv and comptime spirvVec(@TypeOf(a))) return spvDistance(a, b);
+    return length(diff(b, a));
+}
+
+/// `a - b`, for arrays too.
+inline fn diff(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+    if (@typeInfo(@TypeOf(a)) == .vector) return a - b;
+    var r: @TypeOf(a) = undefined;
+    inline for (0..count(@TypeOf(a))) |i| {
+        r[i] = if (comptime isComplex(Elem(@TypeOf(a)))) a[i].sub(b[i]) else a[i] - b[i];
+    }
+    return r;
+}
+
+/// Normalizes `v` to `v / length(v)` (GLSL's `normalize`; MATLAB's `norm` is
+/// `length`). A fallback is the caller's: `norm(v) catch fallback`. Under
+/// SPIR-V `Normalize` after a `Length` test.
+/// A plain `fn`, as `length`.
+pub fn norm(v: anytype) error{ZeroVector}!@TypeOf(v) {
+    const V = @TypeOf(v);
+    const len = length(v);
+    if (len == 0) return error.ZeroVector;
+    if (on_spirv and comptime spirvVec(V)) return spvNormalize(v);
+    if (@typeInfo(V) == .vector) return v / splat(V, len);
+    var r: V = undefined;
+    inline for (0..count(V)) |i| {
+        r[i] = if (comptime isComplex(Elem(V))) .{ .re = v[i].re / len, .im = v[i].im / len } else v[i] / len;
+    }
+    return r;
+}
+
+/// 2D perp-dot product ("2D cross product"): the scalar a 3D cross product's
+/// z-component would be if both inputs were embedded in the xy-plane.
+/// Positive when `b` is counter-clockwise from `a`.
+pub inline fn cross2(a: anytype, b: @TypeOf(a)) Elem(@TypeOf(a)) {
+    return a[0] * b[1] - a[1] * b[0];
+}
+
+/// Standard 3D cross product. Under SPIR-V `Cross`.
+pub inline fn cross(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+    if (on_spirv and comptime spirvVec(@TypeOf(a)) and count(@TypeOf(a)) == 3) return spvCross(a, b);
+    return .{
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    };
+}
+
+/// `(1 - t) a + t b` (GLSL's `mix`): floats or `Vec`s, `t` a float or, for
+/// `Vec`s, a weight per element. Under SPIR-V `FMix`.
+/// A plain `fn`, as `length`.
+pub fn mix(a: anytype, b: anytype, t: anytype) @TypeOf(a, b) {
+    const V = @TypeOf(a, b);
+    const weight_info = @typeInfo(@TypeOf(t));
+    switch (@typeInfo(V)) {
+        .float, .comptime_float => {
+            if (weight_info != .float and weight_info != .comptime_float)
+                @compileError("expects a float weight for a float, found " ++ @typeName(@TypeOf(t)));
+            if (on_spirv and @typeInfo(V) == .float) return spvMix(@as(V, a), b, t);
+            return mulAdd(@TypeOf(a, b), 1 - t, a, t * b);
+        },
+        .vector => {
+            const weight: V = if (weight_info == .vector) t else @splat(t);
+            if (on_spirv and comptime spirvVec(V)) return spvMix(@as(V, a), b, weight);
+            const one: V = @splat(1);
+            return mulAdd(@TypeOf(a, b), one - weight, a, weight * b);
+        },
+        else => @compileError("expects floats or Vecs, found " ++ @typeName(V)),
+    }
+}
+
+/// Multiply-add, fused or not as the root's `std_float_options` says
+/// (`zigcfg.FloatOptions`; by default where the target fuses in hardware),
+/// as the fork's `@Matrix` products are (`linalg/blas/fma.zig`'s `mulAdd`).
+/// Under SPIR-V `@mulAdd`, GLSL.std.450 `Fma`. An alias, not a wrapper: each
+/// inline layer costs its callers' comptime branch quota.
+pub const mulAdd = if (on_spirv) spirvMulAdd else fma.mulAdd;
+
+inline fn spirvMulAdd(comptime T: type, a: T, b: T, c: T) T {
+    return @mulAdd(T, a, b, c);
+}
+
+/// `Σ v[i]`, in element order.
+pub inline fn sum(v: anytype) Elem(@TypeOf(v)) {
+    var acc = v[0];
+    inline for (1..count(@TypeOf(v))) |i| {
+        acc = if (comptime isComplex(Elem(@TypeOf(v)))) acc.add(v[i]) else acc + v[i];
+    }
+    return acc;
+}
+
+/// `Π v[i]`, in element order.
+pub inline fn prod(v: anytype) Elem(@TypeOf(v)) {
+    var acc = v[0];
+    inline for (1..count(@TypeOf(v))) |i| {
+        acc = if (comptime isComplex(Elem(@TypeOf(v)))) acc.mul(v[i]) else acc * v[i];
+    }
+    return acc;
+}
+
+/// The largest element, or the first NaN (the BLAS's `max`: `@reduce(.Max)`
+/// skips NaNs); ties keep the first. Under SPIR-V an `FMax` chain, whose NaN
+/// result is undefined.
+pub inline fn max(v: anytype) Elem(@TypeOf(v)) {
+    return extreme(true, v);
+}
+
+/// The smallest element, or the first NaN, as `max`.
+pub inline fn min(v: anytype) Elem(@TypeOf(v)) {
+    return extreme(false, v);
+}
+
+// ---- lane shuffles -----------------------------------------------------------
+// pffft's (`src/simd/pf_sse1_float.h`, marton78/pffft efc1dd2d) for any even
+// `@Vector` length; its `VTRANSPOSE4` is `matrix.transposeVecs`.
+
+/// `INTERLEAVE2`: `a` and `b`'s lanes alternating, their low halves'
+/// in the first vector and their high halves' in the second.
+pub inline fn interleave(a: anytype, b: @TypeOf(a)) [2]@TypeOf(a) {
+    const V = @TypeOf(a);
+    const h = count(V) / 2;
+    const lo = comptime alternate(h, 0);
+    const hi = comptime alternate(h, h);
+    return .{ @shuffle(Elem(V), a, b, lo), @shuffle(Elem(V), a, b, hi) };
+}
+
+/// `UNINTERLEAVE2`, `interleave` undone: the even lanes of `a` then of
+/// `b`, and the odd ones.
+pub inline fn uninterleave(a: anytype, b: @TypeOf(a)) [2]@TypeOf(a) {
+    const V = @TypeOf(a);
+    const even = comptime strided(count(V), 0);
+    const odd = comptime strided(count(V), 1);
+    return .{ @shuffle(Elem(V), a, b, even), @shuffle(Elem(V), a, b, odd) };
+}
+
+/// `VSWAPHL(a, b)`: `b`'s low half, then `a`'s high half.
+pub inline fn swapHalves(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+    const V = @TypeOf(a);
+    const n = count(V);
+    const mask = comptime blk: {
+        var m: [n]i32 = undefined;
+        for (0..n) |i| m[i] = if (i < n / 2) ~@as(i32, i) else i;
+        break :blk m;
+    };
+    return @shuffle(Elem(V), a, b, mask);
+}
+
+/// `VREV_S`: the lanes reversed.
+pub inline fn reverse(a: anytype) @TypeOf(a) {
+    const V = @TypeOf(a);
+    const n = count(V);
+    const mask = comptime blk: {
+        var m: [n]i32 = undefined;
+        for (0..n) |i| m[i] = n - 1 - i;
+        break :blk m;
+    };
+    return @shuffle(Elem(V), a, undefined, mask);
+}
+
+/// `VREV_C`: the (re, im) lane pairs reversed, each pair kept in order.
+pub inline fn reversePairs(a: anytype) @TypeOf(a) {
+    const V = @TypeOf(a);
+    const n = count(V);
+    const mask = comptime blk: {
+        var m: [n]i32 = undefined;
+        for (0..n) |i| m[i] = n - 2 - (i - i % 2) + i % 2;
+        break :blk m;
+    };
+    return @shuffle(Elem(V), a, undefined, mask);
+}
+
+/// The shuffle mask taking lanes `from..from + h` of `a` and `b` in turn.
+fn alternate(comptime h: comptime_int, comptime from: comptime_int) [2 * h]i32 {
+    var m: [2 * h]i32 = undefined;
+    for (0..h) |i| {
+        m[2 * i] = from + i;
+        m[2 * i + 1] = ~@as(i32, from + i);
+    }
+    return m;
+}
+
+/// The mask taking lanes `first`, `first + 2`, ... of `a`, then of `b`.
+fn strided(comptime n: comptime_int, comptime first: comptime_int) [n]i32 {
+    var m: [n]i32 = undefined;
+    for (0..n / 2) |i| {
+        m[i] = first + 2 * i;
+        m[n / 2 + i] = ~@as(i32, first + 2 * i);
+    }
+    return m;
+}
+
+inline fn extreme(comptime largest: bool, v: anytype) Elem(@TypeOf(v)) {
+    if (comptime isComplex(Elem(@TypeOf(v)))) @compileError("max and min order real elements only");
+    var best = v[0];
+    if (on_spirv) {
+        inline for (1..count(@TypeOf(v))) |i| best = if (largest) @max(best, v[i]) else @min(best, v[i]);
+        return best;
+    }
+    if (std.math.isNan(best)) return best;
+    inline for (1..count(@TypeOf(v))) |i| {
+        const x = v[i];
+        if (std.math.isNan(x)) return x;
+        if (if (largest) x > best else x < best) best = x;
+    }
+    return best;
+}
+
+const zigstd = @import("../../zigstd.zig");
+
+test {
+    zigstd.testRefAllDecls(@This());
+    _ = @import("_test/vector.zig");
+}

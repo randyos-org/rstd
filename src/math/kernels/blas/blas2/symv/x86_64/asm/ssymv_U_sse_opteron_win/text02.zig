@@ -1,0 +1,363 @@
+//! Section 2 of 2 of the text of `ssymv_U`, which `__root__.zig` joins, from OpenBLAS `kernel/x86_64/symv_U_sse.S` (`v0.3.34-794-gdbf2c24c9`); converted by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+pub const text =
+    \\ .balign 8
+    \\ 20010:
+    \\ testq $8, %rdx
+    \\ jle 20011f
+    \\ movaps %xmm8, %xmm11
+    \\ mulps %xmm12, %xmm11
+    \\ mulps %xmm0, %xmm12
+    \\ addps %xmm11, %xmm4
+    \\ addps %xmm12, %xmm10
+    \\ movlps 4 * 4(%rbx), %xmm12
+    \\ movhps 6 * 4(%rbx), %xmm12
+    \\ movaps %xmm8, %xmm11
+    \\ mulps %xmm13, %xmm11
+    \\ mulps %xmm1, %xmm13
+    \\ addps %xmm11, %xmm5
+    \\ addps %xmm13, %xmm10
+    \\ movlps 4 * 4(%rbx, %r8, 1), %xmm13
+    \\ movhps 6 * 4(%rbx, %r8, 1), %xmm13
+    \\ movaps %xmm8, %xmm11
+    \\ mulps %xmm14, %xmm11
+    \\ mulps %xmm2, %xmm14
+    \\ addps %xmm11, %xmm6
+    \\ addps %xmm14, %xmm10
+    \\ movlps 4 * 4(%rbp), %xmm14
+    \\ movhps 6 * 4(%rbp), %xmm14
+    \\ movaps %xmm8, %xmm11
+    \\ movaps 8 * 4(%r13), %xmm8
+    \\ mulps %xmm15, %xmm11
+    \\ mulps %xmm3, %xmm15
+    \\ addps %xmm11, %xmm7
+    \\ addps %xmm15, %xmm10
+    \\ movlps 4 * 4(%rbp, %r8, 1), %xmm15
+    \\ movhps 6 * 4(%rbp, %r8, 1), %xmm15
+    \\ movlps %xmm10, 0 * 4(%r14)
+    \\ movhps %xmm10, 2 * 4(%r14)
+    \\ movlps 4 * 4(%r14), %xmm10
+    \\ movhps 6 * 4(%r14), %xmm10
+    \\ movaps %xmm9, %xmm11
+    \\ mulps %xmm12, %xmm11
+    \\ mulps %xmm0, %xmm12
+    \\ addps %xmm11, %xmm4
+    \\ addps %xmm12, %xmm10
+    \\ movlps 8 * 4(%rbx), %xmm12
+    \\ movhps 10 * 4(%rbx), %xmm12
+    \\ movaps %xmm9, %xmm11
+    \\ mulps %xmm13, %xmm11
+    \\ mulps %xmm1, %xmm13
+    \\ addps %xmm11, %xmm5
+    \\ addps %xmm13, %xmm10
+    \\ movlps 8 * 4(%rbx, %r8, 1), %xmm13
+    \\ movhps 10 * 4(%rbx, %r8, 1), %xmm13
+    \\ movaps %xmm9, %xmm11
+    \\ mulps %xmm14, %xmm11
+    \\ mulps %xmm2, %xmm14
+    \\ addps %xmm11, %xmm6
+    \\ addps %xmm14, %xmm10
+    \\ movlps 8 * 4(%rbp), %xmm14
+    \\ movhps 10 * 4(%rbp), %xmm14
+    \\ movaps %xmm9, %xmm11
+    \\ movaps 12 * 4(%r13), %xmm9
+    \\ mulps %xmm15, %xmm11
+    \\ mulps %xmm3, %xmm15
+    \\ addps %xmm11, %xmm7
+    \\ addps %xmm15, %xmm10
+    \\ movlps 8 * 4(%rbp, %r8, 1), %xmm15
+    \\ movhps 10 * 4(%rbp, %r8, 1), %xmm15
+    \\ movlps %xmm10, 4 * 4(%r14)
+    \\ movhps %xmm10, 6 * 4(%r14)
+    \\ movlps 8 * 4(%r14), %xmm10
+    \\ movhps 10 * 4(%r14), %xmm10
+    \\ addq $8 * 4, %r13
+    \\ addq $8 * 4, %r14
+    \\ addq $8 * 4, %rbx
+    \\ addq $8 * 4, %rbp
+    \\ .balign 8
+    \\ 20011:
+    \\ testq $4, %rdx
+    \\ jle 20012f
+    \\ movaps %xmm8, %xmm11
+    \\ mulps %xmm12, %xmm11
+    \\ mulps %xmm0, %xmm12
+    \\ addps %xmm11, %xmm4
+    \\ addps %xmm12, %xmm10
+    \\ movaps %xmm8, %xmm11
+    \\ mulps %xmm13, %xmm11
+    \\ mulps %xmm1, %xmm13
+    \\ addps %xmm11, %xmm5
+    \\ addps %xmm13, %xmm10
+    \\ movaps %xmm8, %xmm11
+    \\ mulps %xmm14, %xmm11
+    \\ mulps %xmm2, %xmm14
+    \\ addps %xmm11, %xmm6
+    \\ addps %xmm14, %xmm10
+    \\ movaps %xmm8, %xmm11
+    \\ mulps %xmm15, %xmm11
+    \\ mulps %xmm3, %xmm15
+    \\ addps %xmm11, %xmm7
+    \\ addps %xmm15, %xmm10
+    \\ movlps %xmm10, 0 * 4(%r14)
+    \\ movhps %xmm10, 2 * 4(%r14)
+    \\ movlps 4 * 4(%r14), %xmm10
+    \\ movhps 6 * 4(%r14), %xmm10
+    \\ addq $4 * 4, %r13
+    \\ addq $4 * 4, %r14
+    \\ addq $4 * 4, %rbx
+    \\ addq $4 * 4, %rbp
+    \\ .balign 8
+    \\ 20012:
+    \\ movaps 0 * 4(%r12, %rdx, 4), %xmm0
+    \\ movss 0 * 4(%rbx), %xmm12
+    \\ movss 0 * 4(%rbx, %r8, 1), %xmm13
+    \\ movss 0 * 4(%rbp), %xmm14
+    \\ movss 0 * 4(%rbp, %r8, 1), %xmm15
+    \\ unpcklps %xmm14, %xmm12
+    \\ unpcklps %xmm15, %xmm13
+    \\ unpcklps %xmm13, %xmm12
+    \\ mulps %xmm0, %xmm12
+    \\ addps %xmm12, %xmm4
+    \\ movlps 0 * 4(%rbx, %r8, 1), %xmm12
+    \\ movss 1 * 4(%rbp), %xmm13
+    \\ movhps 1 * 4(%rbp, %r8, 1), %xmm13
+    \\ shufps $0x84, %xmm13, %xmm12
+    \\ mulps %xmm0, %xmm12
+    \\ addps %xmm12, %xmm5
+    \\ movlps 0 * 4(%rbp), %xmm12
+    \\ movss 2 * 4(%rbp), %xmm13
+    \\ movhps 2 * 4(%rbp, %r8, 1), %xmm13
+    \\ shufps $0x84, %xmm13, %xmm12
+    \\ mulps %xmm0, %xmm12
+    \\ addps %xmm12, %xmm6
+    \\ movlps 0 * 4(%rbp, %r8, 1), %xmm12
+    \\ movhps 2 * 4(%rbp, %r8, 1), %xmm12
+    \\ mulps %xmm0, %xmm12
+    \\ addps %xmm12, %xmm7
+    \\ movaps %xmm4, %xmm8
+    \\ unpcklps %xmm6, %xmm4
+    \\ unpckhps %xmm6, %xmm8
+    \\ movaps %xmm5, %xmm9
+    \\ unpcklps %xmm7, %xmm5
+    \\ unpckhps %xmm7, %xmm9
+    \\ movaps %xmm4, %xmm6
+    \\ unpcklps %xmm5, %xmm4
+    \\ unpckhps %xmm5, %xmm6
+    \\ movaps %xmm8, %xmm7
+    \\ unpcklps %xmm9, %xmm8
+    \\ unpckhps %xmm9, %xmm7
+    \\ addps %xmm6, %xmm4
+    \\ addps %xmm8, %xmm7
+    \\ addps %xmm7, %xmm4
+    \\ addps %xmm4, %xmm10
+    \\ movlps %xmm10, 0 * 4(%r14)
+    \\ movhps %xmm10, 2 * 4(%r14)
+    \\ addq $4, %rdx
+    \\ movq %rdx, %rax
+    \\ addq $4, %rax
+    \\ cmpq %rcx, %rax
+    \\ jle 20008b
+    \\ .balign 8
+    \\ 20013:
+    \\ testq $2, %rcx
+    \\ jle 20016f
+    \\ movq %r9, %rbx
+    \\ leaq (%r9, %r8, 2), %r9
+    \\ movlps 0 * 4(%r12, %rdx, 4), %xmm3
+    \\ pshufd $0x00, %xmm3, %xmm0
+    \\ pshufd $0x55, %xmm3, %xmm1
+    \\ pxor %xmm4, %xmm4
+    \\ pxor %xmm5, %xmm5
+    \\ movaps 0 * 4(%r12), %xmm8
+    \\ movlps 0 * 4(%rbx), %xmm12
+    \\ movhps 2 * 4(%rbx), %xmm12
+    \\ movlps 0 * 4(%rbx, %r8, 1), %xmm13
+    \\ movhps 2 * 4(%rbx, %r8, 1), %xmm13
+    \\ movlps 0 * 4(%rdi), %xmm10
+    \\ movhps 2 * 4(%rdi), %xmm10
+    \\ movq %r12, %r13
+    \\ movq %rdi, %r14
+    \\ movq %rdx, %rax
+    \\ sarq $2, %rax
+    \\ jle 20015f
+    \\ .balign 8
+    \\ 20014:
+    \\ movaps %xmm8, %xmm11
+    \\ mulps %xmm12, %xmm11
+    \\ mulps %xmm0, %xmm12
+    \\ addps %xmm11, %xmm4
+    \\ addps %xmm12, %xmm10
+    \\ movlps 4 * 4(%rbx), %xmm12
+    \\ movhps 6 * 4(%rbx), %xmm12
+    \\ movaps %xmm8, %xmm11
+    \\ movaps 4 * 4(%r13), %xmm8
+    \\ mulps %xmm13, %xmm11
+    \\ mulps %xmm1, %xmm13
+    \\ addps %xmm11, %xmm5
+    \\ addps %xmm13, %xmm10
+    \\ movlps 4 * 4(%rbx, %r8, 1), %xmm13
+    \\ movhps 6 * 4(%rbx, %r8, 1), %xmm13
+    \\ movlps %xmm10, 0 * 4(%r14)
+    \\ movhps %xmm10, 2 * 4(%r14)
+    \\ movlps 4 * 4(%r14), %xmm10
+    \\ movhps 6 * 4(%r14), %xmm10
+    \\ addq $4 * 4, %r13
+    \\ addq $4 * 4, %r14
+    \\ addq $4 * 4, %rbx
+    \\ decq %rax
+    \\ jg 20014b
+    \\ .balign 8
+    \\ 20015:
+    \\ movlps 0 * 4(%r12, %rdx, 4), %xmm0
+    \\ movss 0 * 4(%rbx), %xmm12
+    \\ movss 0 * 4(%rbx, %r8, 1), %xmm13
+    \\ unpcklps %xmm13, %xmm12
+    \\ mulps %xmm0, %xmm12
+    \\ addps %xmm12, %xmm4
+    \\ movlps 0 * 4(%rbx, %r8, 1), %xmm12
+    \\ mulps %xmm0, %xmm12
+    \\ addps %xmm12, %xmm5
+    \\ movhlps %xmm4, %xmm6
+    \\ movhlps %xmm5, %xmm7
+    \\ addps %xmm6, %xmm4
+    \\ addps %xmm7, %xmm5
+    \\ unpcklps %xmm5, %xmm4
+    \\ movhlps %xmm4, %xmm5
+    \\ addps %xmm5, %xmm4
+    \\ addps %xmm4, %xmm10
+    \\ movlps %xmm10, 0 * 4(%r14)
+    \\ addq $2, %rdx
+    \\ .balign 8
+    \\ 20016:
+    \\ testq $1, %rcx
+    \\ jle 20019f
+    \\ movq %r9, %rbx
+    \\ movss 0 * 4(%r12, %rdx, 4), %xmm0
+    \\ pshufd $0x00, %xmm0, %xmm0
+    \\ pxor %xmm4, %xmm4
+    \\ pxor %xmm5, %xmm5
+    \\ movss 0 * 4(%rdi), %xmm10
+    \\ movss 0 * 4(%r12), %xmm8
+    \\ movss 1 * 4(%r12), %xmm9
+    \\ movss 0 * 4(%rbx), %xmm12
+    \\ movss 1 * 4(%rbx), %xmm13
+    \\ movq %r12, %r13
+    \\ movq %rdi, %r14
+    \\ movq %rdx, %rax
+    \\ sarq $1, %rax
+    \\ jle 20018f
+    \\ .balign 8
+    \\ 20017:
+    \\ movaps %xmm8, %xmm11
+    \\ movss 2 * 4(%r13), %xmm8
+    \\ mulps %xmm12, %xmm11
+    \\ mulps %xmm0, %xmm12
+    \\ addps %xmm11, %xmm4
+    \\ addps %xmm12, %xmm10
+    \\ movss 2 * 4(%rbx), %xmm12
+    \\ movss %xmm10, 0 * 4(%r14)
+    \\ movss 1 * 4(%r14), %xmm10
+    \\ movaps %xmm9, %xmm11
+    \\ movss 3 * 4(%r13), %xmm9
+    \\ mulps %xmm13, %xmm11
+    \\ mulps %xmm0, %xmm13
+    \\ addps %xmm11, %xmm4
+    \\ addps %xmm13, %xmm10
+    \\ movss 3 * 4(%rbx), %xmm13
+    \\ movss %xmm10, 1 * 4(%r14)
+    \\ movss 2 * 4(%r14), %xmm10
+    \\ addq $2 * 4, %r13
+    \\ addq $2 * 4, %r14
+    \\ addq $2 * 4, %rbx
+    \\ decq %rax
+    \\ jg 20017b
+    \\ .balign 8
+    \\ 20018:
+    \\ movlps 0 * 4(%r12, %rdx, 4), %xmm0
+    \\ movss 0 * 4(%rbx), %xmm12
+    \\ mulss %xmm0, %xmm12
+    \\ addss %xmm12, %xmm4
+    \\ movhlps %xmm4, %xmm6
+    \\ movhlps %xmm5, %xmm7
+    \\ addps %xmm6, %xmm4
+    \\ addps %xmm7, %xmm5
+    \\ unpcklps %xmm5, %xmm4
+    \\ movhlps %xmm4, %xmm5
+    \\ addps %xmm5, %xmm4
+    \\ addss %xmm4, %xmm10
+    \\ movss %xmm10, 0 * 4(%r14)
+    \\ addq $2, %rdx
+    \\ .balign 8
+    \\ 20019:
+    \\ cmpq $4, %r11
+    \\ je 20023f
+    \\ movq %rcx, %rax
+    \\ sarq $3, %rax
+    \\ jle 20021f
+    \\ .balign 8
+    \\ 20020:
+    \\ movss 0 * 4(%rdi), %xmm0
+    \\ movss 1 * 4(%rdi), %xmm1
+    \\ movss 2 * 4(%rdi), %xmm2
+    \\ movss 3 * 4(%rdi), %xmm3
+    \\ movss 4 * 4(%rdi), %xmm4
+    \\ movss 5 * 4(%rdi), %xmm5
+    \\ movss 6 * 4(%rdi), %xmm6
+    \\ movss 7 * 4(%rdi), %xmm7
+    \\ movss %xmm0, 0 * 4(%r10)
+    \\ addq %r11, %r10
+    \\ movss %xmm1, 0 * 4(%r10)
+    \\ addq %r11, %r10
+    \\ movss %xmm2, 0 * 4(%r10)
+    \\ addq %r11, %r10
+    \\ movss %xmm3, 0 * 4(%r10)
+    \\ addq %r11, %r10
+    \\ movss %xmm4, 0 * 4(%r10)
+    \\ addq %r11, %r10
+    \\ movss %xmm5, 0 * 4(%r10)
+    \\ addq %r11, %r10
+    \\ movss %xmm6, 0 * 4(%r10)
+    \\ addq %r11, %r10
+    \\ movss %xmm7, 0 * 4(%r10)
+    \\ addq %r11, %r10
+    \\ addq $8 * 4, %rdi
+    \\ decq %rax
+    \\ jg 20020b
+    \\ .balign 8
+    \\ 20021:
+    \\ movq %rcx, %rax
+    \\ andq $7, %rax
+    \\ jle 20023f
+    \\ .balign 8
+    \\ 20022:
+    \\ movss 0 * 4(%rdi), %xmm0
+    \\ movss %xmm0, 0 * 4(%r10)
+    \\ addq %r11, %r10
+    \\ addq $1 * 4, %rdi
+    \\ decq %rax
+    \\ jg 20022b
+    \\ .balign 8
+    \\ 20023:
+    \\ movq 0(%rsp), %rbx
+    \\ movq 8(%rsp), %rbp
+    \\ movq 16(%rsp), %r12
+    \\ movq 24(%rsp), %r13
+    \\ movq 32(%rsp), %r14
+    \\ movq 40(%rsp), %r15
+    \\ movq 48(%rsp), %rdi
+    \\ movq 56(%rsp), %rsi
+    \\ movups 64(%rsp), %xmm6
+    \\ movups 80(%rsp), %xmm7
+    \\ movups 96(%rsp), %xmm8
+    \\ movups 112(%rsp), %xmm9
+    \\ movups 128(%rsp), %xmm10
+    \\ movups 144(%rsp), %xmm11
+    \\ movups 160(%rsp), %xmm12
+    \\ movups 176(%rsp), %xmm13
+    \\ movups 192(%rsp), %xmm14
+    \\ movups 208(%rsp), %xmm15
+    \\ addq $256, %rsp
+    \\ ret
+    \\
+;

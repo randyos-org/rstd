@@ -1,0 +1,241 @@
+//! Section 1 of 2 of the text of `zsymv_L`, which `__root__.zig` joins, from OpenBLAS `kernel/x86_64/zsymv_L_sse2.S` (`v0.3.34-794-gdbf2c24c9`); converted by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+pub const text =
+    \\ .balign 512
+    \\ subq $256, %rsp
+    \\ movq %rbx, 0(%rsp)
+    \\ movq %rbp, 8(%rsp)
+    \\ movq %r12, 16(%rsp)
+    \\ movq %r13, 24(%rsp)
+    \\ movq %r14, 32(%rsp)
+    \\ movq %r15, 40(%rsp)
+    \\ movq %rdi, 48(%rsp)
+    \\ movq %rsi, 56(%rsp)
+    \\ movups %xmm6, 64(%rsp)
+    \\ movups %xmm7, 80(%rsp)
+    \\ movups %xmm8, 96(%rsp)
+    \\ movups %xmm9, 112(%rsp)
+    \\ movups %xmm10, 128(%rsp)
+    \\ movups %xmm11, 144(%rsp)
+    \\ movups %xmm12, 160(%rsp)
+    \\ movups %xmm13, 176(%rsp)
+    \\ movups %xmm14, 192(%rsp)
+    \\ movups %xmm15, 208(%rsp)
+    \\ movq 40 + 256(%rsp), %r9
+    \\ movq 48 + 256(%rsp), %r8
+    \\ movq 56 + 256(%rsp), %rdi
+    \\ movq 64 + 256(%rsp), %rsi
+    \\ movaps %xmm2, %xmm0
+    \\ movaps %xmm3, %xmm1
+    \\ movq 72 + 256(%rsp), %r10
+    \\ movq 80 + 256(%rsp), %r11
+    \\ movq 88 + 256(%rsp), %r12
+    \\ salq $4, %rsi
+    \\ salq $4, %r11
+    \\ salq $4, %r8
+    \\ testq %rcx, %rcx
+    \\ jle 20021f
+    \\ pcmpeqb %xmm2, %xmm2
+    \\ xorpd %xmm3, %xmm3
+    \\ psllq $63, %xmm2
+    \\ unpcklpd %xmm3, %xmm2
+    \\ unpcklpd %xmm1, %xmm0
+    \\ unpcklpd %xmm0, %xmm1
+    \\ xorpd %xmm2, %xmm1
+    \\ movq %r12, %r13
+    \\ movq %rcx, %rax
+    \\ sarq $2, %rax
+    \\ jle 20001f
+    \\ .balign 8
+    \\ 20000:
+    \\ movlpd 0 * 8(%rdi), %xmm3
+    \\ movhpd 0 * 8(%rdi), %xmm3
+    \\ movlpd 1 * 8(%rdi), %xmm4
+    \\ movhpd 1 * 8(%rdi), %xmm4
+    \\ addq %rsi, %rdi
+    \\ movlpd 0 * 8(%rdi), %xmm5
+    \\ movhpd 0 * 8(%rdi), %xmm5
+    \\ movlpd 1 * 8(%rdi), %xmm6
+    \\ movhpd 1 * 8(%rdi), %xmm6
+    \\ addq %rsi, %rdi
+    \\ mulpd %xmm0, %xmm3
+    \\ mulpd %xmm1, %xmm4
+    \\ mulpd %xmm0, %xmm5
+    \\ mulpd %xmm1, %xmm6
+    \\ addpd %xmm4, %xmm3
+    \\ addpd %xmm6, %xmm5
+    \\ movapd %xmm3, 0 * 8(%r13)
+    \\ shufpd $1, %xmm3, %xmm3
+    \\ pxor %xmm2, %xmm3
+    \\ movapd %xmm3, 2 * 8(%r13)
+    \\ movapd %xmm5, 4 * 8(%r13)
+    \\ shufpd $1, %xmm5, %xmm5
+    \\ pxor %xmm2, %xmm5
+    \\ movapd %xmm5, 6 * 8(%r13)
+    \\ movlpd 0 * 8(%rdi), %xmm3
+    \\ movhpd 0 * 8(%rdi), %xmm3
+    \\ movlpd 1 * 8(%rdi), %xmm4
+    \\ movhpd 1 * 8(%rdi), %xmm4
+    \\ addq %rsi, %rdi
+    \\ movlpd 0 * 8(%rdi), %xmm5
+    \\ movhpd 0 * 8(%rdi), %xmm5
+    \\ movlpd 1 * 8(%rdi), %xmm6
+    \\ movhpd 1 * 8(%rdi), %xmm6
+    \\ addq %rsi, %rdi
+    \\ mulpd %xmm0, %xmm3
+    \\ mulpd %xmm1, %xmm4
+    \\ mulpd %xmm0, %xmm5
+    \\ mulpd %xmm1, %xmm6
+    \\ addpd %xmm4, %xmm3
+    \\ addpd %xmm6, %xmm5
+    \\ movapd %xmm3, 8 * 8(%r13)
+    \\ shufpd $1, %xmm3, %xmm3
+    \\ pxor %xmm2, %xmm3
+    \\ movapd %xmm3, 10 * 8(%r13)
+    \\ movapd %xmm5, 12 * 8(%r13)
+    \\ shufpd $1, %xmm5, %xmm5
+    \\ pxor %xmm2, %xmm5
+    \\ movapd %xmm5, 14 * 8(%r13)
+    \\ subq $-16 * 8, %r13
+    \\ decq %rax
+    \\ jg 20000b
+    \\ .balign 8
+    \\ 20001:
+    \\ movq %rcx, %rax
+    \\ andq $3, %rax
+    \\ jle 20003f
+    \\ .balign 8
+    \\ 20002:
+    \\ movlpd 0 * 8(%rdi), %xmm3
+    \\ movhpd 0 * 8(%rdi), %xmm3
+    \\ movlpd 1 * 8(%rdi), %xmm4
+    \\ movhpd 1 * 8(%rdi), %xmm4
+    \\ addq %rsi, %rdi
+    \\ mulpd %xmm0, %xmm3
+    \\ mulpd %xmm1, %xmm4
+    \\ addpd %xmm4, %xmm3
+    \\ movapd %xmm3, 0 * 8(%r13)
+    \\ shufpd $1, %xmm3, %xmm3
+    \\ pxor %xmm2, %xmm3
+    \\ movapd %xmm3, 2 * 8(%r13)
+    \\ addq $4 * 8, %r13
+    \\ decq %rax
+    \\ jg 20002b
+    \\ .balign 8
+    \\ 20003:
+    \\ movq %r10, %rdi
+    \\ addq $512, %r13
+    \\ andq $-512, %r13
+    \\ cmpq $2 * 8, %r11
+    \\ je 20007f
+    \\ movq %r10, %r14
+    \\ movq %r13, %rdi
+    \\ movq %rcx, %rax
+    \\ sarq $2, %rax
+    \\ jle 20005f
+    \\ .balign 8
+    \\ 20004:
+    \\ movlpd 0 * 8(%r14), %xmm0
+    \\ movhpd 1 * 8(%r14), %xmm0
+    \\ addq %r11, %r14
+    \\ movlpd 0 * 8(%r14), %xmm1
+    \\ movhpd 1 * 8(%r14), %xmm1
+    \\ addq %r11, %r14
+    \\ movlpd 0 * 8(%r14), %xmm2
+    \\ movhpd 1 * 8(%r14), %xmm2
+    \\ addq %r11, %r14
+    \\ movlpd 0 * 8(%r14), %xmm3
+    \\ movhpd 1 * 8(%r14), %xmm3
+    \\ addq %r11, %r14
+    \\ movapd %xmm0, 0 * 8(%r13)
+    \\ movapd %xmm1, 2 * 8(%r13)
+    \\ movapd %xmm2, 4 * 8(%r13)
+    \\ movapd %xmm3, 6 * 8(%r13)
+    \\ addq $8 * 8, %r13
+    \\ decq %rax
+    \\ jg 20004b
+    \\ .balign 8
+    \\ 20005:
+    \\ movq %rcx, %rax
+    \\ andq $3, %rax
+    \\ jle 20007f
+    \\ .balign 8
+    \\ 20006:
+    \\ movlpd 0 * 8(%r14), %xmm0
+    \\ movhpd 1 * 8(%r14), %xmm0
+    \\ addq %r11, %r14
+    \\ movapd %xmm0, 0 * 8(%r13)
+    \\ addq $2 * 8, %r13
+    \\ decq %rax
+    \\ jg 20006b
+    \\ .balign 8
+    \\ 20007:
+    \\ xorq %r15, %r15 # is = 0
+    \\ cmpq $2, %rdx
+    \\ jl 20016f
+    \\ .balign 8
+    \\ 20008:
+    \\ movq %r9, %rbx
+    \\ leaq (%r9, %r8, 1), %rbp
+    \\ leaq 4 * 8(%r9, %r8, 2), %r9
+    \\ leaq (, %r15, 8), %rax
+    \\ leaq 0 * 8(%r12, %rax, 4), %r13
+    \\ leaq 4 * 8(%rdi, %rax, 2), %r14
+    \\ movapd 0 * 8(%r13), %xmm4
+    \\ movapd 2 * 8(%r13), %xmm5
+    \\ movapd 4 * 8(%r13), %xmm6
+    \\ movapd 6 * 8(%r13), %xmm7
+    \\ movlpd 0 * 8(%rbx), %xmm8
+    \\ movhpd 0 * 8(%rbx), %xmm8
+    \\ movlpd 2 * 8(%rbx), %xmm9
+    \\ movhpd 2 * 8(%rbx), %xmm9
+    \\ mulpd %xmm4, %xmm8
+    \\ mulpd %xmm4, %xmm9
+    \\ movlpd 1 * 8(%rbx), %xmm12
+    \\ movhpd 1 * 8(%rbx), %xmm12
+    \\ movlpd 3 * 8(%rbx), %xmm13
+    \\ movhpd 3 * 8(%rbx), %xmm13
+    \\ mulpd %xmm5, %xmm12
+    \\ mulpd %xmm5, %xmm13
+    \\ addpd %xmm12, %xmm8
+    \\ addpd %xmm13, %xmm9
+    \\ movlpd 2 * 8(%rbx), %xmm12
+    \\ movhpd 2 * 8(%rbx), %xmm12
+    \\ movlpd 2 * 8(%rbp), %xmm13
+    \\ movhpd 2 * 8(%rbp), %xmm13
+    \\ mulpd %xmm6, %xmm12
+    \\ mulpd %xmm6, %xmm13
+    \\ addpd %xmm12, %xmm8
+    \\ addpd %xmm13, %xmm9
+    \\ movlpd 3 * 8(%rbx), %xmm12
+    \\ movhpd 3 * 8(%rbx), %xmm12
+    \\ movlpd 3 * 8(%rbp), %xmm13
+    \\ movhpd 3 * 8(%rbp), %xmm13
+    \\ mulpd %xmm7, %xmm12
+    \\ mulpd %xmm7, %xmm13
+    \\ addpd %xmm12, %xmm8
+    \\ addpd %xmm13, %xmm9
+    \\ movlpd 4 * 8(%rbx), %xmm12
+    \\ movhpd 4 * 8(%rbx), %xmm12
+    \\ movapd 8 * 8(%r13), %xmm0
+    \\ movapd 10 * 8(%r13), %xmm1
+    \\ movapd 12 * 8(%r13), %xmm2
+    \\ movapd 14 * 8(%r13), %xmm3
+    \\ addq $8 * 8, %r13
+    \\ addq $4 * 8, %rbx
+    \\ addq $4 * 8, %rbp
+    \\ movq %rcx, %rax
+    \\ subq %r15, %rax
+    \\ subq $2, %rax
+    \\ sarq $2, %rax
+    \\ jle 20011f
+    \\ movlpd 6 * 8 - (4 * 8)(%rbp), %xmm13
+    \\ movhpd 6 * 8 - (4 * 8)(%rbp), %xmm13
+    \\ .balign 8
+    \\ 20009:
+    \\ movlpd 0 * 8(%r14), %xmm10
+    \\ movhpd 1 * 8(%r14), %xmm10
+    \\ movlpd 2 * 8(%r14), %xmm11
+    \\ movhpd 3 * 8(%r14), %xmm11
+    \\
+;

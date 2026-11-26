@@ -1,0 +1,108 @@
+//! `zasum` for la64_generic, from OpenBLAS `kernel/loongarch64/zasum.S` (`v0.3.34-794-gdbf2c24c9`); converted by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+/// Each function's core and variant.
+pub const keys = .{
+    .{ .core = .la64_generic, .variant = "" },
+};
+
+pub const Body = struct {
+    pub fn entry() callconv(.naked) void {
+        asm volatile (
+            \\ .align 5
+            \\ movgr2fr.d $f22, $r0
+            \\ movgr2fr.d $f8, $r0
+            \\ slli.d $r6, $r6, 4
+            \\ srai.d $r17, $r4, 2
+            \\ bge $r0, $r4, 20004f
+            \\ bge $r0, $r17, 20002f
+            \\ fld.d $f23, $r5, 0 * 8
+            \\ fld.d $f9, $r5, 1 * 8
+            \\ add.d $r5, $r5, $r6
+            \\ fld.d $f10, $r5, 0 * 8
+            \\ fld.d $f11, $r5, 1 * 8
+            \\ add.d $r5, $r5, $r6
+            \\ fld.d $f12, $r5, 0 * 8
+            \\ fld.d $f13, $r5, 1 * 8
+            \\ add.d $r5, $r5, $r6
+            \\ fabs.d $f16, $f23
+            \\ fabs.d $f17, $f9
+            \\ fld.d $f14, $r5, 0 * 8
+            \\ fld.d $f15, $r5, 1 * 8
+            \\ fabs.d $f0, $f10
+            \\ fabs.d $f1, $f11
+            \\ addi.d $r17, $r17, -1
+            \\ add.d $r5, $r5, $r6
+            \\ bge $r0, $r17, 20001f
+            \\ .align 3
+            \\ 20000:
+            \\ fadd.d $f22, $f22, $f16
+            \\ fld.d $f23, $r5, 0 * 8
+            \\ fabs.d $f16, $f12
+            \\ addi.d $r17, $r17, -1
+            \\ fadd.d $f8, $f8, $f17
+            \\ fld.d $f9, $r5, 1 * 8
+            \\ fabs.d $f17, $f13
+            \\ add.d $r5, $r5, $r6
+            \\ fadd.d $f22, $f22, $f0
+            \\ fld.d $f10, $r5, 0 * 8
+            \\ fabs.d $f0, $f14
+            \\ NOP
+            \\ fadd.d $f8, $f8, $f1
+            \\ fld.d $f11, $r5, 1 * 8
+            \\ fabs.d $f1, $f15
+            \\ add.d $r5, $r5, $r6
+            \\ fadd.d $f22, $f22, $f16
+            \\ fld.d $f12, $r5, 0 * 8
+            \\ fabs.d $f16, $f23
+            \\ NOP
+            \\ fadd.d $f8, $f8, $f17
+            \\ fld.d $f13, $r5, 1 * 8
+            \\ fabs.d $f17, $f9
+            \\ add.d $r5, $r5, $r6
+            \\ fadd.d $f22, $f22, $f0
+            \\ fld.d $f14, $r5, 0 * 8
+            \\ fabs.d $f0, $f10
+            \\ fld.d $f15, $r5, 1 * 8
+            \\ fadd.d $f8, $f8, $f1
+            \\ add.d $r5, $r5, $r6
+            \\ fabs.d $f1, $f11
+            \\ blt $r0, $r17, 20000b
+            \\ .align 3
+            \\ 20001:
+            \\ fadd.d $f22, $f22, $f16
+            \\ fabs.d $f16, $f12
+            \\ fadd.d $f8, $f8, $f17
+            \\ fabs.d $f17, $f13
+            \\ fadd.d $f22, $f22, $f0
+            \\ fabs.d $f0, $f14
+            \\ fadd.d $f8, $f8, $f1
+            \\ fabs.d $f1, $f15
+            \\ fadd.d $f22, $f22, $f16
+            \\ fadd.d $f8, $f8, $f17
+            \\ fadd.d $f22, $f22, $f0
+            \\ fadd.d $f8, $f8, $f1
+            \\ .align 3
+            \\ 20002:
+            \\ andi $r17, $r4, 3
+            \\ bge $r0, $r17, 20004f
+            \\ .align 3
+            \\ 20003:
+            \\ fld.d $f23, $r5, 0 * 8
+            \\ fld.d $f9, $r5, 1 * 8
+            \\ fabs.d $f16, $f23
+            \\ addi.d $r17, $r17, -1
+            \\ fabs.d $f17, $f9
+            \\ add.d $r5, $r5, $r6
+            \\ fadd.d $f22, $f22, $f16
+            \\ fadd.d $f8, $f8, $f17
+            \\ blt $r0, $r17, 20003b
+            \\ .align 3
+            \\ 20004:
+            \\ fadd.d $f22, $f22, $f8
+            \\ move $r4, $r17
+            \\ fmov.d $f0, $f22
+            \\ jirl $r0, $r1, 0x0
+            \\
+        );
+    }
+};

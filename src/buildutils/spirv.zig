@@ -46,12 +46,6 @@ fn compileShaderStage(
         .imports = imports,
     });
     shader_mod.addOptions("shader_opts", shader_opts);
-    // // A standalone module giving shaders/lib/ access to specific rstd
-    // // functions and types without needing the full `rstd` module. Rooted at
-    // // _shader_imports.zig so those two modules' own cross-imports of each other
-    // // stay inside the module boundary.
-    // const shader_imports_mod = b.createModule(.{ .root_source_file = b.path("src/_shader_imports.zig") });
-    // shader_mod.addImport("shader_imports", shader_imports_mod);
     // if (add_rstd) {
     const rstd_mod = try rstdbuild.addRstd(b, spirv_target, null, true, rstd_opts);
     rstd_mod.addImportToModule(shader_mod);

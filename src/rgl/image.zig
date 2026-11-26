@@ -1,6 +1,6 @@
 // const std = @import("std");
 
-const color = @import("color.zig");
+const color = @import("color/__root__.zig");
 const Point = @import("geometry.zig").Point;
 const RGBA = color.RGBA;
 
@@ -19,7 +19,7 @@ pub fn Image(comptime Pixel: type) type {
         height: u32,
         data: []Pixel,
 
-        pub fn init(alloc: Allocator, width: u32, height: u32, fill: ?Pixel) !Self {
+        pub fn init(alloc: Allocator, width: u32, height: u32, fill: ?Pixel) Allocator.Error!Self {
             const data = try alloc.alloc(Pixel, @as(usize, width) * height);
             if (fill) |f| @memset(data, f);
             return .{ .width = width, .height = height, .data = data };

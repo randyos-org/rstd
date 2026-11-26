@@ -1,0 +1,182 @@
+//! `cscal` for ppc440, ppcg4 (32); ppc440, ppcg4 (32le), from OpenBLAS `kernel/power/zscal_ppc440.S` (`v0.3.34-794-gdbf2c24c9`); converted by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+/// Each function's core and variant, and its parts (`__bk`'s arguments).
+pub const keys = .{
+    .{ .core = .ppc440, .variant = "32", .parts = "0" },
+    .{ .core = .ppcg4, .variant = "32", .parts = "1" },
+    .{ .core = .ppc440, .variant = "32le", .parts = "0" },
+    .{ .core = .ppcg4, .variant = "32le", .parts = "1" },
+};
+
+/// The functions' one text, a macro whose parameters select the parts.
+const text =
+    \\ .macro __bk bp0
+    \\ .align 6
+    \\ addi 1, 1, -8
+    \\ li 0, 0
+    \\ stw 0, 0(1)
+    \\ lfs 0, 0(1)
+    \\ addi 1, 1, 8
+    \\ slwi 7, 7, 3
+    \\ li 11, 4
+    \\ sub 6, 6, 7
+    \\ li 5, 3 * 16 * 4
+    \\ cmpwi 0, 3, 0
+    \\ blelr- 0
+    \\ fcmpu 0, 0, 1
+    \\ bne- 0, 20004f
+    \\ fcmpu 0, 0, 2
+    \\ bne- 0, 20004f
+    \\ lwz 12, (((0) * 4) + 8)(1)
+    \\ cmpwi 0, 12, 1
+    \\ beq- 0, 20004f
+    \\ 20000:
+    \\ srawi. 0, 3, 3
+    \\ mtspr 9, 0
+    \\ beq- 20002f
+    \\ .align 4
+    \\ 20001:
+    \\ .if \bp0
+    \\ dcbtst 6, 5
+    \\ .endif
+    \\ stfsux 0, 6, 7
+    \\ stfsx 0, 6, 11
+    \\ stfsux 0, 6, 7
+    \\ stfsx 0, 6, 11
+    \\ stfsux 0, 6, 7
+    \\ stfsx 0, 6, 11
+    \\ stfsux 0, 6, 7
+    \\ stfsx 0, 6, 11
+    \\ .if \bp0
+    \\ dcbtst 6, 5
+    \\ .endif
+    \\ stfsux 0, 6, 7
+    \\ stfsx 0, 6, 11
+    \\ stfsux 0, 6, 7
+    \\ stfsx 0, 6, 11
+    \\ stfsux 0, 6, 7
+    \\ stfsx 0, 6, 11
+    \\ stfsux 0, 6, 7
+    \\ stfsx 0, 6, 11
+    \\ bdnz 20001b
+    \\ .align 4
+    \\ 20002:
+    \\ andi. 0, 3, 7
+    \\ mtspr 9, 0
+    \\ beqlr+
+    \\ .align 4
+    \\ 20003:
+    \\ stfsux 0, 6, 7
+    \\ stfsx 0, 6, 11
+    \\ bdnz 20003b
+    \\ blr
+    \\ .align 4
+    \\ 20004:
+    \\ mr 4, 6
+    \\ srawi. 0, 3, 2
+    \\ mtspr 9, 0
+    \\ beq- 20007f
+    \\ lfsux 0, 6, 7
+    \\ lfsx 3, 6, 11
+    \\ lfsux 4, 6, 7
+    \\ lfsx 5, 6, 11
+    \\ lfsux 6, 6, 7
+    \\ fmuls 10, 1, 0
+    \\ lfsx 7, 6, 11
+    \\ fmuls 11, 1, 3
+    \\ lfsux 8, 6, 7
+    \\ fmuls 12, 1, 4
+    \\ fmuls 13, 1, 5
+    \\ bdz 20006f
+    \\ .align 4
+    \\ 20005:
+    \\ .if \bp0
+    \\ dcbtst 6, 5
+    \\ .endif
+    \\ fnmsubs 10, 2, 3, 10
+    \\ lfsx 9, 6, 11
+    \\ fmadds 11, 2, 0, 11
+    \\ lfsux 0, 6, 7
+    \\ fnmsubs 12, 2, 5, 12
+    \\ lfsx 3, 6, 11
+    \\ fmadds 13, 2, 4, 13
+    \\ lfsux 4, 6, 7
+    \\ stfsux 10, 4, 7
+    \\ fmuls 10, 1, 6
+    \\ stfsx 11, 4, 11
+    \\ fmuls 11, 1, 7
+    \\ stfsux 12, 4, 7
+    \\ fmuls 12, 1, 8
+    \\ stfsx 13, 4, 11
+    \\ fmuls 13, 1, 9
+    \\ .if \bp0
+    \\ dcbtst 6, 5
+    \\ .endif
+    \\ fnmsubs 10, 2, 7, 10
+    \\ lfsx 5, 6, 11
+    \\ fmadds 11, 2, 6, 11
+    \\ lfsux 6, 6, 7
+    \\ fnmsubs 12, 2, 9, 12
+    \\ lfsx 7, 6, 11
+    \\ fmadds 13, 2, 8, 13
+    \\ lfsux 8, 6, 7
+    \\ stfsux 10, 4, 7
+    \\ fmuls 10, 1, 0
+    \\ stfsx 11, 4, 11
+    \\ fmuls 11, 1, 3
+    \\ stfsux 12, 4, 7
+    \\ fmuls 12, 1, 4
+    \\ stfsx 13, 4, 11
+    \\ fmuls 13, 1, 5
+    \\ bdnz 20005b
+    \\ .align 4
+    \\ 20006:
+    \\ fnmsubs 10, 2, 3, 10
+    \\ lfsx 9, 6, 11
+    \\ fmadds 11, 2, 0, 11
+    \\ fnmsubs 12, 2, 5, 12
+    \\ fmadds 13, 2, 4, 13
+    \\ stfsux 10, 4, 7
+    \\ fmuls 10, 1, 6
+    \\ stfsx 11, 4, 11
+    \\ fmuls 11, 1, 7
+    \\ stfsux 12, 4, 7
+    \\ fmuls 12, 1, 8
+    \\ stfsx 13, 4, 11
+    \\ fmuls 13, 1, 9
+    \\ fnmsubs 10, 2, 7, 10
+    \\ fmadds 11, 2, 6, 11
+    \\ fnmsubs 12, 2, 9, 12
+    \\ fmadds 13, 2, 8, 13
+    \\ stfsux 10, 4, 7
+    \\ stfsx 11, 4, 11
+    \\ stfsux 12, 4, 7
+    \\ stfsx 13, 4, 11
+    \\ .align 4
+    \\ 20007:
+    \\ andi. 0, 3, 3
+    \\ mtspr 9, 0
+    \\ beqlr+
+    \\ .align 4
+    \\ 20008:
+    \\ lfsux 3, 6, 7
+    \\ lfsx 4, 6, 11
+    \\ fmuls 5, 1, 3
+    \\ fmuls 6, 1, 4
+    \\ fnmsubs 5, 2, 4, 5
+    \\ fmadds 6, 2, 3, 6
+    \\ stfsux 5, 4, 7
+    \\ stfsx 6, 4, 11
+    \\ bdnz 20008b
+    \\ blr
+    \\ .endm
+    \\
+;
+
+pub fn Body(comptime args: []const u8) type {
+    return struct {
+        pub fn entry() callconv(.naked) void {
+            asm volatile (text ++ (" __bk " ++ args ++ "\n .purgem __bk\n"));
+        }
+    };
+}

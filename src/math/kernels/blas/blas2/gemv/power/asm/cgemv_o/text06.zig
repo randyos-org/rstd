@@ -1,0 +1,401 @@
+//! Section 6 of 12 of the text of `cgemv_o`, which `__root__.zig` joins, from OpenBLAS `kernel/power/zgemv_n.S` (`v0.3.34-794-gdbf2c24c9`); converted by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+pub const text =
+    \\ .align 4
+    \\ 20023:
+    \\ fmadds 0, 16, 24, 0
+    \\ fmadds 1, 17, 24, 1
+    \\ fmadds 2, 16, 26, 2
+    \\ fmadds 3, 17, 26, 3
+    \\ fmadds 4, 16, 28, 4
+    \\ fmadds 5, 17, 28, 5
+    \\ fmadds 6, 16, 30, 6
+    \\ fmadds 7, 17, 30, 7
+    \\ lfs 24, 8 * 4(14)
+    \\ lfs 26, 10 * 4(14)
+    \\ lfs 28, 12 * 4(14)
+    \\ lfs 30, 14 * 4(14)
+    \\ fnmsubs 0, 17, 25, 0
+    \\ fmadds 1, 16, 25, 1
+    \\ fnmsubs 2, 17, 27, 2
+    \\ fmadds 3, 16, 27, 3
+    \\ fnmsubs 4, 17, 29, 4
+    \\ fmadds 5, 16, 29, 5
+    \\ fnmsubs 6, 17, 31, 6
+    \\ fmadds 7, 16, 31, 7
+    \\ lfs 25, 9 * 4(14)
+    \\ lfs 27, 11 * 4(14)
+    \\ lfs 29, 13 * 4(14)
+    \\ lfs 31, 15 * 4(14)
+    \\ addi 14, 14, 16 * 4
+    \\ nop
+    \\ .if \bp8
+    \\ dcbt 21, 14
+    \\ .endif
+    \\ .if \bp9
+    \\ dcbt 8, 21, 14
+    \\ .endif
+    \\ .if \bp6
+    \\ dcbtst 21, 14
+    \\ .endif
+    \\ nop
+    \\ fmadds 8, 16, 24, 8
+    \\ fmadds 9, 17, 24, 9
+    \\ fmadds 10, 16, 26, 10
+    \\ fmadds 11, 17, 26, 11
+    \\ fmadds 12, 16, 28, 12
+    \\ fmadds 13, 17, 28, 13
+    \\ fmadds 14, 16, 30, 14
+    \\ fmadds 15, 17, 30, 15
+    \\ lfs 24, 0 * 4(15)
+    \\ lfs 26, 2 * 4(15)
+    \\ lfs 28, 4 * 4(15)
+    \\ lfs 30, 6 * 4(15)
+    \\ fnmsubs 8, 17, 25, 8
+    \\ fmadds 9, 16, 25, 9
+    \\ fnmsubs 10, 17, 27, 10
+    \\ fmadds 11, 16, 27, 11
+    \\ fnmsubs 12, 17, 29, 12
+    \\ fmadds 13, 16, 29, 13
+    \\ fnmsubs 14, 17, 31, 14
+    \\ fmadds 15, 16, 31, 15
+    \\ lfs 25, 1 * 4(15)
+    \\ lfs 27, 3 * 4(15)
+    \\ lfs 29, 5 * 4(15)
+    \\ lfs 31, 7 * 4(15)
+    \\ fmadds 0, 18, 24, 0
+    \\ fmadds 1, 19, 24, 1
+    \\ fmadds 2, 18, 26, 2
+    \\ fmadds 3, 19, 26, 3
+    \\ fmadds 4, 18, 28, 4
+    \\ fmadds 5, 19, 28, 5
+    \\ fmadds 6, 18, 30, 6
+    \\ fmadds 7, 19, 30, 7
+    \\ lfs 24, 8 * 4(15)
+    \\ lfs 26, 10 * 4(15)
+    \\ lfs 28, 12 * 4(15)
+    \\ lfs 30, 14 * 4(15)
+    \\ fnmsubs 0, 19, 25, 0
+    \\ fmadds 1, 18, 25, 1
+    \\ fnmsubs 2, 19, 27, 2
+    \\ fmadds 3, 18, 27, 3
+    \\ fnmsubs 4, 19, 29, 4
+    \\ fmadds 5, 18, 29, 5
+    \\ fnmsubs 6, 19, 31, 6
+    \\ fmadds 7, 18, 31, 7
+    \\ lfs 25, 9 * 4(15)
+    \\ lfs 27, 11 * 4(15)
+    \\ lfs 29, 13 * 4(15)
+    \\ lfs 31, 15 * 4(15)
+    \\ addi 15, 15, 16 * 4
+    \\ nop
+    \\ .if \bp8
+    \\ dcbt 21, 15
+    \\ .endif
+    \\ .if \bp9
+    \\ dcbt 8, 21, 15
+    \\ .endif
+    \\ .if \bp6
+    \\ dcbtst 21, 15
+    \\ .endif
+    \\ nop
+    \\ fmadds 8, 18, 24, 8
+    \\ fmadds 9, 19, 24, 9
+    \\ fmadds 10, 18, 26, 10
+    \\ fmadds 11, 19, 26, 11
+    \\ fmadds 12, 18, 28, 12
+    \\ fmadds 13, 19, 28, 13
+    \\ fmadds 14, 18, 30, 14
+    \\ fmadds 15, 19, 30, 15
+    \\ lfs 24, 0 * 4(16)
+    \\ lfs 26, 2 * 4(16)
+    \\ lfs 28, 4 * 4(16)
+    \\ lfs 30, 6 * 4(16)
+    \\ fnmsubs 8, 19, 25, 8
+    \\ fmadds 9, 18, 25, 9
+    \\ fnmsubs 10, 19, 27, 10
+    \\ fmadds 11, 18, 27, 11
+    \\ fnmsubs 12, 19, 29, 12
+    \\ fmadds 13, 18, 29, 13
+    \\ fnmsubs 14, 19, 31, 14
+    \\ fmadds 15, 18, 31, 15
+    \\ lfs 25, 1 * 4(16)
+    \\ lfs 27, 3 * 4(16)
+    \\ lfs 29, 5 * 4(16)
+    \\ lfs 31, 7 * 4(16)
+    \\ fmadds 0, 20, 24, 0
+    \\ fmadds 1, 21, 24, 1
+    \\ fmadds 2, 20, 26, 2
+    \\ fmadds 3, 21, 26, 3
+    \\ fmadds 4, 20, 28, 4
+    \\ fmadds 5, 21, 28, 5
+    \\ fmadds 6, 20, 30, 6
+    \\ fmadds 7, 21, 30, 7
+    \\ lfs 24, 8 * 4(16)
+    \\ lfs 26, 10 * 4(16)
+    \\ lfs 28, 12 * 4(16)
+    \\ lfs 30, 14 * 4(16)
+    \\ fnmsubs 0, 21, 25, 0
+    \\ fmadds 1, 20, 25, 1
+    \\ fnmsubs 2, 21, 27, 2
+    \\ fmadds 3, 20, 27, 3
+    \\ fnmsubs 4, 21, 29, 4
+    \\ fmadds 5, 20, 29, 5
+    \\ fnmsubs 6, 21, 31, 6
+    \\ fmadds 7, 20, 31, 7
+    \\ lfs 25, 9 * 4(16)
+    \\ lfs 27, 11 * 4(16)
+    \\ lfs 29, 13 * 4(16)
+    \\ lfs 31, 15 * 4(16)
+    \\ addi 16, 16, 16 * 4
+    \\ nop
+    \\ .if \bp8
+    \\ dcbt 21, 16
+    \\ .endif
+    \\ .if \bp9
+    \\ dcbt 8, 21, 16
+    \\ .endif
+    \\ .if \bp6
+    \\ dcbtst 21, 16
+    \\ .endif
+    \\ nop
+    \\ fmadds 8, 20, 24, 8
+    \\ fmadds 9, 21, 24, 9
+    \\ fmadds 10, 20, 26, 10
+    \\ fmadds 11, 21, 26, 11
+    \\ fmadds 12, 20, 28, 12
+    \\ fmadds 13, 21, 28, 13
+    \\ fmadds 14, 20, 30, 14
+    \\ fmadds 15, 21, 30, 15
+    \\ lfs 24, 0 * 4(17)
+    \\ lfs 26, 2 * 4(17)
+    \\ lfs 28, 4 * 4(17)
+    \\ lfs 30, 6 * 4(17)
+    \\ fnmsubs 8, 21, 25, 8
+    \\ fmadds 9, 20, 25, 9
+    \\ fnmsubs 10, 21, 27, 10
+    \\ fmadds 11, 20, 27, 11
+    \\ fnmsubs 12, 21, 29, 12
+    \\ fmadds 13, 20, 29, 13
+    \\ fnmsubs 14, 21, 31, 14
+    \\ fmadds 15, 20, 31, 15
+    \\ lfs 25, 1 * 4(17)
+    \\ lfs 27, 3 * 4(17)
+    \\ lfs 29, 5 * 4(17)
+    \\ lfs 31, 7 * 4(17)
+    \\ fmadds 0, 22, 24, 0
+    \\ fmadds 1, 23, 24, 1
+    \\ fmadds 2, 22, 26, 2
+    \\ fmadds 3, 23, 26, 3
+    \\ fmadds 4, 22, 28, 4
+    \\ fmadds 5, 23, 28, 5
+    \\ fmadds 6, 22, 30, 6
+    \\ fmadds 7, 23, 30, 7
+    \\ lfs 24, 8 * 4(17)
+    \\ lfs 26, 10 * 4(17)
+    \\ lfs 28, 12 * 4(17)
+    \\ lfs 30, 14 * 4(17)
+    \\ fnmsubs 0, 23, 25, 0
+    \\ fmadds 1, 22, 25, 1
+    \\ fnmsubs 2, 23, 27, 2
+    \\ fmadds 3, 22, 27, 3
+    \\ stfs 0, 0 * 4(20)
+    \\ nop
+    \\ stfs 1, 1 * 4(20)
+    \\ .if \bp0
+    \\ add 20, 20, 5
+    \\ .endif
+    \\ .if \bp1
+    \\ add 20, 20, 7
+    \\ .endif
+    \\ lfs 0, 0 * 4(19)
+    \\ nop
+    \\ lfs 1, 1 * 4(19)
+    \\ .if \bp0
+    \\ add 19, 19, 5
+    \\ .endif
+    \\ .if \bp1
+    \\ add 19, 19, 7
+    \\ .endif
+    \\ stfs 2, 0 * 4(20)
+    \\ nop
+    \\ stfs 3, 1 * 4(20)
+    \\ .if \bp0
+    \\ add 20, 20, 5
+    \\ .endif
+    \\ .if \bp1
+    \\ add 20, 20, 7
+    \\ .endif
+    \\ lfs 2, 0 * 4(19)
+    \\ nop
+    \\ lfs 3, 1 * 4(19)
+    \\ .if \bp0
+    \\ add 19, 19, 5
+    \\ .endif
+    \\ .if \bp1
+    \\ add 19, 19, 7
+    \\ .endif
+    \\ fnmsubs 4, 23, 29, 4
+    \\ fmadds 5, 22, 29, 5
+    \\ fnmsubs 6, 23, 31, 6
+    \\ fmadds 7, 22, 31, 7
+    \\ lfs 25, 9 * 4(17)
+    \\ lfs 27, 11 * 4(17)
+    \\ lfs 29, 13 * 4(17)
+    \\ lfs 31, 15 * 4(17)
+    \\ addi 17, 17, 16 * 4
+    \\ nop
+    \\ .if \bp8
+    \\ dcbt 21, 17
+    \\ .endif
+    \\ .if \bp9
+    \\ dcbt 8, 21, 17
+    \\ .endif
+    \\ .if \bp6
+    \\ dcbtst 21, 17
+    \\ .endif
+    \\ nop
+    \\ stfs 4, 0 * 4(20)
+    \\ nop
+    \\ stfs 5, 1 * 4(20)
+    \\ .if \bp0
+    \\ add 20, 20, 5
+    \\ .endif
+    \\ .if \bp1
+    \\ add 20, 20, 7
+    \\ .endif
+    \\ lfs 4, 0 * 4(19)
+    \\ nop
+    \\ lfs 5, 1 * 4(19)
+    \\ .if \bp0
+    \\ add 19, 19, 5
+    \\ .endif
+    \\ .if \bp1
+    \\ add 19, 19, 7
+    \\ .endif
+    \\ stfs 6, 0 * 4(20)
+    \\ nop
+    \\ stfs 7, 1 * 4(20)
+    \\ .if \bp0
+    \\ add 20, 20, 5
+    \\ .endif
+    \\ .if \bp1
+    \\ add 20, 20, 7
+    \\ .endif
+    \\ lfs 6, 0 * 4(19)
+    \\ nop
+    \\ lfs 7, 1 * 4(19)
+    \\ .if \bp0
+    \\ add 19, 19, 5
+    \\ .endif
+    \\ .if \bp1
+    \\ add 19, 19, 7
+    \\ .endif
+    \\ fmadds 8, 22, 24, 8
+    \\ fmadds 9, 23, 24, 9
+    \\ fmadds 10, 22, 26, 10
+    \\ fmadds 11, 23, 26, 11
+    \\ fmadds 12, 22, 28, 12
+    \\ fmadds 13, 23, 28, 13
+    \\ fmadds 14, 22, 30, 14
+    \\ fmadds 15, 23, 30, 15
+    \\ lfs 24, 0 * 4(14)
+    \\ lfs 26, 2 * 4(14)
+    \\ lfs 28, 4 * 4(14)
+    \\ lfs 30, 6 * 4(14)
+    \\ fnmsubs 8, 23, 25, 8
+    \\ fmadds 9, 22, 25, 9
+    \\ fnmsubs 10, 23, 27, 10
+    \\ fmadds 11, 22, 27, 11
+    \\ stfs 8, 0 * 4(20)
+    \\ nop
+    \\ stfs 9, 1 * 4(20)
+    \\ .if \bp0
+    \\ add 20, 20, 5
+    \\ .endif
+    \\ .if \bp1
+    \\ add 20, 20, 7
+    \\ .endif
+    \\ lfs 8, 0 * 4(19)
+    \\ nop
+    \\ lfs 9, 1 * 4(19)
+    \\ .if \bp0
+    \\ add 19, 19, 5
+    \\ .endif
+    \\ .if \bp1
+    \\ add 19, 19, 7
+    \\ .endif
+    \\ stfs 10, 0 * 4(20)
+    \\ nop
+    \\ stfs 11, 1 * 4(20)
+    \\ .if \bp0
+    \\ add 20, 20, 5
+    \\ .endif
+    \\ .if \bp1
+    \\ add 20, 20, 7
+    \\ .endif
+    \\ lfs 10, 0 * 4(19)
+    \\ nop
+    \\ lfs 11, 1 * 4(19)
+    \\ .if \bp0
+    \\ add 19, 19, 5
+    \\ .endif
+    \\ .if \bp1
+    \\ add 19, 19, 7
+    \\ .endif
+    \\ fnmsubs 12, 23, 29, 12
+    \\ fmadds 13, 22, 29, 13
+    \\ fnmsubs 14, 23, 31, 14
+    \\ fmadds 15, 22, 31, 15
+    \\ lfs 25, 1 * 4(14)
+    \\ lfs 27, 3 * 4(14)
+    \\ lfs 29, 5 * 4(14)
+    \\ lfs 31, 7 * 4(14)
+    \\ stfs 12, 0 * 4(20)
+    \\ nop
+    \\ stfs 13, 1 * 4(20)
+    \\ .if \bp0
+    \\ add 20, 20, 5
+    \\ .endif
+    \\ .if \bp1
+    \\ add 20, 20, 7
+    \\ .endif
+    \\ lfs 12, 0 * 4(19)
+    \\ nop
+    \\ lfs 13, 1 * 4(19)
+    \\ .if \bp0
+    \\ add 19, 19, 5
+    \\ .endif
+    \\ .if \bp1
+    \\ add 19, 19, 7
+    \\ .endif
+    \\ stfs 14, 0 * 4(20)
+    \\ nop
+    \\ stfs 15, 1 * 4(20)
+    \\ .if \bp0
+    \\ add 20, 20, 5
+    \\ .endif
+    \\ .if \bp1
+    \\ add 20, 20, 7
+    \\ .endif
+    \\ lfs 14, 0 * 4(19)
+    \\ nop
+    \\ lfs 15, 1 * 4(19)
+    \\ .if \bp0
+    \\ add 19, 19, 5
+    \\ .endif
+    \\ .if \bp1
+    \\ add 19, 19, 7
+    \\ .endif
+    \\ .if \bp8
+    \\ dcbt 22, 19
+    \\ .endif
+    \\ .if \bp9
+    \\ dcbt 8, 22, 19
+    \\ .endif
+    \\ .if \bp6
+    \\ dcbtst 22, 19
+    \\ .endif
+    \\ bdnz 20023b
+    \\
+;

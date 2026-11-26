@@ -1,0 +1,20 @@
+//! Which converted file has which kernel, its cores in its `keys`; converted from OpenBLAS `v0.3.34-794-gdbf2c24c9` by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+const registry = @import("../../../../registry.zig");
+
+pub const Entry = registry.Entry;
+
+pub const entries = [_]Entry{
+    .{ .slot = .sasum_k, .module = @import("sasum_cell.zig") },
+    .{ .slot = .dasum_k, .module = @import("dasum_cell.zig") },
+    .{ .slot = .casum_k, .module = @import("casum_cell.zig") },
+    .{ .slot = .zasum_k, .module = @import("zasum_cell.zig") },
+    .{ .slot = .sasum_k, .module = @import("sasum.zig") },
+    .{ .slot = .dasum_k, .module = @import("dasum.zig") },
+    .{ .slot = .casum_k, .module = @import("casum.zig") },
+    .{ .slot = .zasum_k, .module = @import("zasum.zig") },
+    .{ .slot = .sasum_k, .module = @import("sasum_ppc440_32_32le.zig") },
+    .{ .slot = .dasum_k, .module = @import("dasum_ppc440_32_32le.zig") },
+    .{ .slot = .casum_k, .module = @import("casum_ppc440_32_32le.zig") },
+    .{ .slot = .zasum_k, .module = @import("zasum_ppc440_32_32le.zig") },
+};

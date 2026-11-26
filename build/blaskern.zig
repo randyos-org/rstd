@@ -5,6 +5,7 @@
 const std = @import("std");
 const sysinfo = @import("builtin");
 const rstdbuild = @import("../src/buildutils/__root__.zig");
+const buildroot = @import("__root__.zig");
 const Build = rstdbuild.Build;
 const Module = rstdbuild.Module;
 const Compile = rstdbuild.CompileStep;
@@ -14,9 +15,9 @@ const ResolvedTarget = rstdbuild.ResolvedTarget;
 // Only `cpu/`'s light files (`corespec.zig`, `select.zig` and the `detect/<arch>.zig` detectors
 // it names): the registries or `cpu.Arch` would make this script's
 // compile depend on every kernel source.
-const corespec = @import("../src/linalg/blas/cpu/corespec.zig");
-const select = @import("../src/linalg/blas/cpu/select.zig");
-const abi = @import("../src/linalg/blas/abi.zig");
+const corespec = @import("../src/math/kernels/blas/cpu/corespec.zig");
+const select = @import("../src/math/kernels/blas/cpu/select.zig");
+const abi = @import("../src/math/kernels/blas/abi.zig");
 
 /// Cores with equal specs, served by one object.
 const Group = struct {
@@ -49,7 +50,7 @@ pub fn defaultCores(target: ResolvedTarget, optimize: rstdbuild.Optimize) rstdbu
 pub fn addBlasKernels(b: *Build, mod: *Module, target: ResolvedTarget, cores: rstdbuild.BlasCores, quad: ?bool) !void {
     if (!option_read) {
         option_read = true;
-        force_llvm = b.option(bool, "blas-llvm", "Force the BLAS kernel objects on (true) or off (false) LLVM; unset uses it only where the kernels need it");
+        force_llvm = b.option(bool, "blas-llvm", "Build the BLAS kernel objects with LLVM (default true); false uses the self-hosted backend, which the converted assembly does not build on");
         relapack = b.option(bool, "relapack", "LAPACK's potrf, getrf, trtri and lauum from ReLAPACK's recursive algorithms instead of OpenBLAS's, as OpenBLAS's BUILD_RELAPACK with RELAPACK_REPLACE") orelse false;
         quad_precision = b.option(bool, "quad-precision", "The BLAS's extended type (q and x routines) as f128 in software, as OpenBLAS's QUAD_PRECISION; turns x87 EXPRECISION off") orelse false;
     }
@@ -128,7 +129,7 @@ fn addForArch(
         const obj = b.addObject(.{
             .name = b.fmt("rstd-blaskernel-{s}", .{g.cores.items[0]}),
             .root_module = b.createModule(.{
-                .root_source_file = b.path("src/linalg/blas/_kernel.zig"),
+                .root_source_file = b.path("src/math/kernels/blas/_kernel.zig"),
                 .target = b.resolveTargetQuery(g.query),
                 // Kernels are always built for speed, whatever the consumer uses.
                 .optimize = .fast,
@@ -164,13 +165,13 @@ fn checkedObject(b: *Build, obj: *Compile, query: std.Target.Query) !LazyPath {
 /// exits 0 and caches the output (issue #190).
 /// `comp` must use LLVM, and `query` name no `ofmt`, which `zig cc` ignores.
 pub fn asmCheck(b: *Build, comp: *Compile, query: std.Target.Query) !*Build.Step {
-    const triple = try query.zigTriple(b.allocator);
+    const triple = try queryText(b, &query, .triple);
     const check = b.addSystemCommand(&.{ b.graph.zig_exe, "cc", "-c", "-Wno-override-module", "-target", triple });
     const target = b.resolveTargetQuery(query).result;
     // Functions carry their own CPU; module-level asm needs `-mcpu`. Not on
     // x86, whose assembler ignores CPU features.
     if (!target.cpu.arch.isX86())
-        check.addArg(b.fmt("-mcpu={s}", .{try query.serializeCpuAlloc(b.allocator)}));
+        check.addArg(b.fmt("-mcpu={s}", .{try queryText(b, &query, .cpu)}));
     // as Zig builds it; `zig cc` makes freestanding mips PIC, which its asm
     // fails, and non-abicalls MIPS code (`objectPic`) cannot be PIC; N64 implies
     // abicalls, so clang ignores a bare `-fno-PIC` there and its warning fails
@@ -179,9 +180,6 @@ pub fn asmCheck(b: *Build, comp: *Compile, query: std.Target.Query) !*Build.Step
         check.addArg("-fno-PIC");
         if (target.cpu.arch.isMips()) check.addArg("-mno-abicalls");
     }
-    // wasm bitcode already has its `wasm-feature-*` flags, which clang adds again
-    // (issue #191)
-    if (target.cpu.arch.isWasm()) check.addArgs(&.{ "-Xclang", "-disable-llvm-verifier" });
     // a function per section, so calls are relocations the linker resolves; in
     // one section a large image's branches outrun their range (+-32 MiB on
     // PowerPC and 32-bit arm), which the assembler reports as an error
@@ -192,8 +190,27 @@ pub fn asmCheck(b: *Build, comp: *Compile, query: std.Target.Query) !*Build.Step
     check.setName(b.fmt("check inline asm of {s}", .{comp.name}));
     check.addFileArg(comp.getEmittedLlvmBc());
     check.addArg("-o");
-    _ = check.addOutputFileArg(b.fmt("asmcheck-{s}.o", .{comp.name}));
+    _ = check.addOutputFileArg2(b.fmt("asmcheck-{s}.o", .{comp.name}), .{});
     return &check.step;
+}
+
+/// `query`'s triple or `-mcpu` text: Zig 0.18's `print*`, else 0.17's
+/// allocating calls, which 0.18 deprecates (#521).
+fn queryText(b: *Build, query: *const std.Target.Query, comptime what: enum { triple, cpu }) ![]u8 {
+    const Query = std.Target.Query;
+    if (comptime @hasDecl(Query, "printZigTriple")) {
+        var w: std.Io.Writer.Allocating = .init(b.allocator);
+        errdefer w.deinit();
+        (switch (what) {
+            .triple => query.printZigTriple(&w.writer),
+            .cpu => query.printCpu(&w.writer),
+        }) catch return error.OutOfMemory;
+        return w.toOwnedSlice();
+    }
+    return switch (what) {
+        .triple => query.zigTriple(b.allocator),
+        .cpu => query.serializeCpuAlloc(b.allocator),
+    };
 }
 
 /// The objects' PIC where it must match the image's: MIPS marks PIC code
@@ -203,6 +220,8 @@ pub fn asmCheck(b: *Build, comp: *Compile, query: std.Target.Query) !*Build.Step
 /// into anything.
 fn objectPic(mod: *Module, target: ResolvedTarget) ?bool {
     const t = &target.result;
+    // ThreadSanitizer links a PIE, which Zig 0.17's non-PIC objects fail on x86_64 (issue #652)
+    if (buildroot.tsan and t.os.tag == .linux and t.abi.isGnu()) return true;
     if (!t.cpu.arch.isMips()) return null;
     return mod.pic orelse switch (t.os.tag) {
         .freestanding => false,
@@ -235,7 +254,7 @@ fn checkIsa(b: *Build, target: ResolvedTarget, query: std.Target.Query, core: an
     for (arch.allFeaturesList(), 0..) |f, i| {
         if (ex.isEnabled(@intCast(i))) try names.print(b.allocator, " {s}", .{f.name});
     }
-    std.process.fatal("the BLAS kernel object serving {s} on {s} uses{s}, which some {s} CPUs lack (`machine` in cpu/corespec.zig)", .{
+    std.process.fatal("the BLAS kernel object serving {s} on {s} uses{s}, which some {s} CPUs lack (`machine` in cpu/machine.zig)", .{
         @tagName(core), target.result.cpu.model.name, names.items, @tagName(core),
     });
 }

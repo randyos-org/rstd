@@ -1,22 +1,40 @@
 {
   # QEMU for the qemu rigs on another machine (`-Dtest-host`), pinned by
-  # flake.lock; `nix flake update` moves it on. tools/test_host.zig copies
+  # flake.lock; `nix flake update` moves it on. tools/rig/test_host.zig copies
   # this directory to the host and runs run.sh in its shell.
   description = "rstd's qemu rigs' QEMU";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+  # unstable dropped x86_64-darwin (26.11); 26.05 is its last release,
+  # supported to the end of 2026
+  inputs.nixpkgs-x86_64-darwin.url = "github:NixOS/nixpkgs/nixpkgs-26.05-darwin";
 
   outputs =
-    { nixpkgs, ... }:
+    { nixpkgs, nixpkgs-x86_64-darwin, ... }:
     {
       packages = nixpkgs.lib.genAttrs [ "aarch64-darwin" "x86_64-darwin" "aarch64-linux" "x86_64-linux" ] (
         system:
         let
-          pkgs = nixpkgs.legacyPackages.${system};
+          pkgs = (if system == "x86_64-darwin" then nixpkgs-x86_64-darwin else nixpkgs).legacyPackages.${system};
+          qemu-ppc-patched = (pkgs.qemu.override { hostCpuTargets = [ "ppc-softmmu" "ppc64-softmmu" ]; }).overrideAttrs (o: {
+            patches = (o.patches or [ ]) ++ [ ./qemu-xststdcsp.patch ];
+            # the host's emulator, which `qemu-kvm` names, is not built
+            postInstall = (o.postInstall or "") + ''
+              rm -f $out/bin/qemu-kvm
+            '';
+          });
         in
         {
           # every system target, with its firmware
           inherit (pkgs) qemu;
+          # the PowerPC rigs': `qemu` with its ppc and ppc64 emulators built with
+          # xststdcsp fixed (rstd issue #223), the first path winning
+          qemu-ppc = pkgs.symlinkJoin {
+            name = "qemu-ppc";
+            paths = [ qemu-ppc-patched pkgs.qemu ];
+          };
+          # those two emulators alone, which CI keeps in its cache
+          inherit qemu-ppc-patched;
           # run.sh's slots
           inherit (pkgs) flock;
           default = pkgs.qemu;

@@ -1,0 +1,208 @@
+# `amin` kernel coverage
+
+Surveyed from OpenBLAS `kernel/` (`v0.3.34-794-gdbf2c24c9`) and rstd's kernel indexes by `tools/blas_asm` (retired: [#618](https://github.com/randyos-org/rstd/issues/618)); maintained by hand. How to read it: [`coverage.md`](../../coverage.md).
+
+## x86_64
+
+| core           | samin                 | damin                 | camin                  | zamin                  | qamin               | xamin                |
+| -------------- | --------------------- | --------------------- | ---------------------- | ---------------------- | ------------------- | -------------------- |
+| ATOM           | `amax_sse.S` → vec    | `amax_atom.S` → vec   | `zamax_sse.S` → vec    | `zamax_atom.S` → vec   | `amax.S` → portable | `zamax.S` → portable |
+| BARCELONA      | `amax_sse.S` → vec    | `amax_sse2.S` → vec   | `zamax_sse.S` → vec    | `zamax_sse2.S` → vec   | `amax.S` → portable | `zamax.S` → portable |
+| BOBCAT         | `amax_sse.S` → vec    | `amax_sse2.S` → vec   | `zamax_sse.S` → vec    | `zamax_sse2.S` → vec   | `amax.S` → portable | `zamax.S` → portable |
+| BULLDOZER      | `amax_sse.S` → vec    | `amax_sse2.S` → vec   | `zamax_sse.S` → vec    | `zamax_sse2.S` → vec   | `amax.S` → portable | `zamax.S` → portable |
+| COOPERLAKE     | `amax_sse.S` → vec    | `amax_sse2.S` → vec   | `zamax_sse.S` → vec    | `zamax_sse2.S` → vec   | `amax.S` → portable | `zamax.S` → portable |
+| CORE2          | `amax_sse.S` → vec    | `amax_sse2.S` → vec   | `zamax_sse.S` → vec    | `zamax_sse2.S` → vec   | `amax.S` → portable | `zamax.S` → portable |
+| DUNNINGTON     | `amax_sse.S` → vec    | `amax_sse2.S` → vec   | `zamax_sse.S` → vec    | `zamax_sse2.S` → vec   | `amax.S` → portable | `zamax.S` → portable |
+| EXCAVATOR      | `amax_sse.S` → vec    | `amax_sse2.S` → vec   | `zamax_sse.S` → vec    | `zamax_sse2.S` → vec   | `amax.S` → portable | `zamax.S` → portable |
+| generic        | `../arm/amin.c` → n/a | `../arm/amin.c` → n/a | `../arm/zamin.c` → n/a | `../arm/zamin.c` → n/a | `amax.S` → n/a      | `zamax.S` → n/a      |
+| HASWELL        | `amax_sse.S` → vec    | `amax_sse2.S` → vec   | `zamax_sse.S` → vec    | `zamax_sse2.S` → vec   | `amax.S` → portable | `zamax.S` → portable |
+| NANO           | `amax_sse.S` → vec    | `amax_sse2.S` → vec   | `zamax_sse.S` → vec    | `zamax_sse2.S` → vec   | `amax.S` → portable | `zamax.S` → portable |
+| NEHALEM        | `amax_sse.S` → vec    | `amax_sse2.S` → vec   | `zamax_sse.S` → vec    | `zamax_sse2.S` → vec   | `amax.S` → portable | `zamax.S` → portable |
+| OPTERON        | `amax_sse.S` → vec    | `amax_sse2.S` → vec   | `zamax_sse.S` → vec    | `zamax_sse2.S` → vec   | `amax.S` → portable | `zamax.S` → portable |
+| OPTERON_SSE3   | `amax_sse.S` → vec    | `amax_sse2.S` → vec   | `zamax_sse.S` → vec    | `zamax_sse2.S` → vec   | `amax.S` → portable | `zamax.S` → portable |
+| PENRYN         | `amax_sse.S` → vec    | `amax_sse2.S` → vec   | `zamax_sse.S` → vec    | `zamax_sse2.S` → vec   | `amax.S` → portable | `zamax.S` → portable |
+| PILEDRIVER     | `amax_sse.S` → vec    | `amax_sse2.S` → vec   | `zamax_sse.S` → vec    | `zamax_sse2.S` → vec   | `amax.S` → portable | `zamax.S` → portable |
+| PRESCOTT       | `amax_sse.S` → vec    | `amax_sse2.S` → vec   | `zamax_sse.S` → vec    | `zamax_sse2.S` → vec   | `amax.S` → portable | `zamax.S` → portable |
+| SANDYBRIDGE    | `amax_sse.S` → vec    | `amax_sse2.S` → vec   | `zamax_sse.S` → vec    | `zamax_sse2.S` → vec   | `amax.S` → portable | `zamax.S` → portable |
+| SAPPHIRERAPIDS | `amax_sse.S` → vec    | `amax_sse2.S` → vec   | `zamax_sse.S` → vec    | `zamax_sse2.S` → vec   | `amax.S` → portable | `zamax.S` → portable |
+| SKYLAKEX       | `amax_sse.S` → vec    | `amax_sse2.S` → vec   | `zamax_sse.S` → vec    | `zamax_sse2.S` → vec   | `amax.S` → portable | `zamax.S` → portable |
+| STEAMROLLER    | `amax_sse.S` → vec    | `amax_sse2.S` → vec   | `zamax_sse.S` → vec    | `zamax_sse2.S` → vec   | `amax.S` → portable | `zamax.S` → portable |
+| ZEN            | `amax_sse.S` → vec    | `amax_sse2.S` → vec   | `zamax_sse.S` → vec    | `zamax_sse2.S` → vec   | `amax.S` → portable | `zamax.S` → portable |
+
+## x86
+
+| core         | samin                 | damin                 | camin                  | zamin                  | qamin               | xamin                |
+| ------------ | --------------------- | --------------------- | ---------------------- | ---------------------- | ------------------- | -------------------- |
+| ATHLON       | `amax.S` → vec        | `amax.S` → vec        | `zamax.S` → vec        | `zamax.S` → vec        | `amax.S` → portable | `zamax.S` → portable |
+| ATOM         | `amax.S` → vec        | `amax.S` → vec        | `zamax.S` → vec        | `zamax.S` → vec        | `amax.S` → portable | `zamax.S` → portable |
+| BANIAS       | `amax.S` → vec        | `amax.S` → vec        | `zamax.S` → vec        | `zamax.S` → vec        | `amax.S` → portable | `zamax.S` → portable |
+| BARCELONA    | `amax.S` → vec        | `amax.S` → vec        | `zamax.S` → vec        | `zamax.S` → vec        | `amax.S` → portable | `zamax.S` → portable |
+| BOBCAT       | `amax.S` → vec        | `amax.S` → vec        | `zamax.S` → vec        | `zamax.S` → vec        | `amax.S` → portable | `zamax.S` → portable |
+| BULLDOZER    | `amax.S` → vec        | `amax.S` → vec        | `zamax.S` → vec        | `zamax.S` → vec        | `amax.S` → portable | `zamax.S` → portable |
+| COPPERMINE   | `amax.S` → vec        | `amax.S` → vec        | `zamax.S` → vec        | `zamax.S` → vec        | `amax.S` → portable | `zamax.S` → portable |
+| CORE2        | `amax.S` → vec        | `amax.S` → vec        | `zamax.S` → vec        | `zamax.S` → vec        | `amax.S` → portable | `zamax.S` → portable |
+| DUNNINGTON   | `amax.S` → vec        | `amax.S` → vec        | `zamax.S` → vec        | `zamax.S` → vec        | `amax.S` → portable | `zamax.S` → portable |
+| generic      | `../arm/amin.c` → n/a | `../arm/amin.c` → n/a | `../arm/zamin.c` → n/a | `../arm/zamin.c` → n/a | `amax.S` → n/a      | `zamax.S` → n/a      |
+| HASWELL      | `amax.S` → vec        | `amax.S` → vec        | `zamax.S` → vec        | `zamax.S` → vec        | `amax.S` → portable | `zamax.S` → portable |
+| KATMAI       | `amax.S` → vec        | `amax.S` → vec        | `zamax.S` → vec        | `zamax.S` → vec        | `amax.S` → portable | `zamax.S` → portable |
+| NANO         | `amax.S` → vec        | `amax.S` → vec        | `zamax.S` → vec        | `zamax.S` → vec        | `amax.S` → portable | `zamax.S` → portable |
+| NEHALEM      | `amax.S` → vec        | `amax.S` → vec        | `zamax.S` → vec        | `zamax.S` → vec        | `amax.S` → portable | `zamax.S` → portable |
+| NORTHWOOD    | `amax.S` → vec        | `amax.S` → vec        | `zamax.S` → vec        | `zamax.S` → vec        | `amax.S` → portable | `zamax.S` → portable |
+| OPTERON      | `amax.S` → vec        | `amax.S` → vec        | `zamax.S` → vec        | `zamax.S` → vec        | `amax.S` → portable | `zamax.S` → portable |
+| OPTERON_SSE3 | `amax.S` → vec        | `amax.S` → vec        | `zamax.S` → vec        | `zamax.S` → vec        | `amax.S` → portable | `zamax.S` → portable |
+| P5           | `amax.S` → vec        | `amax.S` → vec        | `zamax.S` → vec        | `zamax.S` → vec        | `amax.S` → portable | `zamax.S` → portable |
+| P6           | `amax.S` → vec        | `amax.S` → vec        | `zamax.S` → vec        | `zamax.S` → vec        | `amax.S` → portable | `zamax.S` → portable |
+| PENRYN       | `amax.S` → vec        | `amax.S` → vec        | `zamax.S` → vec        | `zamax.S` → vec        | `amax.S` → portable | `zamax.S` → portable |
+| PILEDRIVER   | `amax.S` → vec        | `amax.S` → vec        | `zamax.S` → vec        | `zamax.S` → vec        | `amax.S` → portable | `zamax.S` → portable |
+| PRESCOTT     | `amax.S` → vec        | `amax.S` → vec        | `zamax.S` → vec        | `zamax.S` → vec        | `amax.S` → portable | `zamax.S` → portable |
+| SANDYBRIDGE  | `amax.S` → vec        | `amax.S` → vec        | `zamax.S` → vec        | `zamax.S` → vec        | `amax.S` → portable | `zamax.S` → portable |
+| VIAC3        | `amax.S` → vec        | `amax.S` → vec        | `zamax.S` → vec        | `zamax.S` → vec        | `amax.S` → portable | `zamax.S` → portable |
+| YONAH        | `amax.S` → vec        | `amax.S` → vec        | `zamax.S` → vec        | `zamax.S` → vec        | `amax.S` → portable | `zamax.S` → portable |
+| ZEN          | `amax.S` → vec        | `amax.S` → vec        | `zamax.S` → vec        | `zamax.S` → vec        | `amax.S` → portable | `zamax.S` → portable |
+
+## arm64
+
+| core          | samin                 | damin                 | camin                  | zamin                  | qamin                         | xamin                          |
+| ------------- | --------------------- | --------------------- | ---------------------- | ---------------------- | ----------------------------- | ------------------------------ |
+| A64FX         | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| AMPERE1       | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| ARMV8         | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| ARMV8SVE      | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| ARMV9SME      | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| CORTEXA510    | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| CORTEXA53     | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| CORTEXA55     | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| CORTEXA57     | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| CORTEXA710    | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| CORTEXA72     | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| CORTEXA73     | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| CORTEXA76     | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| CORTEXX1      | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| CORTEXX2      | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| EMAG8180      | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| FALKOR        | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| FT2000        | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| generic       | `../arm/amin.c` → n/a | `../arm/amin.c` → n/a | `../arm/zamin.c` → n/a | `../arm/zamin.c` → n/a | `amin.S` (missing) → n/a      | `zamin.S` (missing) → n/a      |
+| NEOVERSEN1    | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| NEOVERSEN2    | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| NEOVERSEV1    | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| NEOVERSEV2    | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| THUNDERX      | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| THUNDERX2T99  | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| THUNDERX3T110 | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| TSV110        | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| VORTEX        | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| VORTEXM4      | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+
+## arm
+
+| core      | samin                 | damin                 | camin                     | zamin                  | qamin                         | xamin                          |
+| --------- | --------------------- | --------------------- | ------------------------- | ---------------------- | ----------------------------- | ------------------------------ |
+| ARMV5     | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec    | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| ARMV6     | `amax_vfp.S` → vec    | `amax_vfp.S` → vec    | `../arm/zamin.c` → vec    | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| ARMV7     | `amax_vfp.S` → vec    | `amax_vfp.S` → vec    | `../arm/zamin.c` → vec    | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| CORTEXA15 | `amax_vfp.S` → routed | `amax_vfp.S` → vec    | `../arm/zamin.c` → routed | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| CORTEXA9  | `amax_vfp.S` → routed | `amax_vfp.S` → vec    | `../arm/zamin.c` → routed | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+
+## power
+
+| core      | samin                               | damin                               | camin                                | zamin                                | qamin               | xamin                |
+| --------- | ----------------------------------- | ----------------------------------- | ------------------------------------ | ------------------------------------ | ------------------- | -------------------- |
+| CELL      | `amin_cell.S` → vec                 | `amin_cell.S` → vec                 | `zamin_cell.S` → vec                 | `zamin_cell.S` → vec                 | `amin.S` → portable | `zamin.S` → portable |
+| POWER10   | `amin.S` → vec                      | `amin.S` → vec                      | `zamin.S` → vec                      | `zamin.S` → vec                      | `amin.S` → portable | `zamin.S` → portable |
+| POWER3    | `amin.S` → vec                      | `amin.S` → vec                      | `zamin.S` → vec                      | `zamin.S` → vec                      | `amin.S` → portable | `zamin.S` → portable |
+| POWER4    | `amin.S` → vec                      | `amin.S` → vec                      | `zamin.S` → vec                      | `zamin.S` → vec                      | `amin.S` → portable | `zamin.S` → portable |
+| POWER5    | `amin.S` → vec                      | `amin.S` → vec                      | `zamin.S` → vec                      | `zamin.S` → vec                      | `amin.S` → portable | `zamin.S` → portable |
+| POWER6    | `amin.S` → vec                      | `amin.S` → vec                      | `zamin.S` → vec                      | `zamin.S` → vec                      | `amin.S` → portable | `zamin.S` → portable |
+| POWER8    | `amin.S` → vec                      | `amin.S` → vec                      | `zamin.S` → vec                      | `zamin.S` → vec                      | `amin.S` → portable | `zamin.S` → portable |
+| POWER9    | `amin.S` → vec                      | `amin.S` → vec                      | `zamin.S` → vec                      | `zamin.S` → vec                      | `amin.S` → portable | `zamin.S` → portable |
+| PPC440    | `amin_ppc440.S` → vec               | `amin_ppc440.S` → vec               | `zamin_ppc440.S` → vec               | `zamin_ppc440.S` → vec               | `amin.S` → portable | `zamin.S` → portable |
+| PPC440FP2 | `amin_hummer.S` (unsupported) → vec | `amin_hummer.S` (unsupported) → vec | `zamin_hummer.S` (unsupported) → vec | `zamin_hummer.S` (unsupported) → vec | `amin.S` → portable | `zamin.S` → portable |
+| PPC970    | `amin.S` → vec                      | `amin.S` → vec                      | `zamin.S` → vec                      | `zamin.S` → vec                      | `amin.S` → portable | `zamin.S` → portable |
+| PPCG4     | `amin_ppc440.S` → vec               | `amin_ppc440.S` → vec               | `zamin_ppc440.S` → vec               | `zamin_ppc440.S` → vec               | `amin.S` → portable | `zamin.S` → portable |
+
+## mips64
+
+| core           | samin                 | damin                 | camin                  | zamin                  | qamin               | xamin                |
+| -------------- | --------------------- | --------------------- | ---------------------- | ---------------------- | ------------------- | -------------------- |
+| generic        | `../arm/amin.c` → n/a | `../arm/amin.c` → n/a | `../arm/zamin.c` → n/a | `../arm/zamin.c` → n/a | `amin.S` → n/a      | `zamin.S` → n/a      |
+| I6400          | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec | `../arm/zamin.c` → vec | `amin.S` → portable | `zamin.S` → portable |
+| I6500          | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec | `../arm/zamin.c` → vec | `amin.S` → portable | `zamin.S` → portable |
+| LOONGSON3R3    | `amin.S` → vec        | `amin.S` → vec        | `zamin.S` → vec        | `zamin.S` → vec        | `amin.S` → portable | `zamin.S` → portable |
+| LOONGSON3R4    | `amin.S` → vec        | `amin.S` → vec        | `zamin.S` → vec        | `zamin.S` → vec        | `amin.S` → portable | `zamin.S` → portable |
+| MIPS64_GENERIC | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec | `../arm/zamin.c` → vec | `amin.S` → portable | `zamin.S` → portable |
+| P6600          | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec | `../arm/zamin.c` → vec | `amin.S` → portable | `zamin.S` → portable |
+
+## mips
+
+| core      | samin                 | damin                 | camin                  | zamin                  | qamin                         | xamin                          |
+| --------- | --------------------- | --------------------- | ---------------------- | ---------------------- | ----------------------------- | ------------------------------ |
+| generic   | `../arm/amin.c` → n/a | `../arm/amin.c` → n/a | `../arm/zamin.c` → n/a | `../arm/zamin.c` → n/a | `amin.S` (missing) → n/a      | `zamin.S` (missing) → n/a      |
+| MIPS1004K | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| MIPS24K   | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| P5600     | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+
+## riscv64
+
+| core            | samin                                | damin                                | camin                                 | zamin                                 | qamin                         | xamin                          |
+| --------------- | ------------------------------------ | ------------------------------------ | ------------------------------------- | ------------------------------------- | ----------------------------- | ------------------------------ |
+| C910V           | `amin_vector.c` +intrinsics → routed | `amin_vector.c` +intrinsics → routed | `zamin_vector.c` +intrinsics → routed | `zamin_vector.c` +intrinsics → routed | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| RISCV64_GENERIC | `../riscv64/amin.c` → routed         | `../riscv64/amin.c` → routed         | `../riscv64/zamin.c` → routed         | `../riscv64/zamin.c` → routed         | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| RISCV64_ZVL128B | `amin_rvv.c` +intrinsics → vec       | `amin_rvv.c` +intrinsics → vec       | `zamin_rvv.c` +intrinsics → vec       | `zamin_rvv.c` +intrinsics → vec       | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| RISCV64_ZVL256B | `amin_vector.c` +intrinsics → vec    | `amin_vector.c` +intrinsics → vec    | `zamin_vector.c` +intrinsics → vec    | `zamin_vector.c` +intrinsics → vec    | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| U74             | `../riscv64/amin.c` → routed         | `../riscv64/amin.c` → routed         | `../riscv64/zamin.c` → routed         | `../riscv64/zamin.c` → routed         | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| x280            | `amin_rvv.c` +intrinsics → vec       | `amin_rvv.c` +intrinsics → vec       | `zamin_rvv.c` +intrinsics → vec       | `zamin_rvv.c` +intrinsics → vec       | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+
+## loongarch64
+
+| core         | samin                 | damin                 | camin                  | zamin                  | qamin               | xamin                |
+| ------------ | --------------------- | --------------------- | ---------------------- | ---------------------- | ------------------- | -------------------- |
+| generic      | `../arm/amin.c` → n/a | `../arm/amin.c` → n/a | `../arm/zamin.c` → n/a | `../arm/zamin.c` → n/a | `amin.S` → n/a      | `zamin.S` → n/a      |
+| LA264        | `amin_lsx.S` → vec    | `amin_lsx.S` → vec    | `camin_lsx.S` → vec    | `camin_lsx.S` → vec    | `amin.S` → portable | `zamin.S` → portable |
+| LA464        | `amin_lasx.S` → vec   | `amin_lasx.S` → vec   | `camin_lasx.S` → vec   | `camin_lasx.S` → vec   | `amin.S` → portable | `zamin.S` → portable |
+| LA64_GENERIC | `amin.S` → vec        | `amin.S` → vec        | `zamin.S` → vec        | `zamin.S` → vec        | `amin.S` → portable | `zamin.S` → portable |
+
+## zarch
+
+| core          | samin                    | damin                       | camin                     | zamin                       | qamin                         | xamin                          |
+| ------------- | ------------------------ | --------------------------- | ------------------------- | --------------------------- | ----------------------------- | ------------------------------ |
+| Z13           | `../arm/amin.c` → routed | `damin_z13.c` +asm → routed | `../arm/zamin.c` → routed | `zamin_z13.c` +asm → routed | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| Z14           | `samin.c` +asm → routed  | `damin.c` +asm → routed     | `camin.c` +asm → routed   | `zamin.c` +asm → routed     | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| ZARCH_GENERIC | `../arm/amin.c` → routed | `../arm/amin.c` → routed    | `../arm/zamin.c` → routed | `../arm/zamin.c` → routed   | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+
+## sparc
+
+| core    | samin          | damin          | camin           | zamin           | qamin                         | xamin                          |
+| ------- | -------------- | -------------- | --------------- | --------------- | ----------------------------- | ------------------------------ |
+| sparc   | `amax.S` → vec | `amax.S` → vec | `zamax.S` → vec | `zamax.S` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| sparcv7 | `amax.S` → vec | `amax.S` → vec | `zamax.S` → vec | `zamax.S` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+
+## alpha
+
+rstd has no target here.
+
+| core  | samin          | damin          | camin           | zamin           | qamin                    | xamin                     |
+| ----- | -------------- | -------------- | --------------- | --------------- | ------------------------ | ------------------------- |
+| (all) | `amax.S` → n/a | `amax.S` → n/a | `zamax.S` → n/a | `zamax.S` → n/a | `amin.S` (missing) → n/a | `zamin.S` (missing) → n/a |
+
+## ia64
+
+rstd has no target here.
+
+| core  | samin          | damin          | camin            | zamin            | qamin          | xamin            |
+| ----- | -------------- | -------------- | ---------------- | ---------------- | -------------- | ---------------- |
+| (all) | `amax.S` → n/a | `amax.S` → n/a | `izamax.S` → n/a | `izamax.S` → n/a | `amax.S` → n/a | `izamax.S` → n/a |
+
+## wasm
+
+| core            | samin                        | damin                        | camin                         | zamin                         | qamin                         | xamin                          |
+| --------------- | ---------------------------- | ---------------------------- | ----------------------------- | ----------------------------- | ----------------------------- | ------------------------------ |
+| WASM128_GENERIC | `../riscv64/amin.c` → routed | `../riscv64/amin.c` → routed | `../riscv64/zamin.c` → routed | `../riscv64/zamin.c` → routed | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+
+## Gaps
+
+None: no core runs the portable kernels where upstream is tuned.
+
+## Totals
+
+(core, role) pairs by what rstd serves: `vec` 428, `portable` 230, `n/a` 48, `routed` 32. 0 gaps.

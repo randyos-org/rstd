@@ -1,0 +1,288 @@
+//! `dscal` for loongson3r3, from OpenBLAS `kernel/mips64/scal.S` (`v0.3.34-794-gdbf2c24c9`); converted by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+/// Each function's core and variant.
+pub const keys = .{
+    .{ .core = .loongson3r3, .variant = "" },
+};
+
+pub const Body = struct {
+    pub fn entry() callconv(.naked) void {
+        asm volatile (
+            \\ .set mips64
+            \\ .align 5
+            \\ .set noreorder
+            \\ .set nomacro
+            \\ li $3, 8
+            \\ dmtc1 $0, $f0
+            \\ blez $4, 20017f
+            \\ dsll $9, $9, 3
+            \\ c.eq.d $fcc0, $f15, $f0
+            \\ ld $6, 8($sp)
+            \\ bc1f $fcc0, 20007f
+            \\ dsll $6, $6, 3
+            \\ beq $6, $3, 20007f
+            \\ move $0, $0
+            \\ bne $9, $3, 20003f
+            \\ dsra $2, $4, 3
+            \\ blez $2, 20001f
+            \\ move $0, $0
+            \\ .align 3
+            \\ 20000:
+            \\ sdc1 $f0, 0 * 8($8)
+            \\ sdc1 $f0, 1 * 8($8)
+            \\ sdc1 $f0, 2 * 8($8)
+            \\ sdc1 $f0, 3 * 8($8)
+            \\ sdc1 $f0, 4 * 8($8)
+            \\ sdc1 $f0, 5 * 8($8)
+            \\ sdc1 $f0, 6 * 8($8)
+            \\ sdc1 $f0, 7 * 8($8)
+            \\ addiu $2, $2, -1
+            \\ bgtz $2, 20000b
+            \\ daddiu $8, $8, 8 * 8
+            \\ .align 3
+            \\ 20001:
+            \\ andi $2, $4, 7
+            \\ blez $2, 20017f
+            \\ move $0, $0
+            \\ .align 3
+            \\ 20002:
+            \\ sdc1 $f0, 0 * 8($8)
+            \\ daddiu $2, $2, -1
+            \\ bgtz $2, 20002b
+            \\ daddiu $8, $8, 8
+            \\ j $31
+            \\ move $0, $0
+            \\ .align 3
+            \\ 20003:
+            \\ dsra $2, $4, 3
+            \\ blez $2, 20005f
+            \\ move $0, $0
+            \\ .align 3
+            \\ 20004:
+            \\ sdc1 $f0, 0 * 8($8)
+            \\ daddu $8, $8, $9
+            \\ sdc1 $f0, 0 * 8($8)
+            \\ daddu $8, $8, $9
+            \\ sdc1 $f0, 0 * 8($8)
+            \\ daddu $8, $8, $9
+            \\ sdc1 $f0, 0 * 8($8)
+            \\ daddu $8, $8, $9
+            \\ sdc1 $f0, 0 * 8($8)
+            \\ daddu $8, $8, $9
+            \\ sdc1 $f0, 0 * 8($8)
+            \\ daddu $8, $8, $9
+            \\ sdc1 $f0, 0 * 8($8)
+            \\ daddu $8, $8, $9
+            \\ sdc1 $f0, 0 * 8($8)
+            \\ daddiu $2, $2, -1
+            \\ bgtz $2, 20004b
+            \\ daddu $8, $8, $9
+            \\ .align 3
+            \\ 20005:
+            \\ andi $2, $4, 7
+            \\ blez $2, 20017f
+            \\ move $0, $0
+            \\ .align 3
+            \\ 20006:
+            \\ daddiu $2, $2, -1
+            \\ sdc1 $f0, 0 * 8($8)
+            \\ bgtz $2, 20006b
+            \\ daddu $8, $8, $9
+            \\ j $31
+            \\ move $0, $0
+            \\ .align 3
+            \\ 20007:
+            \\ bne $9, $3, 20012f
+            \\ dsra $2, $4, 3
+            \\ blez $2, 20010f
+            \\ daddiu $2, $2, -1
+            \\ ldc1 $f0, 0 * 8($8)
+            \\ ldc1 $f1, 1 * 8($8)
+            \\ ldc1 $f2, 2 * 8($8)
+            \\ ldc1 $f3, 3 * 8($8)
+            \\ ldc1 $f4, 4 * 8($8)
+            \\ ldc1 $f5, 5 * 8($8)
+            \\ ldc1 $f6, 6 * 8($8)
+            \\ ldc1 $f7, 7 * 8($8)
+            \\ blez $2, 20009f
+            \\ move $0, $0
+            \\ .align 3
+            \\ 20008:
+            \\ mul.d $f8, $f15, $f0
+            \\ ldc1 $f0, 8 * 8($8)
+            \\ mul.d $f9, $f15, $f1
+            \\ ldc1 $f1, 9 * 8($8)
+            \\ mul.d $f10, $f15, $f2
+            \\ ldc1 $f2, 10 * 8($8)
+            \\ mul.d $f11, $f15, $f3
+            \\ ldc1 $f3, 11 * 8($8)
+            \\ sdc1 $f8, 0 * 8($8)
+            \\ mul.d $f8, $f15, $f4
+            \\ ldc1 $f4, 12 * 8($8)
+            \\ sdc1 $f9, 1 * 8($8)
+            \\ mul.d $f9, $f15, $f5
+            \\ ldc1 $f5, 13 * 8($8)
+            \\ sdc1 $f10, 2 * 8($8)
+            \\ mul.d $f10, $f15, $f6
+            \\ ldc1 $f6, 14 * 8($8)
+            \\ sdc1 $f11, 3 * 8($8)
+            \\ mul.d $f11, $f15, $f7
+            \\ ldc1 $f7, 15 * 8($8)
+            \\ daddiu $2, $2, -1
+            \\ sdc1 $f8, 4 * 8($8)
+            \\ sdc1 $f9, 5 * 8($8)
+            \\ sdc1 $f10, 6 * 8($8)
+            \\ sdc1 $f11, 7 * 8($8)
+            \\ bgtz $2, 20008b
+            \\ daddiu $8, $8, 8 * 8
+            \\ .align 3
+            \\ 20009:
+            \\ mul.d $f8, $f15, $f0
+            \\ mul.d $f9, $f15, $f1
+            \\ mul.d $f10, $f15, $f2
+            \\ mul.d $f11, $f15, $f3
+            \\ sdc1 $f8, 0 * 8($8)
+            \\ mul.d $f8, $f15, $f4
+            \\ sdc1 $f9, 1 * 8($8)
+            \\ mul.d $f9, $f15, $f5
+            \\ sdc1 $f10, 2 * 8($8)
+            \\ mul.d $f10, $f15, $f6
+            \\ sdc1 $f11, 3 * 8($8)
+            \\ mul.d $f11, $f15, $f7
+            \\ sdc1 $f8, 4 * 8($8)
+            \\ sdc1 $f9, 5 * 8($8)
+            \\ sdc1 $f10, 6 * 8($8)
+            \\ sdc1 $f11, 7 * 8($8)
+            \\ daddiu $8, $8, 8 * 8
+            \\ .align 3
+            \\ 20010:
+            \\ andi $2, $4, 7
+            \\ blez $2, 20017f
+            \\ move $0, $0
+            \\ .align 3
+            \\ 20011:
+            \\ ldc1 $f0, 0 * 8($8)
+            \\ mul.d $f8, $f15, $f0
+            \\ daddiu $8, $8, 8
+            \\ daddiu $2, $2, -1
+            \\ bgtz $2, 20011b
+            \\ sdc1 $f8, -1 * 8($8)
+            \\ j $31
+            \\ move $0, $0
+            \\ .align 3
+            \\ 20012:
+            \\ dsra $2, $4, 3
+            \\ move $5, $8
+            \\ blez $2, 20015f
+            \\ daddiu $2, $2, -1
+            \\ ldc1 $f0, 0 * 8($8)
+            \\ daddu $8, $8, $9
+            \\ ldc1 $f1, 0 * 8($8)
+            \\ daddu $8, $8, $9
+            \\ ldc1 $f2, 0 * 8($8)
+            \\ daddu $8, $8, $9
+            \\ ldc1 $f3, 0 * 8($8)
+            \\ daddu $8, $8, $9
+            \\ ldc1 $f4, 0 * 8($8)
+            \\ daddu $8, $8, $9
+            \\ ldc1 $f5, 0 * 8($8)
+            \\ daddu $8, $8, $9
+            \\ ldc1 $f6, 0 * 8($8)
+            \\ daddu $8, $8, $9
+            \\ ldc1 $f7, 0 * 8($8)
+            \\ daddu $8, $8, $9
+            \\ blez $2, 20014f
+            \\ move $0, $0
+            \\ .align 3
+            \\ 20013:
+            \\ mul.d $f8, $f15, $f0
+            \\ ldc1 $f0, 0 * 8($8)
+            \\ daddu $8, $8, $9
+            \\ mul.d $f9, $f15, $f1
+            \\ ldc1 $f1, 0 * 8($8)
+            \\ daddu $8, $8, $9
+            \\ mul.d $f10, $f15, $f2
+            \\ ldc1 $f2, 0 * 8($8)
+            \\ daddu $8, $8, $9
+            \\ mul.d $f11, $f15, $f3
+            \\ ldc1 $f3, 0 * 8($8)
+            \\ daddu $8, $8, $9
+            \\ sdc1 $f8, 0 * 8($5)
+            \\ daddu $5, $5, $9
+            \\ sdc1 $f9, 0 * 8($5)
+            \\ daddu $5, $5, $9
+            \\ sdc1 $f10, 0 * 8($5)
+            \\ daddu $5, $5, $9
+            \\ sdc1 $f11, 0 * 8($5)
+            \\ daddu $5, $5, $9
+            \\ mul.d $f8, $f15, $f4
+            \\ ldc1 $f4, 0 * 8($8)
+            \\ daddu $8, $8, $9
+            \\ mul.d $f9, $f15, $f5
+            \\ ldc1 $f5, 0 * 8($8)
+            \\ daddu $8, $8, $9
+            \\ mul.d $f10, $f15, $f6
+            \\ ldc1 $f6, 0 * 8($8)
+            \\ daddu $8, $8, $9
+            \\ mul.d $f11, $f15, $f7
+            \\ ldc1 $f7, 0 * 8($8)
+            \\ daddu $8, $8, $9
+            \\ sdc1 $f8, 0 * 8($5)
+            \\ daddu $5, $5, $9
+            \\ sdc1 $f9, 0 * 8($5)
+            \\ daddu $5, $5, $9
+            \\ sdc1 $f10, 0 * 8($5)
+            \\ daddu $5, $5, $9
+            \\ sdc1 $f11, 0 * 8($5)
+            \\ daddiu $2, $2, -1
+            \\ bgtz $2, 20013b
+            \\ daddu $5, $5, $9
+            \\ .align 3
+            \\ 20014:
+            \\ mul.d $f8, $f15, $f0
+            \\ mul.d $f9, $f15, $f1
+            \\ mul.d $f10, $f15, $f2
+            \\ mul.d $f11, $f15, $f3
+            \\ sdc1 $f8, 0 * 8($5)
+            \\ daddu $5, $5, $9
+            \\ sdc1 $f9, 0 * 8($5)
+            \\ daddu $5, $5, $9
+            \\ sdc1 $f10, 0 * 8($5)
+            \\ daddu $5, $5, $9
+            \\ sdc1 $f11, 0 * 8($5)
+            \\ daddu $5, $5, $9
+            \\ mul.d $f8, $f15, $f4
+            \\ mul.d $f9, $f15, $f5
+            \\ mul.d $f10, $f15, $f6
+            \\ mul.d $f11, $f15, $f7
+            \\ sdc1 $f8, 0 * 8($5)
+            \\ daddu $5, $5, $9
+            \\ sdc1 $f9, 0 * 8($5)
+            \\ daddu $5, $5, $9
+            \\ sdc1 $f10, 0 * 8($5)
+            \\ daddu $5, $5, $9
+            \\ sdc1 $f11, 0 * 8($5)
+            \\ daddu $5, $5, $9
+            \\ .align 3
+            \\ 20015:
+            \\ andi $2, $4, 7
+            \\ blez $2, 20017f
+            \\ move $0, $0
+            \\ .align 3
+            \\ 20016:
+            \\ ldc1 $f0, 0 * 8($8)
+            \\ mul.d $f8, $f15, $f0
+            \\ daddiu $2, $2, -1
+            \\ sdc1 $f8, 0 * 8($8)
+            \\ bgtz $2, 20016b
+            \\ daddu $8, $8, $9
+            \\ .align 3
+            \\ 20017:
+            \\ j $31
+            \\ move $0, $0
+            \\ .set macro
+            \\ .set reorder
+            \\
+        );
+    }
+};

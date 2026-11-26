@@ -1,0 +1,18 @@
+//! Which converted file has which kernel, its cores in its `keys`; converted from OpenBLAS `v0.3.34-794-gdbf2c24c9` by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+const registry = @import("../../../../registry.zig");
+
+pub const Entry = registry.Entry;
+
+pub const entries = [_]Entry{
+    .{ .slot = .srot_k, .module = @import("srot_sse_sysv/__root__.zig") },
+    .{ .slot = .srot_k, .module = @import("srot_sse_win/__root__.zig") },
+    .{ .slot = .drot_k, .module = @import("drot_sse2_sysv/__root__.zig") },
+    .{ .slot = .drot_k, .module = @import("drot_sse2_win/__root__.zig") },
+    .{ .slot = .csrot_k, .module = @import("csrot_sse_sysv/__root__.zig") },
+    .{ .slot = .csrot_k, .module = @import("csrot_sse_win/__root__.zig") },
+    .{ .slot = .zdrot_k, .module = @import("zdrot_sse2_atom_sysv/__root__.zig") },
+    .{ .slot = .zdrot_k, .module = @import("zdrot_sse2_core2_sysv/__root__.zig") },
+    .{ .slot = .zdrot_k, .module = @import("zdrot_sse2_atom_win/__root__.zig") },
+    .{ .slot = .zdrot_k, .module = @import("zdrot_sse2_core2_win/__root__.zig") },
+};

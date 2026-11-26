@@ -1,0 +1,14 @@
+//! Which converted file has which kernel, its cores in its `keys`; converted from OpenBLAS `v0.3.34-794-gdbf2c24c9` by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+const registry = @import("../../../../registry.zig");
+
+pub const Entry = registry.Entry;
+
+pub const entries = [_]Entry{
+    .{ .slot = .saxpy_k, .module = @import("saxpy_vfp.zig") },
+    .{ .slot = .daxpy_k, .module = @import("daxpy_vfp.zig") },
+    .{ .slot = .caxpy_k, .module = @import("caxpy_vfp.zig") },
+    .{ .slot = .zaxpy_k, .module = @import("zaxpy_vfp.zig") },
+    .{ .slot = .caxpyc_k, .module = @import("caxpyc_vfp.zig") },
+    .{ .slot = .zaxpyc_k, .module = @import("zaxpyc_vfp.zig") },
+};

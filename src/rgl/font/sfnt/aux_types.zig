@@ -2,7 +2,7 @@
 //! OpenType on-disk data types are in `types.zig`.
 
 const types = @import("types.zig");
-const vec = @import("../../../linalg/__root__.zig").vector;
+const vec = @import("../../../math/linalg/__root__.zig").vector;
 
 const FWord = types.FWord;
 const UFWord = types.UFWord;

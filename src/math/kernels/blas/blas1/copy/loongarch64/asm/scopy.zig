@@ -1,0 +1,174 @@
+//! `scopy` for la64_generic, from OpenBLAS `kernel/loongarch64/copy.S` (`v0.3.34-794-gdbf2c24c9`); converted by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+/// Each function's core and variant.
+pub const keys = .{
+    .{ .core = .la64_generic, .variant = "" },
+};
+
+pub const Body = struct {
+    pub fn entry() callconv(.naked) void {
+        asm volatile (
+            \\ .align 5
+            \\ li.d $r18, 4
+            \\ NOP
+            \\ slli.d $r6, $r6, 2
+            \\ bge $r0, $r4, 20009f
+            \\ slli.d $r8, $r8, 2
+            \\ bne $r6, $r18, 20004f
+            \\ srai.d $r17, $r4, 3
+            \\ bne $r8, $r18, 20004f
+            \\ addi.d $r17, $r17, -1
+            \\ blt $r17, $r0, 20002f
+            \\ fld.s $f22, $r5, 0 * 4
+            \\ fld.s $f8, $r5, 1 * 4
+            \\ fld.s $f23, $r5, 2 * 4
+            \\ fld.s $f9, $r5, 3 * 4
+            \\ fld.s $f10, $r5, 4 * 4
+            \\ fld.s $f11, $r5, 5 * 4
+            \\ fld.s $f12, $r5, 6 * 4
+            \\ fld.s $f13, $r5, 7 * 4
+            \\ bge $r0, $r17, 20001f
+            \\ .align 3
+            \\ 20000:
+            \\ fst.s $f22, $r7, 0 * 4
+            \\ fld.s $f22, $r5, 8 * 4
+            \\ fst.s $f8, $r7, 1 * 4
+            \\ fld.s $f8, $r5, 9 * 4
+            \\ fst.s $f23, $r7, 2 * 4
+            \\ fld.s $f23, $r5, 10 * 4
+            \\ fst.s $f9, $r7, 3 * 4
+            \\ fld.s $f9, $r5, 11 * 4
+            \\ fst.s $f10, $r7, 4 * 4
+            \\ fld.s $f10, $r5, 12 * 4
+            \\ fst.s $f11, $r7, 5 * 4
+            \\ fld.s $f11, $r5, 13 * 4
+            \\ fst.s $f12, $r7, 6 * 4
+            \\ fld.s $f12, $r5, 14 * 4
+            \\ fst.s $f13, $r7, 7 * 4
+            \\ fld.s $f13, $r5, 15 * 4
+            \\ addi.d $r17, $r17, -1
+            \\ addi.d $r5, $r5, 8 * 4
+            \\ addi.d $r7, $r7, 8 * 4
+            \\ blt $r0, $r17, 20000b
+            \\ .align 3
+            \\ 20001:
+            \\ fst.s $f22, $r7, 0 * 4
+            \\ fst.s $f8, $r7, 1 * 4
+            \\ fst.s $f23, $r7, 2 * 4
+            \\ fst.s $f9, $r7, 3 * 4
+            \\ fst.s $f10, $r7, 4 * 4
+            \\ fst.s $f11, $r7, 5 * 4
+            \\ fst.s $f12, $r7, 6 * 4
+            \\ fst.s $f13, $r7, 7 * 4
+            \\ addi.d $r5, $r5, 8 * 4
+            \\ addi.d $r7, $r7, 8 * 4
+            \\ .align 3
+            \\ 20002:
+            \\ andi $r17, $r4, 7
+            \\ bge $r0, $r17, 20009f
+            \\ .align 3
+            \\ 20003:
+            \\ fld.s $f22, $r5, 0 * 4
+            \\ addi.d $r5, $r5, 4
+            \\ addi.d $r17, $r17, -1
+            \\ addi.d $r7, $r7, 4
+            \\ fst.s $f22, $r7, -1 * 4
+            \\ blt $r0, $r17, 20003b
+            \\ b 20009f
+            \\ .align 3
+            \\ 20004:
+            \\ srai.d $r17, $r4, 3
+            \\ addi.d $r17, $r17, -1
+            \\ blt $r17, $r0, 20007f
+            \\ fld.s $f22, $r5, 0 * 4
+            \\ add.d $r5, $r5, $r6
+            \\ fld.s $f8, $r5, 0 * 4
+            \\ add.d $r5, $r5, $r6
+            \\ fld.s $f23, $r5, 0 * 4
+            \\ add.d $r5, $r5, $r6
+            \\ fld.s $f9, $r5, 0 * 4
+            \\ add.d $r5, $r5, $r6
+            \\ fld.s $f10, $r5, 0 * 4
+            \\ add.d $r5, $r5, $r6
+            \\ fld.s $f11, $r5, 0 * 4
+            \\ add.d $r5, $r5, $r6
+            \\ fld.s $f12, $r5, 0 * 4
+            \\ add.d $r5, $r5, $r6
+            \\ fld.s $f13, $r5, 0 * 4
+            \\ add.d $r5, $r5, $r6
+            \\ bge $r0, $r17, 20006f
+            \\ .align 3
+            \\ 20005:
+            \\ fst.s $f22, $r7, 0 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ fld.s $f22, $r5, 0 * 4
+            \\ add.d $r5, $r5, $r6
+            \\ fst.s $f8, $r7, 0 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ fld.s $f8, $r5, 0 * 4
+            \\ add.d $r5, $r5, $r6
+            \\ fst.s $f23, $r7, 0 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ fld.s $f23, $r5, 0 * 4
+            \\ add.d $r5, $r5, $r6
+            \\ fst.s $f9, $r7, 0 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ fld.s $f9, $r5, 0 * 4
+            \\ add.d $r5, $r5, $r6
+            \\ fst.s $f10, $r7, 0 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ fld.s $f10, $r5, 0 * 4
+            \\ add.d $r5, $r5, $r6
+            \\ fst.s $f11, $r7, 0 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ fld.s $f11, $r5, 0 * 4
+            \\ add.d $r5, $r5, $r6
+            \\ fst.s $f12, $r7, 0 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ fld.s $f12, $r5, 0 * 4
+            \\ add.d $r5, $r5, $r6
+            \\ fst.s $f13, $r7, 0 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ fld.s $f13, $r5, 0 * 4
+            \\ addi.d $r17, $r17, -1
+            \\ add.d $r5, $r5, $r6
+            \\ blt $r0, $r17, 20005b
+            \\ .align 3
+            \\ 20006:
+            \\ fst.s $f22, $r7, 0 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ fst.s $f8, $r7, 0 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ fst.s $f23, $r7, 0 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ fst.s $f9, $r7, 0 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ fst.s $f10, $r7, 0 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ fst.s $f11, $r7, 0 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ fst.s $f12, $r7, 0 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ fst.s $f13, $r7, 0 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ .align 3
+            \\ 20007:
+            \\ andi $r17, $r4, 7
+            \\ bge $r0, $r17, 20009f
+            \\ .align 3
+            \\ 20008:
+            \\ fld.s $f22, $r5, 0 * 4
+            \\ add.d $r5, $r5, $r6
+            \\ addi.d $r17, $r17, -1
+            \\ fst.s $f22, $r7, 0 * 4
+            \\ add.d $r7, $r7, $r8
+            \\ blt $r0, $r17, 20008b
+            \\ .align 3
+            \\ 20009:
+            \\ move $r4, $r17
+            \\ fmov.d $f0, $f22
+            \\ jirl $r0, $r1, 0x0
+            \\
+        );
+    }
+};

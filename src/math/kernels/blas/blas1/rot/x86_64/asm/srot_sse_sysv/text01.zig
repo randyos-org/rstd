@@ -1,0 +1,471 @@
+//! Section 1 of 2 of the text of `srot`, which `__root__.zig` joins, from OpenBLAS `kernel/x86_64/rot_sse.S` (`v0.3.34-794-gdbf2c24c9`); converted by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+pub const text =
+    \\ .macro __bk bp0, bp1, bp2, bp3, bp4
+    \\ .balign 512
+    \\ leaq (, %rdx, 4), %rdx
+    \\ leaq (, %r8, 4), %r8
+    \\ pshufd $0x0, %xmm0, %xmm14
+    \\ pshufd $0x0, %xmm1, %xmm15
+    \\ cmpq $0, %rdi
+    \\ jle 20020f
+    \\ cmpq $4, %rdx
+    \\ jne 20016f
+    \\ cmpq $4, %r8
+    \\ jne 20016f
+    \\ testq $4, %rsi
+    \\ je 20000f
+    \\ movss 0 * 4(%rcx), %xmm1
+    \\ movss 0 * 4(%rsi), %xmm0
+    \\ movaps %xmm1, %xmm2
+    \\ movaps %xmm0, %xmm3
+    \\ mulss %xmm14, %xmm0
+    \\ mulss %xmm15, %xmm1
+    \\ mulss %xmm14, %xmm2
+    \\ mulss %xmm15, %xmm3
+    \\ addss %xmm1, %xmm0
+    \\ subss %xmm3, %xmm2
+    \\ movss %xmm0, 0 * 4(%rsi)
+    \\ movss %xmm2, 0 * 4(%rcx)
+    \\ addq $1 * 4, %rsi
+    \\ addq $1 * 4, %rcx
+    \\ decq %rdi
+    \\ jle 20020f
+    \\ 20000:
+    \\ testq $2 * 4, %rsi
+    \\ je 20001f
+    \\ cmpq $1, %rdi
+    \\ je 20007f
+    \\ .if \bp0
+    \\ movsd 0 * 4(%rcx), %xmm1
+    \\ movsd 0 * 4(%rsi), %xmm0
+    \\ .endif
+    \\ .if \bp1
+    \\ movlps 0 * 4(%rcx), %xmm1
+    \\ movlps 0 * 4(%rsi), %xmm0
+    \\ .endif
+    \\ movaps %xmm1, %xmm2
+    \\ movaps %xmm0, %xmm3
+    \\ mulps %xmm14, %xmm0
+    \\ mulps %xmm15, %xmm1
+    \\ mulps %xmm14, %xmm2
+    \\ mulps %xmm15, %xmm3
+    \\ addps %xmm1, %xmm0
+    \\ subps %xmm3, %xmm2
+    \\ movlps %xmm0, 0 * 4(%rsi)
+    \\ movlps %xmm2, 0 * 4(%rcx)
+    \\ addq $2 * 4, %rsi
+    \\ addq $2 * 4, %rcx
+    \\ subq $2, %rdi
+    \\ jle 20020f
+    \\ .balign 4
+    \\ 20001:
+    \\ testq $3 * 4, %rcx
+    \\ jne 20009f
+    \\ movq %rdi, %rax
+    \\ sarq $5, %rax
+    \\ jle 20004f
+    \\ movaps 0 * 4(%rcx), %xmm1
+    \\ movaps 4 * 4(%rcx), %xmm3
+    \\ movaps 8 * 4(%rcx), %xmm9
+    \\ movaps 12 * 4(%rcx), %xmm11
+    \\ movaps 0 * 4(%rsi), %xmm0
+    \\ movaps 4 * 4(%rsi), %xmm2
+    \\ movaps 8 * 4(%rsi), %xmm8
+    \\ movaps 12 * 4(%rsi), %xmm10
+    \\ decq %rax
+    \\ jle 20003f
+    \\ .balign 8
+    \\ 20002:
+    \\ .if \bp2
+    \\ prefetchw ((128 * 5) + 0) - 128(%rsi)
+    \\ .endif
+    \\ .if \bp3
+    \\ prefetcht0 ((128 * 4) + 0) - 128(%rsi)
+    \\ .endif
+    \\ .if \bp4
+    \\ prefetcht0 ((128 * 12) + 0) - 128(%rsi)
+    \\ .endif
+    \\ .if \bp1
+    \\ prefetchw ((128 * 3) + 0) - 128(%rsi)
+    \\ .endif
+    \\ movaps %xmm1, %xmm4
+    \\ mulps %xmm15, %xmm1
+    \\ movaps %xmm3, %xmm6
+    \\ mulps %xmm15, %xmm3
+    \\ movaps %xmm0, %xmm5
+    \\ mulps %xmm14, %xmm0
+    \\ movaps %xmm2, %xmm7
+    \\ mulps %xmm14, %xmm2
+    \\ mulps %xmm14, %xmm4
+    \\ mulps %xmm15, %xmm5
+    \\ mulps %xmm14, %xmm6
+    \\ mulps %xmm15, %xmm7
+    \\ addps %xmm1, %xmm0
+    \\ movaps 16 * 4(%rcx), %xmm1
+    \\ addps %xmm3, %xmm2
+    \\ movaps 20 * 4(%rcx), %xmm3
+    \\ subps %xmm5, %xmm4
+    \\ subps %xmm7, %xmm6
+    \\ .if \bp2
+    \\ prefetchw ((128 * 5) + 0) - 128(%rcx)
+    \\ .endif
+    \\ .if \bp3
+    \\ prefetcht0 ((128 * 4) + 0) - 128(%rcx)
+    \\ .endif
+    \\ .if \bp4
+    \\ prefetcht0 ((128 * 12) + 0) - 128(%rcx)
+    \\ .endif
+    \\ .if \bp1
+    \\ prefetchw ((128 * 3) + 0) - 128(%rcx)
+    \\ .endif
+    \\ movaps %xmm0, 0 * 4(%rsi)
+    \\ movaps 16 * 4(%rsi), %xmm0
+    \\ movaps %xmm2, 4 * 4(%rsi)
+    \\ movaps 20 * 4(%rsi), %xmm2
+    \\ movaps %xmm4, 0 * 4(%rcx)
+    \\ movaps %xmm6, 4 * 4(%rcx)
+    \\ movaps %xmm9, %xmm4
+    \\ mulps %xmm15, %xmm9
+    \\ movaps %xmm8, %xmm5
+    \\ mulps %xmm14, %xmm8
+    \\ movaps %xmm11, %xmm6
+    \\ mulps %xmm15, %xmm11
+    \\ movaps %xmm10, %xmm7
+    \\ mulps %xmm14, %xmm10
+    \\ mulps %xmm14, %xmm4
+    \\ mulps %xmm15, %xmm5
+    \\ mulps %xmm14, %xmm6
+    \\ mulps %xmm15, %xmm7
+    \\ addps %xmm9, %xmm8
+    \\ movaps 24 * 4(%rcx), %xmm9
+    \\ addps %xmm11, %xmm10
+    \\ movaps 28 * 4(%rcx), %xmm11
+    \\ subps %xmm5, %xmm4
+    \\ subps %xmm7, %xmm6
+    \\ movaps %xmm8, 8 * 4(%rsi)
+    \\ movaps 24 * 4(%rsi), %xmm8
+    \\ movaps %xmm10,12 * 4(%rsi)
+    \\ movaps 28 * 4(%rsi), %xmm10
+    \\ movaps %xmm4, 8 * 4(%rcx)
+    \\ movaps %xmm6, 12 * 4(%rcx)
+    \\ .if \bp2
+    \\ prefetchw ((128 * 5) + 64) - 128(%rsi)
+    \\ .endif
+    \\ .if \bp3
+    \\ prefetcht0 ((128 * 4) + 64) - 128(%rsi)
+    \\ .endif
+    \\ .if \bp4
+    \\ prefetcht0 ((128 * 12) + 64) - 128(%rsi)
+    \\ .endif
+    \\ .if \bp1
+    \\ prefetchw ((128 * 3) + 64) - 128(%rsi)
+    \\ .endif
+    \\ movaps %xmm1, %xmm4
+    \\ mulps %xmm15, %xmm1
+    \\ movaps %xmm3, %xmm6
+    \\ mulps %xmm15, %xmm3
+    \\ movaps %xmm0, %xmm5
+    \\ mulps %xmm14, %xmm0
+    \\ movaps %xmm2, %xmm7
+    \\ mulps %xmm14, %xmm2
+    \\ mulps %xmm14, %xmm4
+    \\ mulps %xmm15, %xmm5
+    \\ mulps %xmm14, %xmm6
+    \\ mulps %xmm15, %xmm7
+    \\ addps %xmm1, %xmm0
+    \\ movaps 32 * 4(%rcx), %xmm1
+    \\ addps %xmm3, %xmm2
+    \\ movaps 36 * 4(%rcx), %xmm3
+    \\ subps %xmm5, %xmm4
+    \\ subps %xmm7, %xmm6
+    \\ movaps %xmm0, 16 * 4(%rsi)
+    \\ movaps 32 * 4(%rsi), %xmm0
+    \\ movaps %xmm2, 20 * 4(%rsi)
+    \\ movaps 36 * 4(%rsi), %xmm2
+    \\ movaps %xmm4, 16 * 4(%rcx)
+    \\ movaps %xmm6, 20 * 4(%rcx)
+    \\ .if \bp2
+    \\ prefetchw ((128 * 5) + 64) - 128(%rcx)
+    \\ .endif
+    \\ .if \bp3
+    \\ prefetcht0 ((128 * 4) + 64) - 128(%rcx)
+    \\ .endif
+    \\ .if \bp4
+    \\ prefetcht0 ((128 * 12) + 64) - 128(%rcx)
+    \\ .endif
+    \\ .if \bp1
+    \\ prefetchw ((128 * 3) + 64) - 128(%rcx)
+    \\ .endif
+    \\ movaps %xmm9, %xmm4
+    \\ mulps %xmm15, %xmm9
+    \\ movaps %xmm8, %xmm5
+    \\ mulps %xmm14, %xmm8
+    \\ movaps %xmm11, %xmm6
+    \\ mulps %xmm15, %xmm11
+    \\ movaps %xmm10, %xmm7
+    \\ mulps %xmm14, %xmm10
+    \\ mulps %xmm14, %xmm4
+    \\ mulps %xmm15, %xmm5
+    \\ mulps %xmm14, %xmm6
+    \\ mulps %xmm15, %xmm7
+    \\ addps %xmm9, %xmm8
+    \\ movaps 40 * 4(%rcx), %xmm9
+    \\ addps %xmm11, %xmm10
+    \\ movaps 44 * 4(%rcx), %xmm11
+    \\ subps %xmm5, %xmm4
+    \\ subps %xmm7, %xmm6
+    \\ movaps %xmm8, 24 * 4(%rsi)
+    \\ movaps 40 * 4(%rsi), %xmm8
+    \\ movaps %xmm10, 28 * 4(%rsi)
+    \\ movaps 44 * 4(%rsi), %xmm10
+    \\ movaps %xmm4, 24 * 4(%rcx)
+    \\ movaps %xmm6, 28 * 4(%rcx)
+    \\ addq $32 * 4, %rsi
+    \\ addq $32 * 4, %rcx
+    \\ decq %rax
+    \\ jg 20002b
+    \\ .balign 8
+    \\ 20003:
+    \\ movaps %xmm1, %xmm4
+    \\ mulps %xmm15, %xmm1
+    \\ movaps %xmm3, %xmm6
+    \\ mulps %xmm15, %xmm3
+    \\ movaps %xmm0, %xmm5
+    \\ mulps %xmm14, %xmm0
+    \\ movaps %xmm2, %xmm7
+    \\ mulps %xmm14, %xmm2
+    \\ mulps %xmm14, %xmm4
+    \\ mulps %xmm15, %xmm5
+    \\ mulps %xmm14, %xmm6
+    \\ mulps %xmm15, %xmm7
+    \\ addps %xmm1, %xmm0
+    \\ movaps 16 * 4(%rcx), %xmm1
+    \\ addps %xmm3, %xmm2
+    \\ movaps 20 * 4(%rcx), %xmm3
+    \\ subps %xmm5, %xmm4
+    \\ subps %xmm7, %xmm6
+    \\ movaps %xmm0, 0 * 4(%rsi)
+    \\ movaps 16 * 4(%rsi), %xmm0
+    \\ movaps %xmm2, 4 * 4(%rsi)
+    \\ movaps 20 * 4(%rsi), %xmm2
+    \\ movaps %xmm4, 0 * 4(%rcx)
+    \\ movaps %xmm6, 4 * 4(%rcx)
+    \\ movaps %xmm9, %xmm4
+    \\ mulps %xmm15, %xmm9
+    \\ movaps %xmm8, %xmm5
+    \\ mulps %xmm14, %xmm8
+    \\ movaps %xmm11, %xmm6
+    \\ mulps %xmm15, %xmm11
+    \\ movaps %xmm10, %xmm7
+    \\ mulps %xmm14, %xmm10
+    \\ mulps %xmm14, %xmm4
+    \\ mulps %xmm15, %xmm5
+    \\ mulps %xmm14, %xmm6
+    \\ mulps %xmm15, %xmm7
+    \\ addps %xmm9, %xmm8
+    \\ movaps 24 * 4(%rcx), %xmm9
+    \\ addps %xmm11, %xmm10
+    \\ movaps 28 * 4(%rcx), %xmm11
+    \\ subps %xmm5, %xmm4
+    \\ subps %xmm7, %xmm6
+    \\ movaps %xmm8, 8 * 4(%rsi)
+    \\ movaps 24 * 4(%rsi), %xmm8
+    \\ movaps %xmm10,12 * 4(%rsi)
+    \\ movaps 28 * 4(%rsi), %xmm10
+    \\ movaps %xmm4, 8 * 4(%rcx)
+    \\ movaps %xmm6, 12 * 4(%rcx)
+    \\ movaps %xmm1, %xmm4
+    \\ mulps %xmm15, %xmm1
+    \\ movaps %xmm3, %xmm6
+    \\ mulps %xmm15, %xmm3
+    \\ movaps %xmm0, %xmm5
+    \\ mulps %xmm14, %xmm0
+    \\ movaps %xmm2, %xmm7
+    \\ mulps %xmm14, %xmm2
+    \\ mulps %xmm14, %xmm4
+    \\ mulps %xmm15, %xmm5
+    \\ mulps %xmm14, %xmm6
+    \\ mulps %xmm15, %xmm7
+    \\ addps %xmm1, %xmm0
+    \\ addps %xmm3, %xmm2
+    \\ subps %xmm5, %xmm4
+    \\ subps %xmm7, %xmm6
+    \\ movaps %xmm0, 16 * 4(%rsi)
+    \\ movaps %xmm2, 20 * 4(%rsi)
+    \\ movaps %xmm4, 16 * 4(%rcx)
+    \\ movaps %xmm6, 20 * 4(%rcx)
+    \\ movaps %xmm9, %xmm4
+    \\ mulps %xmm15, %xmm9
+    \\ movaps %xmm8, %xmm5
+    \\ mulps %xmm14, %xmm8
+    \\ movaps %xmm11, %xmm6
+    \\ mulps %xmm15, %xmm11
+    \\ movaps %xmm10, %xmm7
+    \\ mulps %xmm14, %xmm10
+    \\ mulps %xmm14, %xmm4
+    \\ mulps %xmm15, %xmm5
+    \\ mulps %xmm14, %xmm6
+    \\ mulps %xmm15, %xmm7
+    \\ addps %xmm9, %xmm8
+    \\ addps %xmm11, %xmm10
+    \\ subps %xmm5, %xmm4
+    \\ subps %xmm7, %xmm6
+    \\ movaps %xmm8, 24 * 4(%rsi)
+    \\ movaps %xmm10, 28 * 4(%rsi)
+    \\ movaps %xmm4, 24 * 4(%rcx)
+    \\ movaps %xmm6, 28 * 4(%rcx)
+    \\ addq $32 * 4, %rsi
+    \\ addq $32 * 4, %rcx
+    \\ .balign 8
+    \\ 20004:
+    \\ testq $31, %rdi
+    \\ jle 20020f
+    \\ testq $16, %rdi
+    \\ jle 20005f
+    \\ movaps 0 * 4(%rcx), %xmm1
+    \\ movaps 0 * 4(%rsi), %xmm0
+    \\ movaps 4 * 4(%rcx), %xmm3
+    \\ movaps 4 * 4(%rsi), %xmm2
+    \\ movaps %xmm1, %xmm4
+    \\ movaps %xmm0, %xmm5
+    \\ movaps %xmm3, %xmm6
+    \\ movaps %xmm2, %xmm7
+    \\ mulps %xmm14, %xmm0
+    \\ mulps %xmm15, %xmm1
+    \\ mulps %xmm14, %xmm2
+    \\ mulps %xmm15, %xmm3
+    \\ mulps %xmm14, %xmm4
+    \\ mulps %xmm15, %xmm5
+    \\ mulps %xmm14, %xmm6
+    \\ mulps %xmm15, %xmm7
+    \\ addps %xmm1, %xmm0
+    \\ addps %xmm3, %xmm2
+    \\ subps %xmm5, %xmm4
+    \\ subps %xmm7, %xmm6
+    \\ movaps %xmm0, 0 * 4(%rsi)
+    \\ movaps %xmm2, 4 * 4(%rsi)
+    \\ movaps %xmm4, 0 * 4(%rcx)
+    \\ movaps %xmm6, 4 * 4(%rcx)
+    \\ movaps 8 * 4(%rcx), %xmm1
+    \\ movaps 8 * 4(%rsi), %xmm0
+    \\ movaps 12 * 4(%rcx), %xmm3
+    \\ movaps 12 * 4(%rsi), %xmm2
+    \\ movaps %xmm1, %xmm4
+    \\ movaps %xmm0, %xmm5
+    \\ movaps %xmm3, %xmm6
+    \\ movaps %xmm2, %xmm7
+    \\ mulps %xmm14, %xmm0
+    \\ mulps %xmm15, %xmm1
+    \\ mulps %xmm14, %xmm2
+    \\ mulps %xmm15, %xmm3
+    \\ mulps %xmm14, %xmm4
+    \\ mulps %xmm15, %xmm5
+    \\ mulps %xmm14, %xmm6
+    \\ mulps %xmm15, %xmm7
+    \\ addps %xmm1, %xmm0
+    \\ addps %xmm3, %xmm2
+    \\ subps %xmm5, %xmm4
+    \\ subps %xmm7, %xmm6
+    \\ movaps %xmm0, 8 * 4(%rsi)
+    \\ movaps %xmm2, 12 * 4(%rsi)
+    \\ movaps %xmm4, 8 * 4(%rcx)
+    \\ movaps %xmm6, 12 * 4(%rcx)
+    \\ addq $16 * 4, %rsi
+    \\ addq $16 * 4, %rcx
+    \\ .balign 8
+    \\ 20005:
+    \\ testq $8, %rdi
+    \\ jle 20006f
+    \\ movaps 0 * 4(%rcx), %xmm1
+    \\ movaps 0 * 4(%rsi), %xmm0
+    \\ movaps 4 * 4(%rcx), %xmm3
+    \\ movaps 4 * 4(%rsi), %xmm2
+    \\ movaps %xmm1, %xmm4
+    \\ movaps %xmm0, %xmm5
+    \\ movaps %xmm3, %xmm6
+    \\ movaps %xmm2, %xmm7
+    \\ mulps %xmm14, %xmm0
+    \\ mulps %xmm15, %xmm1
+    \\ mulps %xmm14, %xmm2
+    \\ mulps %xmm15, %xmm3
+    \\ mulps %xmm14, %xmm4
+    \\ mulps %xmm15, %xmm5
+    \\ mulps %xmm14, %xmm6
+    \\ mulps %xmm15, %xmm7
+    \\ addps %xmm1, %xmm0
+    \\ addps %xmm3, %xmm2
+    \\ subps %xmm5, %xmm4
+    \\ subps %xmm7, %xmm6
+    \\ movaps %xmm0, 0 * 4(%rsi)
+    \\ movaps %xmm2, 4 * 4(%rsi)
+    \\ movaps %xmm4, 0 * 4(%rcx)
+    \\ movaps %xmm6, 4 * 4(%rcx)
+    \\ addq $8 * 4, %rsi
+    \\ addq $8 * 4, %rcx
+    \\ .balign 8
+    \\ 20006:
+    \\ testq $4, %rdi
+    \\ jle 20007f
+    \\ movaps 0 * 4(%rcx), %xmm1
+    \\ movaps 0 * 4(%rsi), %xmm0
+    \\ movaps %xmm1, %xmm2
+    \\ movaps %xmm0, %xmm3
+    \\ mulps %xmm14, %xmm0
+    \\ mulps %xmm15, %xmm1
+    \\ mulps %xmm14, %xmm2
+    \\ mulps %xmm15, %xmm3
+    \\ addps %xmm1, %xmm0
+    \\ subps %xmm3, %xmm2
+    \\ movaps %xmm0, 0 * 4(%rsi)
+    \\ movaps %xmm2, 0 * 4(%rcx)
+    \\ addq $4 * 4, %rsi
+    \\ addq $4 * 4, %rcx
+    \\ .balign 8
+    \\ 20007:
+    \\ testq $2, %rdi
+    \\ jle 20008f
+    \\ .if \bp0
+    \\ movsd 0 * 4(%rcx), %xmm1
+    \\ movsd 0 * 4(%rsi), %xmm0
+    \\ .endif
+    \\ .if \bp1
+    \\ movlps 0 * 4(%rcx), %xmm1
+    \\ movlps 0 * 4(%rsi), %xmm0
+    \\ .endif
+    \\ movaps %xmm1, %xmm2
+    \\ movaps %xmm0, %xmm3
+    \\ mulps %xmm14, %xmm0
+    \\ mulps %xmm15, %xmm1
+    \\ mulps %xmm14, %xmm2
+    \\ mulps %xmm15, %xmm3
+    \\ addps %xmm1, %xmm0
+    \\ subps %xmm3, %xmm2
+    \\ movlps %xmm0, 0 * 4(%rsi)
+    \\ movlps %xmm2, 0 * 4(%rcx)
+    \\ addq $2 * 4, %rsi
+    \\ addq $2 * 4, %rcx
+    \\ .balign 8
+    \\ 20008:
+    \\ testq $1, %rdi
+    \\ jle 20020f
+    \\ movss 0 * 4(%rcx), %xmm1
+    \\ movss 0 * 4(%rsi), %xmm0
+    \\ movaps %xmm1, %xmm2
+    \\ movaps %xmm0, %xmm3
+    \\ mulss %xmm14, %xmm0
+    \\ mulss %xmm15, %xmm1
+    \\ mulss %xmm14, %xmm2
+    \\ mulss %xmm15, %xmm3
+    \\ addss %xmm1, %xmm0
+    \\ subss %xmm3, %xmm2
+    \\ movss %xmm0, 0 * 4(%rsi)
+    \\ movss %xmm2, 0 * 4(%rcx)
+    \\ jmp 20020f
+    \\ .balign 8
+    \\ 20009:
+    \\ movq %rdi, %rax
+    \\ sarq $5, %rax
+    \\ jle 20011f
+    \\
+;

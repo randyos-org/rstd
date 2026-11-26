@@ -1,0 +1,137 @@
+//! `zsum` for la464, from OpenBLAS `kernel/loongarch64/csum_lasx.S` (`v0.3.34-794-gdbf2c24c9`); converted by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+/// Each function's core and variant.
+pub const keys = .{
+    .{ .core = .la464, .variant = "" },
+};
+
+pub const Body = struct {
+    pub fn entry() callconv(.naked) void {
+        asm volatile (
+            \\ .align 5
+            \\ xvxor.v $xr16, $xr16, $xr16
+            \\ xvxor.v $xr17, $xr17, $xr17
+            \\ bge $r0, $r4, 20009f
+            \\ bge $r0, $r6, 20009f
+            \\ li.d $r18, 1
+            \\ slli.d $r18, $r18, 4
+            \\ slli.d $r6, $r6, 4
+            \\ srai.d $r17, $r4, 3
+            \\ bne $r6, $r18, 20004f
+            \\ bge $r0, $r17, 20002f
+            \\ .align 3
+            \\ 20000:
+            \\ xvld $xr12, $r5, 0 * 8
+            \\ xvld $xr13, $r5, 4 * 8
+            \\ xvfadd.d $xr17, $xr12, $xr13
+            \\ xvfadd.d $xr16, $xr16, $xr17
+            \\ xvld $xr14, $r5, 8 * 8
+            \\ xvld $xr15, $r5, 12 * 8
+            \\ xvfadd.d $xr17, $xr14, $xr15
+            \\ xvfadd.d $xr16, $xr16, $xr17
+            \\ addi.d $r5, $r5, 16 * 8
+            \\ addi.d $r17, $r17, -1
+            \\ blt $r0, $r17, 20000b
+            \\ .align 3
+            \\ 20001:
+            \\ xvpickve.d $xr13, $xr16, 1
+            \\ xvpickve.d $xr14, $xr16, 2
+            \\ xvpickve.d $xr15, $xr16, 3
+            \\ xvfadd.d $xr16, $xr13, $xr16
+            \\ xvfadd.d $xr16, $xr14, $xr16
+            \\ xvfadd.d $xr16, $xr15, $xr16
+            \\ .align 3
+            \\ 20002:
+            \\ andi $r17, $r4, 7
+            \\ bge $r0, $r17, 20009f
+            \\ .align 3
+            \\ 20003:
+            \\ fld.d $f12, $r5, 0 * 8
+            \\ fld.d $f13, $r5, 1 * 8
+            \\ fadd.d $f12, $f12, $f13
+            \\ fadd.d $f16, $f12, $f16
+            \\ addi.d $r17, $r17, -1
+            \\ addi.d $r5, $r5, 2 * 8
+            \\ blt $r0, $r17, 20003b
+            \\ b 20009f
+            \\ .align 3
+            \\ 20004:
+            \\ bge $r0, $r17, 20007f
+            \\ .align 3
+            \\ 20005:
+            \\ ld.d $r15, $r5, 0 * 8
+            \\ ld.d $r12, $r5, 1 * 8
+            \\ add.d $r5, $r5, $r6
+            \\ ld.d $r13, $r5, 0 * 8
+            \\ ld.d $r14, $r5, 1 * 8
+            \\ add.d $r5, $r5, $r6
+            \\ xvinsgr2vr.d $xr12, $r15, 0
+            \\ xvinsgr2vr.d $xr12, $r12, 1
+            \\ xvinsgr2vr.d $xr12, $r13, 2
+            \\ xvinsgr2vr.d $xr12, $r14, 3
+            \\ ld.d $r15, $r5, 0 * 8
+            \\ ld.d $r12, $r5, 1 * 8
+            \\ add.d $r5, $r5, $r6
+            \\ ld.d $r13, $r5, 0 * 8
+            \\ ld.d $r14, $r5, 1 * 8
+            \\ add.d $r5, $r5, $r6
+            \\ xvinsgr2vr.d $xr13, $r15, 0
+            \\ xvinsgr2vr.d $xr13, $r12, 1
+            \\ xvinsgr2vr.d $xr13, $r13, 2
+            \\ xvinsgr2vr.d $xr13, $r14, 3
+            \\ xvfadd.d $xr17, $xr12, $xr13
+            \\ xvfadd.d $xr16, $xr16, $xr17
+            \\ ld.d $r15, $r5, 0 * 8
+            \\ ld.d $r12, $r5, 1 * 8
+            \\ add.d $r5, $r5, $r6
+            \\ ld.d $r13, $r5, 0 * 8
+            \\ ld.d $r14, $r5, 1 * 8
+            \\ add.d $r5, $r5, $r6
+            \\ xvinsgr2vr.d $xr12, $r15, 0
+            \\ xvinsgr2vr.d $xr12, $r12, 1
+            \\ xvinsgr2vr.d $xr12, $r13, 2
+            \\ xvinsgr2vr.d $xr12, $r14, 3
+            \\ ld.d $r15, $r5, 0 * 8
+            \\ ld.d $r12, $r5, 1 * 8
+            \\ add.d $r5, $r5, $r6
+            \\ ld.d $r13, $r5, 0 * 8
+            \\ ld.d $r14, $r5, 1 * 8
+            \\ add.d $r5, $r5, $r6
+            \\ xvinsgr2vr.d $xr13, $r15, 0
+            \\ xvinsgr2vr.d $xr13, $r12, 1
+            \\ xvinsgr2vr.d $xr13, $r13, 2
+            \\ xvinsgr2vr.d $xr13, $r14, 3
+            \\ xvfadd.d $xr17, $xr12, $xr13
+            \\ xvfadd.d $xr16, $xr16, $xr17
+            \\ addi.d $r17, $r17, -1
+            \\ blt $r0, $r17, 20005b
+            \\ .align 3
+            \\ 20006:
+            \\ xvpickve.d $xr13, $xr16, 1
+            \\ xvpickve.d $xr14, $xr16, 2
+            \\ xvpickve.d $xr15, $xr16, 3
+            \\ xvfadd.d $xr16, $xr13, $xr16
+            \\ xvfadd.d $xr16, $xr14, $xr16
+            \\ xvfadd.d $xr16, $xr15, $xr16
+            \\ .align 3
+            \\ 20007:
+            \\ andi $r17, $r4, 7
+            \\ bge $r0, $r17, 20009f
+            \\ .align 3
+            \\ 20008:
+            \\ fld.d $f12, $r5, 0 * 8
+            \\ fld.d $f13, $r5, 1 * 8
+            \\ fadd.d $f12, $f12, $f13
+            \\ fadd.d $f16, $f12, $f16
+            \\ addi.d $r17, $r17, -1
+            \\ add.d $r5, $r5, $r6
+            \\ blt $r0, $r17, 20008b
+            \\ .align 3
+            \\ 20009:
+            \\ fmov.d $f0, $f16
+            \\ jirl $r0, $r1, 0x0
+            \\ .align 3
+            \\
+        );
+    }
+};

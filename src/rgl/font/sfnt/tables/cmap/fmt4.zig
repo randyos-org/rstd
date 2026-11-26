@@ -27,7 +27,7 @@ pub const Format4 = struct {
 
     pub fn init(table_data: []const u8, check: bool) !Self {
         if (check) try bytes.checkSize(table_data, 0, StreamLayout);
-        const seg_count_x2 = bytes.getU16BE(table_data[@offsetOf(StreamLayout, "seg_count_x2")..]);
+        const seg_count_x2 = types.field(StreamLayout, "seg_count_x2", table_data);
         const seg_count: usize = seg_count_x2 >> 1;
         const self: Self = .{ .table_data = table_data, .seg_count = seg_count };
 
@@ -71,19 +71,19 @@ pub const Format4 = struct {
     }
 
     pub inline fn format(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "format")..]);
+        return types.field(StreamLayout, "format", self.table_data);
     }
 
     pub inline fn length(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "length")..]);
+        return types.field(StreamLayout, "length", self.table_data);
     }
 
     pub inline fn language(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "language")..]);
+        return types.field(StreamLayout, "language", self.table_data);
     }
 
     pub inline fn segCountX2(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "seg_count_x2")..]);
+        return types.field(StreamLayout, "seg_count_x2", self.table_data);
     }
 
     /// Microsoft recommends deriving the binary-search parameters (this one
@@ -91,15 +91,15 @@ pub const Format4 = struct {
     /// carry stale values; getGlyphIndex() always recomputes its own. Kept
     /// here only so callers can inspect what the font itself claims.
     pub inline fn searchRange(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "search_range")..]);
+        return types.field(StreamLayout, "search_range", self.table_data);
     }
 
     pub inline fn entrySelector(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "entry_selector")..]);
+        return types.field(StreamLayout, "entry_selector", self.table_data);
     }
 
     pub inline fn rangeShift(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "range_shift")..]);
+        return types.field(StreamLayout, "range_shift", self.table_data);
     }
 
     pub fn getEndCode(self: Self, index: usize) u16 {

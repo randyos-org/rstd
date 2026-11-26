@@ -1,0 +1,50 @@
+//! `sparc`'s gemm blocking parameters, from OpenBLAS `v0.3.34-794-gdbf2c24c9`'s `param.h`; converted by `tools/blas_asm` (retired: issue #618) and maintained by hand. How to read it: `__root__.zig`.
+
+const coretypes = @import("../../../cpu/coretypes.zig");
+const params = @import("../params.zig");
+const Table = params.Table;
+
+/// `BUFFER_SIZE` of a core with no table of its own.
+pub const sparc_buffer_size: i64 = 32 << 20;
+
+pub fn sparc(core: coretypes.SparcCoreType) ?Table {
+    return switch (core) {
+        .sparcv7 => .{
+            .s = .{ .unroll_m = 2, .unroll_n = 8, .p = .{ .fixed = 256 }, .q = .{ .fixed = 512 } },
+            .d = .{ .unroll_m = 2, .unroll_n = 8, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 } },
+            .q = .{ .unroll_m = 2, .unroll_n = 2 },
+            .c = .{ .unroll_m = 1, .unroll_n = 4, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 } },
+            .z = .{ .unroll_m = 1, .unroll_n = 4, .p = .{ .fixed = 256 }, .q = .{ .fixed = 128 } },
+            .x = .{ .unroll_m = 2, .unroll_n = 2 },
+            .sh = .{ .unroll_m = 8, .unroll_n = 8, .unroll_mn = 32, .align_k = 1, .p = .{ .fixed = 128 }, .q = .{ .fixed = 12288 }, .r = .{ .fixed = 240 } },
+            .b = .{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .sb = .{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .offset_b = 2048,
+            .align_ = 16383,
+            .symv_p = 8,
+            .buffer_size = 32 << 20,
+        },
+        .sparc => .{
+            .s = .{ .unroll_m = 4, .unroll_n = 4, .p = .{ .fixed = 512 }, .q = .{ .fixed = 1024 } },
+            .d = .{ .unroll_m = 4, .unroll_n = 4, .p = .{ .fixed = 512 }, .q = .{ .fixed = 512 } },
+            .q = .{ .unroll_m = 2, .unroll_n = 2 },
+            .c = .{ .unroll_m = 2, .unroll_n = 2, .p = .{ .fixed = 512 }, .q = .{ .fixed = 512 } },
+            .z = .{ .unroll_m = 2, .unroll_n = 2, .p = .{ .fixed = 512 }, .q = .{ .fixed = 256 } },
+            .x = .{ .unroll_m = 2, .unroll_n = 2 },
+            .sh = .{ .unroll_m = 8, .unroll_n = 8, .unroll_mn = 32, .align_k = 1, .p = .{ .fixed = 128 }, .q = .{ .fixed = 12288 }, .r = .{ .fixed = 240 } },
+            .b = .{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .sb = .{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .offset_b = 2048,
+            .align_ = 16383,
+            .symv_p = 8,
+            .buffer_size = 32 << 20,
+        },
+    };
+}
+
+/// `DTB_DEFAULT_ENTRIES`; null where `getarch.c` has no entry for the core.
+pub fn sparc_dtb(core: coretypes.SparcCoreType) ?i32 {
+    return switch (core) {
+        .sparcv7, .sparc => 64,
+    };
+}

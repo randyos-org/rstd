@@ -1,0 +1,135 @@
+//! `sasum` for la464, from OpenBLAS `kernel/loongarch64/asum_lasx.S` (`v0.3.34-794-gdbf2c24c9`); converted by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+/// Each function's core and variant.
+pub const keys = .{
+    .{ .core = .la464, .variant = "" },
+};
+
+pub const Body = struct {
+    pub fn entry() callconv(.naked) void {
+        asm volatile (
+            \\ .align 5
+            \\ xvxor.v $xr16, $xr16, $xr16
+            \\ xvxor.v $xr17, $xr17, $xr17
+            \\ xvxor.v $xr18, $xr18, $xr18
+            \\ bge $r0, $r4, 20009f
+            \\ bge $r0, $r6, 20009f
+            \\ li.w $r15, -1
+            \\ xvreplgr2vr.w $xr19, $r15
+            \\ xvffint.s.w $xr19, $xr19
+            \\ li.d $r18, 4
+            \\ slli.d $r6, $r6, 2
+            \\ srai.d $r17, $r4, 3
+            \\ bne $r6, $r18, 20004f
+            \\ bge $r0, $r17, 20002f
+            \\ .align 3
+            \\ 20000:
+            \\ xvld $xr12, $r5, 0 * 4
+            \\ xvfmul.s $xr14, $xr19, $xr12
+            \\ xvfcmp.clt.s $xr23, $xr12, $xr18
+            \\ xvbitsel.v $xr12, $xr12, $xr14, $xr23
+            \\ xvfadd.s $xr16, $xr12, $xr16
+            \\ addi.d $r5, $r5, 8 * 4
+            \\ addi.d $r17, $r17, -1
+            \\ blt $r0, $r17, 20000b
+            \\ .align 3
+            \\ 20001:
+            \\ xvpickve.w $xr13, $xr16, 1
+            \\ xvpickve.w $xr14, $xr16, 2
+            \\ xvpickve.w $xr15, $xr16, 3
+            \\ xvfadd.s $xr16, $xr13, $xr16
+            \\ xvfadd.s $xr16, $xr14, $xr16
+            \\ xvfadd.s $xr16, $xr15, $xr16
+            \\ xvpickve.w $xr12, $xr16, 4
+            \\ xvpickve.w $xr13, $xr16, 5
+            \\ xvpickve.w $xr14, $xr16, 6
+            \\ xvpickve.w $xr15, $xr16, 7
+            \\ xvfadd.s $xr16, $xr12, $xr16
+            \\ xvfadd.s $xr16, $xr13, $xr16
+            \\ xvfadd.s $xr16, $xr14, $xr16
+            \\ xvfadd.s $xr16, $xr15, $xr16
+            \\ .align 3
+            \\ 20002:
+            \\ andi $r17, $r4, 7
+            \\ bge $r0, $r17, 20009f
+            \\ .align 3
+            \\ 20003:
+            \\ fld.s $f12, $r5, 0 * 4
+            \\ fabs.s $f12, $f12
+            \\ fadd.s $f16, $f12, $f16
+            \\ addi.d $r17, $r17, -1
+            \\ addi.d $r5, $r5, 4
+            \\ blt $r0, $r17, 20003b
+            \\ b 20009f
+            \\ .align 3
+            \\ 20004:
+            \\ bge $r0, $r17, 20007f
+            \\ .align 3
+            \\ 20005:
+            \\ ld.w $r15, $r5, 0 * 4
+            \\ add.d $r5, $r5, $r6
+            \\ ld.w $r12, $r5, 0 * 4
+            \\ add.d $r5, $r5, $r6
+            \\ ld.w $r13, $r5, 0 * 4
+            \\ add.d $r5, $r5, $r6
+            \\ ld.w $r14, $r5, 0 * 4
+            \\ add.d $r5, $r5, $r6
+            \\ xvinsgr2vr.w $xr12, $r15, 0
+            \\ xvinsgr2vr.w $xr12, $r12, 1
+            \\ xvinsgr2vr.w $xr12, $r13, 2
+            \\ xvinsgr2vr.w $xr12, $r14, 3
+            \\ ld.w $r15, $r5, 0 * 4
+            \\ add.d $r5, $r5, $r6
+            \\ ld.w $r12, $r5, 0 * 4
+            \\ add.d $r5, $r5, $r6
+            \\ ld.w $r13, $r5, 0 * 4
+            \\ add.d $r5, $r5, $r6
+            \\ ld.w $r14, $r5, 0 * 4
+            \\ add.d $r5, $r5, $r6
+            \\ xvinsgr2vr.w $xr12, $r15, 4
+            \\ xvinsgr2vr.w $xr12, $r12, 5
+            \\ xvinsgr2vr.w $xr12, $r13, 6
+            \\ xvinsgr2vr.w $xr12, $r14, 7
+            \\ xvfmul.s $xr14, $xr19, $xr12
+            \\ xvfcmp.clt.s $xr23, $xr12, $xr18
+            \\ xvbitsel.v $xr12, $xr12, $xr14, $xr23
+            \\ xvfadd.s $xr16, $xr12, $xr16
+            \\ addi.d $r17, $r17, -1
+            \\ blt $r0, $r17, 20005b
+            \\ .align 3
+            \\ 20006:
+            \\ xvpickve.w $xr13, $xr16, 1
+            \\ xvpickve.w $xr14, $xr16, 2
+            \\ xvpickve.w $xr15, $xr16, 3
+            \\ xvfadd.s $xr16, $xr13, $xr16
+            \\ xvfadd.s $xr16, $xr14, $xr16
+            \\ xvfadd.s $xr16, $xr15, $xr16
+            \\ xvpickve.w $xr12, $xr16, 4
+            \\ xvpickve.w $xr13, $xr16, 5
+            \\ xvpickve.w $xr14, $xr16, 6
+            \\ xvpickve.w $xr15, $xr16, 7
+            \\ xvfadd.s $xr16, $xr12, $xr16
+            \\ xvfadd.s $xr16, $xr13, $xr16
+            \\ xvfadd.s $xr16, $xr14, $xr16
+            \\ xvfadd.s $xr16, $xr15, $xr16
+            \\ .align 3
+            \\ 20007:
+            \\ andi $r17, $r4, 7
+            \\ bge $r0, $r17, 20009f
+            \\ .align 3
+            \\ 20008:
+            \\ fld.s $f12, $r5, 0 * 4
+            \\ fabs.s $f12, $f12
+            \\ fadd.s $f16, $f12, $f16
+            \\ addi.d $r17, $r17, -1
+            \\ add.d $r5, $r5, $r6
+            \\ blt $r0, $r17, 20008b
+            \\ .align 3
+            \\ 20009:
+            \\ fmov.s $f0, $f16
+            \\ jirl $r0, $r1, 0x0
+            \\ .align 3
+            \\
+        );
+    }
+};

@@ -1,0 +1,71 @@
+//! Which converted file has which kernel, its cores in its `keys`; converted from OpenBLAS `v0.3.34-794-gdbf2c24c9` by `tools/blas_asm` (retired: issue #618) and maintained by hand.
+
+const registry = @import("../../../../registry.zig");
+
+pub const Entry = registry.Entry;
+
+pub const entries = [_]Entry{
+    .{ .slot = .dgemv_t, .module = @import("dgemv_t_atom_sysv.zig") },
+    .{ .slot = .dgemv_t, .module = @import("dgemv_t_atom_win.zig") },
+    .{ .slot = .zgemv_n, .module = @import("zgemv_n_atom/__root__.zig") },
+    .{ .slot = .zgemv_t, .module = @import("zgemv_t_atom/__root__.zig") },
+    .{ .slot = .zgemv_r, .module = @import("zgemv_r_atom/__root__.zig") },
+    .{ .slot = .zgemv_c, .module = @import("zgemv_c_atom/__root__.zig") },
+    .{ .slot = .zgemv_o, .module = @import("zgemv_o_atom/__root__.zig") },
+    .{ .slot = .zgemv_u, .module = @import("zgemv_u_atom/__root__.zig") },
+    .{ .slot = .zgemv_s, .module = @import("zgemv_s_atom/__root__.zig") },
+    .{ .slot = .zgemv_d, .module = @import("zgemv_d_atom/__root__.zig") },
+    .{ .slot = .zgemv_n, .module = @import("zgemv_n_dup_bobcat_sysv/__root__.zig") },
+    .{ .slot = .zgemv_n, .module = @import("zgemv_n_dup_opteron_sse3_sysv/__root__.zig") },
+    .{ .slot = .zgemv_n, .module = @import("zgemv_n_dup_bobcat_win/__root__.zig") },
+    .{ .slot = .zgemv_n, .module = @import("zgemv_n_dup_opteron_sse3_win/__root__.zig") },
+    .{ .slot = .zgemv_t, .module = @import("zgemv_t_bobcat_sysv/__root__.zig") },
+    .{ .slot = .zgemv_t, .module = @import("zgemv_t_opteron_sse3_sysv/__root__.zig") },
+    .{ .slot = .zgemv_t, .module = @import("zgemv_t_bobcat_win/__root__.zig") },
+    .{ .slot = .zgemv_t, .module = @import("zgemv_t_opteron_sse3_win/__root__.zig") },
+    .{ .slot = .zgemv_r, .module = @import("zgemv_r_dup_bobcat_sysv/__root__.zig") },
+    .{ .slot = .zgemv_r, .module = @import("zgemv_r_dup_opteron_sse3_sysv/__root__.zig") },
+    .{ .slot = .zgemv_r, .module = @import("zgemv_r_dup_bobcat_win/__root__.zig") },
+    .{ .slot = .zgemv_r, .module = @import("zgemv_r_dup_opteron_sse3_win/__root__.zig") },
+    .{ .slot = .zgemv_c, .module = @import("zgemv_c_bobcat_sysv/__root__.zig") },
+    .{ .slot = .zgemv_c, .module = @import("zgemv_c_opteron_sse3_sysv/__root__.zig") },
+    .{ .slot = .zgemv_c, .module = @import("zgemv_c_bobcat_win/__root__.zig") },
+    .{ .slot = .zgemv_c, .module = @import("zgemv_c_opteron_sse3_win/__root__.zig") },
+    .{ .slot = .zgemv_o, .module = @import("zgemv_o_dup_bobcat_sysv/__root__.zig") },
+    .{ .slot = .zgemv_o, .module = @import("zgemv_o_dup_opteron_sse3_sysv/__root__.zig") },
+    .{ .slot = .zgemv_o, .module = @import("zgemv_o_dup_bobcat_win/__root__.zig") },
+    .{ .slot = .zgemv_o, .module = @import("zgemv_o_dup_opteron_sse3_win/__root__.zig") },
+    .{ .slot = .zgemv_u, .module = @import("zgemv_u_bobcat_sysv/__root__.zig") },
+    .{ .slot = .zgemv_u, .module = @import("zgemv_u_opteron_sse3_sysv/__root__.zig") },
+    .{ .slot = .zgemv_u, .module = @import("zgemv_u_bobcat_win/__root__.zig") },
+    .{ .slot = .zgemv_u, .module = @import("zgemv_u_opteron_sse3_win/__root__.zig") },
+    .{ .slot = .zgemv_s, .module = @import("zgemv_s_dup_bobcat_sysv/__root__.zig") },
+    .{ .slot = .zgemv_s, .module = @import("zgemv_s_dup_opteron_sse3_sysv/__root__.zig") },
+    .{ .slot = .zgemv_s, .module = @import("zgemv_s_dup_bobcat_win/__root__.zig") },
+    .{ .slot = .zgemv_s, .module = @import("zgemv_s_dup_opteron_sse3_win/__root__.zig") },
+    .{ .slot = .zgemv_d, .module = @import("zgemv_d_bobcat_sysv/__root__.zig") },
+    .{ .slot = .zgemv_d, .module = @import("zgemv_d_opteron_sse3_sysv/__root__.zig") },
+    .{ .slot = .zgemv_d, .module = @import("zgemv_d_bobcat_win/__root__.zig") },
+    .{ .slot = .zgemv_d, .module = @import("zgemv_d_opteron_sse3_win/__root__.zig") },
+    .{ .slot = .dgemv_t, .module = @import("dgemv_t_bulldozer/__root__.zig") },
+};
+
+/// The kernels upstream builds here that are not converted, with the cores
+/// it builds them for.
+pub const skipped = [_]registry.Skipped{
+    .{ .slot = .dgemv_n, .cores = &.{
+        .atom,
+        .barcelona,
+        .bobcat,
+        .bulldozer,
+        .core2,
+        .dunnington,
+        .nano,
+        .opteron,
+        .opteron_sse3,
+        .penryn,
+        .piledriver,
+        .prescott,
+        .sandybridge,
+    } },
+};

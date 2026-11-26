@@ -2,7 +2,7 @@
 //! `bind`, which fills a table of function pointers by symbol name.
 //!
 //! Lifetime: a handle whose pointers are kept for the rest of the process
-//! (a static table, as `linalg.blas.apple_accel` keeps) is never closed;
+//! (a static table, as `math.kernels.blas.apple_accel` keeps) is never closed;
 //! closing it could unload code those pointers still reach.
 
 const std = @import("std");

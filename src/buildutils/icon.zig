@@ -17,9 +17,8 @@ pub const Icon = struct {
     rgba_name: []const u8,
 
     // `addWin32ResourceFile` is deprecated in favor of the `rc` package
-    // (https://codeberg.org/ziglang/rc, already in build.zig.zon), but `rc`'s
-    // resinator/aro dependency chain doesn't build yet against this
-    // toolchain's std-library churn
+    // (https://codeberg.org/ziglang/rc, commented out in build.zig.zon), but
+    // resinator's Aro does not build on this Zig (issue #395)
     pub fn addToModule(self: *const Self, b: *Build, mod: *Module) void {
         _ = b;
         // const target = mod.resolved_target.?;
@@ -52,7 +51,7 @@ pub const Icon = struct {
         const rstd = try addRstd(b, target, null, false, .{ .blas_cores = .none });
 
         const mod = b.createModule(.{
-            .root_source_file = rstd.dep.?.path("src/rgl/gen_icon.zig"),
+            .root_source_file = rstd.dep.?.path("tools/gen_icon.zig"),
             .target = target,
             .optimize = optimize,
         });
