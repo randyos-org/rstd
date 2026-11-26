@@ -19,6 +19,11 @@ const Batch = rglvk.Batch;
 
 const shaders = @import("../shaders/__root__.zig");
 
+/// A sampled texture and its upload, sampler and descriptor set.
+pub const Texture = @import("Texture.zig");
+/// A surface's built-in draws: atlas, image textures, rects, glyphs, images (#409).
+pub const SurfaceDraws = @import("SurfaceDraws.zig");
+
 /// The push constant every pipeline reads (shaders/layout.zig). The caller
 /// fills `screen_size` from the swapchain extent each frame.
 pub const Globals = shaders.layout.Globals([2]f32);
@@ -290,12 +295,17 @@ pub const InstanceBuffer = struct {
     /// Recreates the buffer if `bytes` doesn't fit the current one, then
     /// uploads via a map/copy/unmap (no persistent mapping).
     pub fn upload(self: *InstanceBuffer, dev: vk.DeviceProxy, mem_props: vk.PhysicalDeviceMemoryProperties, bytes: []const u8) !void {
+        return self.uploadUsage(dev, mem_props, bytes, .{ .vertex_buffer = true });
+    }
+
+    /// `upload` for a buffer of `usage` (a texture's staging copy: `transfer_src`).
+    pub fn uploadUsage(self: *InstanceBuffer, dev: vk.DeviceProxy, mem_props: vk.PhysicalDeviceMemoryProperties, bytes: []const u8, usage: vk.BufferUsageFlags) !void {
         if (bytes.len == 0) return;
         if (bytes.len > self.capacity_bytes) {
             self.deinit(dev);
             self.buf = try dev.createBuffer(&.{
                 .size = bytes.len,
-                .usage = .{ .vertex_buffer = true },
+                .usage = usage,
                 .sharing_mode = .exclusive,
             }, null);
             errdefer dev.destroyBuffer(self.buf, null);
@@ -314,11 +324,10 @@ pub const InstanceBuffer = struct {
     }
 };
 
-/// Per-pipeline, per-frame-in-flight GPU resources. rect is the one
-/// primitive family that needs no texture/descriptor set, so it's the
-/// only one fully wired up end to end (see the TODOs below for
-/// glyph/image); a custom pipeline just owns its own `InstanceBuffer` the
-/// same way and calls `recordBatch` directly.
+/// Per-pipeline, per-frame-in-flight instance buffers. `SurfaceDraws`
+/// records the built-in ones (rects, glyphs on the atlas, images on their
+/// textures); a custom pipeline owns its own `InstanceBuffer` the same way
+/// and calls `recordBatch` directly.
 pub const FrameResources = struct {
     rect: InstanceBuffer = .{},
     glyph: InstanceBuffer = .{},
@@ -362,12 +371,3 @@ pub fn recordBatch(
     dev.cmdBindVertexBuffers(cmd, 0, (&resources.buf)[0..1], &offsets);
     dev.cmdDraw(cmd, 4, @intCast(b.count()), 0, 0);
 }
-
-// TODO: glyph batches need a live atlas texture and its descriptor set
-// (tools/shader_run/draws.zig builds one for the VGA font);
-// then: recordBatch(dev, mem_props, cmd, pipelines.glyph, &resources.glyph,
-//   surface.batch(rglvk.glyph_pipeline_id), globals, atlas_descriptor_set).
-
-// TODO: each source `RgbaImage` in `surface.images` needs its own uploaded
-// texture and descriptor set; then group by `.image` and `recordBatch` each
-// group (`ImageDraw` is not a plain `Batch` today, so through an adapter).

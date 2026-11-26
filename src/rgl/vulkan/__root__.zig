@@ -25,6 +25,8 @@ const Allocator = zigstd.Allocator;
 /// it (and its `@import("vulkan")`) is only ever analyzed by a consumer
 /// that actually references it; see gpu.zig's own header.
 pub const gpu = @import("gpu.zig");
+/// The VGA glyph atlas `drawText` lays text out on; no Vulkan.
+pub const atlas = @import("atlas.zig");
 
 pub const ShapeKind = layout.ShapeKind;
 pub const RectInstance = layout.RectInstance;
