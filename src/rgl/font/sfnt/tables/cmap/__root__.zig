@@ -116,7 +116,7 @@ pub const CmapSubtable = union(enum) {
     fmt13: Format13,
     fmt14: Format14,
 
-    /// raw format number for formats not yet implemented
+    /// raw format number of a format the OpenType spec does not define
     unsupported: u16,
 
     /// table_data must already start at this subtable's own bytes (i.e.
