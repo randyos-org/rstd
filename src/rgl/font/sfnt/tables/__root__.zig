@@ -17,6 +17,8 @@ pub const Os2Table = @import("os2.zig").Os2Table;
 pub const FvarTable = @import("fvar.zig").FvarTable;
 pub const AvarTable = @import("avar.zig").AvarTable;
 pub const GvarTable = @import("gvar.zig").GvarTable;
+/// A glyph's `gvar` deltas at normalized coordinates.
+pub const gvar_deltas = @import("gvar_deltas.zig");
 pub const CvarTable = @import("cvar.zig").CvarTable;
 pub const HvarTable = @import("hvar.zig").HvarTable;
 pub const VvarTable = @import("vvar.zig").VvarTable;
