@@ -1,9 +1,11 @@
-//! A region's worker tasks (`threading.zig`): an `Io.Group`, or plain futures
-//! on `Io.Dispatch`.
+//! A region's worker tasks (`threading.zig`): the spinning pool on
+//! `Io.Threaded` (`pool.zig`), plain futures on `Io.Dispatch`, else an
+//! `Io.Group`.
 
 const std = @import("std");
 const sysinfo = @import("builtin");
 const Signal = @import("team.zig").Signal;
+const pool = @import("pool.zig");
 
 const Io = std.Io;
 const chunks_max = @import("chunks.zig").chunks_max;
@@ -30,34 +32,52 @@ pub fn usesFutures(io: Io) bool {
     return io.vtable == S.ev.io().vtable;
 }
 
-/// A region's worker tasks: an `Io.Group`, or `Futures` (`usesFutures`).
+/// A region's worker tasks: on the pool (`pool.allowance`), on `Futures`
+/// (`usesFutures`), or in an `Io.Group`.
 pub const Tasks = struct {
     group: Io.Group = .init,
     futures: Futures = .{},
-    on_futures: bool,
+    crew: pool.Crew = .{},
+    on: enum { group, futures, pool },
 
     pub fn init(io: Io) Tasks {
-        return .{ .on_futures = usesFutures(io) };
+        if (usesFutures(io)) return .{ .on = .futures };
+        const n = pool.allowance(io);
+        if (n != 0) return .{ .on = .pool, .crew = .{ .limit = n } };
+        return .{ .on = .group };
     }
 
     pub fn async(t: *Tasks, io: Io, function: anytype, args: std.meta.ArgsTuple(@TypeOf(function))) void {
-        if (t.on_futures) return t.futures.async(io, function, args);
-        t.group.async(io, function, args);
+        switch (t.on) {
+            .futures => t.futures.async(io, function, args),
+            // inline when no worker is free, as `Group.async` may run it
+            .pool => t.crew.concurrent(function, args) catch @call(.auto, function, args),
+            .group => t.group.async(io, function, args),
+        }
     }
 
     pub fn concurrent(t: *Tasks, io: Io, function: anytype, args: std.meta.ArgsTuple(@TypeOf(function))) Io.ConcurrentError!void {
-        if (t.on_futures) return t.futures.concurrent(io, function, args);
-        return t.group.concurrent(io, function, args);
+        return switch (t.on) {
+            .futures => t.futures.concurrent(io, function, args),
+            .pool => t.crew.concurrent(function, args),
+            .group => t.group.concurrent(io, function, args),
+        };
     }
 
     pub fn await(t: *Tasks, io: Io) Io.Cancelable!void {
-        if (t.on_futures) return t.futures.await(io);
-        return t.group.await(io);
+        return switch (t.on) {
+            .futures => t.futures.await(io),
+            .pool => t.crew.await(io),
+            .group => t.group.await(io),
+        };
     }
 
     pub fn cancel(t: *Tasks, io: Io) void {
-        if (t.on_futures) return t.futures.cancel(io);
-        t.group.cancel(io);
+        switch (t.on) {
+            .futures => t.futures.cancel(io),
+            .pool => t.crew.cancel(io),
+            .group => t.group.cancel(io),
+        }
     }
 };
 

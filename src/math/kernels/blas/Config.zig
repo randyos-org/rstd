@@ -31,6 +31,11 @@ get_openblas_coretype: bool = false,
 /// 0 means not overridden (no L2 is 0 bytes).
 l2_size_override: i32 = 0,
 
+/// `OPENBLAS_THREAD_TIMEOUT`: a pool worker spins `2^this` ticks before it
+/// sleeps (`threading/pool.zig`); clamped to 4 to 30, 28 unset or 0
+/// (`blas_server.c`'s `THREAD_TIMEOUT`, `blas_thread_init`).
+thread_timeout: u6 = 28,
+
 /// Not from the environment: the CPU count `blas.init` caches
 /// (`threading.cpuCount`), 1 until then.
 cpu_count: u32 = 1,
@@ -101,6 +106,8 @@ pub fn fromEnv(env: Env) Self {
     c.num_threads = if (threads != 0 or default_threads == 0) threads else default_threads;
 
     c.goto_num_threads = readInt(env, "GOTO_NUM_THREADS");
+    const timeout = readInt(env, "OPENBLAS_THREAD_TIMEOUT");
+    if (timeout > 0) c.thread_timeout = @intCast(std.math.clamp(timeout, 4, 30));
     var buf: [value_max]u8 = undefined;
     if (readValue(env, "OPENBLAS_CORETYPE", &buf)) |name| {
         @memcpy(c.core_type_buf[0..name.len], name);
@@ -281,6 +288,22 @@ test "RSTD_BLAS_ACCELERATE=0 turns Accelerate off; unset or anything else leaves
         defer env.deinit();
         if (c.v) |v| try env.put("RSTD_BLAS_ACCELERATE", v);
         try zigstd.testExpectEqual(c.on, Self.init(&env).accelerate);
+    }
+}
+
+test "OPENBLAS_THREAD_TIMEOUT is clamped to 4 to 30, 28 unset or not positive" {
+    for ([_]struct { v: ?[]const u8, want: u6 }{
+        .{ .v = null, .want = 28 },
+        .{ .v = "0", .want = 28 },
+        .{ .v = "-3", .want = 28 },
+        .{ .v = "2", .want = 4 },
+        .{ .v = "20", .want = 20 },
+        .{ .v = "40", .want = 30 },
+    }) |c| {
+        var env = try testEnv(&.{});
+        defer env.deinit();
+        if (c.v) |v| try env.put("OPENBLAS_THREAD_TIMEOUT", v);
+        try zigstd.testExpectEqual(c.want, Self.init(&env).thread_timeout);
     }
 }
 

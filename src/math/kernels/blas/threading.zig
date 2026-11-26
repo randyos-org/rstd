@@ -6,7 +6,7 @@
 //!
 //! Here, the worker count and the plan; the rest is in `threading/`: the
 //! thresholds (`rules.zig`), `chunks.zig`, the claim loop (`region.zig`,
-//! `tasks.zig`), `partials.zig`, level 3's `team.zig` and `grain.zig`.
+//! `tasks.zig`, `pool.zig`), `partials.zig`, level 3's `team.zig` and `grain.zig`.
 
 const std = @import("std");
 const sysinfo = @import("builtin");
@@ -20,6 +20,7 @@ const tasks = @import("threading/tasks.zig");
 const partials = @import("threading/partials.zig");
 const teams = @import("threading/team.zig");
 const grain = @import("threading/grain.zig");
+const pool = @import("threading/pool.zig");
 
 pub const chunks_max = chunking.chunks_max;
 pub const Shape = chunking.Shape;
@@ -38,6 +39,8 @@ pub const forEach = region.forEach;
 pub const reduce = region.reduce;
 pub const forEachPart = region.forEachPart;
 pub const checkCancel = region.checkCancel;
+pub const recancel = pool.recancel;
+pub const onPool = pool.onPool;
 pub const dispatch_futures = tasks.dispatch_futures;
 pub const Evented = tasks.Evented;
 pub const usesFutures = tasks.usesFutures;
