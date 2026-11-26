@@ -172,6 +172,7 @@ test {
     _ = @import("_test/products.zig");
     _ = @import("_test/inverse.zig");
     _ = @import("_test/factor.zig");
+    _ = @import("_test/eigen.zig");
     _ = @import("_test/balancing.zig");
     _ = @import("_test/sylvester.zig");
     _ = @import("sylvester.zig");
