@@ -4,6 +4,8 @@ const Allocator = zigstd.Allocator;
 
 const Sfnt = @import("../sfnt/Sfnt.zig");
 const aux_types = @import("../sfnt/aux_types.zig");
+const sfnt_coords = @import("../sfnt/coords.zig");
+const F2Dot14 = @import("../sfnt/types.zig").F2Dot14;
 const pack = @import("../../pack.zig");
 
 const coloring = @import("coloring.zig");
@@ -63,17 +65,18 @@ pub fn fontMetrics(self: *Generator) !FontMetrics {
     };
 }
 
-/// `error.UnsupportedVariations` for axis coordinates on a variable font:
-/// they are not yet applied to glyph outlines (`gvar` deformation is unimplemented).
-fn handleVarFont(self: *Generator, var_args: []const VarFontArgument) error{UnsupportedVariations}!void {
-    if (var_args.len == 0) return;
-
-    if (self.sfnt.fvar == null) {
+/// The normalized coordinates of `var_args` (`sfnt.coords.normalize`); none
+/// without arguments, or for a font with no `fvar`. The caller frees them.
+fn varCoords(self: *Generator, gpa: Allocator, var_args: []const VarFontArgument) ![]F2Dot14 {
+    if (var_args.len == 0) return &.{};
+    const fvar = self.sfnt.fvar orelse {
         std.log.warn("Var font args supplied, but the font has no fvar table", .{});
-        return;
-    }
-
-    return error.UnsupportedVariations;
+        return &.{};
+    };
+    const out = try gpa.alloc(F2Dot14, fvar.axisCount());
+    errdefer gpa.free(out);
+    try sfnt_coords.normalize(fvar, self.sfnt.avar, var_args, out);
+    return out;
 }
 
 /// Walks a decomposed glyph outline (see Sfnt.glyphShape) into `shape`,
@@ -131,7 +134,8 @@ pub fn generateSingle(
     codepoint: u21,
     opts: *const Options,
 ) !GeneratedGlyph {
-    try self.handleVarFont(opts.var_font_args);
+    const var_coords = try self.varCoords(allocator, opts.var_font_args);
+    defer allocator.free(var_coords);
 
     const head = self.sfnt.head orelse return error.MissingHead;
     const scale = 1.0 / f64i(head.unitsPerEm());
@@ -140,7 +144,7 @@ pub fn generateSingle(
     var shape: Shape = .{};
     defer shape.deinit(allocator);
 
-    const outline_vertices = try self.sfnt.glyphShape(allocator, glyph_index);
+    const outline_vertices = try self.sfnt.glyphShapeAt(allocator, glyph_index, var_coords);
     defer allocator.free(outline_vertices);
     try appendVertices(&shape, allocator, outline_vertices, scale);
 

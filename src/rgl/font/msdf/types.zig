@@ -5,6 +5,7 @@ const zigstd = @import("../../../zigstd.zig");
 const pack = @import("../../pack.zig");
 const error_correction = @import("error_correction.zig");
 const Scanline = @import("Scanline.zig");
+const coords = @import("../sfnt/coords.zig");
 const Allocator = zigstd.Allocator;
 
 pub const FontMetrics = struct {
@@ -118,10 +119,8 @@ pub const Winding = enum {
     negative,
 };
 
-pub const VarFontArgument = struct {
-    name: []const u8,
-    value: f64,
-};
+/// An axis tag ("wght") and its user-scale value.
+pub const VarFontArgument = coords.AxisValue;
 
 pub const Options = struct {
     sdf_type: SdfType,
@@ -147,7 +146,7 @@ pub const Options = struct {
     scanline_fill_rule: ?Scanline.FillRule = null,
     /// Only MSDFs (both their normal and their 10-bit versions) and MTSDFs can be error corrected.
     error_correction_opts: ?error_correction.Options = .{},
-    /// The list of arguments to use if the given font has multiple masters.
+    /// Axis values for a variable font; axes left out take their defaults.
     var_font_args: []const VarFontArgument = &.{},
     /// Whether to use async tasks over concurrent ones during atlas generation.
     /// Currently has no effect outside of atlas generation.

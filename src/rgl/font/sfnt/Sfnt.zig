@@ -277,12 +277,20 @@ pub fn getGlyphIndex(self: Self, codepoint: u32) ?GlyphIndex {
 
 /// Format-agnostic glyph outline extraction: dispatches to the `glyf`-table
 /// path or the CFF/Type2 charstring path depending on which outline format
-/// this font uses.
+/// this font uses. A variable font's default instance; see `glyphShapeAt`.
 pub fn glyphShape(self: Self, gpa: Allocator, glyph: GlyphIndex) ![]Vertex {
+    return self.glyphShapeAt(gpa, glyph, &.{});
+}
+
+/// `glyphShape` at normalized coordinates (`coords.normalize`), which `gvar`
+/// deltas apply to `glyf` outlines; CFF outlines, and no `coords`, give the
+/// default instance.
+pub fn glyphShapeAt(self: Self, gpa: Allocator, glyph: GlyphIndex, coords: []const types.F2Dot14) ![]Vertex {
     if (self.cff) |cff| return charstring.glyphShapeT2(cff, gpa, glyph);
     if (self.glyf) |glyf| {
         const loca = self.loca orelse return &.{};
-        return glyf_shape.glyphShapeTT(loca, glyf, gpa, glyph);
+        const variation: ?glyf_shape.Variation = if (self.gvar) |gvar| (if (coords.len > 0) .{ .gvar = gvar, .coords = coords } else null) else null;
+        return glyf_shape.glyphShapeTT(loca, glyf, gpa, glyph, variation);
     }
     return &.{};
 }
