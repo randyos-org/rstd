@@ -97,6 +97,11 @@ pub const realPart = elementwise.realPart;
 pub const imagPart = elementwise.imagPart;
 pub const conj = elementwise.conj;
 
+const sylvester_ = @import("sylvester.zig");
+pub const SylvesterError = sylvester_.SylvesterError;
+pub const sylvester = sylvester_.sylvester;
+pub const lyap = sylvester_.lyap;
+
 const balancing = @import("balancing.zig");
 pub const Balance = balancing.Balance;
 pub const BalanceError = balancing.BalanceError;
@@ -162,5 +167,7 @@ test {
     _ = @import("_test/inverse.zig");
     _ = @import("_test/factor.zig");
     _ = @import("_test/balancing.zig");
+    _ = @import("_test/sylvester.zig");
+    _ = @import("sylvester.zig");
     _ = @import("_test/paths.zig");
 }
