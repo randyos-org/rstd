@@ -8,6 +8,7 @@ const log = logging.Logger(@This());
 
 const state = @import("state.zig");
 const fdtable = @import("fdtable.zig");
+const dirread = @import("dirread.zig");
 const no_handle = fdtable.no_handle;
 
 /// Locate Simple File System protocol, open root volume into `state.root_dir`,
@@ -93,7 +94,7 @@ pub fn dirClose(userdata: ?*anyopaque, _: []const Io.Dir) void {
     }
 }
 
-pub const dirRead = Io.noDirRead;
+pub const dirRead = dirread.dirRead;
 pub const dirRealPath = Io.failingDirRealPath;
 pub const dirRealPathFile = Io.failingDirRealPathFile;
 pub const dirDeleteFile = Io.failingDirDeleteFile;
