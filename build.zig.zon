@@ -1,7 +1,7 @@
 .{
     .name = .rstd,
     .fingerprint = 0xb74978b15a370f39, // Changing this has security and trust implications.
-    .version = "0.1.0",
+    .version = "0.1.1",
     // .minimum_zig_version = "0.17.0-dev.1444+8d6b8a643",
     .dependencies = .{
         .win32 = .{
