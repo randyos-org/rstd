@@ -55,6 +55,14 @@ gpos: ?tables.GposTable = null,
 /// For FreeType-exact ascender, descender and line height.
 os2: ?tables.Os2Table = null,
 
+// TrueType hinting's tables, raw (`hint/truetype/Instance.zig`).
+
+fpgm: ?[]const u8 = null,
+prep: ?[]const u8 = null,
+/// Big-endian FWords.
+cvt: ?[]const u8 = null,
+hdmx: ?[]const u8 = null,
+
 // Variable fonts.
 
 fvar: ?tables.FvarTable = null,
@@ -161,6 +169,10 @@ pub fn init(alloc: Allocator, font_data: []const u8, options: InitOptions) SfntE
             .VVAR => self.vvar = try tables.VvarTable.init(table_data, options.check),
             .MVAR => self.mvar = try tables.MvarTable.init(table_data, options.check),
             .STAT => self.stat = try tables.StatTable.init(table_data, options.check),
+            .fpgm => self.fpgm = table_data,
+            .prep => self.prep = table_data,
+            .cvt => self.cvt = table_data,
+            .hdmx => self.hdmx = table_data,
             else => {},
         }
     }

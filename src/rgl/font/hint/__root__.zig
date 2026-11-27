@@ -6,8 +6,10 @@ const zigstd = @import("../../../zigstd.zig");
 
 pub const fixed = @import("fixed.zig");
 pub const truetype = @import("truetype/__root__.zig");
+pub const trig = @import("trig.zig");
 
 test {
     zigstd.testRefAllDecls(@This());
     _ = @import("_test/refs_check.zig");
+    _ = @import("_test/truetype_refs.zig");
 }

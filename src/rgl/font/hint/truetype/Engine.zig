@@ -141,6 +141,16 @@ pub fn run(e: *Engine, program: Program) Error!void {
     e.cvt.copied = false;
     e.storage.copied = false;
     e.zp = @splat(.glyph);
+    // twilight points past 2 (points + CVT), at least 30, go unused for the
+    // run: slow malformed bytecode otherwise (ttfautohint stays inside)
+    const twilight = e.zones[0];
+    defer e.zones[0] = twilight;
+    const tw_max: usize = @min(0xFFFF, @max(30, 2 * (e.zones[1].len() + e.cvt.len())));
+    if (twilight.len() > tw_max) {
+        e.zones[0].org = twilight.org[0..tw_max];
+        e.zones[0].cur = twilight.cur[0..tw_max];
+        e.zones[0].tags = twilight.tags[0..tw_max];
+    }
     e.loopcall_counter = 0;
     e.neg_jump_counter = 0;
     const points: u64 = e.zones[1].len();

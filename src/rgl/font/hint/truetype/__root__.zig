@@ -3,6 +3,8 @@
 //! `skrifa/src/outline/glyf/hint/` (issue #373).
 
 pub const Engine = @import("Engine.zig");
+pub const Instance = @import("Instance.zig");
+pub const Loader = @import("load/Loader.zig");
 pub const Decoder = @import("Decoder.zig");
 pub const GraphicsState = @import("GraphicsState.zig");
 pub const Projection = @import("Projection.zig");
