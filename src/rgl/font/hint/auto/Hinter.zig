@@ -3,7 +3,7 @@
 //! FreeType 2.14.3 `src/autofit/afloader.c` (`af_loader_load_glyph`),
 //! `afglobal.c` (`af_face_globals_get_metrics`), `afdummy.c` and
 //! `aflatin.c` (`af_latin_hints_init`); stem darkening is off, as FreeType
-//! leaves it. The Latin and CJK writing systems; Indic is issue #815.
+//! leaves it. The Latin, CJK and Indic writing systems.
 
 const std = @import("std");
 const fixed = @import("../fixed.zig");
@@ -23,7 +23,7 @@ const Allocator = std.mem.Allocator;
 const Hinter = @This();
 
 pub const RenderMode = latin.RenderMode;
-pub const Error = error{ InvalidGlyphIndex, UnsupportedWritingSystem } || Source.Error;
+pub const Error = error{InvalidGlyphIndex} || Source.Error;
 
 allocator: Allocator,
 src: Source,
@@ -86,8 +86,9 @@ fn metricsFor(h: *Hinter, gid: u16) Error!?*StyleMetrics {
                 error.NoBlueZones => continue,
                 else => |x| return x,
             } },
-            .cjk => .{ .cjk = try CjkMetrics.init(h.allocator, &h.src, style) },
-            .indic => return error.UnsupportedWritingSystem,
+            .cjk => .{ .cjk = try CjkMetrics.init(h.allocator, &h.src, style, true) },
+            // the Indic system is CJK's without blue zones (`afindic.c`)
+            .indic => .{ .cjk = try CjkMetrics.init(h.allocator, &h.src, style, false) },
         };
     }
 }

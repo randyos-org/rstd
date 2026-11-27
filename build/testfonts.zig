@@ -26,6 +26,8 @@ pub const fonts = [_]Font{
     .{ .name = "atkynson_mono", .dep = "font_atkinson_hyperlegible_mono", .path = "AtkynsonMonoNerdFontMono-Regular.otf" },
     // CJK, for the autohinter's CJK writing system
     .{ .name = "cica", .dep = "font_cica", .path = "Cica-Regular.ttf" },
+    // Limbu, for the autohinter's Indic writing system
+    .{ .name = "noto_sans_limbu", .dep = "font_noto_sans_limbu", .path = "NotoSansLimbu/hinted/ttf/NotoSansLimbu-Regular.ttf" },
 };
 
 /// `-Dtest-fonts`, which `build` reads before any test is added.

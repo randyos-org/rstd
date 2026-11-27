@@ -15,12 +15,13 @@ const files = .{
     .{ "ubuntu", @embedFile("refs/ubuntu.bin.gz") },
     .{ "ibm_plex_serif", @embedFile("refs/ibm_plex_serif.bin.gz") },
     .{ "cica", @embedFile("refs/cica.bin.gz") },
+    .{ "noto_sans_limbu", @embedFile("refs/noto_sans_limbu.bin.gz") },
     .{ "commit_mono", @embedFile("refs/commit_mono.bin.gz") },
     .{ "atkynson_mono", @embedFile("refs/atkynson_mono.bin.gz") },
 };
 
 /// ASCII from the space, then `hintrefs.c`'s `extra`.
-const glyph_count = 0x7F - 0x20 + 36;
+const glyph_count = 0x7F - 0x20 + 46;
 
 fn expectOutline(r: refs.Refs, mode: refs.Mode, o: refs.Outline, unhinted: refs.Outline) !void {
     try testing.expectEqual(@as(i32, 0), o.err);

@@ -16,11 +16,13 @@
 #include FT_TRUETYPE_TABLES_H
 
 /* ASCII, then Latin-1 (composite glyphs in TrueType fonts), Greek, Cyrillic, the euro sign; Nerd Font icons
- * (no script covers them: the autohinter's CJK fallback style, issue #814); kana, kanji and CJK punctuation */
+ * (no script covers them: the autohinter's CJK fallback style, issue #814); kana, kanji and CJK punctuation;
+ * Limbu (the Indic writing system, issue #815) */
 static const uint32_t extra[] = {0xC0,   0xC5,   0xC7,   0xC9,   0xDF,   0xE7,   0xE9,   0xF1,   0xF6,   0x3A9,  0x3BB,
                                  0x416,  0x44F,  0x20AC, 0xE0A0, 0xE0B0, 0xF015, 0xF07B, 0xF121, 0x3001, 0x3002, 0x3042,
                                  0x306E, 0x30A2, 0x30AB, 0x4E00, 0x4E2D, 0x56FD, 0x5B57, 0x65E5, 0x6587, 0x672C, 0x6C38,
-                                 0x6771, 0x8A9E, 0xFF01};
+                                 0x6771, 0x8A9E, 0xFF01, 0x1901, 0x1904, 0x1909, 0x190E, 0x1915, 0x191C, 0x1923, 0x1930,
+                                 0x1946, 0x194B};
 static const unsigned sizes[] = {9, 12, 16, 24};
 #define N_SIZES (sizeof sizes / sizeof sizes[0])
 

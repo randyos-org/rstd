@@ -66,6 +66,12 @@
             .hash = "N-V-__8AACWssgJ9pReyC6e6D5oLT4lCsMPGh02UHsAfa1qX",
             .lazy = true,
         },
+        // a Limbu face (OFL-1.1) for the Indic autohinter (issue #815)
+        .font_noto_sans_limbu = .{
+            .url = "https://github.com/notofonts/limbu/releases/download/NotoSansLimbu-v2.005/NotoSansLimbu-v2.005.zip",
+            .hash = "N-V-__8AAHTwAgATUehau_k7JASR6PBpaZ1sIjR5ZbdkeuvA",
+            .lazy = true,
+        },
         // .rc = .{
         //     .url = "git+https://codeberg.org/ziglang/rc#23b64112d428b13f59967a0e6587b3391d0aeb76",
         //     .hash = "rc-0.0.0-rMftL9REAADo6nZWJwkxvJGHVKNNwXT-SxFQGdbiv5DW",

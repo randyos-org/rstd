@@ -67,12 +67,14 @@ units_per_em: u16,
 axis: [2]Axis = .{ .{}, .{} },
 digits_have_same_width: bool = true,
 
-/// `af_cjk_metrics_init`; unlike Latin's, zones or none, it succeeds.
-pub fn init(allocator: Allocator, src: *Source, style: u16) Source.Error!Metrics {
+/// `af_cjk_metrics_init`; unlike Latin's, zones or none, it succeeds. The
+/// Indic system's (`af_indic_metrics_init`, `src/autofit/afindic.c`) is
+/// the same with no blue zones.
+pub fn init(allocator: Allocator, src: *Source, style: u16, with_blues: bool) Source.Error!Metrics {
     var m: Metrics = .{ .style = style, .units_per_em = src.unitsPerEm() };
     if (src.sfnt.unicodeCmap() == null) return m;
     try stdwidths.init(allocator, &m, src);
-    try m.initBlues(allocator, src);
+    if (with_blues) try m.initBlues(allocator, src);
     m.digits_have_same_width = digits.sameWidth(src);
     return m;
 }

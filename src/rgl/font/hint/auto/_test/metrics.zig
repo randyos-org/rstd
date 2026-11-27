@@ -80,3 +80,25 @@ test "autohint metrics: Latin coverage, widths and blue zones of the reference f
     };
     if (!any) return error.SkipZigTest;
 }
+
+test "autohint coverage: Limbu takes the Indic system, kana CJK's, icons the CJK fallback (-Dtest-fonts)" {
+    const al = testing.allocator;
+    var any = false;
+    const cases = .{
+        .{ "noto_sans_limbu", 0x1901, "limb_dflt", .indic },
+        .{ "cica", 0x3042, "hani_dflt", .cjk },
+        .{ "jetbrains_mono", 0xF015, "hani_dflt", .cjk },
+    };
+    inline for (cases) |c| if (@field(test_fonts, c[0])) |bytes| {
+        any = true;
+        var arena: std.heap.ArenaAllocator = .init(al);
+        defer arena.deinit();
+        const sfnt = try Sfnt.init(arena.allocator(), bytes, .{});
+        const gstyles = try coverage.compute(al, &sfnt);
+        defer al.free(gstyles);
+        const style = styles[gstyles[@backingInt(sfnt.getGlyphIndex(c[1]).?)] & coverage.style_mask];
+        try testing.expectEqualStrings(c[2], style.name);
+        try testing.expectEqual(@as(@TypeOf(style.writing_system), c[3]), style.writing_system);
+    };
+    if (!any) return error.SkipZigTest;
+}

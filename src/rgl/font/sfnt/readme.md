@@ -72,7 +72,7 @@ defer atlas.deinit(alloc);
 - Codepoint to glyph lookup, kerning, and both direct coverage-bitmap rendering and MSDF/SDF atlas generation.
 - Both TrueType (`glyf`) and CFF/Type2 outline formats are supported.
 - Font collections (`.ttc`/`.otc`) load one font at a time by index.
-- Hinting (`hint/`, in progress under issue #373) emulates FreeType 2.14.3 for the fast path's fixed sizes, in FreeType's fixed-point arithmetic: `hint/truetype/` is its bytecode interpreter (v35 and v40), `hint/cff/` its Adobe CFF engine, `hint/auto/` its autohinter (the Latin and CJK writing systems; Indic follows). `hint/_test/refs/` holds FreeType's own outlines to test against (`zig build hint-refs -Dtest-fonts`).
+- Hinting (`hint/`, in progress under issue #373) emulates FreeType 2.14.3 for the fast path's fixed sizes, in FreeType's fixed-point arithmetic: `hint/truetype/` is its bytecode interpreter (v35 and v40), `hint/cff/` its Adobe CFF engine, `hint/auto/` its autohinter (the Latin, CJK and Indic writing systems). `hint/_test/refs/` holds FreeType's own outlines to test against (`zig build hint-refs -Dtest-fonts`).
 - Font shaping and ligatures are not supported: a run of text is drawn glyph-by-glyph via `cmap` lookups and kerning pairs, not through the more elaborate substitution/positioning rules (as used by, say, Arabic script shaping or ligature substitution like "fi" merging into a single glyph) that a dedicated shaping engine like HarfBuzz would apply.
 - Untrusted font files are not supported - the parsers here trust the input to be well-formed.
 
