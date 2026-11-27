@@ -122,12 +122,16 @@ pub const SchurError = schur_form.SchurError;
 pub const Schur = schur_form.Schur;
 pub const schur = schur_form.schur;
 pub const schurComplex = schur_form.schurComplex;
-pub const OrdschurError = schur_form.OrdschurError;
-pub const ordschur = schur_form.ordschur;
 pub const QzError = schur_form.QzError;
 pub const Qz = schur_form.Qz;
 pub const qz = schur_form.qz;
 pub const qzComplex = schur_form.qzComplex;
+
+const ordschur_ = @import("ordschur.zig");
+pub const OrdschurError = ordschur_.OrdschurError;
+pub const OrdschurSelect = ordschur_.Select;
+pub const OrdschurRegion = ordschur_.Region;
+pub const ordschur = ordschur_.ordschur;
 
 const expm_ = @import("expm.zig");
 pub const ExpmError = expm_.ExpmError;
@@ -161,6 +165,8 @@ test {
     _ = @import("sqrtm.zig");
     _ = @import("expm.zig");
     _ = @import("schur_form.zig");
+    _ = @import("ordschur.zig");
+    _ = @import("_test/ordschur.zig");
     _ = @import("balancing.zig");
     _ = @import("elementwise.zig");
     _ = @import("vector_norm.zig");

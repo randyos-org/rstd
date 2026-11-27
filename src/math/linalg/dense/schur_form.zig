@@ -178,36 +178,6 @@ fn gges(comptime T: type, allocator: Allocator, io: Io, aa: Mat(T), bb: Mat(T)) 
     return .{ .aa = aa, .bb = bb, .q = q, .z = z };
 }
 
-/// `ordschur`'s: `DimensionMismatch` unless `u`, `t` and `select` agree in
-/// size; `EigenvaluesTooClose` when a swap would lose accuracy (real `T`:
-/// `trsen`'s `SwapRejected`, MATLAB's error there).
-pub const OrdschurError = error{ NotSquare, DimensionMismatch, EigenvaluesTooClose } || Allocator.Error || Io.Cancelable;
-
-/// The Schur form `A = U T Uᴴ` reordered so the eigenvalues `select` picks
-/// lead `T` (MATLAB's `[US, TS] = ordschur(U, T, select)`), by `trsen`. For
-/// a real `T`, either row of a 2 x 2 block picks its pair.
-pub fn ordschur(allocator: Allocator, io: Io, u: anytype, t: anytype, select: []const bool) OrdschurError!Schur(ElementOf(@TypeOf(t))) {
-    const T = ElementOf(@TypeOf(t));
-    const cu = constOf(u);
-    const ct = constOf(t);
-    if (ct.rows != ct.cols) return error.NotSquare;
-    const n = ct.rows;
-    if (cu.rows != n or cu.cols != n or select.len != n) return error.DimensionMismatch;
-    const rt = try copyOf(T, allocator, ct);
-    errdefer rt.deinit(allocator);
-    const ru = try copyOf(T, allocator, cu);
-    errdefer ru.deinit(allocator);
-    if (n == 0) return .{ .u = ru, .t = rt };
-    const w = try allocator.alloc(T, if (comptime isComplex(T)) n else 2 * n);
-    defer allocator.free(w);
-    const ev: lapack.Eigenvalues(T) = if (comptime isComplex(T)) w else .{ .re = w[0..n], .im = w[n..] };
-    _ = lapack.trsen(allocator, io, T, .none, .update, select, n, rt.data, n, ru.data, n, ev) catch |e| return switch (e) {
-        error.SwapRejected => error.EigenvaluesTooClose,
-        else => ops.narrow(OrdschurError, e),
-    };
-    return .{ .u = ru, .t = rt };
-}
-
 /// `gees` on `t` (taken), with `U` from its Schur vectors.
 fn gees(comptime T: type, allocator: Allocator, io: Io, t: Mat(T)) SchurError!Schur(T) {
     errdefer t.deinit(allocator);
@@ -228,20 +198,7 @@ fn gees(comptime T: type, allocator: Allocator, io: Io, t: Mat(T)) SchurError!Sc
 // ---- tests ----
 
 const testing = std.testing;
-
-/// `‖Q X Qᴴ - A‖` over the entries, real `T`.
-fn residual(a: []const f64, q: Mat(f64), x: Mat(f64)) f64 {
-    const n = q.rows;
-    var worst: f64 = 0;
-    for (0..n) |i| for (0..n) |j| {
-        var s: f64 = 0;
-        for (0..n) |k| for (0..n) |l| {
-            s += q.at(i, k) * x.at(k, l) * q.at(j, l);
-        };
-        worst = @max(worst, @abs(s - a[i + j * n]));
-    };
-    return worst;
-}
+const residual = @import("_test/similarity.zig").residual;
 
 test "hess and schur: P H Pᵀ and U T Uᵀ give A back, forms as promised" {
     const al = testing.allocator;
@@ -265,48 +222,4 @@ test "hess and schur: P H Pᵀ and U T Uᵀ give A back, forms as promised" {
     var trace: f64 = 0;
     for (0..3) |i| trace += sc.t.at(i, i).re;
     try testing.expectApproxEqAbs(2, trace, 1e-13);
-}
-
-test "ordschur: the selected eigenvalues lead T, U T Uᴴ unchanged" {
-    const al = testing.allocator;
-    const io = testing.io;
-    // triangular with U = I: 3 and 4 move to the front, in their order
-    const a = [_]f64{ 1, 0, 0, 0, 0.5, 2, 0, 0, -1, 0.25, 3, 0, 2, 1, -0.5, 4 };
-    const v: ConstView(f64) = try .init(&a, 4, 4, 4);
-    const eye = [_]f64{ 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
-    const id: ConstView(f64) = try .init(&eye, 4, 4, 4);
-    const s = try ordschur(al, io, id, v, &.{ false, false, true, true });
-    defer s.deinit(al);
-    try testing.expect(residual(&a, s.u, s.t) < 1e-13 * 8);
-    try testing.expectApproxEqAbs(3, s.t.at(0, 0), 1e-13);
-    try testing.expectApproxEqAbs(4, s.t.at(1, 1), 1e-13);
-    for (0..4) |j| for (j + 1..4) |i| try testing.expectEqual(0, s.t.at(i, j));
-
-    // a real pair ahead of 2: selecting 2 moves it past the 2 x 2 block
-    const r = [_]f64{ 0, -1, 0, 1, 0, 0, 0, 0, 2 };
-    const rv = try ConstView(f64).init(&r, 3, 3, 3);
-    const sr = try schur(al, io, rv);
-    defer sr.deinit(al);
-    var at2: usize = 0;
-    for (0..3) |i| {
-        if (@abs(sr.t.at(i, i) - 2) < 1e-12) at2 = i;
-    }
-    var pick = [_]bool{ false, false, false };
-    pick[at2] = true;
-    const o = try ordschur(al, io, sr.u, sr.t, &pick);
-    defer o.deinit(al);
-    try testing.expect(residual(&r, o.u, o.t) < 1e-13 * 8);
-    try testing.expectApproxEqAbs(2, o.t.at(0, 0), 1e-13);
-
-    // complex: the same with schurComplex's triangular form
-    const sc = try schurComplex(al, io, rv);
-    defer sc.deinit(al);
-    var cpick = [_]bool{ false, false, false };
-    for (0..3) |i| cpick[i] = @abs(sc.t.at(i, i).re - 2) < 1e-12;
-    const oc = try ordschur(al, io, sc.u, sc.t, &cpick);
-    defer oc.deinit(al);
-    try testing.expectApproxEqAbs(2, oc.t.at(0, 0).re, 1e-13);
-    try testing.expectApproxEqAbs(0, oc.t.at(0, 0).im, 1e-13);
-
-    try testing.expectError(error.DimensionMismatch, ordschur(al, io, id, v, &.{ true, false }));
 }
