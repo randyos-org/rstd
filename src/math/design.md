@@ -561,6 +561,8 @@ MATLAB's names and argument order where MATLAB has the routine; NumPy's where it
 
 #### The `linalg` functions
 
+The last column is `yes` for what v0.1.0 has, or the release that added the row.
+
 | Signature | Computes | v0.1.0 |
 | --- | --- | --- |
 | `dot(io, x: anytype, y: anytype) VectorError!ElementOf(@TypeOf(x))` | `xᴴy` | yes |
@@ -585,6 +587,14 @@ MATLAB's names and argument order where MATLAB has the routine; NumPy's where it
 | `eig(allocator, io, a: anytype, want_vectors: bool) EigError!Eig(ElementOf(@TypeOf(a)))` | eigenvalues, and vectors; Hermitian `A` by the symmetric path | yes |
 | `hess(allocator, io, a: anytype) HessError!Hess(ElementOf(@TypeOf(a)))` | `A = Q·H·Qᴴ` | yes |
 | `schur(allocator, io, a: anytype) SchurError!Schur(ElementOf(@TypeOf(a)))`, `schurComplex(...)` | real or complex Schur form | yes |
+| `ldl(allocator, io, a: anytype) LdlError!Ldl(ElementOf(@TypeOf(a)))` | `A = L·D·Lᴴ` by Bunch and Kaufman (MATLAB's `ldl`) | v0.2.0 |
+| `cholupdate(allocator, r: anytype, x: anytype, op: CholupdateOp) CholupdateError!Mat(ElementOf(@TypeOf(r)))` | `R1ᴴR1 = RᴴR ± xxᴴ` (MATLAB's `cholupdate`) | v0.2.0 |
+| `lsqminnorm(allocator, io, a: anytype, b: anytype) LsqminnormError!Mat(ElementOf(@TypeOf(a)))`, `lsqminnormWith(..., options: LsqminnormOptions(...))` | the minimum-norm least-squares solution | v0.2.0 |
+| `balance(allocator, io, a: anytype, mode: BalanceMode) BalanceError!Balance(ElementOf(@TypeOf(a)))` | `T⁻¹AT` balanced (MATLAB's `balance`) | v0.2.0 |
+| `eigGeneralized(allocator, io, a: anytype, b: anytype, want_vectors: bool) EigGeneralizedError!Eig(ElementOf(@TypeOf(a)))` | `eig(A, B)`: a Hermitian definite pencil by `sygvd`, any other by `ggev` | v0.2.0 |
+| `qz(allocator, io, a: anytype, b: anytype) QzError!Qz(ElementOf(@TypeOf(a)))`, `qzComplex(...)` | `QAZ = AA`, `QBZ = BB` (MATLAB's `qz`) | v0.2.0 |
+| `ordschur(allocator, io, u: anytype, t: anytype, select: OrdschurSelect) OrdschurError!Schur(ElementOf(@TypeOf(t)))`, `ordqz(allocator, io, aa: anytype, bb: anytype, q: anytype, z: anytype, select: OrdschurSelect) OrdqzError!Qz(ElementOf(@TypeOf(aa)))` | a Schur or generalized Schur form reordered by a mask, a region (`lhp`, `rhp`, `udi`, `udo`) or clusters | v0.2.0 |
+| `sylvester(allocator, io, a: anytype, b: anytype, c: anytype) SylvesterError!Mat(ElementOf(@TypeOf(a)))`, `lyap(allocator, io, a: anytype, q: anytype)`, `lyapSylvester(allocator, io, a, b, c)`, `lyapGeneralized(allocator, io, a, q, e)` | `AX + XB = C`; `AX + XAᴴ + Q = 0`, `AX + XB + C = 0`, `AXEᴴ + EXAᴴ + Q = 0` | v0.2.0 |
 | `matrixNorm(allocator, io, a: anytype, which: MatrixNorm) MatrixNormError!Real(ElementOf(@TypeOf(a)))` | `norm(A, p)` | yes |
 | `cond(allocator, io, a: anytype) SvdError!Real(ElementOf(@TypeOf(a)))`, `rcond(allocator, io, a: anytype) RcondError!Real(ElementOf(@TypeOf(a)))` | the 2-norm condition number; its one-norm reciprocal estimate | yes |
 | `rank(allocator, io, a: anytype, tol: ?Real(ElementOf(@TypeOf(a)))) SvdError!usize` | numerical rank | yes |
@@ -600,7 +610,7 @@ MATLAB's names and argument order where MATLAB has the routine; NumPy's where it
 | `magic(allocator, T, n: usize) Allocator.Error!Mat(T)`, `hilbert`, `invHilbert`; `uniform(allocator, T, rows: usize, cols: usize, rnd: std.Random) Allocator.Error!Mat(T)`, `normal`, `fillUniform(T, v: View(T), rnd: std.Random) void`, `fillNormal` | MATLAB's gallery and random matrices | yes |
 | `trace`, `logDet`, `cross`, `outer` | `trace`, `log(det)` without overflow, `cross`, `xyᴴ` | named; #615 |
 | `sumWith`, `dotWith`, `normWith` | the reductions with `.{ .summation = ... }` | named; #615 |
-| `eigGeneralized`, `schurGeneralized`, `svdGeneralized` | `eig(A, B)`, `qz`, `gsvd` over the backlog's `ggev`, `gges`, `ggsvd3` | named; backlog (#623) |
+| `svdGeneralized` | `gsvd` over the backlog's `ggsvd3` | named; backlog (#623) |
 | `polyfit`, `polyval` | least-squares fit; evaluation over `kernels.dsp.evaluatePolynomial` | named; backlog (#627) |
 
 - N-d arrays beyond storage: indexing, broadcasting, reductions along a dimension. Spec to be decided.
