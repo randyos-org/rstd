@@ -54,6 +54,8 @@ fn resolvePrivateSubrs(cff_bytes: []const u8, dict: Dict, check: bool) (bytes.By
 const CffTable = @This();
 
 table_data: []const u8,
+/// The first Top DICT's bytes.
+top_dict_data: []const u8,
 charstrings_index: Index,
 global_subrs_index: Index,
 is_cid: bool,
@@ -118,6 +120,7 @@ pub fn init(table_data: []const u8, check: bool) (bytes.BytesError || CffError)!
 
     return .{
         .table_data = table_data,
+        .top_dict_data = top_dict.table_data,
         .charstrings_index = charstrings_index,
         .global_subrs_index = global_subrs_index,
         .is_cid = is_cid,
@@ -142,6 +145,22 @@ pub inline fn numGlyphs(self: CffTable) u16 {
 /// One glyph's raw, unparsed Type 2 charstring bytes. Bounds are the
 /// caller's responsibility (glyph < numGlyphs()), matching this
 /// module's other raw index accessors.
+/// A Private DICT's bytes and where they start in the table.
+pub const PrivateDict = struct { data: []const u8, offset: usize };
+
+/// The Private DICT `glyph` uses: the Top DICT's, or its FD's for a CID
+/// font; null without one or when its range is out of the table.
+pub fn privateDictForGlyph(self: CffTable, glyph: GlyphIndex) ?PrivateDict {
+    const dict: Dict = if (self.fd_array_index) |fd_array| .{ .table_data = fd_array.get(self.getFdIndexForGlyph(glyph)) } else .{ .table_data = self.top_dict_data };
+    var priv: [2]i32 = undefined;
+    if ((dict.getInts(.private, &priv) catch return null) != 2) return null;
+    if (priv[0] < 0 or priv[1] < 0) return null;
+    const size: usize = @intCast(priv[0]);
+    const offset: usize = @intCast(priv[1]);
+    if (offset > self.table_data.len or size > self.table_data.len - offset) return null;
+    return .{ .data = self.table_data[offset..][0..size], .offset = offset };
+}
+
 pub fn getCharString(self: CffTable, glyph: GlyphIndex) []const u8 {
     return self.charstrings_index.get(@intCast(@backingInt(glyph)));
 }

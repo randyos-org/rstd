@@ -21,23 +21,7 @@ const Loader = @This();
 
 pub const Error = error{ InvalidGlyphIndex, InvalidComposite, InvalidOutline, TooManyHints } || Engine.Error || Allocator.Error;
 
-/// A loaded glyph, its slices owned by the caller's allocator.
-pub const Glyph = struct {
-    /// 26.6, the origin at the left phantom point.
-    points: []Point,
-    /// FreeType's curve tags: on the curve or not.
-    tags: []u8,
-    /// Each contour's last point.
-    contours: []u16,
-    /// 26.6, whole pixels when hinted.
-    advance: i32,
-
-    pub fn deinit(g: *Glyph, allocator: Allocator) void {
-        allocator.free(g.contours);
-        allocator.free(g.tags);
-        allocator.free(g.points);
-    }
-};
+pub const Glyph = @import("../../Glyph.zig");
 
 allocator: Allocator,
 inst: *Instance,
