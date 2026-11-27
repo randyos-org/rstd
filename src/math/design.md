@@ -245,6 +245,7 @@ As `src/math/kernels/lapack/` has it today. Accelerate (macOS 13.3's `$NEWLAPACK
 | `potf2(T, uplo: Uplo, n: usize, a: []T, lda: usize) Potf2Error!void` | `potrf`, unblocked | `?potf2` | OpenBLAS `potf2.c` |
 | `potrs(allocator, io, T, uplo: Uplo, n: usize, nrhs: usize, a: []const T, lda: usize, b: []T, ldb: usize) PotrsError!void` | solves `AX = B` from `potrf`'s factor | `?potrs` | Reference-LAPACK `dpotrs.f` |
 | `posv(allocator, io, T, uplo: Uplo, n: usize, nrhs: usize, a: []T, lda: usize, b: []T, ldb: usize) PosvError!void` | `potrf`, then `potrs` | `?posv` | Reference-LAPACK `dposv.f` (v0.2.0) |
+| `pocon(allocator, io, T, uplo: Uplo, n: usize, a: []const T, lda: usize, anorm: Float(T)) PoconError!Float(T)` | reciprocal condition number from `potrf`'s factor | `?pocon` | Reference-LAPACK `dpocon.f` (v0.2.0) |
 | `potri(allocator, io, T, uplo: Uplo, n: usize, a: []T, lda: usize) PotriError!void` | `A⁻¹` from `potrf`'s factor | `?potri` | OpenBLAS `potri.c` |
 | `pbtrf(allocator, io, T, uplo: Uplo, n: usize, kd: usize, ab: []T, ldab: usize) PbtrfError!void` | `potrf` for band `A` (`kd`) | `?pbtrf` | ReLAPACK's recursive `pbtrf` |
 | `pstrf(allocator, io, T, uplo: Uplo, n: usize, a: []T, lda: usize, piv: []usize, tol: Float(T)) PstrfError!usize` | `Pᵀ·A·P = UᴴU` or `LLᴴ`, complete pivoting, blocked; returns the rank | `?pstrf` | Reference-LAPACK `dpstrf.f`, `?pstf2` as its single block |
@@ -268,6 +269,7 @@ As `src/math/kernels/lapack/` has it today. Accelerate (macOS 13.3's `$NEWLAPACK
 | `lauum(allocator, io, T, uplo: Uplo, n: usize, a: []T, lda: usize) LauumError!void` | `UUᴴ` or `LᴴL`, blocked | `?lauum` | OpenBLAS `lauum.c`; ReLAPACK with `-Drelapack` |
 | `lauu2(T, uplo: Uplo, n: usize, a: []T, lda: usize) ArgError!void` | `lauum`, unblocked | `?lauu2` | OpenBLAS `lauu2.c` |
 | `trtrs(allocator, io, T, uplo: Uplo, trans: Trans, diag: Diag, n: usize, nrhs: usize, a: []const T, lda: usize, b: []T, ldb: usize) TrtrsError!void` | solves `op(A)X = B`, triangular `A` | `?trtrs` | OpenBLAS `trtrs.c` |
+| `trcon(allocator, io, T, norm: NormType, uplo: Uplo, diag: Diag, n: usize, a: []const T, lda: usize) TrconError!Float(T)` | reciprocal condition number of triangular `A` | `?trcon` | Reference-LAPACK `dtrcon.f` (v0.2.0) |
 
 #### Symmetric indefinite
 
@@ -367,11 +369,9 @@ Each in Reference-LAPACK 3.12.0 (`lapack-netlib/SRC/`, as OpenBLAS ships it; mod
 | --- | --- | --- |
 | `pbtrs(allocator, io, T, uplo: Uplo, n: usize, kd: usize, nrhs: usize, ab: []const T, ldab: usize, b: []T, ldb: usize) PbtrsError!void` | solves from `pbtrf`'s factor | `?pbtrs` |
 | `pptrf(allocator, io, T, uplo: Uplo, n: usize, ap: []T) PptrfError!void` | `potrf` for packed `A` | `?pptrf` |
-| `pocon(allocator, io, T, uplo: Uplo, n: usize, a: []const T, lda: usize, anorm: Float(T)) PoconError!Float(T)` | reciprocal condition number from `potrf`'s factor | `?pocon` |
 | `gbtrs(allocator, io, T, trans: Trans, n: usize, kl: usize, ku: usize, nrhs: usize, ab: []const T, ldab: usize, ipiv: []const usize, b: []T, ldb: usize) GbtrsError!void` | solves from `gbtrf`'s factor | `?gbtrs` |
 | `gbsv(allocator, io, T, n: usize, kl: usize, ku: usize, nrhs: usize, ab: []T, ldab: usize, ipiv: []usize, b: []T, ldb: usize) GbsvError!void` | `gbtrf`, then `gbtrs` | `?gbsv` |
 | `gesvx(allocator, io, T, fact: FactorizationInput, trans: Trans, n: usize, nrhs: usize, a: []T, lda: usize, af: []T, ldaf: usize, ipiv: []usize, equed: *Equilibration, r: []Float(T), c: []Float(T), b: []T, ldb: usize, x: []T, ldx: usize, ferr: []Float(T), berr: []Float(T)) GesvxError!Float(T)` | `gesv` with equilibration, refinement and error bounds; returns the reciprocal condition number | `?gesvx` |
-| `trcon(allocator, io, T, norm: NormType, uplo: Uplo, diag: Diag, n: usize, a: []const T, lda: usize) TrconError!Float(T)` | reciprocal condition number of triangular `A` | `?trcon` |
 | `sytri(allocator, io, T, uplo: Uplo, n: usize, a: []T, lda: usize, ipiv: []const Pivot) SytriError!void` | `A⁻¹` from `sytrf`'s factor | `?sytri`, `?hetri` |
 | `gelsd(allocator, io, T, m: usize, n: usize, nrhs: usize, a: []T, lda: usize, b: []T, ldb: usize, s: []Float(T), rcond: Float(T)) GelsdError!usize` | the least-squares solution, any rank, by SVD (divide and conquer); returns the rank | `?gelsd` |
 | `gelss(allocator, io, T, m: usize, n: usize, nrhs: usize, a: []T, lda: usize, b: []T, ldb: usize, s: []Float(T), rcond: Float(T)) GelssError!usize` | `gelsd` by QR iteration | `?gelss` |

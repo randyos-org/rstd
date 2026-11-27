@@ -38,6 +38,7 @@ const sytrd_reduce = @import("sytrd.zig");
 const pstrf_factor = @import("pstrf.zig");
 const drivers = @import("drivers.zig");
 const norm_structured = @import("norm_structured.zig");
+const condition_estimates = @import("condition_estimates.zig");
 const balance = @import("balance.zig");
 const hessenberg = @import("hessenberg.zig");
 const real_schur = @import("real_schur.zig");
@@ -298,6 +299,11 @@ pub const LantrError = norm_structured.LantrError;
 pub const lansy = norm_structured.lansy;
 pub const lanhe = norm_structured.lanhe;
 pub const lantr = norm_structured.lantr;
+/// `trcon`, `pocon`: reciprocal condition estimates, as `gecon`'s.
+pub const TrconError = condition_estimates.TrconError;
+pub const PoconError = condition_estimates.PoconError;
+pub const trcon = condition_estimates.trcon;
+pub const pocon = condition_estimates.pocon;
 pub const gecon = norm.gecon;
 pub const laset = auxiliary.laset;
 pub const lapy2 = auxiliary.lapy2;
@@ -348,6 +354,7 @@ test {
     _ = @import("_test/pstrf.zig");
     _ = drivers;
     _ = @import("_test/norm_structured.zig");
+    _ = @import("_test/condition_estimates.zig");
     _ = @import("tgsen_condition.zig");
     _ = relapack_tests;
     _ = evd_tests;
