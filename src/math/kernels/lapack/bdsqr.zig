@@ -188,7 +188,7 @@ fn bdsqrSweeps(comptime F: type, comptime B: type, b: B, n: usize, u: ?Mat(F), v
         var shift: F = 0;
         if (!(nf * tol * (smin / smax) <= @max(eps, 0.01 * tol))) {
             const sll = if (idir == 1) @abs(b.d(ll).*) else @abs(b.d(m).*);
-            shift = if (idir == 1) las2(F, b.d(m - 1).*, b.e(m - 1).*, b.d(m).*) else las2(F, b.d(ll).*, b.e(ll).*, b.d(ll + 1).*);
+            shift = (if (idir == 1) las2(F, b.d(m - 1).*, b.e(m - 1).*, b.d(m).*) else las2(F, b.d(ll).*, b.e(ll).*, b.d(ll + 1).*)).ssmin;
             if (sll > 0 and (shift / sll) * (shift / sll) < eps) shift = 0;
         }
         iter += m - ll;
@@ -303,28 +303,33 @@ fn sign(comptime F: type, a: F, b: F) F {
     return if (b >= 0) @abs(a) else -@abs(a);
 }
 
-/// `DLAS2` (`dlas2.f`): the smaller singular value of `[f g; 0 h]`.
-fn las2(comptime F: type, f: F, g: F, h: F) F {
+/// `DLAS2` (`dlas2.f`): the singular values of `[f g; 0 h]`.
+pub fn las2(comptime F: type, f: F, g: F, h: F) struct { ssmin: F, ssmax: F } {
     const fa = @abs(f);
     const ga = @abs(g);
     const ha = @abs(h);
     const fhmn = @min(fa, ha);
     const fhmx = @max(fa, ha);
-    if (fhmn == 0) return 0;
+    if (fhmn == 0) {
+        if (fhmx == 0) return .{ .ssmin = 0, .ssmax = ga };
+        const big = @max(fhmx, ga);
+        const r = @min(fhmx, ga) / big;
+        return .{ .ssmin = 0, .ssmax = big * @sqrt(1 + r * r) };
+    }
     if (ga < fhmx) {
         const as = 1 + fhmn / fhmx;
         const at = (fhmx - fhmn) / fhmx;
         const au = (ga / fhmx) * (ga / fhmx);
         const c = 2 / (@sqrt(as * as + au) + @sqrt(at * at + au));
-        return fhmn * c;
+        return .{ .ssmin = fhmn * c, .ssmax = fhmx / c };
     }
     const au = fhmx / ga;
-    if (au == 0) return (fhmn * fhmx) / ga;
+    if (au == 0) return .{ .ssmin = (fhmn * fhmx) / ga, .ssmax = ga };
     const as = 1 + fhmn / fhmx;
     const at = (fhmx - fhmn) / fhmx;
     const c = 1 / (@sqrt(1 + (as * au) * (as * au)) + @sqrt(1 + (at * au) * (at * au)));
     const ssmin = (fhmn * c) * au;
-    return ssmin + ssmin;
+    return .{ .ssmin = ssmin + ssmin, .ssmax = ga / (c + c) };
 }
 
 /// `DLASV2` (`dlasv2.f`): the SVD of `[f g; 0 h]`, `ssmax` and `ssmin` signed

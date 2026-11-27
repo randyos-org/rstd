@@ -93,6 +93,7 @@ Two of libflame's names are not what they say: `gesdd` is "redirected to GESVD" 
 | `gesdd` | has | - | - | own, divide and conquer, `svd/bidiag_svd.rs` | redirected to `gesvd` | ref (`dgesdd.c` over `dbdsdc`) | faer (`svd.zig`) | T34 | as `gesvd`; not raced |
 | `gebrd`, `orgbr`, `ormbr` | has, inside `gesvd` | - | - (not covered) | own, `svd/bidiag.rs` | FLAME `FLA_Bidiag_UT` | FLAME | faer | T34 | with `gesvd` |
 | `bdsqr`, `bdsdc` | has, inside `gesvd` and `gesdd` | - | - | own, `svd/bidiag_svd.rs` | FLAME `FLA_Bsvd`, off | AMD: `dlasr` rotations (AVX2), `dbdsqr_small` | `bdsqr`: Reference-LAPACK `xBDSQR` (`bdsqr.zig`'s `qrAlgorithm`, with `xLASV2`, `xLAS2`; T126); `bdsdc`: faer's divide and conquer over it | faer's QR iteration loses a graded bidiagonal's small values (an absolute `abs(d) <= eps` test; M1's E4), the reference keeps them (Demmel and Kahan); dqds (`xLASQ1` to `xLASQ6`) for values alone is T131 | with `gesvd`; E4's graded bidiagonal, reversed and random, against `f128` (T126) |
+| `lasq1` to `lasq6` (dqds) | has: T131, [#114](https://github.com/randyos-org/rstd/issues/114), `xBDSQR` with no vectors (`gesvd`, `gesdd` values alone) | - | - | - | ref | ref | Reference-LAPACK (`lasq.zig`, `lasq_steps.zig`, `lasq_dqds.zig`), the IEEE branches only | faer has none; the reference's `INFO = 2` restore loop fixed ([#774](https://github.com/randyos-org/rstd/issues/774)) | values against `bdsqr`'s QR iteration, relatively, on random (n 3 to 60, f32, f64) and graded bidiagonals; the diagonal, zero and NaN cases; not raced |
 
 ### Eigenvalues
 

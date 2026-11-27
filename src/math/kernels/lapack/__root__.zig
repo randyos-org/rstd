@@ -320,6 +320,7 @@ test {
     _ = @import("_test/ggev_real.zig");
     _ = gges_schur;
     _ = @import("_test/tgexc.zig");
+    _ = @import("_test/lasq.zig");
     _ = @import("tgsen_condition.zig");
     _ = relapack_tests;
     _ = evd_tests;
