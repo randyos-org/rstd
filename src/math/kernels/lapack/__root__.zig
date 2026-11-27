@@ -18,6 +18,7 @@ const indefinite = @import("indefinite.zig");
 const sytrf_factor = @import("sytrf.zig");
 const sytrs_solve = @import("sytrs.zig");
 const sytri_invert = @import("sytri.zig");
+const lss = @import("lss.zig");
 const sygv_solve = @import("sygv.zig");
 const gghrd_reduce = @import("gghrd.zig");
 const qz_complex = @import("qz_complex.zig");
@@ -177,6 +178,9 @@ pub const OrglqError = lq.OrglqError;
 pub const OrmlqError = lq.OrmlqError;
 pub const Geqp3Error = qr_pivot.Geqp3Error;
 pub const GelsyError = lsq.GelsyError;
+/// `gelss`, `gelsd`: `error.NoConvergence` from the SVD.
+pub const GelssError = lss.GelssError;
+pub const GelsdError = lss.GelsdError;
 pub const geqrf = qr.geqrf;
 pub const orgqr = qr.orgqr;
 pub const ungqr = qr.orgqr;
@@ -190,6 +194,8 @@ pub const ormlq = lq.ormlq;
 pub const unmlq = lq.ormlq;
 pub const geqp3 = qr_pivot.geqp3;
 pub const gelsy = lsq.gelsy;
+pub const gelss = lss.gelss;
+pub const gelsd = lss.gelsd;
 
 /// `syevd`, `heevd`, `syev`, `heev`: `error.NoConvergence`, also for a NaN or
 /// infinity in `A`.

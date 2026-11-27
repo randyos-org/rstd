@@ -15,6 +15,7 @@ const auxiliary = @import("auxiliary.zig");
 const qr_pivot = @import("qr_pivot.zig");
 const norm = @import("norm.zig");
 const qr = @import("qr.zig");
+const lsq_scale = @import("lsq_scale.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -257,7 +258,6 @@ pub const GelsyError = interface.ShapeError || Allocator.Error || Io.Cancelable;
 /// `A P`'s columns, 0-based. `A` is overwritten by the factorization.
 pub fn gelsy(allocator: Allocator, io: Io, comptime T: type, m: usize, n: usize, nrhs: usize, a: []T, lda: usize, b: []T, ldb: usize, jpvt: []usize, rcond: Float(T)) GelsyError!usize {
     comptime ops.requireFloat(T, "gelsy");
-    const F = Float(T);
     try util.holds(a.len, m, n, lda);
     try util.holds(b.len, @max(m, n), nrhs, ldb);
     if (jpvt.len < n) return error.SliceTooShort;
@@ -269,31 +269,11 @@ pub fn gelsy(allocator: Allocator, io: Io, comptime T: type, m: usize, n: usize,
     const umn = mn;
     const am: Mat(T) = .{ .ptr = a.ptr, .rows = um, .cols = un, .ld = lda };
     const bm: Mat(T) = .{ .ptr = b.ptr, .rows = @max(um, un), .cols = nrhs, .ld = ldb };
-    const smlnum = std.math.floatMin(F) / std.math.floatEps(F);
-    const bignum = 1 / smlnum;
-    // scale A and B into [smlnum, bignum]
-    const anrm = try norm.matNorm(al, T, .max_abs, um, un, a.ptr, am.ld);
-    var iascl: F = 0;
-    if (anrm > 0 and anrm < smlnum) {
-        auxiliary.lascl(T, false, anrm, smlnum, am);
-        iascl = smlnum;
-    } else if (anrm > bignum) {
-        auxiliary.lascl(T, false, anrm, bignum, am);
-        iascl = bignum;
-    } else if (anrm == 0) {
+    const brows = bm.sub(0, 0, um, bm.cols);
+    const sc = try lsq_scale.scaleIn(al, T, am, brows) orelse {
         bm.fill(ops.zero(T));
         return 0;
-    }
-    const brows = bm.sub(0, 0, um, bm.cols);
-    const bnrm = try norm.matNorm(al, T, .max_abs, um, bm.cols, b.ptr, bm.ld);
-    var ibscl: F = 0;
-    if (bnrm > 0 and bnrm < smlnum) {
-        auxiliary.lascl(T, false, bnrm, smlnum, brows);
-        ibscl = smlnum;
-    } else if (bnrm > bignum) {
-        auxiliary.lascl(T, false, bnrm, bignum, brows);
-        ibscl = bignum;
-    }
+    };
     const tau = try al.alloc(T, umn);
     defer al.free(tau);
     try qr_pivot.factor(al, io, T, am, jpvt[0..un], tau.ptr);
@@ -343,16 +323,7 @@ pub fn gelsy(allocator: Allocator, io: Io, comptime T: type, m: usize, n: usize,
         for (0..un) |i| work[jpvt[i]] = col[i];
         @memcpy(col[0..un], work);
     }
-    // undo the scaling
-    const xrows = bm.sub(0, 0, un, bm.cols);
-    if (iascl != 0 and iascl == ibscl) {
-        // the constants cancel: one step, as two may flush or overflow an
-        // entry (`sgelsy.f`, OpenBLAS `6b01b70dc`; its `dgelsy.f` lags)
-        auxiliary.lascl(T, false, anrm, bnrm, xrows);
-    } else {
-        if (iascl != 0) auxiliary.lascl(T, false, anrm, iascl, xrows);
-        if (ibscl != 0) auxiliary.lascl(T, false, ibscl, bnrm, xrows);
-    }
-    if (iascl != 0) auxiliary.lascl(T, true, iascl, anrm, am.sub(0, 0, r, r));
+    lsq_scale.unscale(T, sc, bm.sub(0, 0, un, bm.cols));
+    if (sc.iascl != 0) auxiliary.lascl(T, true, sc.iascl, sc.anrm, am.sub(0, 0, r, r));
     return r;
 }

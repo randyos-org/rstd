@@ -314,6 +314,8 @@ As `src/math/kernels/lapack/` has it today. Accelerate (macOS 13.3's `$NEWLAPACK
 | --- | --- | --- | --- |
 | `gels(allocator, io, T, trans: Trans, m: usize, n: usize, nrhs: usize, a: []T, lda: usize, b: []T, ldb: usize) GelsError!void` | the least-squares or minimum-norm solution, full rank, by QR or LQ | `?gels` | faer v0.24.4 `qr/no_pivoting/solve.rs` |
 | `gelsy(allocator, io, T, m: usize, n: usize, nrhs: usize, a: []T, lda: usize, b: []T, ldb: usize, jpvt: []usize, rcond: Float(T)) GelsyError!usize` | the least-squares solution, any rank, by pivoted QR; returns the rank | `?gelsy` | Reference-LAPACK `dgelsy.f` over faer's pivoted QR |
+| `gelss(allocator, io, T, m: usize, n: usize, nrhs: usize, a: []T, lda: usize, b: []T, ldb: usize, s: []Float(T), rcond: Float(T)) GelssError!usize` | `gelsd` by QR iteration | `?gelss` | Reference-LAPACK `dgelss.f` over rstd's SVD (v0.2.0) |
+| `gelsd(allocator, io, T, m: usize, n: usize, nrhs: usize, a: []T, lda: usize, b: []T, ldb: usize, s: []Float(T), rcond: Float(T)) GelsdError!usize` | the least-squares solution, any rank, by SVD (divide and conquer); returns the rank | `?gelsd` | Reference-LAPACK `dgelsd.f` over rstd's divide-and-conquer SVD (v0.2.0) |
 
 #### Symmetric eigenproblems
 
@@ -376,8 +378,6 @@ Each in Reference-LAPACK 3.12.0 (`lapack-netlib/SRC/`, as OpenBLAS ships it; mod
 | Signature | Computes | LAPACK name (Accelerate, MKL) |
 | --- | --- | --- |
 | `gesvx(allocator, io, T, fact: FactorizationInput, trans: Trans, n: usize, nrhs: usize, a: []T, lda: usize, af: []T, ldaf: usize, ipiv: []usize, equed: *Equilibration, r: []Float(T), c: []Float(T), b: []T, ldb: usize, x: []T, ldx: usize, ferr: []Float(T), berr: []Float(T)) GesvxError!Float(T)` | `gesv` with equilibration, refinement and error bounds; returns the reciprocal condition number | `?gesvx` |
-| `gelsd(allocator, io, T, m: usize, n: usize, nrhs: usize, a: []T, lda: usize, b: []T, ldb: usize, s: []Float(T), rcond: Float(T)) GelsdError!usize` | the least-squares solution, any rank, by SVD (divide and conquer); returns the rank | `?gelsd` |
-| `gelss(allocator, io, T, m: usize, n: usize, nrhs: usize, a: []T, lda: usize, b: []T, ldb: usize, s: []Float(T), rcond: Float(T)) GelssError!usize` | `gelsd` by QR iteration | `?gelss` |
 | `gglse(allocator, io, T, m: usize, n: usize, p: usize, a: []T, lda: usize, b: []T, ldb: usize, c: []T, d: []T, x: []T) GglseError!void` | the least-squares solution with equality constraints `Bx = d` | `?gglse` |
 | `ggglm(allocator, io, T, n: usize, m: usize, p: usize, a: []T, lda: usize, b: []T, ldb: usize, d: []T, x: []T, y: []T) GgglmError!void` | general Gauss-Markov linear model | `?ggglm` |
 | `syevr(allocator, io, T, jobz: VectorJob, range: SpectrumRange(Float(T)), uplo: Uplo, n: usize, a: []T, lda: usize, abstol: Float(T), w: []Float(T), z: []T, ldz: usize, isuppz: []usize) SyevrError!usize` | selected eigenvalues and vectors, relatively robust representations; returns the count | `?syevr`, `?heevr` |
