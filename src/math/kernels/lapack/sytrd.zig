@@ -1,5 +1,6 @@
-//! `?SYTRD` and `?HETRD` on the lower triangle: the blocked reduction of a
-//! symmetric (complex: Hermitian) matrix to tridiagonal form, `Qᴴ A Q = T`,
+//! `?SYTRD` and `?HETRD`: the blocked reduction of a symmetric (complex:
+//! Hermitian) matrix to tridiagonal form, `Qᴴ A Q = T`, on the lower
+//! triangle here and the upper in `sytrd_upper.zig`,
 //! from Reference-LAPACK as OpenBLAS ships it (`lapack-netlib/SRC/dsytrd.f`,
 //! `zhetrd.f`, `dlatrd.f`, `zlatrd.f`, `dsytd2.f`, `zhetd2.f`; OpenBLAS
 //! v0.3.34-794-gdbf2c24c9). Blocks of `nb` columns go through `latrd`, the
@@ -12,6 +13,10 @@ const auxiliary = @import("auxiliary.zig");
 const blas_calls = @import("blas_calls.zig");
 const strided = @import("../blas/strided.zig");
 const Kept = @import("Kept.zig");
+const util = @import("../blas/util.zig");
+const types = @import("../blas/types.zig");
+const interface = @import("interface.zig");
+const upper_half = @import("sytrd_upper.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -36,17 +41,32 @@ pub const nb = 32;
 /// (`ilaenv.f`: 32).
 pub const nx = 32;
 
-/// Reduces the lower triangle of the `n x n` `a` (the upper is not read):
-/// `d` the diagonal and `e` the subdiagonal of `T` (`n` and `n - 1` long,
-/// real), `tau` the reflectors' factors (`n - 1`), the reflectors below
-/// the subdiagonal of `a`, as `?SYTRD` with `UPLO = 'L'` leaves them.
-pub fn sytrd(child: Allocator, io: Io, comptime T: type, a: Mat(T), d: []Float(T), e: []Float(T), tau: []T) Error!void {
+pub const SytrdError = interface.ShapeError || Allocator.Error || Io.Cancelable;
+
+/// `?SYTRD`, `?HETRD` (`dsytrd.f`, `zhetrd.f`): reduces the `n x n`
+/// symmetric (Hermitian) `A`, its `uplo` triangle in `a` (the other not
+/// read), to the real tridiagonal `T = Qᴴ A Q`: `d` (`n`) its diagonal, `e`
+/// (`n - 1`) its off-diagonal, `tau` (`n - 1`) the reflectors' factors, the
+/// reflectors in `a` as the reference leaves them (above the superdiagonal
+/// for `.u`, `Q = H(n-1) … H(1)`; below the subdiagonal for `.l`, `Q =
+/// H(1) … H(n-1)`).
+pub fn sytrd(allocator: Allocator, io: Io, comptime T: type, uplo: types.Uplo, n: usize, a: []T, lda: usize, d: []Float(T), e: []Float(T), tau: []T) SytrdError!void {
+    comptime ops.requireFloat(T, "sytrd");
+    try util.holds(a.len, n, n, lda);
+    if (d.len < n or e.len < n -| 1 or tau.len < n -| 1) return error.SliceTooShort;
+    const m: Mat(T) = .{ .ptr = a.ptr, .rows = n, .cols = n, .ld = @max(lda, 1) };
+    try tridiagonalize(allocator, io, T, uplo == .u, m, d, e, tau);
+}
+
+/// `sytrd` after its checks, on `a`'s upper or lower triangle.
+pub fn tridiagonalize(child: Allocator, io: Io, comptime T: type, upper: bool, a: Mat(T), d: []Float(T), e: []Float(T), tau: []T) Error!void {
     const n = a.rows;
     if (n == 0) return;
     // one set of packing space and partial vectors for every call (`Kept.zig`)
     var kept: Kept = .init(child);
     defer kept.deinit();
     const al = kept.allocator();
+    if (upper) return upper_half.reduce(al, io, T, a, d, e, tau, nb, nx);
     var i: usize = 0;
     if (n > nx) {
         const w = try ops.alloc(T, al, n, nb);
@@ -58,7 +78,7 @@ pub fn sytrd(child: Allocator, io: Io, comptime T: type, a: Mat(T), d: []Float(T
             const m = n - i;
             try latrd(al, io, T, a.sub(i, i, m, m), e[i..], tau[i..], w.sub(0, 0, m, nb), tmp);
             const rest = m - nb;
-            try blas_calls.rank2kLower(al, io, T, a.sub(i + nb, i, rest, nb), w.sub(nb, 0, rest, nb), a.sub(i + nb, i + nb, rest, rest));
+            try blas_calls.rank2k(al, io, T, false, a.sub(i + nb, i, rest, nb), w.sub(nb, 0, rest, nb), a.sub(i + nb, i + nb, rest, rest));
             for (i..i + nb) |j| {
                 a.at(j + 1, j).* = scalar(T, e[j]);
                 d[j] = re(T, a.get(j, j));
@@ -96,7 +116,7 @@ fn latrd(al: Allocator, io: Io, comptime T: type, a: Mat(T), e: []Float(T), tau:
         v[0] = one(T);
         // W(i+1:n, i) := A22 v - V W(i+1:n, 0:i)ᴴ v - W V(i+1:n, 0:i)ᴴ v
         const wi = w.col(i) + i + 1;
-        try blas_calls.symvLower(al, io, T, one(T), a.sub(i + 1, i + 1, m, m), v, wi);
+        try blas_calls.symv(al, io, T, false, one(T), a.sub(i + 1, i + 1, m, m), v, wi);
         if (i > 0) {
             const top = w.col(i);
             try blas_calls.gemv(al, io, T, .c, one(T), w.sub(i + 1, 0, m, i), v, 1, zero(T), top, 1);
@@ -137,7 +157,7 @@ fn sytd2(al: Allocator, io: Io, comptime T: type, a: Mat(T), d: []Float(T), e: [
                 v[0] = one(T);
                 // x := taui A22 v; x -= taui / 2 (xᴴ v) v; A22 -= v xᴴ + x vᴴ
                 const a22 = a.sub(i + 1, i + 1, m, m);
-                try blas_calls.symvLower(al, io, T, taui, a22, v, x.ptr);
+                try blas_calls.symv(al, io, T, false, taui, a22, v, x.ptr);
                 const xv = try blas_calls.dot(io, T, true, m, x.ptr, 1, v, 1);
                 const s = mul(T, mulReal(T, taui, -0.5), xv);
                 try blas_calls.axpy(io, T, m, s, v, 1, x.ptr, 1);

@@ -123,7 +123,7 @@ fn values(al: Allocator, io: Io, comptime T: type, trid: Mat(T), s: []Float(T)) 
     @memset(offdiag, 0);
     const tau = try al.alloc(T, @max(n, 2) - 1);
     defer al.free(tau);
-    try sytrd.sytrd(al, io, T, trid, diag, offdiag[0 .. n - 1], tau);
+    try sytrd.tridiagonalize(al, io, T, false, trid, diag, offdiag[0 .. n - 1], tau);
     if (n < stebr_crossover) {
         try tevd.qrAlgorithm(F, diag, offdiag, null);
     } else try stebr_dc.stebr(al, F, diag, offdiag[0 .. n - 1]);

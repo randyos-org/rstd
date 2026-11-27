@@ -34,6 +34,7 @@ const lsq = @import("lsq.zig");
 const tridiag = @import("tridiag.zig");
 const tridiag_evd = @import("tridiag_evd.zig");
 const evd = @import("evd.zig");
+const sytrd_reduce = @import("sytrd.zig");
 const balance = @import("balance.zig");
 const hessenberg = @import("hessenberg.zig");
 const real_schur = @import("real_schur.zig");
@@ -154,6 +155,10 @@ pub const SyevError = evd.SyevError;
 /// The eigensolvers' `jobz`, `jobvl`, `jobvr`.
 pub const VectorJob = evd.VectorJob;
 pub const syevd = evd.syevd;
+/// `sytrd` (`hetrd`): the reduction to real tridiagonal form `syevd` runs.
+pub const SytrdError = sytrd_reduce.SytrdError;
+pub const sytrd = sytrd_reduce.sytrd;
+pub const hetrd = sytrd_reduce.sytrd;
 pub const heevd = evd.syevd;
 pub const syev = evd.syev;
 pub const heev = evd.syev;
