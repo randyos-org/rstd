@@ -35,6 +35,7 @@ const tridiag = @import("tridiag.zig");
 const tridiag_evd = @import("tridiag_evd.zig");
 const evd = @import("evd.zig");
 const sytrd_reduce = @import("sytrd.zig");
+const pstrf_factor = @import("pstrf.zig");
 const balance = @import("balance.zig");
 const hessenberg = @import("hessenberg.zig");
 const real_schur = @import("real_schur.zig");
@@ -158,6 +159,9 @@ pub const syevd = evd.syevd;
 /// `sytrd` (`hetrd`): the reduction to real tridiagonal form `syevd` runs.
 pub const SytrdError = sytrd_reduce.SytrdError;
 pub const sytrd = sytrd_reduce.sytrd;
+/// `pstrf`: the Cholesky factor with complete pivoting; returns the rank.
+pub const PstrfError = pstrf_factor.PstrfError;
+pub const pstrf = pstrf_factor.pstrf;
 pub const hetrd = sytrd_reduce.sytrd;
 pub const heevd = evd.syevd;
 pub const syev = evd.syev;
@@ -326,6 +330,7 @@ test {
     _ = gges_schur;
     _ = @import("_test/tgexc.zig");
     _ = @import("_test/lasq.zig");
+    _ = @import("_test/pstrf.zig");
     _ = @import("tgsen_condition.zig");
     _ = relapack_tests;
     _ = evd_tests;

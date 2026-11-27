@@ -83,12 +83,15 @@ pub fn triRight(al: Allocator, io: Io, comptime T: type, comptime solve: bool, u
 }
 
 /// The upper triangle of `C := alpha Aᴴ A + beta C` (real: `Aᵀ A`), `A`
-/// being `k x n`; a complex diagonal comes out real.
-pub fn gramUpper(al: Allocator, io: Io, comptime T: type, alpha: Float(T), a: Mat(T), beta: Float(T), c: Mat(T)) Error!void {
-    const n = a.cols;
+/// being `k x n`, or with `upper` false the lower of `C := alpha A Aᴴ +
+/// beta C`, `A` being `n x k` (`?SYRK`, `?HERK`); a complex diagonal comes
+/// out real.
+pub fn gram(al: Allocator, io: Io, comptime T: type, upper: bool, alpha: Float(T), a: Mat(T), beta: Float(T), c: Mat(T)) Error!void {
+    const n = if (upper) a.cols else a.rows;
+    const k = if (upper) a.rows else a.cols;
     if (n == 0) return;
-    const w = threaded.syrkWorkers(T, false, n, a.rows);
-    try driver.syrk(al, io, T, table(T), comptime isComplex(T), true, true, n, a.rows, scalar(T, alpha), a.ptr, a.ld, null, 0, scalar(T, beta), c.ptr, c.ld, w);
+    const w = threaded.syrkWorkers(T, false, n, k);
+    try driver.syrk(al, io, T, table(T), comptime isComplex(T), upper, upper, n, k, scalar(T, alpha), a.ptr, a.ld, null, 0, scalar(T, beta), c.ptr, c.ld, w);
 }
 
 /// `y := alpha op(A) x + beta y` (`l2.gemv`; `trans` as its letters), `A`
