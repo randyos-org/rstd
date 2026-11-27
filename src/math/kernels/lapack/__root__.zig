@@ -61,6 +61,7 @@ const bidiag = @import("bidiag.zig");
 const bidiag_svd = @import("bidiag_svd.zig");
 const svd = @import("svd.zig");
 const norm = @import("norm.zig");
+const equilibrate = @import("equilibrate.zig");
 
 pub const Uplo = types.Uplo;
 pub const Trans = types.Trans;
@@ -362,6 +363,14 @@ pub const PoconError = condition_estimates.PoconError;
 pub const trcon = condition_estimates.trcon;
 pub const pocon = condition_estimates.pocon;
 pub const gecon = norm.gecon;
+/// `geequ`, `laqge`: row and column equilibration; `geequ` reports a zero
+/// row or column as an error, `laqge` returns what it scaled.
+pub const Equilibration = equilibrate.Equilibration;
+pub const EquilibrationScaling = equilibrate.Scaling;
+pub const GeequError = equilibrate.GeequError;
+pub const LaqgeError = equilibrate.LaqgeError;
+pub const geequ = equilibrate.geequ;
+pub const laqge = equilibrate.laqge;
 pub const laset = auxiliary.laset;
 pub const lapy2 = auxiliary.lapy2;
 test {
@@ -419,6 +428,7 @@ test {
     _ = @import("_test/rq.zig");
     _ = @import("_test/gqr.zig");
     _ = @import("_test/gls.zig");
+    _ = @import("_test/equilibrate.zig");
     _ = pbtrs_solve;
     _ = @import("tgsen_condition.zig");
     _ = relapack_tests;

@@ -167,3 +167,6 @@ pub fn workers(size_max: u64) u32 {
 
 /// LAPACK's `JOBZ`, `JOBVL`, `JOBVR`, `JOBVS`: vectors (`V`) or not (`N`).
 pub const VectorJob = enum { none, compute };
+
+/// LAPACK's `EQUED`: what `laqge` and `gesvx` scaled, `diag(R) A diag(C)`.
+pub const Equilibration = enum { none, rows, columns, both };
