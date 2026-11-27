@@ -4,9 +4,11 @@ pub const bounds = @import("bounds.zig");
 pub const atlas = @import("atlas.zig");
 pub const layout = @import("layout.zig");
 pub const GlyphCache = @import("GlyphCache.zig");
+pub const hinted = @import("hinted.zig");
 
 const zigstd = @import("../../../zigstd.zig");
 
 test {
     zigstd.testRefAllDecls(@This());
+    _ = @import("_test/hinted.zig");
 }

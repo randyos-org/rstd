@@ -9,6 +9,7 @@ const layout = @import("layout.zig");
 const GlyphCache = @import("GlyphCache.zig");
 const rasterize = @import("rasterize.zig");
 const msdf = @import("../msdf/Generator.zig");
+const hint = @import("../hint/__root__.zig");
 const Image = @import("../../image.zig").Image;
 
 const GlyphIndex = types.GlyphIndex;
@@ -106,8 +107,16 @@ pub const default_msdf: msdf.Options = .{
     .orient_contours = true,
 };
 
+pub const Hinting = struct {
+    font: *hint.Font,
+    options: hint.Font.Options = .{},
+};
+
 pub const Options = struct {
     type: AtlasType = .coverage,
+    /// Coverage atlases only: glyphs hinted at the pixel size rounded, with
+    /// their hinted advances; msdf atlases are never hinted.
+    hinting: ?Hinting = null,
     /// Only consulted when `type == .msdf`.
     msdf: msdf.Options = default_msdf,
 };
@@ -175,11 +184,31 @@ fn rasterText(
     while (code_points.nextCodepoint()) |ch| {
         const glyph = self.getGlyphIndex(ch) orelse continue;
         const g = switch (options.type) {
-            .coverage => try rasterCoverage(self, gpa, &raster.pixels, glyph, scale),
+            .coverage => if (options.hinting) |hn|
+                try rasterHinted(hn, gpa, &raster.pixels, glyph, pixel_size)
+            else
+                try rasterCoverage(self, gpa, &raster.pixels, glyph, scale),
             .msdf => try rasterMsdf(self, gpa, &raster.pixels, &generator, &msdf_opts, ch, glyph, pixel_size, units_per_em),
         };
         try raster.glyphs.append(gpa, g);
     }
+}
+
+/// A coverage glyph hinted at the pixel size rounded; its advance hinted too.
+fn rasterHinted(hn: Hinting, gpa: Allocator, pixels: *std.ArrayList(u8), glyph: GlyphIndex, pixel_size: f32) !RasterGlyph {
+    const ppem: u16 = @intFromFloat(@max(1, @round(pixel_size)));
+    const off = pixels.items.len;
+    const r = try rasterize.glyphBitmapHinted(hn.font, gpa, pixels, @backingInt(glyph), ppem, hn.options);
+    const bmp = r.bitmap;
+    return .{
+        .glyph = glyph,
+        .bitmap_off = if (bmp.width == 0 or bmp.height == 0) null else off,
+        .width = bmp.width,
+        .height = bmp.height,
+        .bearing_x = @floatFromInt(bmp.off_x),
+        .bearing_y = @floatFromInt(bmp.off_y),
+        .advance = @as(f32, @floatFromInt(r.advance)) / 64.0,
+    };
 }
 
 fn rasterCoverage(self: Sfnt, gpa: Allocator, pixels: *std.ArrayList(u8), glyph: GlyphIndex, scale: f32) !RasterGlyph {

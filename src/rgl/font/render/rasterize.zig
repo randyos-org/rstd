@@ -8,6 +8,7 @@ const aux_types = @import("../sfnt/aux_types.zig");
 const tessellate = @import("tessellate.zig");
 const sweep = @import("sweep.zig");
 const bounds = @import("bounds.zig");
+const hinted = @import("hinted.zig");
 
 const Vertex = aux_types.Vertex;
 const GlyphIndex = types.GlyphIndex;
@@ -40,6 +41,10 @@ pub fn rasterize(gpa: Allocator, result: Coverage, vertices: []Vertex, o: Raster
     defer windings.deinit(gpa);
     try rasterizeInner(gpa, result, windings.points, windings.contour_lengths, o.scale_x, o.scale_y, o.shift_x, o.shift_y, o.off_x, o.off_y, o.invert);
 }
+
+/// A glyph hinted at a whole pixel size (`hint.Font`), FreeType's outline in
+/// FreeType's box.
+pub const glyphBitmapHinted = hinted.glyphBitmapHinted;
 
 /// Caller owns returned memory.
 pub fn glyphBitmap(
