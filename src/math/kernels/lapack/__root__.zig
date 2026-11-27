@@ -36,6 +36,7 @@ const tridiag_evd = @import("tridiag_evd.zig");
 const evd = @import("evd.zig");
 const sytrd_reduce = @import("sytrd.zig");
 const pstrf_factor = @import("pstrf.zig");
+const drivers = @import("drivers.zig");
 const balance = @import("balance.zig");
 const hessenberg = @import("hessenberg.zig");
 const real_schur = @import("real_schur.zig");
@@ -68,6 +69,9 @@ pub const PotriError = cholesky.PotriError;
 /// `pbtrf`: `error.NotPositiveDefinite`.
 pub const PbtrfError = relapack.PbtrfError;
 pub const potrf = if (options.relapack) relapack.potrf else cholesky.potrf;
+/// `posv`: `potrf`'s errors, `B` untouched when `A` is not positive definite.
+pub const PosvError = drivers.PosvError;
+pub const posv = drivers.posv;
 pub const potf2 = cholesky.potf2;
 pub const potrs = cholesky.potrs;
 pub const potri = cholesky.potri;
@@ -331,6 +335,7 @@ test {
     _ = @import("_test/tgexc.zig");
     _ = @import("_test/lasq.zig");
     _ = @import("_test/pstrf.zig");
+    _ = drivers;
     _ = @import("tgsen_condition.zig");
     _ = relapack_tests;
     _ = evd_tests;
