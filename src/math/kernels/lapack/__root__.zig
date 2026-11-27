@@ -21,6 +21,7 @@ const gghrd_reduce = @import("gghrd.zig");
 const qz_complex = @import("qz_complex.zig");
 const qz_real = @import("qz_real.zig");
 const ggev_complex = @import("ggev_complex.zig");
+const ggev_real = @import("ggev_real.zig");
 const householder = @import("householder.zig");
 const qr = @import("qr.zig");
 const qr_solve = @import("qr_solve.zig");
@@ -165,9 +166,10 @@ pub const gghrd = gghrd_reduce.gghrd;
 pub const HgeqzError = qz_complex.HgeqzError;
 pub const hgeqzComplex = qz_complex.hgeqzComplex;
 pub const hgeqzReal = qz_real.hgeqzReal;
-/// `ggevComplex`: bad shapes, a NaN or infinity, or no convergence.
+/// `ggevComplex`, `ggevReal`: bad shapes, a NaN or infinity, or no convergence.
 pub const GgevError = ggev_complex.GgevError;
 pub const ggevComplex = ggev_complex.ggevComplex;
+pub const ggevReal = ggev_real.ggevReal;
 
 /// `geev`: a NaN in `A` is `error.NanInA`; `error.NoConvergence` (also for
 /// an infinity in `A`), the count of eigenvalues not found in the last
@@ -297,6 +299,8 @@ test {
     _ = @import("_test/qz_real.zig");
     _ = ggev_complex;
     _ = @import("_test/ggev_complex.zig");
+    _ = ggev_real;
+    _ = @import("_test/ggev_real.zig");
     _ = relapack_tests;
     _ = evd_tests;
     _ = norm_tests;

@@ -25,7 +25,7 @@ const mulReal = ops.mulReal;
 
 pub const VectorJob = interface.VectorJob;
 
-/// What `ggevComplex` returns: a slice too short or a leading dimension too
+/// What `ggevComplex` and `ggevReal` return: a slice too short or a leading dimension too
 /// small; `NoConvergence` for a NaN or infinity in `A` or `B`, or when the QZ
 /// does not converge; the allocator's and cancellation.
 pub const GgevError = interface.ShapeError || error{NoConvergence} || Allocator.Error || Io.Cancelable;
@@ -45,10 +45,19 @@ pub fn ggevComplex(allocator: Allocator, io: Io, comptime T: type, jobvl: Vector
     if (left) try util.holds(vl.len, n, n, ldvl);
     if (right) try util.holds(vr.len, n, n, ldvr);
     if (n == 0) return;
+    try reduce(allocator, io, T, left, right, n, a, lda, b, ldb, vl, ldvl, vr, ldvr);
+    const job: qz_complex.SchurJob = if (left or right) .schur_form else .eigenvalues;
+    qz_complex.hgeqzComplex(T, job, if (left) .accumulate else .none, if (right) .accumulate else .none, n, 0, n, a, lda, b, ldb, alpha, beta, vl, ldvl, vr, ldvr) catch |e| return ops.narrow(GgevError, e);
+    if (left or right) try eigenvectors(allocator, T, n, a, lda, b, ldb, if (left) vl else null, ldvl, if (right) vr else null, ldvr);
+}
+
+/// The steps before the QZ, real or complex (shapes checked, `n > 0`):
+/// `NoConvergence` for a NaN or infinity; `B := R` and `A := Qᴴ A` by `B`'s
+/// QR, `vl := Q` (`left`), then `gghrd` (`vr` from the identity, `right`).
+pub fn reduce(allocator: Allocator, io: Io, comptime T: type, left: bool, right: bool, n: usize, a: []T, lda: usize, b: []T, ldb: usize, vl: []T, ldvl: usize, vr: []T, ldvr: usize) GgevError!void {
     for (0..n) |j| for (0..n) |i| {
         if (!finite(T, a[i + j * lda]) or !finite(T, b[i + j * ldb])) return error.NoConvergence;
     };
-    // `A := Qᴴ A`, `B := R`; `Q` starts the left vectors
     const tau = try allocator.alloc(T, n);
     defer allocator.free(tau);
     qr.geqrf(allocator, io, T, n, n, b, ldb, tau) catch |e| return ops.narrow(GgevError, e);
@@ -59,13 +68,11 @@ pub fn ggevComplex(allocator: Allocator, io: Io, comptime T: type, jobvl: Vector
         };
         qr.ormqr(allocator, io, T, .l, .n, n, n, n, b, ldb, tau, vl, ldvl) catch |e| return ops.narrow(GgevError, e);
     }
-    gghrd_reduce.gghrd(T, if (left) .accumulate else .none, if (right) .from_identity else .none, n, 0, n, a, lda, b, ldb, vl, ldvl, vr, ldvr) catch unreachable; // shapes checked above
-    const job: qz_complex.SchurJob = if (left or right) .schur_form else .eigenvalues;
-    qz_complex.hgeqzComplex(T, job, if (left) .accumulate else .none, if (right) .accumulate else .none, n, 0, n, a, lda, b, ldb, alpha, beta, vl, ldvl, vr, ldvr) catch |e| return ops.narrow(GgevError, e);
-    if (left or right) try eigenvectors(allocator, T, n, a, lda, b, ldb, if (left) vl else null, ldvl, if (right) vr else null, ldvr);
+    gghrd_reduce.gghrd(T, if (left) .accumulate else .none, if (right) .from_identity else .none, n, 0, n, a, lda, b, ldb, vl, ldvl, vr, ldvr) catch unreachable; // shapes checked by the caller
 }
 
 fn finite(comptime T: type, x: T) bool {
+    if (comptime !types.isComplex(T)) return std.math.isFinite(x);
     return std.math.isFinite(x.re) and std.math.isFinite(x.im);
 }
 

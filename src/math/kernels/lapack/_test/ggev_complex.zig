@@ -15,7 +15,7 @@ const mul = ops.mul;
 
 /// `max_i |(β A x - α B x)_i|` for right vectors, or `|(yᴴ (β A - α B))_i|`
 /// for left ones, over the scale `|β| ‖A‖ + |α| ‖B‖`.
-fn residual(comptime T: type, n: usize, a: []const T, b: []const T, alpha: T, beta: T, x: []const T, left: bool) Float(T) {
+pub fn residual(comptime T: type, n: usize, a: []const T, b: []const T, alpha: T, beta: T, x: []const T, left: bool) Float(T) {
     var worst: Float(T) = 0;
     var an: Float(T) = 0;
     var bn: Float(T) = 0;
