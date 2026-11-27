@@ -99,6 +99,85 @@ pub fn schurComplex(allocator: Allocator, io: Io, a: anytype) SchurError!Schur(s
     return gees(C, allocator, io, t);
 }
 
+/// `qz`'s and `qzComplex`'s: `NoConvergence` also for a NaN or infinity.
+pub const QzError = error{ NotSquare, DimensionMismatch, NoConvergence } || Allocator.Error || Io.Cancelable;
+
+pub fn Qz(comptime T: type) type {
+    return struct {
+        /// Upper triangular, or for real `T` quasi-triangular.
+        aa: Mat(T),
+        /// Upper triangular, its diagonal real and nonnegative.
+        bb: Mat(T),
+        /// Unitary, `Q A Z = AA` and `Q B Z = BB`.
+        q: Mat(T),
+        z: Mat(T),
+
+        pub fn deinit(f: @This(), allocator: Allocator) void {
+            f.aa.deinit(allocator);
+            f.bb.deinit(allocator);
+            f.q.deinit(allocator);
+            f.z.deinit(allocator);
+        }
+    };
+}
+
+/// The generalized Schur form `Q A Z = AA`, `Q B Z = BB` (MATLAB's `[AA, BB,
+/// Q, Z] = qz(A, B)`), by `gges`: for real `A` and `B` the real form, a 2 x 2
+/// block of `AA` per complex pair.
+pub fn qz(allocator: Allocator, io: Io, a: anytype, b: anytype) QzError!Qz(ElementOf(@TypeOf(a))) {
+    const T = ElementOf(@TypeOf(a));
+    const ca = constOf(a);
+    const cb = constOf(b);
+    if (ca.rows != ca.cols or cb.rows != cb.cols) return error.NotSquare;
+    if (cb.rows != ca.rows) return error.DimensionMismatch;
+    return gges(T, allocator, io, try copyOf(T, allocator, ca), try copyOf(T, allocator, cb));
+}
+
+/// `qz` with `AA` triangular even for real `A` and `B` (MATLAB's `qz(A, B,
+/// "complex")`).
+pub fn qzComplex(allocator: Allocator, io: Io, a: anytype, b: anytype) QzError!Qz(std.math.Complex(Real(ElementOf(@TypeOf(a))))) {
+    const T = ElementOf(@TypeOf(a));
+    const C = std.math.Complex(Real(T));
+    const ca = constOf(a);
+    const cb = constOf(b);
+    if (ca.rows != ca.cols or cb.rows != cb.cols) return error.NotSquare;
+    if (cb.rows != ca.rows) return error.DimensionMismatch;
+    const n = ca.rows;
+    const f = try Mat(C).init(allocator, n, n);
+    errdefer f.deinit(allocator);
+    const g = try Mat(C).init(allocator, n, n);
+    errdefer g.deinit(allocator);
+    for (0..n) |j| for (f.data[j * n ..][0..n], g.data[j * n ..][0..n], ca.col(j), cb.col(j)) |*d, *e, x, y| {
+        d.* = if (comptime isComplex(T)) x else C.init(x, 0);
+        e.* = if (comptime isComplex(T)) y else C.init(y, 0);
+    };
+    return gges(C, allocator, io, f, g);
+}
+
+/// `gges` on `aa` and `bb` (taken), `Q` returned as LAPACK's `Qᴴ`.
+fn gges(comptime T: type, allocator: Allocator, io: Io, aa: Mat(T), bb: Mat(T)) QzError!Qz(T) {
+    errdefer aa.deinit(allocator);
+    errdefer bb.deinit(allocator);
+    const n = aa.rows;
+    const ld = @max(n, 1);
+    const q = try Mat(T).init(allocator, n, n);
+    errdefer q.deinit(allocator);
+    const z = try Mat(T).init(allocator, n, n);
+    errdefer z.deinit(allocator);
+    const w = try allocator.alloc(T, 3 * n);
+    defer allocator.free(w);
+    if (comptime isComplex(T)) {
+        lapack.ggesComplex(allocator, io, T, .compute, .compute, n, aa.data, ld, bb.data, ld, w[0..n], w[n .. 2 * n], q.data, ld, z.data, ld) catch |e| return ops.narrow(QzError, e);
+    } else lapack.ggesReal(allocator, io, T, .compute, .compute, n, aa.data, ld, bb.data, ld, w[0..n], w[n .. 2 * n], w[2 * n ..], q.data, ld, z.data, ld) catch |e| return ops.narrow(QzError, e);
+    // MATLAB's `Q` is LAPACK's `Qᴴ`
+    for (0..n) |j| for (0..j + 1) |i| {
+        const x = ops.conj(T, q.data[i + j * n]);
+        q.data[i + j * n] = ops.conj(T, q.data[j + i * n]);
+        q.data[j + i * n] = x;
+    };
+    return .{ .aa = aa, .bb = bb, .q = q, .z = z };
+}
+
 /// `ordschur`'s: `DimensionMismatch` unless `u`, `t` and `select` agree in
 /// size; `EigenvaluesTooClose` when a swap would lose accuracy (real `T`:
 /// `trsen`'s `SwapRejected`, MATLAB's error there).

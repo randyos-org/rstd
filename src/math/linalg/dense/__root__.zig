@@ -124,6 +124,10 @@ pub const schur = schur_form.schur;
 pub const schurComplex = schur_form.schurComplex;
 pub const OrdschurError = schur_form.OrdschurError;
 pub const ordschur = schur_form.ordschur;
+pub const QzError = schur_form.QzError;
+pub const Qz = schur_form.Qz;
+pub const qz = schur_form.qz;
+pub const qzComplex = schur_form.qzComplex;
 
 const expm_ = @import("expm.zig");
 pub const ExpmError = expm_.ExpmError;

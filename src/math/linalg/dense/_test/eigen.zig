@@ -44,6 +44,9 @@ const tolOf = test_inverse.tolOf;
 const eigen = @import("../eigen.zig");
 const eig = eigen.eig;
 const eigGeneralized = eigen.eigGeneralized;
+const schur_form = @import("../schur_form.zig");
+const qz = schur_form.qz;
+const qzComplex = schur_form.qzComplex;
 const factor = @import("../factor.zig");
 const Lu = factor.Lu;
 const QrMode = factor.QrMode;
@@ -188,13 +191,120 @@ test "eigGeneralized: A V = B V Λ and Vᴴ B V = I for a Hermitian definite pen
         defer vals.deinit(al);
         try testing.expect(vals.hermitian.vectors == null);
     };
-    const g = try randomMat(f64, prng.random(), 3, 3);
-    defer g.deinit(al);
+}
+
+/// `A V = B V Λ` column by column for `eigGeneralized`'s `.general` result,
+/// each vector of unit 2-norm with its largest entry real.
+fn expectGeneralPencil(comptime T: type, a: Mat(T), b: Mat(T)) !void {
+    const al = testing.allocator;
+    const C = std.math.Complex(Real(T));
+    const n = a.rows;
+    const e = try eigGeneralized(al, test_io, a, b, true);
+    defer e.deinit(al);
+    const g = e.general;
+    const v = g.vectors.?;
+    const tol = tolOf(T, n) * (maxAbs(T, a.constView()) + maxAbs(T, b.constView()));
+    for (0..n) |j| {
+        const x = v.data[j * n ..][0..n];
+        var nrm: Real(T) = 0;
+        var big: Real(T) = 0;
+        var big_im: Real(T) = 0;
+        for (x) |c| {
+            nrm = std.math.hypot(nrm, std.math.hypot(c.re, c.im));
+            const m = std.math.hypot(c.re, c.im);
+            if (m > big) {
+                big = m;
+                big_im = c.im;
+            }
+        }
+        try testing.expectApproxEqAbs(@as(Real(T), 1), nrm, tolOf(T, n));
+        try testing.expectEqual(@as(Real(T), 0), big_im);
+        const lam = g.values[j];
+        if (!std.math.isFinite(lam.re)) continue;
+        for (0..n) |i| {
+            var s = C.init(0, 0);
+            for (0..n) |k| {
+                const aik = if (comptime isComplex(T)) a.at(i, k) else C.init(a.at(i, k), 0);
+                const bik = if (comptime isComplex(T)) b.at(i, k) else C.init(b.at(i, k), 0);
+                s = s.add(aik.sub(lam.mul(bik)).mul(x[k]));
+            }
+            try testing.expect(std.math.hypot(s.re, s.im) <= tol * (1 + std.math.hypot(lam.re, lam.im)));
+        }
+    }
+}
+
+test "eigGeneralized: other pencils go to the QZ; an infinite eigenvalue is Inf" {
+    const al = testing.allocator;
+    var prng: std.Random.DefaultPrng = .init(0x9e7);
+    inline for (.{ f64, C64 }) |T| for ([_]usize{ 1, 4, 11 }) |n| {
+        const a = try randomMat(T, prng.random(), n, n);
+        defer a.deinit(al);
+        const b = try randomMat(T, prng.random(), n, n);
+        defer b.deinit(al);
+        try expectGeneralPencil(T, a, b);
+    };
+    // Hermitian `A`, indefinite `B`: Cholesky fails, the QZ answers
     const pd = try hermitianPd(f64, prng.random(), 3);
     defer pd.deinit(al);
-    try testing.expectError(error.NotHermitianPencil, eigGeneralized(al, test_io, g, pd, false));
     const neg = try Mat(f64).zeros(al, 3, 3);
     defer neg.deinit(al);
     shiftDiag(f64, neg, -1);
-    try testing.expectError(error.NotPositiveDefinite, eigGeneralized(al, test_io, pd, neg, false));
+    neg.data[0] = 2;
+    try expectGeneralPencil(f64, pd, neg);
+    // `B` singular: one eigenvalue at infinity
+    const a = try randomMat(f64, prng.random(), 3, 3);
+    defer a.deinit(al);
+    const sing = try randomMat(f64, prng.random(), 3, 3);
+    defer sing.deinit(al);
+    @memset(sing.data[0..3], 0);
+    const e = try eigGeneralized(al, test_io, a, sing, false);
+    defer e.deinit(al);
+    var infinite: usize = 0;
+    for (e.general.values) |v| {
+        if (std.math.isInf(v.re)) infinite += 1;
+    }
+    try testing.expectEqual(@as(usize, 1), infinite);
+}
+
+test "qz and qzComplex: Q A Z = AA, Q B Z = BB, the forms as promised" {
+    const al = testing.allocator;
+    var prng: std.Random.DefaultPrng = .init(0x92);
+    inline for (.{ f64, C64 }) |T| for ([_]usize{ 1, 3, 9 }) |n| {
+        const a = try randomMat(T, prng.random(), n, n);
+        defer a.deinit(al);
+        const b = try randomMat(T, prng.random(), n, n);
+        defer b.deinit(al);
+        const f = try qz(al, test_io, a, b);
+        defer f.deinit(al);
+        const fc = try qzComplex(al, test_io, a, b);
+        defer fc.deinit(al);
+        inline for (.{ f, fc }) |r| {
+            const U = @TypeOf(r.aa).Element;
+            const ua = try toType(U, a);
+            defer ua.deinit(al);
+            const ub = try toType(U, b);
+            defer ub.deinit(al);
+            for ([_]Mat(U){ ua, ub }, [_]Mat(U){ r.aa, r.bb }) |m, mm| {
+                const qm = try mul(al, test_io, r.q, m);
+                defer qm.deinit(al);
+                const qmz = try mul(al, test_io, qm, r.z);
+                defer qmz.deinit(al);
+                try testing.expect(maxDiff(U, qmz.constView(), mm.constView()) <= tolOf(U, n) * maxAbs(U, m.constView()));
+            }
+            for (0..n) |j| for (j + 1..n) |i| {
+                try testing.expect(ops.isZero(U, r.bb.at(i, j)));
+                if (i > j + 1 or comptime isComplex(U)) try testing.expect(ops.isZero(U, r.aa.at(i, j)));
+            };
+        }
+    };
+    const wide = try Mat(f64).zeros(al, 2, 3);
+    defer wide.deinit(al);
+    try testing.expectError(error.NotSquare, qz(al, test_io, wide, wide));
+}
+
+/// `m` as `U` (real to complex where `U` is).
+fn toType(comptime U: type, m: anytype) !Mat(U) {
+    const r = try Mat(U).init(testing.allocator, m.rows, m.cols);
+    for (r.data, m.data) |*d, x| d.* = if (comptime isComplex(U) and !isComplex(@TypeOf(x))) U.init(x, 0) else x;
+    return r;
 }

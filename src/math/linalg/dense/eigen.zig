@@ -109,34 +109,118 @@ pub fn eig(allocator: Allocator, io: Io, a: anytype, want_vectors: bool) EigErro
     return .{ .general = .{ .values = w, .vectors = v } };
 }
 
-pub const EigGeneralizedError = error{ NotSquare, DimensionMismatch, NotHermitianPencil, NotPositiveDefinite, NoConvergence } || Allocator.Error || Io.Cancelable;
+pub const EigGeneralizedError = error{ NotSquare, DimensionMismatch, NoConvergence } || Allocator.Error || Io.Cancelable;
 
-/// The generalized eigenvalues of `A x = λ B x` (MATLAB's `eig(A, B)`) for
-/// Hermitian `A` and Hermitian positive definite `B`, by `sygvd` (`hegvd`):
-/// real, nondecreasing, and with `want_vectors` eigenvectors of unit
-/// `B`-norm (`Vᴴ B V = I`), MATLAB's `chol` algorithm. Other pencils need
-/// the QZ algorithm (issue #754): `NotHermitianPencil`, or
-/// `NotPositiveDefinite` for a Hermitian `B` that is not.
+/// The generalized eigenvalues of `A x = λ B x` (MATLAB's `eig(A, B)`), with
+/// `want_vectors` the right eigenvectors. Hermitian `A` and Hermitian
+/// positive definite `B`: `sygvd` (`hegvd`), `Eig`'s `.hermitian`, real
+/// values nondecreasing and vectors of unit `B`-norm (`Vᴴ B V = I`),
+/// MATLAB's `chol` algorithm. Any other pencil, a Hermitian `B` that turns
+/// out indefinite too: `ggev` (MATLAB's `qz`), `.general`, `λ = alpha /
+/// beta` (Inf where `beta` is 0, NaN for `0 / 0`), vectors as `eig`'s. A NaN
+/// gives `error.NoConvergence`.
 pub fn eigGeneralized(allocator: Allocator, io: Io, a: anytype, b: anytype, want_vectors: bool) EigGeneralizedError!Eig(ElementOf(@TypeOf(a))) {
     const T = ElementOf(@TypeOf(a));
     const ca = constOf(a);
     const cb = constOf(b);
     if (ca.rows != ca.cols or cb.rows != cb.cols) return error.NotSquare;
     if (cb.rows != ca.rows) return error.DimensionMismatch;
-    if (!isHermitian(ca) or !isHermitian(cb)) return error.NotHermitianPencil;
+    const n = ca.rows;
+    const ld = @max(n, 1);
+    if (isHermitian(ca) and isHermitian(cb)) chol: {
+        const f = try copyOf(T, allocator, ca);
+        errdefer f.deinit(allocator);
+        const g = try copyOf(T, allocator, cb);
+        defer g.deinit(allocator);
+        const w = try allocator.alloc(Real(T), n);
+        errdefer allocator.free(w);
+        const jobz: lapack.VectorJob = if (want_vectors) .compute else .none;
+        const solve = if (comptime isComplex(T)) lapack.hegvd else lapack.sygvd;
+        solve(allocator, io, T, .ax_equals_lambda_bx, jobz, .u, n, f.data, ld, g.data, ld, w) catch |e| switch (e) {
+            error.NotPositiveDefinite => {
+                f.deinit(allocator);
+                allocator.free(w);
+                break :chol;
+            },
+            else => return ops.narrow(EigGeneralizedError, e),
+        };
+        if (!want_vectors) f.deinit(allocator);
+        return .{ .hermitian = .{ .values = w, .vectors = if (want_vectors) f else null } };
+    }
+    return generalPencil(T, allocator, io, ca, cb, want_vectors);
+}
+
+/// `eigGeneralized` by `ggev`.
+fn generalPencil(comptime T: type, allocator: Allocator, io: Io, ca: ConstView(T), cb: ConstView(T), want_vectors: bool) EigGeneralizedError!Eig(T) {
+    const C = std.math.Complex(Real(T));
     const n = ca.rows;
     const ld = @max(n, 1);
     const f = try copyOf(T, allocator, ca);
-    errdefer f.deinit(allocator);
+    defer f.deinit(allocator);
     const g = try copyOf(T, allocator, cb);
     defer g.deinit(allocator);
-    const w = try allocator.alloc(Real(T), n);
-    errdefer allocator.free(w);
-    const jobz: lapack.VectorJob = if (want_vectors) .compute else .none;
-    const solve = if (comptime isComplex(T)) lapack.hegvd else lapack.sygvd;
-    solve(allocator, io, T, .ax_equals_lambda_bx, jobz, .u, n, f.data, ld, g.data, ld, w) catch |e| return ops.narrow(EigGeneralizedError, e);
-    if (!want_vectors) f.deinit(allocator);
-    return .{ .hermitian = .{ .values = w, .vectors = if (want_vectors) f else null } };
+    const vr = try Mat(T).init(allocator, n, n);
+    defer vr.deinit(allocator);
+    const jobvr: lapack.VectorJob = if (want_vectors) .compute else .none;
+    var none: [1]T = undefined;
+    const values = try allocator.alloc(C, n);
+    errdefer allocator.free(values);
+    const w = try allocator.alloc(T, 3 * n);
+    defer allocator.free(w);
+    if (comptime isComplex(T)) {
+        lapack.ggevComplex(allocator, io, T, .none, jobvr, n, f.data, ld, g.data, ld, w[0..n], w[n .. 2 * n], &none, 1, vr.data, ld) catch |e| return ops.narrow(EigGeneralizedError, e);
+        for (values, w[0..n], w[n .. 2 * n]) |*v, al, be| v.* = ratio(Real(T), al, be.re);
+    } else {
+        lapack.ggevReal(allocator, io, T, .none, jobvr, n, f.data, ld, g.data, ld, w[0..n], w[n .. 2 * n], w[2 * n ..], &none, 1, vr.data, ld) catch |e| return ops.narrow(EigGeneralizedError, e);
+        for (values, w[0..n], w[n .. 2 * n], w[2 * n ..]) |*v, re, im, be| v.* = ratio(Real(T), C.init(re, im), be);
+    }
+    if (!want_vectors) return .{ .general = .{ .values = values, .vectors = null } };
+    const v = try Mat(C).init(allocator, n, n);
+    errdefer v.deinit(allocator);
+    var j: usize = 0;
+    while (j < n) : (j += 1) {
+        const c = vr.data[j * n ..][0..n];
+        if (comptime isComplex(T)) {
+            @memcpy(v.data[j * n ..][0..n], c);
+        } else if (w[n + j] == 0) {
+            for (v.data[j * n ..][0..n], c) |*d, re| d.* = .init(re, 0);
+        } else {
+            // a pair: `v(:, j) ± i v(:, j + 1)`
+            const ci = vr.data[(j + 1) * n ..][0..n];
+            for (v.data[j * n ..][0..n], v.data[(j + 1) * n ..][0..n], c, ci) |*p, *q, re, im| {
+                p.* = .init(re, im);
+                q.* = .init(re, -im);
+            }
+            j += 1;
+        }
+    }
+    for (0..n) |k| largestReal(C, v.data[k * n ..][0..n]);
+    return .{ .general = .{ .values = values, .vectors = v } };
+}
+
+/// `alpha / beta`, `beta` real: Inf where `beta` is 0, NaN for `0 / 0`.
+fn ratio(comptime F: type, alpha: std.math.Complex(F), beta: F) std.math.Complex(F) {
+    if (beta != 0) return .init(alpha.re / beta, alpha.im / beta);
+    if (alpha.re == 0 and alpha.im == 0) return .init(std.math.nan(F), 0);
+    return .init(std.math.inf(F), 0);
+}
+
+/// A unit vector turned so its largest entry is real and positive, as
+/// `eig`'s `geev` vectors (design.md, decision 6).
+fn largestReal(comptime C: type, x: []C) void {
+    var best: usize = 0;
+    var m: @TypeOf(x[0].re) = -1;
+    for (x, 0..) |e, i| {
+        const a = std.math.hypot(e.re, e.im);
+        if (a > m) {
+            m = a;
+            best = i;
+        }
+    }
+    if (m <= 0) return;
+    const phase = C.init(x[best].re / m, -x[best].im / m);
+    for (x) |*e| e.* = e.mul(phase);
+    x[best].im = 0;
 }
 
 /// `a == aᴴ` exactly, the diagonal real.
