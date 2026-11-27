@@ -136,6 +136,10 @@ pub const OrdschurSelect = ordschur_.Select;
 pub const OrdschurRegion = ordschur_.Region;
 pub const ordschur = ordschur_.ordschur;
 
+const ordqz_ = @import("ordqz.zig");
+pub const OrdqzError = ordqz_.OrdqzError;
+pub const ordqz = ordqz_.ordqz;
+
 const expm_ = @import("expm.zig");
 pub const ExpmError = expm_.ExpmError;
 pub const expm = expm_.expm;
@@ -170,6 +174,9 @@ test {
     _ = @import("schur_form.zig");
     _ = @import("ordschur.zig");
     _ = @import("_test/ordschur.zig");
+    _ = @import("ordqz.zig");
+    _ = @import("reorder_select.zig");
+    _ = @import("_test/ordqz.zig");
     _ = @import("balancing.zig");
     _ = @import("elementwise.zig");
     _ = @import("vector_norm.zig");

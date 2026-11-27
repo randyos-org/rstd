@@ -157,11 +157,7 @@ fn gges(comptime T: type, allocator: Allocator, io: Io, aa: Mat(T), bb: Mat(T)) 
         lapack.ggesComplex(allocator, io, T, .compute, .compute, n, aa.data, ld, bb.data, ld, w[0..n], w[n .. 2 * n], q.data, ld, z.data, ld) catch |e| return ops.narrow(QzError, e);
     } else lapack.ggesReal(allocator, io, T, .compute, .compute, n, aa.data, ld, bb.data, ld, w[0..n], w[n .. 2 * n], w[2 * n ..], q.data, ld, z.data, ld) catch |e| return ops.narrow(QzError, e);
     // MATLAB's `Q` is LAPACK's `Qᴴ`
-    for (0..n) |j| for (0..j + 1) |i| {
-        const x = ops.conj(T, q.data[i + j * n]);
-        q.data[i + j * n] = ops.conj(T, q.data[j + i * n]);
-        q.data[j + i * n] = x;
-    };
+    util.adjointInPlace(T, q);
     return .{ .aa = aa, .bb = bb, .q = q, .z = z };
 }
 
