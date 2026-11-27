@@ -55,4 +55,6 @@ pub const Logger = log.Logger;
 
 test {
     zigstd.testRefAllDecls(@This());
+    // pure parsing behind the UEFI `Io`, which only rigs compile
+    _ = @import("_os/uefi/io/_test/devpath.zig");
 }

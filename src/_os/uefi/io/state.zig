@@ -14,9 +14,14 @@ const async = @import("async.zig");
 const stubs = @import("stubs.zig");
 const operate = @import("operate.zig");
 const fdtable = @import("fdtable.zig");
+const conerr = @import("conerr.zig");
 
 /// set by init(), cleared by stop(); null = console output dropped
 pub var con_out: ?*uefi.protocol.SimpleTextOutput = null;
+
+/// set by init() when `std_err` is a console apart from `con_out`; stderr
+/// writes go to both then (`conerr.zig`)
+pub var con_err: ?*uefi.protocol.SimpleTextOutput = null;
 
 /// set by init(), cleared by stop(); null = stdin at end of stream
 pub var con_in: ?*uefi.protocol.SimpleTextInput = null;
@@ -46,6 +51,7 @@ pub fn init() void {
             con_out = out;
         }
     }
+    if (con_err == null) con_err = conerr.find(con_out);
     if (con_in == null) con_in = uefi.system_table.con_in;
     time.init() catch |err| {
         // not fatal: log lines just lack a monotonic clock; console's already up
@@ -57,6 +63,7 @@ pub fn init() void {
 /// con_out/stall/RNG live in memory firmware may reclaim then.
 pub fn stop() void {
     con_out = null;
+    con_err = null;
     con_in = null;
     // no close() calls: protocols already gone, just drop dangling pointers
     root_dir = null;

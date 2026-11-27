@@ -17,4 +17,5 @@ test {
     _ = @import("math/kernels/blas/__root__.zig");
     _ = @import("math/kernels/lapack/__root__.zig");
     if (sysinfo.target.os.tag == .uefi) _ = @import("_os/uefi/io/_test/dirread.zig");
+    if (sysinfo.target.os.tag == .uefi) _ = @import("_os/uefi/io/_test/devpath.zig");
 }

@@ -5,6 +5,7 @@ const state = @import("state.zig");
 const console = @import("console.zig");
 const fdtable = @import("fdtable.zig");
 const stdin = @import("stdin.zig");
+const stderr = @import("stderr.zig");
 
 /// Backs `Io.File.writeStreamingAll`/`.readStreamingAll`; the streaming
 /// counterpart to `dir.zig`/`file.zig`'s positional ops. stdin/stdout/stderr
@@ -41,11 +42,8 @@ pub fn operate(userdata: ?*anyopaque, operation: Io.Operation) Io.Cancelable!Io.
 }
 
 fn writeStreaming(o: Io.Operation.FileWriteStreaming) Io.Operation.FileWriteStreaming.Error!usize {
-    if (o.file.handle == fdtable.stdout_fd or o.file.handle == fdtable.stderr_fd) {
-        // only one console tracked today (state.con_out); stdout and stderr
-        // both land there until a separate std_err protocol is wired up
-        return console.writeSplat(state.con_out, o.header, o.data, o.splat);
-    }
+    if (o.file.handle == fdtable.stdout_fd) return console.writeSplat(state.con_out, o.header, o.data, o.splat);
+    if (o.file.handle == fdtable.stderr_fd) return stderr.writeSplat(o.header, o.data, o.splat);
 
     const f = fdtable.get(o.file.handle) orelse return error.NotOpenForWriting;
     var n: usize = 0;
