@@ -49,6 +49,11 @@ pub const Lu = factor.Lu;
 pub const Qr = factor.Qr;
 pub const QrMode = factor.QrMode;
 pub const chol = factor.chol;
+
+const cholupdate_ = @import("cholupdate.zig");
+pub const CholupdateError = cholupdate_.CholupdateError;
+pub const CholupdateOp = cholupdate_.CholupdateOp;
+pub const cholupdate = cholupdate_.cholupdate;
 pub const ldl = factor.ldl;
 pub const lu = factor.lu;
 pub const qr = factor.qr;
@@ -177,6 +182,8 @@ test {
     _ = @import("ordqz.zig");
     _ = @import("reorder_select.zig");
     _ = @import("_test/ordqz.zig");
+    _ = @import("cholupdate.zig");
+    _ = @import("_test/cholupdate.zig");
     _ = @import("balancing.zig");
     _ = @import("elementwise.zig");
     _ = @import("vector_norm.zig");
