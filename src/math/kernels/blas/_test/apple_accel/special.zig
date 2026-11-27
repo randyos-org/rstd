@@ -340,10 +340,10 @@ test "quirk cases run rstd's kernels, and the Hermitian diagonal comes out real"
 
     // the zero-part quirks and real `trmv`'s show on arm64 only (issue #388)
     try l1.scal(io, Complex64, 4, .init(1.5, 0), &z, 1);
-    try p.saw(x86_64, "complex scal, alpha with a zero part");
+    try p.saw(x86_64 and sent(.scal, Complex64, true), "complex scal, alpha with a zero part");
     try zigstd.testExpectTrue(std.math.isNan(z[0].im));
     try l1.axpy(io, Complex64, 4, .init(0, 1), &z, 1, &w, 1);
-    try p.saw(x86_64, "complex axpy, alpha with a zero part");
+    try p.saw(x86_64 and sent(.axpy, Complex64, true), "complex axpy, alpha with a zero part");
     try l1.axpby(io, f64, 4, 0, &x, 1, 2, &y, 1);
     try p.saw(false, "axpby, zero alpha");
     try zigstd.testExpectEqualSlices(f64, &.{ 2, 0, 4, 1 }, &y);
@@ -352,7 +352,7 @@ test "quirk cases run rstd's kernels, and the Hermitian diagonal comes out real"
     // real `symv`'s too (issue #410): arm64 gives NaN where this is inf
     var sv: [4]f64 = @splat(0);
     try l2.symv(al, io, f64, .u, 4, 1, &a, 4, &x, 1, 0, &sv, 1);
-    try p.saw(x86_64, "symv, x not finite");
+    try p.saw(x86_64 and accel.routes(.symv, f64), "symv, x not finite");
     for (sv) |v| try zigstd.testExpectEqual(inf, v);
     try l2.trmv(al, io, f64, .u, .n, .n, 4, &a, 4, &x, 1);
     try p.saw(x86_64, "trmv, x not finite");

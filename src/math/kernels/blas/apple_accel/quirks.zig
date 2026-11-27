@@ -12,38 +12,6 @@ const Float = types.Float;
 const isZero = util.isZero;
 const x86_64 = binding.x86_64;
 
-/// The level-1 routines `sends` covers; `dot` over `f32` is `sdot`.
-pub const L1 = enum { copy, swap, scal, dot, dotc, dsdot, nrm2, asum, rot, rotm, axpy, axpby };
-
-/// Which calls go to Accelerate: all, those whose every stride is 1, none.
-const Strides = enum { all, unit, none };
-
-/// `Strides` by letter.
-const Letters = struct { s: Strides = .all, d: Strides = .all, c: Strides = .all, z: Strides = .all };
-
-/// Where rstd's kernels are the faster, by speed alone: the arm64 flyoff of
-/// 2026-10-29 (design.md, Apple Accelerate, has the rule and its rows);
-/// strided there is 2. x86_64 has no data and keeps every call.
-const sends: std.enums.EnumFieldStruct(L1, Letters, .{}) = if (x86_64) .{} else .{
-    .nrm2 = .{ .s = .none, .d = .none, .c = .none, .z = .none },
-    .dot = .{ .s = .none, .c = .unit, .z = .unit },
-    .dotc = .{ .c = .unit, .z = .unit },
-    .copy = .{ .s = .unit, .d = .unit },
-    .swap = .{ .s = .unit, .d = .unit, .c = .unit, .z = .unit },
-    .axpy = .{ .c = .unit, .z = .unit },
-    .rot = .{ .c = .unit },
-};
-
-/// Whether `sends` lets `r` over `T` go to Accelerate; `unit` if every
-/// stride is 1.
-pub inline fn sent(comptime r: L1, comptime T: type, unit: bool) bool {
-    return switch (comptime @field(@field(sends, @tagName(r)), portable.letter(T).?)) {
-        .all => true,
-        .unit => unit,
-        .none => false,
-    };
-}
-
 /// Zeroes the imaginary parts of the diagonal of the order `n` Hermitian
 /// matrix at `a`, full (`ld`) or packed (`ld` 0) on the `lower` triangle.
 pub fn realDiagonal(comptime T: type, n: isize, a: [*]T, ld: isize, lower: bool) void {

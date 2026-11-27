@@ -9,6 +9,7 @@ const binding = @import("binding.zig");
 const routines = @import("routines.zig");
 const parts = @import("split.zig");
 const quirks = @import("quirks.zig");
+const speed = @import("speed.zig");
 
 const Io = std.Io;
 const isComplex = types.isComplex;
@@ -36,6 +37,7 @@ const uplo = parts.uplo;
 const diag = parts.diag;
 const col = parts.col;
 const realDiagonal = quirks.realDiagonal;
+const routes = speed.routes;
 const zeroPart = quirks.zeroPart;
 const nonFinite = quirks.nonFinite;
 const zeroColumn = quirks.zeroColumn;
@@ -72,7 +74,7 @@ fn Gemv(comptime T: type) type {
 }
 
 pub inline fn gemv(io: Io, comptime T: type, trans: types.Trans, m: isize, n: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) Io.Cancelable!bool {
-    if (comptime !covers(T)) return false else {
+    if (comptime !covers(T) or !routes(.gemv, T)) return false else {
         const b = use(T) orelse return false;
         const t = transpose(T, trans) orelse return false;
         const lenx = if (trans.transposed()) m else n;
@@ -88,7 +90,7 @@ pub inline fn gemv(io: Io, comptime T: type, trans: types.Trans, m: isize, n: is
 }
 
 pub inline fn gbmv(comptime T: type, trans: types.Trans, m: isize, n: isize, kl: isize, ku: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) bool {
-    if (comptime !covers(T)) return false else {
+    if (comptime !covers(T) or !routes(.gbmv, T)) return false else {
         const b = use(T) orelse return false;
         const t = transpose(T, trans) orelse return false;
         const lenx = if (trans.transposed()) m else n;
@@ -123,7 +125,8 @@ fn Ger(comptime T: type, comptime conj: bool) type {
 
 /// `ger`, `geru`, and `gerc` for `conj`.
 pub inline fn ger(io: Io, comptime T: type, comptime conj: bool, m: isize, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize, a: [*]T, lda: isize) Io.Cancelable!bool {
-    if (comptime !covers(T)) return false else {
+    // `gerc` follows `ger`, the one timed
+    if (comptime !covers(T) or !routes(.ger, T)) return false else {
         const b = use(T) orelse return false;
         if (nonFinite(T, m, x, incx)) return false;
         const G = Ger(T, conj);
@@ -136,7 +139,7 @@ pub inline fn ger(io: Io, comptime T: type, comptime conj: bool, m: isize, n: is
 
 /// `symv`, or `hemv` for `herm`.
 pub inline fn symv(comptime T: type, comptime herm: bool, ul: types.Uplo, n: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) bool {
-    if (comptime !covers(T) or herm != isComplex(T)) return false else {
+    if (comptime !covers(T) or herm != isComplex(T) or (!herm and !routes(.symv, T))) return false else {
         const name = comptime routine(if (herm) .hemv else .symv, T);
         const b = use(T) orelse return false;
         const u = uplo(ul) orelse return false;
@@ -162,7 +165,7 @@ pub inline fn sbmv(comptime T: type, comptime herm: bool, comptime packed_: bool
 pub const TriKind = enum { trmv, trsv, tbmv, tbsv, tpmv, tpsv };
 
 pub inline fn tri(comptime T: type, comptime kind: TriKind, ul: types.Uplo, trans: types.Trans, dg: types.Diag, n: isize, k: isize, a: [*]T, lda: isize, x: [*]T, incx: isize) bool {
-    if (comptime !covers(T)) return false else {
+    if (comptime !covers(T) or (kind == .trsv and !routes(.trsv, T))) return false else {
         const b = use(T) orelse return false;
         const u = uplo(ul) orelse return false;
         const t = transpose(T, trans) orelse return false;

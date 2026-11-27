@@ -8,6 +8,7 @@ const binding = @import("binding.zig");
 const routines = @import("routines.zig");
 const parts = @import("split.zig");
 const quirks = @import("quirks.zig");
+const speed = @import("speed.zig");
 
 const Io = std.Io;
 const isComplex = types.isComplex;
@@ -37,6 +38,7 @@ const realDiagonal = quirks.realDiagonal;
 const nonFiniteTri = quirks.nonFiniteTri;
 const tinyDiagonal = quirks.tinyDiagonal;
 const nonFiniteMat = quirks.nonFiniteMat;
+const routes = speed.routes;
 
 /// `gemm`'s parts: columns of `C` if it has as many as rows, else rows;
 /// each takes the matching part of `op(B)` or `op(A)` and all of the other.
@@ -82,7 +84,7 @@ fn Gemm(comptime T: type) type {
 }
 
 pub inline fn gemm(io: Io, comptime T: type, transa: types.Trans, transb: types.Trans, m: isize, n: isize, k: isize, alpha: T, a: [*]const T, lda: isize, b_: [*]const T, ldb: isize, beta: T, c: [*]T, ldc: isize) Io.Cancelable!bool {
-    if (comptime !covers(T)) return false else {
+    if (comptime !covers(T) or !routes(.gemm, T)) return false else {
         const b = use(T) orelse return false;
         const ta = transpose(T, transa) orelse return false;
         const tb = transpose(T, transb) orelse return false;
@@ -132,7 +134,7 @@ fn Symm(comptime T: type, comptime herm: bool) type {
 
 /// `symm`, or `hemm` for `herm`.
 pub inline fn symm(io: Io, comptime T: type, comptime herm: bool, sd: types.Side, ul: types.Uplo, m: isize, n: isize, alpha: T, a: [*]const T, lda: isize, b_: [*]const T, ldb: isize, beta: T, c: [*]T, ldc: isize) Io.Cancelable!bool {
-    if (comptime !covers(T) or (herm and !isComplex(T))) return false else {
+    if (comptime !covers(T) or (herm and !isComplex(T)) or (!herm and !routes(.symm, T))) return false else {
         const b = use(T) orelse return false;
         const u = uplo(ul) orelse return false;
         const ka = if (sd == .l) m else n;
@@ -150,6 +152,8 @@ pub inline fn symm(io: Io, comptime T: type, comptime herm: bool, sd: types.Side
 /// `beta`), as `herm` and `b_` say; `t` is a transposed `op`.
 pub inline fn syrk(comptime T: type, comptime herm: bool, ul: types.Uplo, t: bool, n: isize, k: isize, alpha: T, a: [*]const T, lda: isize, b_: ?[*]const T, ldb: isize, beta: T, c: [*]T, ldc: isize) bool {
     if (comptime !covers(T) or (herm and !isComplex(T))) return false else {
+        // `syr2k` was not timed
+        if (comptime !herm and !routes(.syrk, T)) if (b_ == null) return false;
         const b = use(T) orelse return false;
         const u = uplo(ul) orelse return false;
         const tr: Transpose = if (!t) .no_trans else if (herm) .conj_trans else .trans;
@@ -205,7 +209,7 @@ fn Trmm(comptime T: type, comptime solve: bool) type {
 
 /// `trmm`, or `trsm` for `solve`.
 pub inline fn trmm(io: Io, comptime T: type, comptime solve: bool, sd: types.Side, ul: types.Uplo, transa: types.Trans, dg: types.Diag, m: isize, n: isize, alpha: T, a: [*]const T, lda: isize, b_: [*]T, ldb: isize) Io.Cancelable!bool {
-    if (comptime !covers(T)) return false else {
+    if (comptime !covers(T) or !routes(if (solve) .trsm else .trmm, T)) return false else {
         const b = use(T) orelse return false;
         const u = uplo(ul) orelse return false;
         const t = transpose(T, transa) orelse return false;

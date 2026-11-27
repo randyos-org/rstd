@@ -1536,18 +1536,21 @@ routine and matches the reference; `apple_accel.zig` binds it and routes to it.
 - **Routed:** `copy`, `swap`, `scal`, `dot`, `dotc`, `dsdot`, `sdsdot`, `nrm2`, `asum`, `rot`,
   `rotm`, `axpy`, `axpby`; `gemv`, `gbmv`, `ger`, `gerc`, the real `symv`, `sbmv`, `spmv`,
   `syr`, `spr`, `syr2`, `spr2`, the Hermitian `hemv`, `hbmv`, `hpmv`, `her`, `hpr`, `her2`,
-  `hpr2`, and the six triangular routines; all of level 3, less what is kept for speed (below);
+  `hpr2`, and the six triangular routines; all of level 3; less, in each level, what is kept for
+  speed (below);
   LAPACK's `potrf` (its `INFO` becomes rstd's error, 0-based in `potrfChecked`; after a failure
   `A` holds Accelerate's partial factor).
   Routed, `sdot` is `cblas_dsdot` rounded, and `snrm2` and `scnrm2` the root of `dsdot(x, x)`,
   so `s` sums in `f64` as rstd's kernels do. `d` and `z` `nrm2`, and `asum`, take `incx > 0` only.
-- **Kept for speed (arm64).** Level 1 goes by routine, letter and stride, one table
-  (`apple_accel/quirks.zig`'s `sends`): Accelerate gets every call, the unit-stride ones only (every
-  stride 1), or none. A slot is kept where rstd's kernel ran faster than Accelerate past noise
-  (ratio under 0.97) in the flyoff of 2026-10-29
+- **Kept for speed.** Per architecture, in `apple_accel/speed.zig`. Level 1 goes by routine,
+  letter and stride (`sends`): Accelerate gets every call, the unit-stride ones only (every
+  stride 1), the strided ones only, or none. Levels 2 and 3 go by routine and letter (`kept`).
+  Rerun timings revise the tables, not the code; untimed slots stay routed.
+- **Kept for speed, arm64.** Level 1 only. A slot is kept where rstd's kernel ran faster than
+  Accelerate past noise (ratio under 0.97) in the flyoff of 2026-10-29
   ([`results-flyoff-macos-aarch64.md`](../../../tools/blasbench/results/results-flyoff-macos-aarch64.md#accelerate-routing),
   routed against `--rstd-accelerate=0`, strided at 2); a slot within noise or faster stays
-  routed. Rerun timings revise the table, not the code. Routed over rstd's own:
+  routed. Routed over rstd's own:
   - `nrm2`, none: `dznrm2` 0.06 to 0.21, `dnrm2` 0.25 to 0.48, `snrm2` and `scnrm2` 0.53 to 0.92.
   - `sdot`, none: 0.41 to 0.50 through `cblas_dsdot`, 0.97 strided. `dsdot` and `sdsdot`, with
     a kernel of their own the flyoff did not time, stay routed.
@@ -1559,7 +1562,23 @@ routine and matches the reference; `apple_accel.zig` binds it and routes to it.
   - `csrot`, unit only: 0.88 strided; `zdrot` strided is 0.97, noise.
 
   Left routed though slower: contiguous `zcopy` at 4M elements (0.83, where 64K is 4.2), a size
-  limit no row places. x86_64 has no such data and keeps every call.
+  limit no row places.
+- **Kept for speed, x86_64.** The Intel Mac's sweep of 2026-11-26
+  ([#772](https://github.com/randyos-org/rstd/issues/772)): each slot's median over its rows of
+  `rstd/ob` routed (`--threads=6`) over the same with `--rstd-accelerate=0`, in one process each;
+  kept under 0.97, and a slot within noise (0.97 to 1.03) kept if its one-thread median is
+  under 0.97. Kept, routed over rstd's own:
+  - Level 1: every `nrm2` (0.15 to 0.71); `sscal` (0.52, 0.97 unit), `zdot` and `zdotc` (0.90,
+    0.97 strided), complex `axpy` (0.71 and 0.76; `zaxpy` unit 1.03, one-thread 0.94).
+  - Level 1 strided only: `scopy` 0.59, `dcopy` 0.75, `ccopy` 0.96, `dscal` 0.55, `cswap` 0.64,
+    `dswap` 0.95, `saxpy` 0.44, `zasum` 0.50, `drot` 0.96.
+  - Level 1 unit only: `cscal` 0.55, `zscal` 0.92, `casum` 0.96, `srot` 0.90.
+  - Level 2: `gemv` both ways (0.51 to 1.01, the one-thread runs under 0.92), `gbmv` (0.37 to
+    0.61), `ger` (0.79 to 1.03; `gerc` follows it), the real `symv` (0.66, 0.70), complex `trsv`
+    (0.60, 0.48).
+  - Level 3: `gemm` (0.26 to 0.94), `symm` but `dsymm` (0.27 to 0.94; `dsymm` is 1.21), `syrk`
+    (0.11 to 0.46; `syr2k` was not timed), complex `trmm` and `trsm` (0.33 to 0.46; real ones
+    1.05 to 3.71).
 - **Not routed:** what CBLAS lacks: `sum`, the extremes, `axpyc`, `rotg`, `zrotg`, `rotmg`, the
   complex symmetric level 2, the conjugated-`x` letters `o` to `d`, a complex `r`, `HEMVREV`'s
   `v` and `m`; `i?amax`, which does not take the first NaN.

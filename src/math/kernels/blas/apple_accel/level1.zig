@@ -9,6 +9,7 @@ const binding = @import("binding.zig");
 const routines = @import("routines.zig");
 const parts = @import("split.zig");
 const quirks = @import("quirks.zig");
+const speed = @import("speed.zig");
 
 const Io = std.Io;
 const isComplex = types.isComplex;
@@ -34,7 +35,7 @@ const whole = parts.whole;
 const sub = parts.sub;
 const units = parts.units;
 const scalar = parts.scalar;
-const sent = quirks.sent;
+const sent = speed.sent;
 const zeroPart = quirks.zeroPart;
 
 /// The element-wise level-1 routines `split` takes.
