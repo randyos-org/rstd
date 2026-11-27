@@ -17,6 +17,7 @@ const relapack = @import("relapack.zig");
 const indefinite = @import("indefinite.zig");
 const sytrf_factor = @import("sytrf.zig");
 const sytrs_solve = @import("sytrs.zig");
+const sytri_invert = @import("sytri.zig");
 const sygv_solve = @import("sygv.zig");
 const gghrd_reduce = @import("gghrd.zig");
 const qz_complex = @import("qz_complex.zig");
@@ -151,6 +152,10 @@ pub const hetrfRook = sytrf_factor.hetrfRook;
 pub const SytrsError = sytrs_solve.SytrsError;
 pub const sytrs = sytrs_solve.sytrs;
 pub const hetrs = sytrs_solve.hetrs;
+/// `sytri`, `hetri`: `error.Singular` for a zero 1 x 1 block, `A` untouched.
+pub const SytriError = sytri_invert.SytriError;
+pub const sytri = sytri_invert.sytri;
+pub const hetri = sytri_invert.hetri;
 pub const sytrsRook = sytrs_solve.sytrsRook;
 pub const hetrsRook = sytrs_solve.hetrsRook;
 /// `sysv`, `hesv`: `Singular` for a zero block of `D`, `B` untouched.
@@ -384,6 +389,7 @@ test {
     _ = @import("_test/gbtrs.zig");
     _ = @import("_test/getrf_complete.zig");
     _ = @import("_test/pptrf.zig");
+    _ = @import("_test/sytri.zig");
     _ = pbtrs_solve;
     _ = @import("tgsen_condition.zig");
     _ = relapack_tests;

@@ -220,10 +220,15 @@ pub fn trsv(al: Allocator, io: Io, comptime T: type, upper: bool, op: Trans, uni
 /// `y := alpha S x` for the `n x n` symmetric (complex: Hermitian) `S` whose
 /// upper or lower triangle is `a` (`?SYMV`, `?HEMV` with `beta` 0).
 pub fn symv(al: Allocator, io: Io, comptime T: type, upper: bool, alpha: T, a: Mat(T), x: [*]T, y: [*]T) Error!void {
+    return symvAs(al, io, T, isComplex(T), upper, alpha, a, x, y);
+}
+
+/// `symv`, a complex `S` Hermitian for `herm`, else complex symmetric.
+pub fn symvAs(al: Allocator, io: Io, comptime T: type, comptime herm: bool, upper: bool, alpha: T, a: Mat(T), x: [*]T, y: [*]T) Error!void {
     const n: isize = @intCast(a.rows);
     if (n == 0) return;
     const uplo: types.Uplo = if (upper) .u else .l;
-    const r = if (comptime isComplex(T)) l2.hemv(al, io, T, uplo, n, alpha, a.ptr, @intCast(a.ld), x, 1, zero(T), y, 1) else l2.symv(al, io, T, uplo, n, alpha, a.ptr, @intCast(a.ld), x, 1, zero(T), y, 1);
+    const r = if (comptime herm and isComplex(T)) l2.hemv(al, io, T, uplo, n, alpha, a.ptr, @intCast(a.ld), x, 1, zero(T), y, 1) else l2.symv(al, io, T, uplo, n, alpha, a.ptr, @intCast(a.ld), x, 1, zero(T), y, 1);
     r catch |e| return narrow(Error, e);
 }
 
