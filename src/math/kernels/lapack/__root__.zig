@@ -23,6 +23,8 @@ const qz_real = @import("qz_real.zig");
 const ggev_complex = @import("ggev_complex.zig");
 const ggev_real = @import("ggev_real.zig");
 const gges_schur = @import("gges.zig");
+const tgexc_move = @import("tgexc.zig");
+const tgsen_reorder = @import("tgsen.zig");
 const householder = @import("householder.zig");
 const qr = @import("qr.zig");
 const qr_solve = @import("qr_solve.zig");
@@ -174,6 +176,14 @@ pub const ggevComplex = ggev_complex.ggevComplex;
 pub const ggevReal = ggev_real.ggevReal;
 pub const ggesComplex = gges_schur.ggesComplex;
 pub const ggesReal = gges_schur.ggesReal;
+/// `tgexc`: `ifst` and `ilst` 0-based; `error.SwapRejected`: a swap too
+/// ill-conditioned to make.
+pub const TgexcError = tgexc_move.TgexcError;
+pub const tgexc = tgexc_move.tgexc;
+/// `tgsen` without condition estimates: returns the cluster's size;
+/// `error.SwapRejected`.
+pub const TgsenError = tgsen_reorder.TgsenError;
+pub const tgsen = tgsen_reorder.tgsen;
 
 /// `geev`: a NaN in `A` is `error.NanInA`; `error.NoConvergence` (also for
 /// an infinity in `A`), the count of eigenvalues not found in the last
@@ -306,6 +316,7 @@ test {
     _ = ggev_real;
     _ = @import("_test/ggev_real.zig");
     _ = gges_schur;
+    _ = @import("_test/tgexc.zig");
     _ = relapack_tests;
     _ = evd_tests;
     _ = norm_tests;
