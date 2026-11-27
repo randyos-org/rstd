@@ -28,7 +28,33 @@ pub const fonts = [_]Font{
     .{ .name = "cica", .dep = "font_cica", .path = "Cica-Regular.ttf" },
     // Limbu, for the autohinter's Indic writing system
     .{ .name = "noto_sans_limbu", .dep = "font_noto_sans_limbu", .path = "NotoSansLimbu/hinted/ttf/NotoSansLimbu-Regular.ttf" },
+    // variable (wght 200 to 700, avar), VTT bytecode with cvar, for variable hinting
+    .{ .name = "cascadia_code", .dep = "font_cascadia_code", .path = "ttf/CascadiaCode.ttf" },
 };
+
+/// A `hint-refs` file: a font at an instance, its axis values in 16.16
+/// (`FT_Set_Var_Design_Coordinates`), none for the default.
+pub const Ref = struct {
+    /// The file's name.
+    name: []const u8,
+    font: []const u8,
+    design: []const i32 = &.{},
+};
+
+/// Each font at its default, and Cascadia Code at named and unnamed weights.
+pub const refs = blk: {
+    var r: [fonts.len + 3]Ref = undefined;
+    for (fonts, 0..) |f, i| r[i] = .{ .name = f.name, .font = f.name };
+    r[fonts.len] = .{ .name = "cascadia_code_wght300", .font = "cascadia_code", .design = &.{300 << 16} };
+    r[fonts.len + 1] = .{ .name = "cascadia_code_wght550", .font = "cascadia_code", .design = &.{550 << 16} };
+    r[fonts.len + 2] = .{ .name = "cascadia_code_wght700", .font = "cascadia_code", .design = &.{700 << 16} };
+    break :blk r;
+};
+
+pub fn find(name: []const u8) Font {
+    for (fonts) |f| if (std.mem.eql(u8, f.name, name)) return f;
+    unreachable;
+}
 
 /// `-Dtest-fonts`, which `build` reads before any test is added.
 pub var enabled = false;

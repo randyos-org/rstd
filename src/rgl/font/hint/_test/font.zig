@@ -12,17 +12,6 @@ const test_fonts = @import("rstd_test_fonts");
 
 const testing = std.testing;
 
-const fonts = .{
-    .{ "arimo", @embedFile("refs/arimo.bin.gz") },
-    .{ "jetbrains_mono", @embedFile("refs/jetbrains_mono.bin.gz") },
-    .{ "ubuntu", @embedFile("refs/ubuntu.bin.gz") },
-    .{ "ibm_plex_serif", @embedFile("refs/ibm_plex_serif.bin.gz") },
-    .{ "cica", @embedFile("refs/cica.bin.gz") },
-    .{ "noto_sans_limbu", @embedFile("refs/noto_sans_limbu.bin.gz") },
-    .{ "commit_mono", @embedFile("refs/commit_mono.bin.gz") },
-    .{ "atkynson_mono", @embedFile("refs/atkynson_mono.bin.gz") },
-};
-
 /// The refs' mode a front-end mode and target load as.
 fn refMode(m: Font.Mode, target: Font.Target) refs.Mode {
     return switch (m) {
@@ -46,12 +35,13 @@ test "hinting front end: FreeType's default choice, and its default loads (-Dtes
     var arena: std.heap.ArenaAllocator = .init(testing.allocator);
     defer arena.deinit();
     var any = false;
-    inline for (fonts) |f| if (@field(test_fonts, f[0])) |bytes| {
+    inline for (refs.files) |f| if (@field(test_fonts, f.font)) |bytes| {
         any = true;
-        const r = try refs.parse(arena.allocator(), f[1]);
+        const r = try refs.parse(arena.allocator(), f.gz);
         const sfnt = try Sfnt.init(arena.allocator(), bytes, .{});
         var font: Font = .init(testing.allocator, &sfnt);
         defer font.deinit();
+        if (r.design.len > 0) try font.setDesignCoordinates(r.design);
         try testing.expect(!font.tricky);
         try testing.expectEqual(r.default_mode, refMode(font.defaultMode(.normal), .normal));
         try testing.expectEqual(r.default_light_mode, refMode(font.defaultMode(.light), .light));
@@ -81,7 +71,7 @@ test "hinted bitmaps: FreeType's box and advance, crisper than unhinted (-Dtest-
     const al = testing.allocator;
     var arena: std.heap.ArenaAllocator = .init(al);
     defer arena.deinit();
-    const r = try refs.parse(arena.allocator(), fonts[0][1]);
+    const r = try refs.parse(arena.allocator(), refs.files[0].gz);
     const sfnt = try Sfnt.init(arena.allocator(), bytes, .{});
     var font: Font = .init(al, &sfnt);
     defer font.deinit();

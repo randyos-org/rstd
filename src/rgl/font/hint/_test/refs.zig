@@ -1,16 +1,48 @@
-//! FreeType's outlines for the hinting tests: `refs/<font>.bin.gz`, one per
-//! test font (`build/testfonts.zig`), written by `tools/hintrefs/hintrefs.c`
-//! from nixpkgs' FreeType (the version each file records). Regenerated with
-//! `zig build hint-refs -Dtest-fonts`, never edited (issue #805).
+//! FreeType's outlines for the hinting tests: `refs/<name>.bin.gz`, one per
+//! test font and instance (`build/testfonts.zig`), written by
+//! `tools/hintrefs/hintrefs.c` from nixpkgs' FreeType (the version each file
+//! records). Regenerated with `zig build hint-refs -Dtest-fonts`, never
+//! edited (issues #805, #809).
 //!
-//! A file is gzipped: "RSTDHNT1"; then, as LEB128 varints (zigzag where
-//! signed), FreeType's version, units per em, a CFF byte, the `fpgm`,
-//! `prep` and `cvt ` lengths, the default load's mode byte and the light
+//! A file is gzipped: "RSTDHNT2"; then, as LEB128 varints (zigzag where
+//! signed), FreeType's version, the instance's axis values, units per em, a
+//! CFF byte, the `fpgm`, `prep` and `cvt ` lengths, the default load's mode byte and the light
 //! target's (255: neither), the sizes, and the glyphs: codepoint and glyph
 //! index, then for each size and mode an outline.
 
 const std = @import("std");
+const Sfnt = @import("../../sfnt/Sfnt.zig");
+const vary = @import("../vary/__root__.zig");
 const Allocator = std.mem.Allocator;
+
+/// A file, with its font's field in `rstd_test_fonts`.
+pub const File = struct { font: []const u8, name: []const u8, gz: []const u8 };
+
+fn file(comptime font: []const u8, comptime name: []const u8) File {
+    return .{ .font = font, .name = name, .gz = @embedFile("refs/" ++ name ++ ".bin.gz") };
+}
+
+/// `build/testfonts.zig`'s `refs`.
+pub const files = [_]File{
+    file("arimo", "arimo"),
+    file("jetbrains_mono", "jetbrains_mono"),
+    file("ubuntu", "ubuntu"),
+    file("ibm_plex_serif", "ibm_plex_serif"),
+    file("commit_mono", "commit_mono"),
+    file("atkynson_mono", "atkynson_mono"),
+    file("cica", "cica"),
+    file("noto_sans_limbu", "noto_sans_limbu"),
+    file("cascadia_code", "cascadia_code"),
+    file("cascadia_code", "cascadia_code_wght300"),
+    file("cascadia_code", "cascadia_code_wght550"),
+    file("cascadia_code", "cascadia_code_wght700"),
+};
+
+/// The instance `r` is at, null for the default; the caller owns it.
+pub fn blend(allocator: Allocator, sfnt: *const Sfnt, r: Refs) vary.Blend.Error!?vary.Blend {
+    if (r.design.len == 0) return null;
+    return vary.Blend.init(allocator, sfnt, r.design);
+}
 
 /// FreeType's load flags for each outline, as `hintrefs.c` has them.
 pub const Mode = enum(u8) {
@@ -54,6 +86,8 @@ pub const Glyph = struct {
 
 pub const Refs = struct {
     freetype: [3]u32,
+    /// The instance's axis values, 16.16; none for the default.
+    design: []const i32,
     units_per_em: u16,
     cff: bool,
     fpgm_len: u32,
@@ -93,9 +127,12 @@ pub fn parse(arena: Allocator, gz: []const u8) ParseError!Refs {
         error.StreamTooLong => unreachable,
     };
     var c: Cursor = .{ .bytes = raw };
-    if (!std.mem.eql(u8, try c.take(8), "RSTDHNT1")) return error.BadMagic;
+    if (!std.mem.eql(u8, try c.take(8), "RSTDHNT2")) return error.BadMagic;
     var r: Refs = undefined;
     for (&r.freetype) |*v| v.* = try c.int(u32);
+    const design = try arena.alloc(i32, try c.int(usize));
+    for (design) |*v| v.* = try c.signed();
+    r.design = design;
     r.units_per_em = try c.int(u16);
     r.cff = switch (try c.byte()) {
         0 => false,

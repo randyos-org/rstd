@@ -1,5 +1,6 @@
-/* hintrefs <font>: FreeType's outlines of <font>'s test glyphs at the test
- * sizes, unhinted and in each hinting mode, as `src/rgl/font/hint/_test/
+/* hintrefs <font> [axis values]: FreeType's outlines of <font>'s test glyphs
+ * at the instance of those design coordinates (16.16, issue #809), at the
+ * test sizes, unhinted and in each hinting mode, as `src/rgl/font/hint/_test/
  * refs.zig` reads them, on stdout (rstd issue #805). Built and run by
  * tools/nix/hintrefs.sh at a pinned nixpkgs; `zig build hint-refs
  * -Dtest-fonts` regenerates the checked-in files. */
@@ -13,6 +14,7 @@
 #include FT_DRIVER_H
 #include FT_FONT_FORMATS_H
 #include FT_MODULE_H
+#include FT_MULTIPLE_MASTERS_H
 #include FT_TRUETYPE_TABLES_H
 
 /* ASCII, then Latin-1 (composite glyphs in TrueType fonts), Greek, Cyrillic, the euro sign; Nerd Font icons
@@ -37,6 +39,10 @@ static const FT_Int32 mode_flags[n_modes] = {
     FT_LOAD_FORCE_AUTOHINT | FT_LOAD_TARGET_LIGHT,
 };
 #define no_mode 255
+
+/* the instance's design coordinates, none for the default */
+static FT_Fixed design[16];
+static unsigned n_design;
 
 typedef struct {
     FT_Error err;
@@ -81,6 +87,7 @@ static FT_Face open_face(FT_Library lib, const char *path, unsigned interpreter)
     FT_Error err = FT_Property_Set(lib, "truetype", "interpreter-version", &interpreter);
     if (err) die("setting the interpreter version", err);
     if ((err = FT_New_Face(lib, path, 0, &face))) die("opening the font", err);
+    if (n_design && (err = FT_Set_Var_Design_Coordinates(face, n_design, design))) die("setting the instance", err);
     return face;
 }
 
@@ -159,10 +166,11 @@ static unsigned default_mode(FT_Library lib, const char *path, Glyph *ref, unsig
 }
 
 int main(int argc, char **argv) {
-    if (argc != 2) {
-        fprintf(stderr, "usage: hintrefs <font>\n");
+    if (argc < 2 || argc - 2 > 16) {
+        fprintf(stderr, "usage: hintrefs <font> [axis values, 16.16]\n");
         return 2;
     }
+    for (int i = 2; i < argc; i++) design[n_design++] = strtol(argv[i], NULL, 10);
     const char *path = argv[1];
     FT_Library lib;
     FT_Error err = FT_Init_FreeType(&lib);
@@ -197,11 +205,13 @@ int main(int argc, char **argv) {
     unsigned def_light = default_mode(lib, path, ref, n_glyphs, gids, FT_LOAD_TARGET_LIGHT, native_light, autohint_light);
 
     Buf b = {0};
-    const char magic[] = "RSTDHNT1";
+    const char magic[] = "RSTDHNT2";
     for (unsigned i = 0; i < 8; i++) put(&b, (unsigned char)magic[i]);
     FT_Int major, minor, patch;
     FT_Library_Version(lib, &major, &minor, &patch);
     varint(&b, (uint64_t)major), varint(&b, (uint64_t)minor), varint(&b, (uint64_t)patch);
+    varint(&b, n_design);
+    for (unsigned i = 0; i < n_design; i++) zigzag(&b, design[i]);
     varint(&b, upem);
     put(&b, (unsigned char)is_cff);
     varint(&b, fpgm), varint(&b, prep), varint(&b, cvt);

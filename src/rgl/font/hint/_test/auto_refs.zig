@@ -11,17 +11,6 @@ const test_fonts = @import("rstd_test_fonts");
 
 const testing = std.testing;
 
-const fonts = .{
-    .{ "arimo", @embedFile("refs/arimo.bin.gz") },
-    .{ "jetbrains_mono", @embedFile("refs/jetbrains_mono.bin.gz") },
-    .{ "ubuntu", @embedFile("refs/ubuntu.bin.gz") },
-    .{ "ibm_plex_serif", @embedFile("refs/ibm_plex_serif.bin.gz") },
-    .{ "cica", @embedFile("refs/cica.bin.gz") },
-    .{ "noto_sans_limbu", @embedFile("refs/noto_sans_limbu.bin.gz") },
-    .{ "commit_mono", @embedFile("refs/commit_mono.bin.gz") },
-    .{ "atkynson_mono", @embedFile("refs/atkynson_mono.bin.gz") },
-};
-
 const setups = [_]struct { mode: refs.Mode, render: Hinter.RenderMode }{
     .{ .mode = .autohint, .render = .normal },
     .{ .mode = .autohint_light, .render = .light },
@@ -65,13 +54,15 @@ test "autohinted glyphs: FreeType's outlines, advances and side-bearing deltas (
     defer arena.deinit();
     var any = false;
     var failed = false;
-    inline for (fonts) |f| if (@field(test_fonts, f[0])) |bytes| {
+    inline for (refs.files) |f| if (@field(test_fonts, f.font)) |bytes| {
         any = true;
-        const r = try refs.parse(arena.allocator(), f[1]);
+        const r = try refs.parse(arena.allocator(), f.gz);
         const sfnt = try Sfnt.init(arena.allocator(), bytes, .{});
-        var hinter = try Hinter.init(testing.allocator, &sfnt);
+        var b = try refs.blend(testing.allocator, &sfnt, r);
+        defer if (b) |*x| x.deinit();
+        var hinter = try Hinter.init(testing.allocator, &sfnt, if (b) |*x| x else null);
         defer hinter.deinit();
-        for (setups) |s| expectMode(f[0], &hinter, r, s.mode, s.render) catch |e| switch (e) {
+        for (setups) |s| expectMode(f.name, &hinter, r, s.mode, s.render) catch |e| switch (e) {
             error.TestExpectedEqual => failed = true,
             else => return e,
         };

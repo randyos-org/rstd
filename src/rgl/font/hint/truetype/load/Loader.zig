@@ -4,7 +4,8 @@
 //! `TT_Process_Composite_Component`, `TT_Process_Composite_Glyph`,
 //! `TT_Hint_Glyph`, `compute_glyph_metrics`; `src/base/ftobjs.c`'s grid
 //! fitting of the advance): the outline in 26.6 pixels with its origin at
-//! the left phantom point, and the advance.
+//! the left phantom point, and the advance; a variable font's at the
+//! instance's blend (`../../vary/`).
 
 const std = @import("std");
 const fixed = @import("../../fixed.zig");
@@ -13,13 +14,14 @@ const glyf = @import("glyf.zig");
 const zone = @import("../zone.zig");
 const Instance = @import("../Instance.zig");
 const Engine = @import("../Engine.zig");
+const vary = @import("../../vary/__root__.zig");
 const GlyphIndex = @import("../../../sfnt/types.zig").GlyphIndex;
 
 const Allocator = std.mem.Allocator;
 const Point = zone.Point;
 const Loader = @This();
 
-pub const Error = error{ InvalidGlyphIndex, InvalidComposite, InvalidOutline, TooManyHints } || Engine.Error || Allocator.Error;
+pub const Error = error{ InvalidGlyphIndex, InvalidComposite, InvalidOutline, TooManyHints } || vary.Gvar.Error || Engine.Error || Allocator.Error;
 
 pub const Glyph = @import("../../Glyph.zig");
 
@@ -101,9 +103,37 @@ fn glyph(l: *Loader, gid: u16, depth: u32) Error!void {
     }
     l.metrics(gid);
     l.setPhantoms();
-    if (data.len == 0 or n_contours == 0) return l.scalePhantoms();
-    if (n_contours > 0) return l.simple(data, @intCast(n_contours));
-    return l.composite(data, depth);
+    if (data.len == 0 or n_contours == 0) {
+        if (l.inst.options.blend != null) {
+            var pts = l.pp;
+            var unrounded: [4]Point = undefined;
+            try l.applyDeltas(gid, &pts, &.{}, &unrounded);
+        }
+        return l.scalePhantoms();
+    }
+    if (n_contours > 0) return l.simple(gid, data, @intCast(n_contours));
+    return l.composite(gid, data, depth);
+}
+
+/// The blend's `HVAR`, if FreeType uses one.
+fn hvar(l: *const Loader) ?*const vary.Hvar {
+    const b = l.inst.options.blend orelse return null;
+    return if (b.hvar) |*h| h else null;
+}
+
+/// `TT_Vary_Apply_Glyph_Deltas` on `points` (font units, the last four
+/// the phantoms), which then give the phantoms but with `HVAR`.
+fn applyDeltas(l: *Loader, gid: u16, points: []Point, ends: []const u16, unrounded: []Point) Error!void {
+    const b = l.inst.options.blend.?;
+    const g = if (b.gvar) |*g| g else {
+        for (unrounded, points) |*u, p| u.* = .{ p[0] * 64, p[1] * 64 };
+        return;
+    };
+    const has_hvar = l.hvar() != null;
+    try g.apply(l.allocator, gid, b.coords, points, ends, has_hvar, unrounded);
+    const n = points.len;
+    if (!has_hvar) l.pp[0..2].* = points[n - 4 ..][0..2].*;
+    l.pp[2..4].* = points[n - 2 ..][0..2].*;
 }
 
 /// `tt_get_metrics`: `hmtx`, then the vertical metrics from `OS/2`'s typo
@@ -115,6 +145,8 @@ fn metrics(l: *Loader, gid: u16) void {
         l.left_bearing = m.left_side_bearing;
         l.advance = m.advance_width;
     }
+    // `HVAR` varies the advance, not the bearing (`tt_face_get_metrics`)
+    if (l.hvar()) |h| l.advance = @truncate(@as(u32, @bitCast(@as(i32, l.advance) +% h.advanceDelta(gid, l.inst.options.blend.?.coords))));
     const asc: i32, const desc: i32 = if (s.os2) |o| .{ o.sTypoAscender(), o.sTypoDescender() } else if (s.hhea) |h| .{ h.ascent(), h.descent() } else .{ 0, 0 };
     l.top_bearing = @truncate(asc - l.y_max);
     l.vadvance = @truncate(@abs(asc - desc));
@@ -147,9 +179,9 @@ fn scalePhantoms(l: *Loader) void {
     }
 }
 
-/// `TT_Process_Simple_Glyph`: the points and phantoms scaled, hinted on a
-/// zone of their own, then added to the outline.
-fn simple(l: *Loader, data: []const u8, n_contours: usize) Error!void {
+/// `TT_Process_Simple_Glyph`: the points and phantoms varied and scaled,
+/// hinted on a zone of their own, then added to the outline.
+fn simple(l: *Loader, gid: u16, data: []const u8, n_contours: usize) Error!void {
     var g = try glyf.simple(l.allocator, data, n_contours);
     defer g.deinit(l.allocator);
     const n = g.points.len;
@@ -159,10 +191,26 @@ fn simple(l: *Loader, data: []const u8, n_contours: usize) Error!void {
     @memcpy(z.cur[n..], &l.pp);
     @memcpy(z.tags[0..n], g.tags);
     @memset(z.tags[n..], 0);
+    const unrounded: ?[]Point = if (l.inst.options.blend != null) try l.allocator.alloc(Point, n + 4) else null;
+    defer if (unrounded) |u| l.allocator.free(u);
+    if (unrounded) |u| try l.applyDeltas(gid, z.cur, g.contours, u);
+    // the hinter's font units are the varied points, rounded
     @memcpy(z.orus, z.cur);
     const sc = l.inst.scale;
-    for (z.cur) |*p| p.* = .{ fixed.mul(p[0], sc), fixed.mul(p[1], sc) };
-    l.pp = z.cur[n..][0..4].*;
+    if (unrounded) |u| {
+        // scaled from the unrounded 26.6 points; FT_LOAD_NO_SCALE keeps the rounded ones
+        if (!l.inst.unscaled) for (z.cur, u) |*p, q| {
+            p.* = .{ (fixed.mul(q[0], sc) +% 32) >> 6, (fixed.mul(q[1], sc) +% 32) >> 6 };
+        };
+    } else for (z.cur) |*p| {
+        p.* = .{ fixed.mul(p[0], sc), fixed.mul(p[1], sc) };
+    }
+    if (l.hvar() != null and l.hinted) {
+        // the `HVAR` advance, scaled as is
+        l.pp[0][0] = fixed.mul(l.pp[0][0], sc);
+        l.pp[1][0] = fixed.mul(l.pp[1][0], sc);
+        l.pp[2..4].* = z.cur[n + 2 ..][0..2].*;
+    } else l.pp = z.cur[n..][0..4].*;
     if (l.run) try l.hint(z, g.contours, g.instructions, false);
     const base: u16 = @intCast(l.points.items.len);
     try l.points.appendSlice(l.allocator, z.cur[0..n]);
@@ -208,11 +256,12 @@ fn hint(l: *Loader, z: ZoneBuffers, contours: []const u16, code: []const u8, com
 
 /// The composite's components, each loaded and placed in turn, then its
 /// own program over all their points.
-fn composite(l: *Loader, data: []const u8, depth: u32) Error!void {
+fn composite(l: *Loader, gid: u16, data: []const u8, depth: u32) Error!void {
     const start_point = l.points.items.len;
     const start_contour = l.contours.items.len;
     const c = try glyf.composite(l.allocator, data, l.inst.sfnt.maxp.?.numGlyphs());
     defer l.allocator.free(c.components);
+    if (l.inst.options.blend != null) try l.varyComponents(gid, c.components);
     l.scalePhantoms();
     var num_points = start_point;
     for (c.components) |comp| {
@@ -231,6 +280,27 @@ fn composite(l: *Loader, data: []const u8, depth: u32) Error!void {
     const last = c.components[c.components.len - 1];
     if (l.run and last.flags & glyf.we_have_instructions != 0 and num_points > start_point)
         try l.compositeProgram(data, c.instructions_at, start_point, start_contour);
+}
+
+/// `load_truetype_glyph`'s composite deltas: one point per component (its
+/// offset; a contour of its own), then the phantoms; offsets that are
+/// points to match stay as they are.
+fn varyComponents(l: *Loader, gid: u16, components: []glyf.Component) Error!void {
+    const k = components.len;
+    const pts = try l.allocator.alloc(Point, 2 * (k + 4));
+    defer l.allocator.free(pts);
+    const ends = try l.allocator.alloc(u16, k);
+    defer l.allocator.free(ends);
+    for (components, pts[0..k], ends, 0..) |comp, *p, *e, i| {
+        p.* = .{ comp.arg1, comp.arg2 };
+        e.* = @intCast(i);
+    }
+    pts[k..][0..4].* = l.pp;
+    try l.applyDeltas(gid, pts[0 .. k + 4], ends, pts[k + 4 ..]);
+    for (components, pts[0..k]) |*comp, p| if (comp.flags & glyf.args_are_xy_values != 0) {
+        comp.arg1 = @as(i16, @truncate(p[0]));
+        comp.arg2 = @as(i16, @truncate(p[1]));
+    };
 }
 
 /// `TT_Process_Composite_Component`: the transform, then the offset, by

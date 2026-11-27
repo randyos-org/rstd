@@ -75,7 +75,7 @@ pub fn init(allocator: Allocator, src: *Source, style: u16, with_blues: bool) So
     if (src.sfnt.unicodeCmap() == null) return m;
     try stdwidths.init(allocator, &m, src);
     if (with_blues) try m.initBlues(allocator, src);
-    m.digits_have_same_width = digits.sameWidth(src);
+    m.digits_have_same_width = digits.sameWidth(src, allocator);
     return m;
 }
 

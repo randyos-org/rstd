@@ -11,6 +11,7 @@ const Engine = @import("Engine.zig");
 const GraphicsState = @import("GraphicsState.zig");
 const definitions = @import("definitions.zig");
 const zone = @import("zone.zig");
+const vary = @import("../vary/__root__.zig");
 
 const Allocator = std.mem.Allocator;
 const Instance = @This();
@@ -20,6 +21,8 @@ pub const Options = struct {
     version: Engine.Version = .v40,
     target: Engine.Target = .normal,
     pedantic: bool = false,
+    /// A variable font's instance; null for the default.
+    blend: ?*const vary.Blend = null,
 };
 
 pub const InitError = error{ NotTrueType, InvalidPpem } || Allocator.Error;
@@ -29,6 +32,8 @@ sfnt: *const Sfnt,
 options: Options,
 /// Font units to 26.6 pixels, 16.16 (`metrics.x_scale` and `y_scale`).
 scale: i32,
+/// Loads are in font units (`FT_LOAD_NO_SCALE`): `initUnscaled`.
+unscaled: bool = false,
 engine: Engine,
 /// What each glyph program starts from (`size->GS`): the defaults and
 /// the settings `prep` left.
@@ -110,16 +115,17 @@ pub fn init(allocator: Allocator, sfnt: *const Sfnt, options: Options) InitError
         .twilight_tags = twilight_tags,
     };
     inst.runFontProgram();
-    if (inst.failed == null) inst.runControlValueProgram(cvt_raw);
+    if (inst.failed == null) try inst.runControlValueProgram(cvt_raw);
     inst.finish();
     return inst;
 }
 
 /// An instance whose unhinted loads are in font units (`FT_LOAD_NO_SCALE`);
 /// its hinted loads mean nothing.
-pub fn initUnscaled(allocator: Allocator, sfnt: *const Sfnt) InitError!Instance {
-    var inst = try init(allocator, sfnt, .{ .ppem = 1 });
+pub fn initUnscaled(allocator: Allocator, sfnt: *const Sfnt, blend: ?*const vary.Blend) InitError!Instance {
+    var inst = try init(allocator, sfnt, .{ .ppem = 1, .blend = blend });
     inst.scale = 1 << 16;
+    inst.unscaled = true;
     inst.hinting_off = true;
     return inst;
 }
@@ -143,16 +149,23 @@ fn runFontProgram(inst: *Instance) void {
 }
 
 /// `tt_size_run_prep`: defaults, zeroed twilight points and storage, the
-/// CVT scaled from font units (`FT_MulFix`), then `prep`; its graphics
-/// state saved as `TT_Save_Context` saves it.
-fn runControlValueProgram(inst: *Instance, cvt_raw: []const u8) void {
+/// CVT varied by `cvar` in 26.6 font units (`tt_face_load_cvt`) and
+/// scaled from whole ones (`FT_MulFix`), then `prep`; its graphics state
+/// saved as `TT_Save_Context` saves it.
+fn runControlValueProgram(inst: *Instance, cvt_raw: []const u8) Allocator.Error!void {
     const e = &inst.engine;
     @memset(inst.twilight, .{ 0, 0 });
     @memset(e.storage.base, 0);
     for (e.cvt.base, 0..) |*v, i| {
         const fword: i16 = @bitCast(std.mem.readInt(u16, cvt_raw[2 * i ..][0..2], .big));
-        v.* = fixed.mul(fword, inst.scale);
+        v.* = @as(i32, fword) * 64;
     }
+    if (inst.options.blend) |b| if (inst.sfnt.cvar) |t| {
+        const shared: []const i32 = if (b.gvar) |g| g.shared else &.{};
+        try vary.cvar.apply(inst.allocator, t.table_data, b.coords, shared, e.cvt.base);
+    };
+    // `face->cvt[i] / 64`: the fraction cvar left is dropped
+    for (e.cvt.base) |*v| v.* = fixed.mul(@divTrunc(v.*, 64), inst.scale);
     e.gs = .{};
     e.zones[1] = .{};
     e.run(.control_value) catch |err| {

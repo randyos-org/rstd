@@ -18,6 +18,7 @@ const latin = @import("latin/apply.zig");
 const CjkMetrics = @import("cjk/Metrics.zig");
 const cjk = @import("cjk/apply.zig");
 const styles = @import("data/styles.zig").styles;
+const vary = @import("../vary/__root__.zig");
 
 const Allocator = std.mem.Allocator;
 const Hinter = @This();
@@ -34,8 +35,10 @@ metrics: [styles.len]?StyleMetrics = @splat(null),
 fixed_width: bool,
 italic: bool,
 
-pub fn init(allocator: Allocator, sfnt: *const Sfnt) (Allocator.Error || Source.InitError)!Hinter {
-    var src = try Source.init(allocator, sfnt);
+/// The autohinter for `sfnt`, at a variable TrueType font's instance if
+/// `blend` is set, as FreeType remakes it for each instance.
+pub fn init(allocator: Allocator, sfnt: *const Sfnt, blend: ?*const vary.Blend) (Allocator.Error || Source.InitError)!Hinter {
+    var src = try Source.init(allocator, sfnt, blend);
     errdefer src.deinit();
     const gstyles = try coverage.compute(allocator, sfnt);
     errdefer allocator.free(gstyles);
@@ -116,7 +119,7 @@ pub fn load(h: *Hinter, allocator: Allocator, gid: u16, ppem: u16, mode: RenderM
     }
     var g = try h.src.load(allocator, gid);
     errdefer g.deinit(allocator);
-    const advance_units = h.src.advance(gid);
+    const advance_units = h.src.loadedAdvance(g, gid);
     var pp1x: i32 = 0;
     var pp2x = fixed.mul(advance_units, hints.x_scale);
     var lsb_delta: i32 = 0;

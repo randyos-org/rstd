@@ -8,18 +8,6 @@ const test_fonts = @import("rstd_test_fonts");
 
 const testing = std.testing;
 
-/// `build/testfonts.zig`'s fonts, by name.
-const files = .{
-    .{ "arimo", @embedFile("refs/arimo.bin.gz") },
-    .{ "jetbrains_mono", @embedFile("refs/jetbrains_mono.bin.gz") },
-    .{ "ubuntu", @embedFile("refs/ubuntu.bin.gz") },
-    .{ "ibm_plex_serif", @embedFile("refs/ibm_plex_serif.bin.gz") },
-    .{ "cica", @embedFile("refs/cica.bin.gz") },
-    .{ "noto_sans_limbu", @embedFile("refs/noto_sans_limbu.bin.gz") },
-    .{ "commit_mono", @embedFile("refs/commit_mono.bin.gz") },
-    .{ "atkynson_mono", @embedFile("refs/atkynson_mono.bin.gz") },
-};
-
 /// ASCII from the space, then `hintrefs.c`'s `extra`.
 const glyph_count = 0x7F - 0x20 + 46;
 
@@ -41,8 +29,8 @@ fn expectOutline(r: refs.Refs, mode: refs.Mode, o: refs.Outline, unhinted: refs.
 test "hinting refs: each file parses, every glyph loads, hinting keeps the contours" {
     var arena: std.heap.ArenaAllocator = .init(testing.allocator);
     defer arena.deinit();
-    inline for (files) |f| {
-        const r = try refs.parse(arena.allocator(), f[1]);
+    inline for (refs.files) |f| {
+        const r = try refs.parse(arena.allocator(), f.gz);
         try testing.expectEqual(@as(u32, 2), r.freetype[0]);
         try testing.expectEqualSlices(u16, &.{ 9, 12, 16, 24 }, r.sizes);
         try testing.expectEqual(@as(usize, glyph_count), r.glyphs.len);
@@ -73,9 +61,9 @@ test "hinting refs: glyph indexes, units per em and outline format match Sfnt (-
     var arena: std.heap.ArenaAllocator = .init(testing.allocator);
     defer arena.deinit();
     var any = false;
-    inline for (files) |f| if (@field(test_fonts, f[0])) |bytes| {
+    inline for (refs.files) |f| if (@field(test_fonts, f.font)) |bytes| {
         any = true;
-        const r = try refs.parse(arena.allocator(), f[1]);
+        const r = try refs.parse(arena.allocator(), f.gz);
         const sfnt = try Sfnt.init(arena.allocator(), bytes, .{});
         try testing.expectEqual(r.units_per_em, sfnt.head.?.unitsPerEm());
         try testing.expectEqual(r.cff, sfnt.cff != null);

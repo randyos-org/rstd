@@ -12,6 +12,7 @@ pub const trig = @import("trig.zig");
 pub const Glyph = @import("Glyph.zig");
 pub const Font = @import("Font.zig");
 pub const tricky = @import("tricky.zig");
+pub const vary = @import("vary/__root__.zig");
 
 test {
     zigstd.testRefAllDecls(@This());

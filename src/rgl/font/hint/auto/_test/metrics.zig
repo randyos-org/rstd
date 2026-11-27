@@ -48,7 +48,7 @@ test "autohint metrics: Latin coverage, widths and blue zones of the reference f
         var arena: std.heap.ArenaAllocator = .init(al);
         defer arena.deinit();
         const sfnt = try Sfnt.init(arena.allocator(), bytes, .{});
-        var src = try Source.init(al, &sfnt);
+        var src = try Source.init(al, &sfnt, null);
         defer src.deinit();
         const gstyles = try coverage.compute(al, &sfnt);
         defer al.free(gstyles);

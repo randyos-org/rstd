@@ -85,7 +85,7 @@ pub fn init(allocator: Allocator, src: *Source, style: u16, gstyles: []u16) Init
         }
         return error.NoBlueZones;
     }
-    m.digits_have_same_width = digits.sameWidth(src);
+    m.digits_have_same_width = digits.sameWidth(src, allocator);
     return m;
 }
 

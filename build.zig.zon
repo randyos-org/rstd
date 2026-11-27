@@ -72,6 +72,12 @@
             .hash = "N-V-__8AAHTwAgATUehau_k7JASR6PBpaZ1sIjR5ZbdkeuvA",
             .lazy = true,
         },
+        // a variable, bytecode-hinted face (OFL-1.1) for variable TrueType hinting (issue #809)
+        .font_cascadia_code = .{
+            .url = "https://github.com/microsoft/cascadia-code/releases/download/v2407.24/CascadiaCode-2407.24.zip",
+            .hash = "N-V-__8AANgOrQ1hsWxAoTjfIlDeafqAWgpNfVESANGMmZJQ",
+            .lazy = true,
+        },
         // .rc = .{
         //     .url = "git+https://codeberg.org/ziglang/rc#23b64112d428b13f59967a0e6587b3391d0aeb76",
         //     .hash = "rc-0.0.0-rMftL9REAADo6nZWJwkxvJGHVKNNwXT-SxFQGdbiv5DW",

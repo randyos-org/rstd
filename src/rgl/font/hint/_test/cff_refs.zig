@@ -10,11 +10,6 @@ const test_fonts = @import("rstd_test_fonts");
 
 const testing = std.testing;
 
-const fonts = .{
-    .{ "commit_mono", @embedFile("refs/commit_mono.bin.gz") },
-    .{ "atkynson_mono", @embedFile("refs/atkynson_mono.bin.gz") },
-};
-
 /// FreeType's CFF engine ignores the light target.
 const setups = [_]struct { mode: refs.Mode, hinted: bool }{
     .{ .mode = .unhinted, .hinted = false },
@@ -61,11 +56,11 @@ test "cff glyphs: FreeType's outlines and advances, unhinted and hinted (-Dtest-
     defer arena.deinit();
     var any = false;
     var failed = false;
-    inline for (fonts) |f| if (@field(test_fonts, f[0])) |bytes| {
+    inline for (refs.files) |f| if (@field(test_fonts, f.font)) |bytes| {
         any = true;
-        const r = try refs.parse(arena.allocator(), f[1]);
+        const r = try refs.parse(arena.allocator(), f.gz);
         const sfnt = try Sfnt.init(arena.allocator(), bytes, .{});
-        for (setups) |s| expectMode(f[0], &sfnt, r, s.mode, s.hinted) catch |e| switch (e) {
+        for (setups) |s| if (r.cff) expectMode(f.name, &sfnt, r, s.mode, s.hinted) catch |e| switch (e) {
             error.TestExpectedEqual => failed = true,
             else => return e,
         };

@@ -5,20 +5,12 @@ const std = @import("std");
 const refs = @import("refs.zig");
 const Sfnt = @import("../../sfnt/Sfnt.zig");
 const truetype = @import("../truetype/__root__.zig");
+const vary = @import("../vary/__root__.zig");
 const test_fonts = @import("rstd_test_fonts");
 
 const testing = std.testing;
 const Instance = truetype.Instance;
 const Loader = truetype.Loader;
-
-const fonts = .{
-    .{ "arimo", @embedFile("refs/arimo.bin.gz") },
-    .{ "jetbrains_mono", @embedFile("refs/jetbrains_mono.bin.gz") },
-    .{ "ubuntu", @embedFile("refs/ubuntu.bin.gz") },
-    .{ "ibm_plex_serif", @embedFile("refs/ibm_plex_serif.bin.gz") },
-    .{ "cica", @embedFile("refs/cica.bin.gz") },
-    .{ "noto_sans_limbu", @embedFile("refs/noto_sans_limbu.bin.gz") },
-};
 
 /// How `refs.zig`'s mode loads: hinted or not, and the instance's options.
 const Setup = struct { mode: refs.Mode, hinted: bool, version: truetype.Engine.Version = .v40, target: truetype.Engine.Target = .normal };
@@ -39,13 +31,13 @@ fn same(g: Loader.Glyph, o: refs.Outline) bool {
     return true;
 }
 
-fn expectMode(comptime name: []const u8, sfnt: *const Sfnt, r: refs.Refs, setup: Setup) !void {
+fn expectMode(comptime name: []const u8, sfnt: *const Sfnt, r: refs.Refs, blend: ?*const vary.Blend, setup: Setup) !void {
     const al = testing.allocator;
     var bad: usize = 0;
     var compared: usize = 0;
     var first: ?struct { cp: u21, size: u16 } = null;
     for (r.sizes, 0..) |ppem, s| {
-        var inst = try Instance.init(al, sfnt, .{ .ppem = ppem, .version = setup.version, .target = setup.target });
+        var inst = try Instance.init(al, sfnt, .{ .ppem = ppem, .version = setup.version, .target = setup.target, .blend = blend });
         defer inst.deinit();
         for (r.glyphs) |g| {
             const o = r.outline(g, s, setup.mode) orelse continue;
@@ -70,11 +62,13 @@ test "truetype glyphs: FreeType's outlines and advances, unhinted and hinted (-D
     defer arena.deinit();
     var any = false;
     var failed = false;
-    inline for (fonts) |f| if (@field(test_fonts, f[0])) |bytes| {
+    inline for (refs.files) |f| if (@field(test_fonts, f.font)) |bytes| {
         any = true;
-        const r = try refs.parse(arena.allocator(), f[1]);
+        const r = try refs.parse(arena.allocator(), f.gz);
         const sfnt = try Sfnt.init(arena.allocator(), bytes, .{});
-        for (setups) |setup| expectMode(f[0], &sfnt, r, setup) catch |e| switch (e) {
+        var b = try refs.blend(testing.allocator, &sfnt, r);
+        defer if (b) |*x| x.deinit();
+        for (setups) |setup| if (!r.cff) expectMode(f.name, &sfnt, r, if (b) |*x| x else null, setup) catch |e| switch (e) {
             error.TestExpectedEqual => failed = true,
             else => return e,
         };

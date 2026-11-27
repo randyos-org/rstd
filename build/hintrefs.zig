@@ -1,4 +1,4 @@
-//! `hint-refs`: FreeType's outlines of each test font, from nixpkgs' FreeType on a Mac (`tools/nix/hintrefs.sh`), written to
+//! `hint-refs`: FreeType's outlines of each test font (and instance), from nixpkgs' FreeType on a Mac (`tools/nix/hintrefs.sh`), written to
 //! `src/rgl/font/hint/_test/refs/` for the hinting tests (issue #805).
 
 const rstdbuild = @import("../src/buildutils/__root__.zig");
@@ -16,7 +16,8 @@ pub fn add(b: *Build, host: []const u8) !void {
     step.dependOn(&update.step);
     // 26.05-darwin's nixpkgs on either Mac, so either writes the same files
     const rev = (try tools.lockRevs(b)).darwin;
-    for (testfonts.fonts) |f| {
+    for (testfonts.refs) |r| {
+        const f = testfonts.find(r.font);
         const dep = b.lazyDependency(f.dep, .{}) orelse continue;
         const run = b.addRunArtifact(tools.hostTool(b, .ssh_test));
         run.addArg(host);
@@ -26,6 +27,7 @@ pub fn add(b: *Build, host: []const u8) !void {
         run.addDirectoryArg2(b.path("tools/hintrefs"), .{ .prefix = "local:" });
         for ([_][]const u8{ "hintrefs.c", "hintrefs.nix" }) |file| run.addFileInput(b.path(b.fmt("tools/hintrefs/{s}", .{file})));
         run.addFileArg2(dep.path(f.path), .{ .prefix = "local:" });
-        update.addCopyFileToSource(run.captureStdOut(.{}), b.fmt("src/rgl/font/hint/_test/refs/{s}.bin.gz", .{f.name}));
+        for (r.design) |v| run.addArg(b.fmt("{d}", .{v}));
+        update.addCopyFileToSource(run.captureStdOut(.{}), b.fmt("src/rgl/font/hint/_test/refs/{s}.bin.gz", .{r.name}));
     }
 }
