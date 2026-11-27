@@ -259,6 +259,8 @@ As `src/math/kernels/lapack/` has it today. Accelerate (macOS 13.3's `$NEWLAPACK
 | `gesv(allocator, io, T, n: usize, nrhs: usize, a: []T, lda: usize, ipiv: []usize, b: []T, ldb: usize) GesvError!void` | `getrf`, then `getrs` | `?gesv` | OpenBLAS `gesv` |
 | `getri(allocator, io, T, n: usize, a: []T, lda: usize, ipiv: []const usize) GetriError!void` | `A⁻¹` from `getrf`'s factor | `?getri` | Reference-LAPACK `dgetri.f` |
 | `gbtrf(T, m: usize, n: usize, kl: usize, ku: usize, ab: []T, ldab: usize, ipiv: []usize) GbtrfError!?usize` | `getrf` for band `A` (`kl`, `ku`) | `?gbtrf` | Reference-LAPACK `dgbtf2.f` |
+| `gbtrs(allocator, io, T, trans: Trans, n: usize, kl: usize, ku: usize, nrhs: usize, ab: []const T, ldab: usize, ipiv: []const usize, b: []T, ldb: usize) GbtrsError!void` | solves from `gbtrf`'s factor | `?gbtrs` | Reference-LAPACK `dgbtrs.f` (v0.2.0) |
+| `gbsv(allocator, io, T, n: usize, kl: usize, ku: usize, nrhs: usize, ab: []T, ldab: usize, ipiv: []usize, b: []T, ldb: usize) GbsvError!void` | `gbtrf`, then `gbtrs` | `?gbsv` | Reference-LAPACK `dgbsv.f` (v0.2.0) |
 
 #### Triangular
 
@@ -369,8 +371,6 @@ Each in Reference-LAPACK 3.12.0 (`lapack-netlib/SRC/`, as OpenBLAS ships it; mod
 | --- | --- | --- |
 | `pbtrs(allocator, io, T, uplo: Uplo, n: usize, kd: usize, nrhs: usize, ab: []const T, ldab: usize, b: []T, ldb: usize) PbtrsError!void` | solves from `pbtrf`'s factor | `?pbtrs` |
 | `pptrf(allocator, io, T, uplo: Uplo, n: usize, ap: []T) PptrfError!void` | `potrf` for packed `A` | `?pptrf` |
-| `gbtrs(allocator, io, T, trans: Trans, n: usize, kl: usize, ku: usize, nrhs: usize, ab: []const T, ldab: usize, ipiv: []const usize, b: []T, ldb: usize) GbtrsError!void` | solves from `gbtrf`'s factor | `?gbtrs` |
-| `gbsv(allocator, io, T, n: usize, kl: usize, ku: usize, nrhs: usize, ab: []T, ldab: usize, ipiv: []usize, b: []T, ldb: usize) GbsvError!void` | `gbtrf`, then `gbtrs` | `?gbsv` |
 | `gesvx(allocator, io, T, fact: FactorizationInput, trans: Trans, n: usize, nrhs: usize, a: []T, lda: usize, af: []T, ldaf: usize, ipiv: []usize, equed: *Equilibration, r: []Float(T), c: []Float(T), b: []T, ldb: usize, x: []T, ldx: usize, ferr: []Float(T), berr: []Float(T)) GesvxError!Float(T)` | `gesv` with equilibration, refinement and error bounds; returns the reciprocal condition number | `?gesvx` |
 | `sytri(allocator, io, T, uplo: Uplo, n: usize, a: []T, lda: usize, ipiv: []const Pivot) SytriError!void` | `A⁻¹` from `sytrf`'s factor | `?sytri`, `?hetri` |
 | `gelsd(allocator, io, T, m: usize, n: usize, nrhs: usize, a: []T, lda: usize, b: []T, ldb: usize, s: []Float(T), rcond: Float(T)) GelsdError!usize` | the least-squares solution, any rank, by SVD (divide and conquer); returns the rank | `?gelsd` |

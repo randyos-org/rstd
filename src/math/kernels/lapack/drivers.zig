@@ -1,6 +1,6 @@
 //! LAPACK's simple drivers, a factorization and then its solve:
 //! Reference-LAPACK 3.12.0 (`lapack-netlib/SRC/dposv.f`, `dsysv.f`,
-//! `zhesv.f`, OpenBLAS v0.3.34-317; modified BSD).
+//! `zhesv.f`, `dgbsv.f`, OpenBLAS v0.3.34-317; modified BSD).
 
 const std = @import("std");
 const options = @import("lapack_options");
@@ -12,6 +12,8 @@ const cholesky = @import("cholesky.zig");
 const relapack = @import("relapack.zig");
 const sytrf_factor = @import("sytrf.zig");
 const sytrs_solve = @import("sytrs.zig");
+const gbtrf_factor = @import("gbtrf.zig");
+const gbtrs_solve = @import("gbtrs.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -67,6 +69,25 @@ fn indefinite(allocator: Allocator, io: Io, comptime T: type, comptime hermitian
     if (try factor(allocator, io, T, uplo, n, a, lda, ipiv) != null) return error.Singular;
     const solve = if (hermitian) sytrs_solve.hetrs else sytrs_solve.sytrs;
     try solve(T, uplo, n, nrhs, a, lda, ipiv, b, ldb);
+}
+
+/// What `gbsv` returns: `gbtrf`'s and `gbtrs`'s shapes, and `Singular` for
+/// an exactly zero `U(i, i)` (the reference's `INFO > 0`), the factor
+/// written and `B` untouched.
+pub const GbsvError = gbtrf_factor.GbtrfError || gbtrs_solve.GbtrsError || interface.SingularError;
+
+/// `?GBSV` (`dgbsv.f`, `zgbsv.f`): solves `A X = B` for the `n x n` band
+/// `A` (`kl` sub-, `ku` superdiagonals) in `ab` (`ldab >= 2 kl + ku + 1`,
+/// as `gbtrf` takes it): `gbtrf`, then `gbtrs`, `ipiv` (`n`) its pivots.
+pub fn gbsv(allocator: Allocator, io: Io, comptime T: type, n: usize, kl: usize, ku: usize, nrhs: usize, ab: []T, ldab: usize, ipiv: []usize, b: []T, ldb: usize) GbsvError!void {
+    comptime ops.requireFloat(T, "gbsv");
+    const rows = 2 * kl + ku + 1;
+    if (ldab < rows) return error.LeadingDimensionTooSmall;
+    try util.holds(ab.len, rows, n, ldab);
+    try util.holds(b.len, n, nrhs, ldb);
+    if (ipiv.len < n) return error.SliceTooShort;
+    if (try gbtrf_factor.gbtrf(T, n, n, kl, ku, ab, ldab, ipiv) != null) return error.Singular;
+    try gbtrs_solve.gbtrs(allocator, io, T, .n, n, kl, ku, nrhs, ab, ldab, ipiv, b, ldb);
 }
 
 // ---- tests ---------------------------------------------------------------------

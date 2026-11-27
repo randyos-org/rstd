@@ -39,6 +39,7 @@ const pstrf_factor = @import("pstrf.zig");
 const drivers = @import("drivers.zig");
 const norm_structured = @import("norm_structured.zig");
 const condition_estimates = @import("condition_estimates.zig");
+const gbtrs_solve = @import("gbtrs.zig");
 const balance = @import("balance.zig");
 const hessenberg = @import("hessenberg.zig");
 const real_schur = @import("real_schur.zig");
@@ -94,6 +95,12 @@ pub const getrs = lu.getrs;
 pub const gesv = lu.gesv;
 pub const getri = lu.getri;
 pub const gbtrf = gbtrf_factor.gbtrf;
+/// `gbtrs`: a bad `trans`, pivot or shape, before `B` is touched.
+pub const GbtrsError = gbtrs_solve.GbtrsError;
+pub const gbtrs = gbtrs_solve.gbtrs;
+/// `gbsv`: `Singular` for a zero `U(i, i)`, `B` untouched.
+pub const GbsvError = drivers.GbsvError;
+pub const gbsv = drivers.gbsv;
 
 /// `trtri`: `error.Singular`.
 pub const TrtriError = triangular.TrtriError;
@@ -355,6 +362,7 @@ test {
     _ = drivers;
     _ = @import("_test/norm_structured.zig");
     _ = @import("_test/condition_estimates.zig");
+    _ = @import("_test/gbtrs.zig");
     _ = @import("tgsen_condition.zig");
     _ = relapack_tests;
     _ = evd_tests;

@@ -187,6 +187,13 @@ pub fn zrot(comptime T: type, n: usize, x: [*]T, incx: usize, y: [*]T, incy: usi
     }
 }
 
+/// `?TBSV` through rstd's BLAS: `op(A) x = b` for the band triangle with
+/// `k` off-diagonals in band storage `a`.
+pub fn tbsv(al: Allocator, io: Io, comptime T: type, upper: bool, op: Trans, unit: bool, n: usize, k: usize, a: [*]const T, lda: usize, x: [*]T, incx: usize) Error!void {
+    if (n == 0) return;
+    l2.tbsv(al, io, T, if (upper) .u else .l, op, if (unit) .u else .n, @intCast(n), @intCast(k), @constCast(a), @intCast(lda), x, @intCast(incx)) catch |e| return narrow(Error, e);
+}
+
 /// `?TRSV` through rstd's BLAS.
 pub fn trsv(al: Allocator, io: Io, comptime T: type, upper: bool, op: Trans, unit: bool, n: usize, a: [*]const T, lda: usize, x: [*]T) Error!void {
     l2.trsv(al, io, T, if (upper) .u else .l, op, if (unit) .u else .n, @intCast(n), @constCast(a), @intCast(lda), x, 1) catch |e| return narrow(Error, e);
