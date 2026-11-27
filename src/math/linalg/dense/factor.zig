@@ -50,25 +50,35 @@ pub fn Lu(comptime T: type) type {
 
         /// `L`, `m` by `min(m, n)`, unit lower trapezoidal.
         pub fn l(f: Self, allocator: Allocator) Allocator.Error!Mat(T) {
-            const k = @min(f.factors.rows, f.factors.cols);
-            const r = try Mat(T).zeros(allocator, f.factors.rows, k);
-            for (0..k) |j| {
-                r.data[j + j * r.rows] = ops.one(T);
-                for (j + 1..r.rows) |i| r.data[i + j * r.rows] = f.factors.at(i, j);
-            }
-            return r;
+            return lowerOf(T, allocator, f.factors);
         }
 
         /// `U`, `min(m, n)` by `n`, upper trapezoidal.
         pub fn u(f: Self, allocator: Allocator) Allocator.Error!Mat(T) {
-            const k = @min(f.factors.rows, f.factors.cols);
-            const r = try Mat(T).zeros(allocator, k, f.factors.cols);
-            for (0..r.cols) |j| for (0..@min(j + 1, k)) |i| {
-                r.data[i + j * k] = f.factors.at(i, j);
-            };
-            return r;
+            return upperOf(T, allocator, f.factors);
         }
     };
+}
+
+/// The unit lower trapezoidal `L` of packed LU factors.
+fn lowerOf(comptime T: type, allocator: Allocator, factors: Mat(T)) Allocator.Error!Mat(T) {
+    const k = @min(factors.rows, factors.cols);
+    const r = try Mat(T).zeros(allocator, factors.rows, k);
+    for (0..k) |j| {
+        r.data[j + j * r.rows] = ops.one(T);
+        for (j + 1..r.rows) |i| r.data[i + j * r.rows] = factors.at(i, j);
+    }
+    return r;
+}
+
+/// The upper trapezoidal `U` of packed LU factors.
+fn upperOf(comptime T: type, allocator: Allocator, factors: Mat(T)) Allocator.Error!Mat(T) {
+    const k = @min(factors.rows, factors.cols);
+    const r = try Mat(T).zeros(allocator, k, factors.cols);
+    for (0..r.cols) |j| for (0..@min(j + 1, k)) |i| {
+        r.data[i + j * k] = factors.at(i, j);
+    };
+    return r;
 }
 
 /// `P A = L U` with partial pivoting (MATLAB's `lu`), by `getrf`.
@@ -82,6 +92,71 @@ pub fn lu(allocator: Allocator, io: Io, a: anytype) (Allocator.Error || Io.Cance
     errdefer allocator.free(ipiv);
     const zero_pivot = lapack.getrf(allocator, io, T, ca.rows, ca.cols, f.data, @max(ca.rows, 1), ipiv) catch |e| return narrow(Error, e);
     return .{ .factors = f, .ipiv = ipiv, .zero_pivot = zero_pivot };
+}
+
+/// `luComplete`'s result, `P A Q = L U` for the `m` by `n` `A`,
+/// `getrfComplete`'s factors.
+pub fn LuComplete(comptime T: type) type {
+    return struct {
+        /// `L` below the diagonal (its unit diagonal implied), `U` on and
+        /// above it.
+        factors: Mat(T),
+        /// `(P A)(i, :) = A(p[i], :)`, `m` long.
+        p: []usize,
+        /// `(A Q)(:, j) = A(:, q[j])`, `n` long.
+        q: []usize,
+        /// The pivots taken: past it, what was left was all below the
+        /// smallest normal number.
+        rank: usize,
+
+        const Self = @This();
+
+        pub fn deinit(f: Self, allocator: Allocator) void {
+            f.factors.deinit(allocator);
+            allocator.free(f.p);
+            allocator.free(f.q);
+        }
+
+        /// `L`, `m` by `min(m, n)`, unit lower trapezoidal.
+        pub fn l(f: Self, allocator: Allocator) Allocator.Error!Mat(T) {
+            return lowerOf(T, allocator, f.factors);
+        }
+
+        /// `U`, `min(m, n)` by `n`, upper trapezoidal.
+        pub fn u(f: Self, allocator: Allocator) Allocator.Error!Mat(T) {
+            return upperOf(T, allocator, f.factors);
+        }
+    };
+}
+
+/// `P A Q = L U` with complete pivoting (Eigen's `FullPivLU`), by
+/// `getrfComplete`, faer's: each pivot the largest of what is left, and
+/// `rank` counts the pivots taken before all left was below the smallest
+/// normal number. Slower than `lu` for large `A`; `svd` and `rank` judge
+/// numerical rank better.
+pub fn luComplete(allocator: Allocator, io: Io, a: anytype) (Allocator.Error || Io.Cancelable)!LuComplete(ElementOf(@TypeOf(a))) {
+    const T = ElementOf(@TypeOf(a));
+    const ca = constOf(a);
+    const m = ca.rows;
+    const n = ca.cols;
+    const k = @min(m, n);
+    const f = try copyOf(T, allocator, ca);
+    errdefer f.deinit(allocator);
+    const piv = try allocator.alloc(usize, 2 * k);
+    defer allocator.free(piv);
+    const r = lapack.getrfComplete(io, T, m, n, f.data, @max(m, 1), piv[0..k], piv[k..]) catch |e| return narrow(Error, e);
+    const p = try allocator.alloc(usize, m);
+    errdefer allocator.free(p);
+    const q = try allocator.alloc(usize, n);
+    errdefer allocator.free(q);
+    // faer's `lu_in_place`: the interchanges applied in order
+    for (p, 0..) |*v, i| v.* = i;
+    for (q, 0..) |*v, j| v.* = j;
+    for (0..k) |i| {
+        std.mem.swap(usize, &p[i], &p[piv[i]]);
+        std.mem.swap(usize, &q[i], &q[piv[k + i]]);
+    }
+    return .{ .factors = f, .p = p, .q = q, .rank = r };
 }
 
 pub const CholError = error{ NotSquare, NotPositiveDefinite } || Allocator.Error || Io.Cancelable;

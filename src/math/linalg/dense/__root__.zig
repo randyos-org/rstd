@@ -46,6 +46,7 @@ pub const CholError = factor.CholError;
 pub const Ldl = factor.Ldl;
 pub const LdlError = factor.LdlError;
 pub const Lu = factor.Lu;
+pub const LuComplete = factor.LuComplete;
 pub const Qr = factor.Qr;
 pub const QrMode = factor.QrMode;
 pub const chol = factor.chol;
@@ -56,6 +57,7 @@ pub const CholupdateOp = cholupdate_.CholupdateOp;
 pub const cholupdate = cholupdate_.cholupdate;
 pub const ldl = factor.ldl;
 pub const lu = factor.lu;
+pub const luComplete = factor.luComplete;
 pub const qr = factor.qr;
 
 const singular = @import("singular.zig");

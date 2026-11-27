@@ -262,6 +262,8 @@ As `src/math/kernels/lapack/` has it today. Accelerate (macOS 13.3's `$NEWLAPACK
 | `gbtrf(T, m: usize, n: usize, kl: usize, ku: usize, ab: []T, ldab: usize, ipiv: []usize) GbtrfError!?usize` | `getrf` for band `A` (`kl`, `ku`) | `?gbtrf` | Reference-LAPACK `dgbtf2.f` |
 | `gbtrs(allocator, io, T, trans: Trans, n: usize, kl: usize, ku: usize, nrhs: usize, ab: []const T, ldab: usize, ipiv: []const usize, b: []T, ldb: usize) GbtrsError!void` | solves from `gbtrf`'s factor | `?gbtrs` | Reference-LAPACK `dgbtrs.f` (v0.2.0) |
 | `gbsv(allocator, io, T, n: usize, kl: usize, ku: usize, nrhs: usize, ab: []T, ldab: usize, ipiv: []usize, b: []T, ldb: usize) GbsvError!void` | `gbtrf`, then `gbtrs` | `?gbsv` | Reference-LAPACK `dgbsv.f` (v0.2.0) |
+| `getrfComplete(io, T, m: usize, n: usize, a: []T, lda: usize, ipiv: []usize, jpiv: []usize) GetrfCompleteError!usize` | `PAQ = LU`, complete pivoting, unblocked, its trailing updates threaded; returns the rank | none (LAPACK's `?getc2` perturbs small pivots) | faer `lu/full_pivoting/factor.rs` (v0.2.0) |
+| `getrsComplete(allocator, io, T, trans: Trans, n: usize, nrhs: usize, a: []const T, lda: usize, ipiv: []const usize, jpiv: []const usize, b: []T, ldb: usize) GetrsCompleteError!void` | solves `op(A)X = B` from `getrfComplete`'s factor | none | faer `lu/full_pivoting/solve.rs` (v0.2.0) |
 
 #### Triangular
 
@@ -587,6 +589,7 @@ The last column is `yes` for what v0.1.0 has, or the release that added the row.
 | `inv(allocator, io, a: anytype) InvError!Mat(ElementOf(@TypeOf(a)))`, `invInto(allocator, io, out: anytype, a: anytype) InvIntoError!void` | `A⁻¹` | yes |
 | `solve(allocator, io, a: anytype, b: anytype) SolveError!Mat(ElementOf(@TypeOf(a)))`, `solveInto(allocator, io, out: anytype, a: anytype, b: anytype) SolveError!void` | `A \ B`: square by its structure (triangular, Cholesky, LU), else least squares | yes |
 | `lu(allocator, io, a: anytype) (Allocator.Error \|\| Io.Cancelable)!Lu(ElementOf(@TypeOf(a)))` | `PA = LU` | yes |
+| `luComplete(allocator, io, a: anytype) (Allocator.Error \|\| Io.Cancelable)!LuComplete(ElementOf(@TypeOf(a)))` | `PAQ = LU` with complete pivoting and its rank (Eigen's `FullPivLU`) | v0.2.0 |
 | `chol(allocator, io, a: anytype) CholError!Mat(ElementOf(@TypeOf(a)))` | `A = RᴴR` | yes |
 | `qr(allocator, io, a: anytype, mode: QrMode) (Allocator.Error \|\| Io.Cancelable)!Qr(ElementOf(@TypeOf(a)))` | `A = QR` | yes |
 | `svd(allocator, io, a: anytype, mode: SvdMode) SvdError!Svd(ElementOf(@TypeOf(a)))` | `A = U·Σ·Vᴴ` | yes |

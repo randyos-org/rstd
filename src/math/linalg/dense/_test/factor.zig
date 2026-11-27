@@ -47,6 +47,7 @@ const QrMode = factor.QrMode;
 const chol = factor.chol;
 const ldl = factor.ldl;
 const lu = factor.lu;
+const luComplete = factor.luComplete;
 const qr = factor.qr;
 const products = @import("../products.zig");
 const ctranspose = products.ctranspose;
@@ -99,6 +100,34 @@ test "lu: P A = L U, singular too" {
     const f = try expectLu(f64, a);
     defer f.deinit(al);
     try testing.expectEqual(@as(?usize, 0), f.zero_pivot);
+}
+
+test "luComplete: P A Q = L U and its rank" {
+    const al = testing.allocator;
+    var prng: std.Random.DefaultPrng = .init(0xf1);
+    inline for (.{ f32, f64, C64 }) |T| for ([_][2]usize{ .{ 10, 7 }, .{ 7, 10 }, .{ 12, 12 }, .{ 1, 1 } }) |s| {
+        const a = try randomMat(T, prng.random(), s[0], s[1]);
+        defer a.deinit(al);
+        // a zero column: rank `min(m, n - 1)` exactly (a repeated one
+        // leaves rounding, not zeros)
+        if (s[1] > 3) @memset(a.data[2 * s[0] .. 3 * s[0]], ops.zero(T));
+        const f = try luComplete(al, test_io, a);
+        defer f.deinit(al);
+        const k = @min(s[0], s[1]);
+        try testing.expectEqual(if (s[1] > 3) @min(s[0], s[1] - 1) else k, f.rank);
+        const l = try f.l(al);
+        defer l.deinit(al);
+        const u = try f.u(al);
+        defer u.deinit(al);
+        const p = try mul(al, test_io, l, u);
+        defer p.deinit(al);
+        const paq = try copyOf(T, al, a.constView());
+        defer paq.deinit(al);
+        for (0..s[1]) |j| for (0..s[0]) |i| {
+            paq.data[i + j * s[0]] = a.at(f.p[i], f.q[j]);
+        };
+        try testing.expect(maxDiff(T, paq.constView(), p.constView()) <= tolOf(T, s[1]) * maxAbs(T, a.constView()));
+    };
 }
 
 test "chol: Rᴴ R is A, R upper" {

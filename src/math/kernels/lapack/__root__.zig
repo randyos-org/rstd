@@ -10,6 +10,7 @@ const ops = @import("ops.zig");
 const auxiliary = @import("auxiliary.zig");
 const cholesky = @import("cholesky.zig");
 const lu = @import("lu.zig");
+const getrf_complete = @import("getrf_complete.zig");
 const gbtrf_factor = @import("gbtrf.zig");
 const triangular = @import("triangular.zig");
 const relapack = @import("relapack.zig");
@@ -105,6 +106,13 @@ pub const gbtrs = gbtrs_solve.gbtrs;
 /// `gbsv`: `Singular` for a zero `U(i, i)`, `B` untouched.
 pub const GbsvError = drivers.GbsvError;
 pub const gbsv = drivers.gbsv;
+/// `getrfComplete`: `P A Q = L U` with complete pivoting (faer's); returns
+/// the rank.
+pub const GetrfCompleteError = getrf_complete.GetrfCompleteError;
+/// `getrsComplete`: a bad `trans`, pivot or shape, before `B` is touched.
+pub const GetrsCompleteError = getrf_complete.GetrsCompleteError;
+pub const getrfComplete = getrf_complete.getrfComplete;
+pub const getrsComplete = getrf_complete.getrsComplete;
 
 /// `trtri`: `error.Singular`.
 pub const TrtriError = triangular.TrtriError;
@@ -367,6 +375,7 @@ test {
     _ = @import("_test/norm_structured.zig");
     _ = @import("_test/condition_estimates.zig");
     _ = @import("_test/gbtrs.zig");
+    _ = @import("_test/getrf_complete.zig");
     _ = pbtrs_solve;
     _ = @import("tgsen_condition.zig");
     _ = relapack_tests;
