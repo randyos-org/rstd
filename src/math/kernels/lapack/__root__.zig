@@ -42,6 +42,7 @@ const norm_structured = @import("norm_structured.zig");
 const condition_estimates = @import("condition_estimates.zig");
 const gbtrs_solve = @import("gbtrs.zig");
 const pbtrs_solve = @import("pbtrs.zig");
+const packed_cholesky = @import("pptrf.zig");
 const balance = @import("balance.zig");
 const hessenberg = @import("hessenberg.zig");
 const real_schur = @import("real_schur.zig");
@@ -84,6 +85,12 @@ pub const pbtrf = relapack.pbtrf;
 /// `pbtrs`: a bad `uplo` or shape.
 pub const PbtrsError = pbtrs_solve.PbtrsError;
 pub const pbtrs = pbtrs_solve.pbtrs;
+/// `pptrf`: `error.NotPositiveDefinite`.
+pub const PptrfError = packed_cholesky.PptrfError;
+/// `pptrs`: a bad `uplo` or shape.
+pub const PptrsError = packed_cholesky.PptrsError;
+pub const pptrf = packed_cholesky.pptrf;
+pub const pptrs = packed_cholesky.pptrs;
 
 /// `getrf`: returns the first zero `U(i, i)`'s `i` (0-based), or null.
 pub const GetrfError = lu.GetrfError;
@@ -376,6 +383,7 @@ test {
     _ = @import("_test/condition_estimates.zig");
     _ = @import("_test/gbtrs.zig");
     _ = @import("_test/getrf_complete.zig");
+    _ = @import("_test/pptrf.zig");
     _ = pbtrs_solve;
     _ = @import("tgsen_condition.zig");
     _ = relapack_tests;

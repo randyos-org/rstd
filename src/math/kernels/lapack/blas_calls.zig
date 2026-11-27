@@ -194,6 +194,24 @@ pub fn tbsv(al: Allocator, io: Io, comptime T: type, upper: bool, op: Trans, uni
     l2.tbsv(al, io, T, if (upper) .u else .l, op, if (unit) .u else .n, @intCast(n), @intCast(k), @constCast(a), @intCast(lda), x, @intCast(incx)) catch |e| return narrow(Error, e);
 }
 
+/// `?TPSV` through rstd's BLAS: `op(A) x = b` for the packed triangle `ap`.
+pub fn tpsv(al: Allocator, io: Io, comptime T: type, upper: bool, op: Trans, unit: bool, n: usize, ap: [*]const T, x: [*]T) Error!void {
+    if (n == 0) return;
+    l2.tpsv(al, io, T, if (upper) .u else .l, op, if (unit) .u else .n, @intCast(n), @constCast(ap), x, 1) catch |e| return narrow(Error, e);
+}
+
+/// `A := alpha x xᴴ + A` for the packed Hermitian (real: symmetric) `ap`
+/// (`?SPR`, `?HPR`).
+pub fn packedRank1(al: Allocator, io: Io, comptime T: type, upper: bool, n: usize, alpha: Float(T), x: [*]T, ap: [*]T) Error!void {
+    if (n == 0) return;
+    const u: types.Uplo = if (upper) .u else .l;
+    if (comptime isComplex(T)) {
+        l2.hpr(al, io, T, u, @intCast(n), alpha, x, 1, ap) catch |e| return narrow(Error, e);
+    } else {
+        l2.spr(al, io, T, u, @intCast(n), alpha, x, 1, ap) catch |e| return narrow(Error, e);
+    }
+}
+
 /// `?TRSV` through rstd's BLAS.
 pub fn trsv(al: Allocator, io: Io, comptime T: type, upper: bool, op: Trans, unit: bool, n: usize, a: [*]const T, lda: usize, x: [*]T) Error!void {
     l2.trsv(al, io, T, if (upper) .u else .l, op, if (unit) .u else .n, @intCast(n), @constCast(a), @intCast(lda), x, 1) catch |e| return narrow(Error, e);
