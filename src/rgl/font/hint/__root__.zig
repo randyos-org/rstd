@@ -7,6 +7,7 @@ const zigstd = @import("../../../zigstd.zig");
 pub const fixed = @import("fixed.zig");
 pub const truetype = @import("truetype/__root__.zig");
 pub const cff = @import("cff/__root__.zig");
+pub const auto = @import("auto/__root__.zig");
 pub const trig = @import("trig.zig");
 pub const Glyph = @import("Glyph.zig");
 
