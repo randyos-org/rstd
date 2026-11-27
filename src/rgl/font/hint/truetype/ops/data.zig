@@ -121,7 +121,7 @@ pub fn measureDistance(e: *Engine) Error!void {
         const a = z0.unscaled(l);
         const b = z1.unscaled(k);
         const d = p.dualProject(a[0] -% b[0], a[1] -% b[1]);
-        break :blk fixed.mul(d, if (e.composite) 0x10000 else e.metrics.scale);
+        break :blk fixed.mul(d, e.unitsScale());
     };
 }
 

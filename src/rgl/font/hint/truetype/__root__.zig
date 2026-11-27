@@ -17,5 +17,6 @@ pub const Program = @import("program.zig").Program;
 test {
     _ = @import("ops/stack.zig");
     _ = @import("_test/engine.zig");
+    _ = @import("_test/points.zig");
     _ = @import("_test/fixed.zig");
 }

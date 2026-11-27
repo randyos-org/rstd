@@ -1,6 +1,4 @@
 //! One instruction: FreeType 2.14.3 `ttinterp.c` `TT_RunIns`'s switch.
-//! The instructions that move points (#807) are not here yet and report
-//! `error.UnhandledOpcode`.
 
 const opcode = @import("opcode.zig");
 const Engine = @import("Engine.zig");
@@ -11,12 +9,15 @@ const calls = @import("ops/calls.zig");
 const state = @import("ops/state.zig");
 const data = @import("ops/data.zig");
 const tags = @import("ops/tags.zig");
+const shift = @import("ops/shift.zig");
+const align_ops = @import("ops/align.zig");
+const interp = @import("ops/interp.zig");
 
 pub fn step(e: *Engine) Engine.Error!void {
     const op = e.op;
     if (op >= opcode.pushb_first and op < opcode.mdrp_first) return stack.push(e);
-    // MDRP and MIRP move points (#807)
-    if (op >= opcode.mdrp_first) return error.UnhandledOpcode;
+    if (op >= opcode.mirp_first) return align_ops.mirp(e);
+    if (op >= opcode.mdrp_first) return align_ops.mdrp(e);
     switch (@as(opcode.Opcode, @fromBackingInt(op))) {
         .svtca0, .svtca1, .spvtca0, .spvtca1, .sfvtca0, .sfvtca1 => state.toAxis(e),
         .spvtl0, .spvtl1, .sfvtl0, .sfvtl1 => try state.toLine(e),
@@ -109,8 +110,20 @@ pub fn step(e: *Engine) Engine.Error!void {
         .fliprgon => try tags.flipRange(e, true),
         .fliprgoff => try tags.flipRange(e, false),
         .utp => try tags.untouch(e),
-        // the instructions that move points (#807)
-        .isect, .alignpts, .mdap0, .mdap1, .iup0, .iup1, .shp0, .shp1, .shc0, .shc1, .shz0, .shz1, .shpix, .ip, .msirp0, .msirp1, .alignrp, .miap0, .miap1, .scfs, .deltap1, .deltap2, .deltap3 => return error.UnhandledOpcode,
+        .isect => try align_ops.isect(e),
+        .alignpts => try align_ops.alignpts(e),
+        .mdap0, .mdap1 => try align_ops.mdap(e),
+        .miap0, .miap1 => try align_ops.miap(e),
+        .msirp0, .msirp1 => try align_ops.msirp(e),
+        .alignrp => try align_ops.alignrp(e),
+        .scfs => try align_ops.scfs(e),
+        .shp0, .shp1 => try shift.shp(e),
+        .shc0, .shc1 => try shift.shc(e),
+        .shz0, .shz1 => try shift.shz(e),
+        .shpix => try shift.shpix(e),
+        .ip => try interp.ip(e),
+        .iup0, .iup1 => interp.iup(e),
+        .deltap1, .deltap2, .deltap3 => try interp.deltaPoint(e),
         _ => try calls.unknown(e),
     }
 }

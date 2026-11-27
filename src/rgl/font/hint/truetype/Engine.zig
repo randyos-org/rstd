@@ -213,3 +213,9 @@ pub fn roundDistance(e: *const Engine, d: i32) i32 {
 pub fn pedanticError(e: *const Engine, err: Error) Error!void {
     if (e.pedantic) return err;
 }
+
+/// Font units to 26.6 for the outline (`metrics.x_scale`): 1.0 for a
+/// composite, whose `orus` are already scaled.
+pub fn unitsScale(e: *const Engine) i32 {
+    return if (e.composite) 0x10000 else e.metrics.scale;
+}
