@@ -14,6 +14,7 @@ const Format10 = trimmed.Format(10);
 const Format12 = groups.Format(12);
 const Format13 = groups.Format(13);
 const Format14 = @import("fmt14.zig").Format14;
+const next = @import("next.zig");
 const zigstd = @import("../../../../../zigstd.zig");
 
 pub const PlatformId = enum(u16) {
@@ -151,6 +152,12 @@ pub const CmapSubtable = union(enum) {
             .fmt13 => |fmt13| fmt13.getGlyphIndex(codepoint),
             .fmt14, .unsupported => .notdef,
         };
+    }
+
+    /// The first code above `after` mapped to a glyph other than 0
+    /// (`FT_Get_Next_Char`).
+    pub fn nextChar(self: Self, after: u32) ?next.Mapping {
+        return next.nextChar(self, after);
     }
 };
 
@@ -366,4 +373,8 @@ test "CmapTable.getSubtable parses the resolved record and looks up a glyph" {
     const subtable = try cmap.getSubtable(record, true);
 
     try zigstd.testExpectEqual(@as(u16, 77), @backingInt(subtable.getGlyphIndex(0x41)));
+}
+
+test {
+    _ = @import("_test/next.zig");
 }

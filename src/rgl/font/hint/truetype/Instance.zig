@@ -115,6 +115,15 @@ pub fn init(allocator: Allocator, sfnt: *const Sfnt, options: Options) InitError
     return inst;
 }
 
+/// An instance whose unhinted loads are in font units (`FT_LOAD_NO_SCALE`);
+/// its hinted loads mean nothing.
+pub fn initUnscaled(allocator: Allocator, sfnt: *const Sfnt) InitError!Instance {
+    var inst = try init(allocator, sfnt, .{ .ppem = 1 });
+    inst.scale = 1 << 16;
+    inst.hinting_off = true;
+    return inst;
+}
+
 pub fn deinit(inst: *Instance) void {
     inst.allocator.free(inst.twilight_tags);
     inst.allocator.free(inst.twilight);

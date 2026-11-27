@@ -282,6 +282,13 @@ pub fn getGlyphMetrics(self: Self, glyph: GlyphIndex) aux_types.GlyphMetricsDesi
     return .{ .advance_width = advance_width, .bearing_x = @intCast(bbox.x_min), .bearing_y = @intCast(bbox.y_max) };
 }
 
+/// The preferred Unicode cmap subtable, as `getGlyphIndex` picks it.
+pub fn unicodeCmap(self: Self) ?tables.CmapSubtable {
+    const cmap = self.cmap orelse return null;
+    const record = cmap.findUnicodeFullRecord() orelse cmap.findUnicodeBmpRecord() orelse return null;
+    return cmap.getSubtable(record, false) catch null;
+}
+
 /// Resolves a Unicode codepoint to a glyph index via the font's preferred
 /// Unicode cmap subtable. Prefers a full-repertoire subtable (format 12/13,
 /// covering codepoints past the BMP) over a BMP-only one when both exist,
@@ -289,9 +296,7 @@ pub fn getGlyphMetrics(self: Self, glyph: GlyphIndex) aux_types.GlyphMetricsDesi
 /// null if the font has no Unicode subtable, or the subtable has no mapping
 /// for this codepoint.
 pub fn getGlyphIndex(self: Self, codepoint: u32) ?GlyphIndex {
-    const cmap = self.cmap orelse return null;
-    const record = cmap.findUnicodeFullRecord() orelse cmap.findUnicodeBmpRecord() orelse return null;
-    const subtable = cmap.getSubtable(record, false) catch return null;
+    const subtable = self.unicodeCmap() orelse return null;
     const glyph = subtable.getGlyphIndex(codepoint);
     return if (glyph == .notdef) null else glyph;
 }
