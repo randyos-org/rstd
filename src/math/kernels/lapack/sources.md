@@ -70,7 +70,7 @@ Two of libflame's names are not what they say: `gesdd` is "redirected to GESVD" 
 
 | Routine | Needs | OpenBLAS | ReLAPACK | faer | libflame | AOCL-libFLAME | Choice | Why | Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `trsyl` | has; M (`sylvester`, `lyap` has: M37, [#367](https://github.com/randyos-org/rstd/issues/367); `sqrtm`, `logm`) | - | own, recursive, `dtrsyl.c` | - (a 2 x 2 `lasy2` inside `evd/schur/real_schur.rs` only) | FLAME `FLA_Sylv`, off | FLAME `FLA_Sylv`, off | ReLAPACK | T110 | accuracy tests; not raced |
+| `trsyl` | has; M (`sylvester`, `lyap` has: M37, [#367](https://github.com/randyos-org/rstd/issues/367); `lyapSylvester`: M43, [#750](https://github.com/randyos-org/rstd/issues/750); `sqrtm`, `logm`) | - | own, recursive, `dtrsyl.c` | - (a 2 x 2 `lasy2` inside `evd/schur/real_schur.rs` only) | FLAME `FLA_Sylv`, off | FLAME `FLA_Sylv`, off | ReLAPACK | T110 | accuracy tests; not raced |
 | `tgsyl` | has (T118) | - | own, `dtgsyl.c` | - | ref | ref | ReLAPACK (`tgsyl.zig`), the reference's `xTGSY2` below the crossover | only non-reference source; two ReLAPACK bugs fixed ([#246](https://github.com/randyos-org/rstd/issues/246), [#247](https://github.com/randyos-org/rstd/issues/247)) | both equations' residuals, every `trans` and type; `dif` against `σ_min` of the Kronecker form and against one `xTGSY2`; not raced |
 
 ### QR, LQ and least squares

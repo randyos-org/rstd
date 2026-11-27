@@ -19,6 +19,7 @@ const Real = vector.Real;
 const ElementOf = util.ElementOf;
 const constOf = util.constOf;
 const copyOf = util.copyOf;
+const complexOf = util.complexOf;
 
 pub const HessError = error{NotSquare} || Allocator.Error || Io.Cancelable;
 
@@ -88,15 +89,9 @@ pub fn schur(allocator: Allocator, io: Io, a: anytype) SchurError!Schur(ElementO
 /// `schur(A, 'complex')`).
 pub fn schurComplex(allocator: Allocator, io: Io, a: anytype) SchurError!Schur(std.math.Complex(Real(ElementOf(@TypeOf(a))))) {
     const T = ElementOf(@TypeOf(a));
-    const C = std.math.Complex(Real(T));
     const ca = constOf(a);
     if (ca.rows != ca.cols) return error.NotSquare;
-    const n = ca.rows;
-    const t = try Mat(C).init(allocator, n, n);
-    for (0..n) |j| for (t.data[j * n ..][0..n], ca.col(j)) |*d, x| {
-        d.* = if (comptime isComplex(T)) x else C.init(x, 0);
-    };
-    return gees(C, allocator, io, t);
+    return gees(std.math.Complex(Real(T)), allocator, io, try complexOf(T, allocator, ca));
 }
 
 /// `qz`'s and `qzComplex`'s: `NoConvergence` also for a NaN or infinity.
@@ -137,21 +132,13 @@ pub fn qz(allocator: Allocator, io: Io, a: anytype, b: anytype) QzError!Qz(Eleme
 /// "complex")`).
 pub fn qzComplex(allocator: Allocator, io: Io, a: anytype, b: anytype) QzError!Qz(std.math.Complex(Real(ElementOf(@TypeOf(a))))) {
     const T = ElementOf(@TypeOf(a));
-    const C = std.math.Complex(Real(T));
     const ca = constOf(a);
     const cb = constOf(b);
     if (ca.rows != ca.cols or cb.rows != cb.cols) return error.NotSquare;
     if (cb.rows != ca.rows) return error.DimensionMismatch;
-    const n = ca.rows;
-    const f = try Mat(C).init(allocator, n, n);
+    const f = try complexOf(T, allocator, ca);
     errdefer f.deinit(allocator);
-    const g = try Mat(C).init(allocator, n, n);
-    errdefer g.deinit(allocator);
-    for (0..n) |j| for (f.data[j * n ..][0..n], g.data[j * n ..][0..n], ca.col(j), cb.col(j)) |*d, *e, x, y| {
-        d.* = if (comptime isComplex(T)) x else C.init(x, 0);
-        e.* = if (comptime isComplex(T)) y else C.init(y, 0);
-    };
-    return gges(C, allocator, io, f, g);
+    return gges(std.math.Complex(Real(T)), allocator, io, f, try complexOf(T, allocator, cb));
 }
 
 /// `gges` on `aa` and `bb` (taken), `Q` returned as LAPACK's `Qᴴ`.

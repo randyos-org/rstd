@@ -107,6 +107,9 @@ const sylvester_ = @import("sylvester.zig");
 pub const SylvesterError = sylvester_.SylvesterError;
 pub const sylvester = sylvester_.sylvester;
 pub const lyap = sylvester_.lyap;
+pub const lyapSylvester = sylvester_.lyapSylvester;
+const lyap_generalized = @import("lyap_generalized.zig");
+pub const lyapGeneralized = lyap_generalized.lyapGeneralized;
 
 const balancing = @import("balancing.zig");
 pub const Balance = balancing.Balance;

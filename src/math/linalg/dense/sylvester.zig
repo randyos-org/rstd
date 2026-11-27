@@ -26,17 +26,7 @@ pub const SylvesterError = error{ NotSquare, DimensionMismatch, Singular, NoConv
 /// `X` with `A X + X B = C` (MATLAB's `sylvester(A, B, C)`), `A` `m` by `m`,
 /// `B` `n` by `n`, `C` `m` by `n`.
 pub fn sylvester(allocator: Allocator, io: Io, a: anytype, b: anytype, c: anytype) SylvesterError!Mat(ElementOf(@TypeOf(a))) {
-    const T = ElementOf(@TypeOf(a));
-    const ca = constOf(a);
-    const cb = constOf(b);
-    const cc = constOf(c);
-    if (ca.rows != ca.cols or cb.rows != cb.cols) return error.NotSquare;
-    if (cc.rows != ca.rows or cc.cols != cb.rows) return error.DimensionMismatch;
-    const sa = try schur_form.schur(allocator, io, ca);
-    defer sa.deinit(allocator);
-    const sb = try schur_form.schur(allocator, io, cb);
-    defer sb.deinit(allocator);
-    return bartelsStewart(T, allocator, io, sa, sb, .n, cc, false);
+    return twoSided(allocator, io, a, b, c, false);
 }
 
 /// `X` with `A X + X Aᴴ + Q = 0` (MATLAB's `lyap(A, Q)`), from one Schur
@@ -50,6 +40,27 @@ pub fn lyap(allocator: Allocator, io: Io, a: anytype, q: anytype) SylvesterError
     const sa = try schur_form.schur(allocator, io, ca);
     defer sa.deinit(allocator);
     return bartelsStewart(T, allocator, io, sa, sa, .c, cq, true);
+}
+
+/// `X` with `A X + X B + C = 0` (MATLAB's `lyap(A, B, C)`): `sylvester(A,
+/// B, -C)`.
+pub fn lyapSylvester(allocator: Allocator, io: Io, a: anytype, b: anytype, c: anytype) SylvesterError!Mat(ElementOf(@TypeOf(a))) {
+    return twoSided(allocator, io, a, b, c, true);
+}
+
+/// `sylvester` and `lyapSylvester`: two Schur forms, `-C` with `negate`.
+fn twoSided(allocator: Allocator, io: Io, a: anytype, b: anytype, c: anytype, negate: bool) SylvesterError!Mat(ElementOf(@TypeOf(a))) {
+    const T = ElementOf(@TypeOf(a));
+    const ca = constOf(a);
+    const cb = constOf(b);
+    const cc = constOf(c);
+    if (ca.rows != ca.cols or cb.rows != cb.cols) return error.NotSquare;
+    if (cc.rows != ca.rows or cc.cols != cb.rows) return error.DimensionMismatch;
+    const sa = try schur_form.schur(allocator, io, ca);
+    defer sa.deinit(allocator);
+    const sb = try schur_form.schur(allocator, io, cb);
+    defer sb.deinit(allocator);
+    return bartelsStewart(T, allocator, io, sa, sb, .n, cc, negate);
 }
 
 /// `X = Ua Y Ubᴴ / scale` for `Ta Y + Y op(Tb) = scale Uaᴴ C Ub` (`-C`
