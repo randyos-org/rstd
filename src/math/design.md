@@ -248,6 +248,7 @@ As `src/math/kernels/lapack/` has it today. Accelerate (macOS 13.3's `$NEWLAPACK
 | `pocon(allocator, io, T, uplo: Uplo, n: usize, a: []const T, lda: usize, anorm: Float(T)) PoconError!Float(T)` | reciprocal condition number from `potrf`'s factor | `?pocon` | Reference-LAPACK `dpocon.f` (v0.2.0) |
 | `potri(allocator, io, T, uplo: Uplo, n: usize, a: []T, lda: usize) PotriError!void` | `A⁻¹` from `potrf`'s factor | `?potri` | OpenBLAS `potri.c` |
 | `pbtrf(allocator, io, T, uplo: Uplo, n: usize, kd: usize, ab: []T, ldab: usize) PbtrfError!void` | `potrf` for band `A` (`kd`) | `?pbtrf` | ReLAPACK's recursive `pbtrf` |
+| `pbtrs(allocator, io, T, uplo: Uplo, n: usize, kd: usize, nrhs: usize, ab: []const T, ldab: usize, b: []T, ldb: usize) PbtrsError!void` | solves from `pbtrf`'s factor | `?pbtrs` | Reference-LAPACK `dpbtrs.f` (v0.2.0) |
 | `pstrf(allocator, io, T, uplo: Uplo, n: usize, a: []T, lda: usize, piv: []usize, tol: Float(T)) PstrfError!usize` | `Pᵀ·A·P = UᴴU` or `LLᴴ`, complete pivoting, blocked; returns the rank | `?pstrf` | Reference-LAPACK `dpstrf.f`, `?pstf2` as its single block |
 
 #### LU
@@ -369,7 +370,6 @@ Each in Reference-LAPACK 3.12.0 (`lapack-netlib/SRC/`, as OpenBLAS ships it; mod
 
 | Signature | Computes | LAPACK name (Accelerate, MKL) |
 | --- | --- | --- |
-| `pbtrs(allocator, io, T, uplo: Uplo, n: usize, kd: usize, nrhs: usize, ab: []const T, ldab: usize, b: []T, ldb: usize) PbtrsError!void` | solves from `pbtrf`'s factor | `?pbtrs` |
 | `pptrf(allocator, io, T, uplo: Uplo, n: usize, ap: []T) PptrfError!void` | `potrf` for packed `A` | `?pptrf` |
 | `gesvx(allocator, io, T, fact: FactorizationInput, trans: Trans, n: usize, nrhs: usize, a: []T, lda: usize, af: []T, ldaf: usize, ipiv: []usize, equed: *Equilibration, r: []Float(T), c: []Float(T), b: []T, ldb: usize, x: []T, ldx: usize, ferr: []Float(T), berr: []Float(T)) GesvxError!Float(T)` | `gesv` with equilibration, refinement and error bounds; returns the reciprocal condition number | `?gesvx` |
 | `sytri(allocator, io, T, uplo: Uplo, n: usize, a: []T, lda: usize, ipiv: []const Pivot) SytriError!void` | `A⁻¹` from `sytrf`'s factor | `?sytri`, `?hetri` |
