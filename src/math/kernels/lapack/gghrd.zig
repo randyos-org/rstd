@@ -10,6 +10,7 @@ const types = @import("../blas/types.zig");
 const util = @import("../blas/util.zig");
 const ops = @import("ops.zig");
 const interface = @import("interface.zig");
+const schur = @import("schur.zig");
 
 const Float = types.Float;
 const isComplex = types.isComplex;
@@ -20,9 +21,9 @@ const mul = ops.mul;
 const conj = ops.conj;
 const mulReal = ops.mulReal;
 
-/// LAPACK's `COMPQ`, `COMPZ`: no vectors (`N`), from the identity (`I`), or
-/// updating the caller's (`V`).
-pub const PencilVectors = enum { none, initialize, update };
+/// LAPACK's `COMPQ`, `COMPZ`: no vectors, from the identity, or accumulated
+/// into the caller's (`hseqr`'s `COMPZ`).
+pub const SchurVectors = schur.SchurVectors;
 
 /// What `gghrd` returns: `BlockOutOfRange` unless `lo <= hi <= n`, a slice
 /// too short (`a`, `b`, or `q`, `z` when used) or a leading dimension too small.
@@ -33,16 +34,16 @@ pub const GghrdError = interface.BlockError || interface.ShapeError;
 /// with `H` upper Hessenberg and `T` upper triangular, rotating within rows
 /// and columns `lo..hi` (0-based, `hi` past the end), outside which `A` must
 /// already be upper triangular (as `ggbal` leaves it). `q` and `z` (`n x n`)
-/// take `Q` and `Z` (`.initialize`) or are multiplied by them (`.update`).
-pub fn gghrd(comptime T: type, compq: PencilVectors, compz: PencilVectors, n: usize, lo: usize, hi: usize, a: []T, lda: usize, b: []T, ldb: usize, q: []T, ldq: usize, z: []T, ldz: usize) GghrdError!void {
+/// take `Q` and `Z` (`.from_identity`) or are multiplied by them (`.accumulate`).
+pub fn gghrd(comptime T: type, compq: SchurVectors, compz: SchurVectors, n: usize, lo: usize, hi: usize, a: []T, lda: usize, b: []T, ldb: usize, q: []T, ldq: usize, z: []T, ldz: usize) GghrdError!void {
     comptime ops.requireFloat(T, "gghrd");
     try interface.blockIn(lo, hi, n);
     try util.holds(a.len, n, n, lda);
     try util.holds(b.len, n, n, ldb);
     if (compq != .none) try util.holds(q.len, n, n, ldq);
     if (compz != .none) try util.holds(z.len, n, n, ldz);
-    if (compq == .initialize) identity(T, n, q, ldq);
-    if (compz == .initialize) identity(T, n, z, ldz);
+    if (compq == .from_identity) identity(T, n, q, ldq);
+    if (compz == .from_identity) identity(T, n, z, ldz);
     if (n <= 1) return;
     for (0..n - 1) |j| for (j + 1..n) |i| {
         b[i + j * ldb] = scalar(T, 0);
@@ -57,14 +58,14 @@ pub fn gghrd(comptime T: type, compq: PencilVectors, compz: PencilVectors, n: us
             a[jrow + jcol * lda] = scalar(T, 0);
             rotRows(T, g1.c, g1.s, a, lda, jrow - 1, jrow, jcol + 1, n);
             rotRows(T, g1.c, g1.s, b, ldb, jrow - 1, jrow, jrow - 1, n);
-            if (compq != .none) rotCols(T, g1.c, conj(T, g1.s), q, ldq, jrow - 1, jrow, n);
+            if (compq != .none) rotCols(T, g1.c, conj(T, g1.s), q, ldq, jrow - 1, jrow, 0, n);
             // columns `jrow` and `jrow - 1`: zero the fill-in `B(jrow, jrow - 1)`
             const g2 = givens(T, b[jrow + jrow * ldb], b[jrow + (jrow - 1) * ldb]);
             b[jrow + jrow * ldb] = g2.r;
             b[jrow + (jrow - 1) * ldb] = scalar(T, 0);
-            rotCols(T, g2.c, g2.s, a, lda, jrow, jrow - 1, hi);
-            rotCols(T, g2.c, g2.s, b, ldb, jrow, jrow - 1, jrow);
-            if (compz != .none) rotCols(T, g2.c, g2.s, z, ldz, jrow, jrow - 1, n);
+            rotCols(T, g2.c, g2.s, a, lda, jrow, jrow - 1, 0, hi);
+            rotCols(T, g2.c, g2.s, b, ldb, jrow, jrow - 1, 0, jrow);
+            if (compz != .none) rotCols(T, g2.c, g2.s, z, ldz, jrow, jrow - 1, 0, n);
         }
     }
 }
@@ -104,12 +105,13 @@ pub fn rotRows(comptime T: type, c: Float(T), s: T, m: []T, ld: usize, x: usize,
     for (from..to) |j| rotPair(T, c, s, &m[x + j * ld], &m[y + j * ld]);
 }
 
-/// `rot` on columns `x` and `y` of `m`, rows `0..rows`.
-pub fn rotCols(comptime T: type, c: Float(T), s: T, m: []T, ld: usize, x: usize, y: usize, rows: usize) void {
-    for (0..rows) |i| rotPair(T, c, s, &m[i + x * ld], &m[i + y * ld]);
+/// `rot` on columns `x` and `y` of `m`, rows `from..to`.
+pub fn rotCols(comptime T: type, c: Float(T), s: T, m: []T, ld: usize, x: usize, y: usize, from: usize, to: usize) void {
+    for (from..to) |i| rotPair(T, c, s, &m[i + x * ld], &m[i + y * ld]);
 }
 
-fn rotPair(comptime T: type, c: Float(T), s: T, x: *T, y: *T) void {
+/// `rot` on one pair of entries.
+pub fn rotPair(comptime T: type, c: Float(T), s: T, x: *T, y: *T) void {
     const xv = x.*;
     const yv = y.*;
     x.* = add(T, mulReal(T, xv, c), mul(T, yv, s));
@@ -120,30 +122,9 @@ fn rotPair(comptime T: type, c: Float(T), s: T, x: *T, y: *T) void {
 
 const testing = std.testing;
 const check = @import("../blas/_test/check.zig");
-
-/// `‖X Y Wᴴ - M‖` over the entries, every matrix `n x n`, column-major.
-fn residual(comptime T: type, n: usize, x: []const T, y: []const T, w: []const T, m: []const T) Float(T) {
-    var worst: Float(T) = 0;
-    for (0..n) |i| for (0..n) |j| {
-        var s = scalar(T, 0);
-        for (0..n) |k| for (0..n) |l| {
-            s = add(T, s, mul(T, mul(T, x[i + k * n], y[k + l * n]), conj(T, w[j + l * n])));
-        };
-        worst = @max(worst, ops.abs1(T, sub(T, s, m[i + j * n])));
-    };
-    return worst;
-}
-
-/// `‖Xᴴ X - I‖` over the entries.
-fn unitary(comptime T: type, n: usize, x: []const T) Float(T) {
-    var worst: Float(T) = 0;
-    for (0..n) |i| for (0..n) |j| {
-        var s = scalar(T, 0);
-        for (0..n) |k| s = add(T, s, ops.mulConj(T, x[k + i * n], x[k + j * n]));
-        worst = @max(worst, ops.abs1(T, sub(T, s, scalar(T, if (i == j) 1 else 0))));
-    };
-    return worst;
-}
+const pencil = @import("_test/pencil.zig");
+const residual = pencil.residual;
+const unitary = pencil.unitary;
 
 test "gghrd: Q H Zᴴ = A and Q T Zᴴ = B, H Hessenberg, T triangular, Q and Z unitary" {
     const al = testing.allocator;
@@ -165,7 +146,7 @@ test "gghrd: Q H Zᴴ = A and Q T Zᴴ = B, H Hessenberg, T triangular, Q and Z 
         defer al.free(q);
         const z = try al.alloc(T, n * n);
         defer al.free(z);
-        try gghrd(T, .initialize, .initialize, n, 0, n, a, n, b, n, q, n, z, n);
+        try gghrd(T, .from_identity, .from_identity, n, 0, n, a, n, b, n, q, n, z, n);
         for (0..n) |j| for (j + 1..n) |i| {
             try testing.expect(ops.isZero(T, b[i + j * n]));
             if (i > j + 1) try testing.expect(ops.isZero(T, a[i + j * n]));
@@ -184,7 +165,7 @@ test "gghrd: an empty block is the identity's work; a bad block is an error" {
     var b = [_]f64{ 1, 5, 0, 1 };
     var q: [4]f64 = undefined;
     var z: [4]f64 = undefined;
-    try gghrd(f64, .initialize, .initialize, 2, 1, 1, &a, 2, &b, 2, &q, 2, &z, 2);
+    try gghrd(f64, .from_identity, .from_identity, 2, 1, 1, &a, 2, &b, 2, &q, 2, &z, 2);
     try testing.expectEqualSlices(f64, &.{ 1, 0, 0, 1 }, &q);
     // `B` below its diagonal is zeroed
     try testing.expectEqual(0, b[1]);

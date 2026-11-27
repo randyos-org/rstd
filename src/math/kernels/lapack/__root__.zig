@@ -18,6 +18,7 @@ const sytrf_factor = @import("sytrf.zig");
 const sytrs_solve = @import("sytrs.zig");
 const sygv_solve = @import("sygv.zig");
 const gghrd_reduce = @import("gghrd.zig");
+const qz_complex = @import("qz_complex.zig");
 const householder = @import("householder.zig");
 const qr = @import("qr.zig");
 const qr_solve = @import("qr_solve.zig");
@@ -157,10 +158,10 @@ pub const sygv = sygv_solve.sygv;
 pub const sygvd = sygv_solve.sygvd;
 pub const hegv = sygv_solve.hegv;
 pub const hegvd = sygv_solve.hegvd;
-/// `gghrd`'s `COMPQ` and `COMPZ`.
-pub const PencilVectors = gghrd_reduce.PencilVectors;
 pub const GghrdError = gghrd_reduce.GghrdError;
 pub const gghrd = gghrd_reduce.gghrd;
+pub const HgeqzError = qz_complex.HgeqzError;
+pub const hgeqzComplex = qz_complex.hgeqzComplex;
 
 /// `geev`: a NaN in `A` is `error.NanInA`; `error.NoConvergence` (also for
 /// an infinity in `A`), the count of eigenvalues not found in the last
@@ -285,6 +286,7 @@ test {
     _ = sytrs_solve;
     _ = sygv_solve;
     _ = gghrd_reduce;
+    _ = qz_complex;
     _ = relapack_tests;
     _ = evd_tests;
     _ = norm_tests;
