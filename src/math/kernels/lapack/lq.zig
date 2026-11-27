@@ -179,20 +179,6 @@ const test_types = lcheck.test_types;
 
 const thresh = lcheck.thresh;
 
-/// `C := op(A) op(B)` by loops, in `T`.
-fn mul(comptime T: type, ta: bool, a: Mat(T), tb: bool, b: Mat(T), c: Mat(T)) void {
-    const k = if (ta) a.rows else a.cols;
-    for (0..c.cols) |j| for (0..c.rows) |i| {
-        var s = ops.zero(T);
-        for (0..k) |p| {
-            const x = if (ta) ops.conj(T, a.get(p, i)) else a.get(i, p);
-            const y = if (tb) ops.conj(T, b.get(j, p)) else b.get(p, j);
-            s = ops.add(T, s, ops.mul(T, x, y));
-        }
-        c.at(i, j).* = s;
-    };
-}
-
 /// `dlqt01.f`'s ratios: `‖L - A Qᴴ‖ / (n ‖A‖ eps)` and `‖I - Q Qᴴ‖ /
 /// (n eps)` below the threshold, `Q` (`n x n`) from `orglq`; then
 /// `dlqt03.f`'s: `ormlq` against `Q` for every side and `op`.
@@ -222,7 +208,7 @@ fn lqCase(comptime T: type, al: Allocator, m: usize, n: usize, seed: u64) !void 
     // L = A Qᴴ, zero right of its diagonal
     const l = try ops.alloc(T, al, m, n);
     defer ops.free(T, al, l);
-    mul(T, false, a0, true, q, l);
+    lcheck.mul(T, false, a0, true, q, l);
     const want = try ops.alloc(T, al, m, n);
     defer ops.free(T, al, want);
     for (0..n) |j| for (0..m) |i| {
@@ -231,7 +217,7 @@ fn lqCase(comptime T: type, al: Allocator, m: usize, n: usize, seed: u64) !void 
     try lcheck.expectNear(T, "gelqf L", l, want, thresh * nf * eps * @max(anorm, 1));
     const g = try ops.alloc(T, al, n, n);
     defer ops.free(T, al, g);
-    mul(T, false, q, true, q, g);
+    lcheck.mul(T, false, q, true, q, g);
     const id = try ops.alloc(T, al, n, n);
     defer ops.free(T, al, id);
     id.identity();
@@ -248,7 +234,7 @@ fn lqCase(comptime T: type, al: Allocator, m: usize, n: usize, seed: u64) !void 
         const r = try ops.alloc(T, al, cr, cc);
         defer ops.free(T, al, r);
         // Q here is orglq's full n x n, op(Q) = Q or Qᴴ
-        if (side == .l) mul(T, tr != .n, q, false, c, r) else mul(T, false, c, tr != .n, q, r);
+        if (side == .l) lcheck.mul(T, tr != .n, q, false, c, r) else lcheck.mul(T, false, c, tr != .n, q, r);
         try ormlq(al, check.io, T, side, tr, cr, cc, k, a.slice(), a.ld, tau, c.slice(), c.ld);
         try lcheck.expectNear(T, "ormlq", c, r, thresh * nf * eps * 4);
     };

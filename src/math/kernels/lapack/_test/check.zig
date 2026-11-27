@@ -195,3 +195,17 @@ pub fn expectNear(comptime T: type, what: []const u8, x: ops.Mat(T), y: ops.Mat(
         }
     };
 }
+
+/// `C := op(A) op(B)` by loops, in `T`; `ta` and `tb` take the adjoint.
+pub fn mul(comptime T: type, ta: bool, a: ops.Mat(T), tb: bool, b: ops.Mat(T), c: ops.Mat(T)) void {
+    const k = if (ta) a.rows else a.cols;
+    for (0..c.cols) |j| for (0..c.rows) |i| {
+        var s = ops.zero(T);
+        for (0..k) |p| {
+            const x = if (ta) ops.conj(T, a.get(p, i)) else a.get(i, p);
+            const y = if (tb) ops.conj(T, b.get(j, p)) else b.get(p, j);
+            s = ops.add(T, s, ops.mul(T, x, y));
+        }
+        c.at(i, j).* = s;
+    };
+}
