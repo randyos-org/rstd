@@ -311,6 +311,8 @@ As `src/math/kernels/lapack/` has it today. Accelerate (macOS 13.3's `$NEWLAPACK
 | `ungrq(allocator, io, T, m: usize, n: usize, k: usize, a: []T, lda: usize, tau: []const T) OrgrqError!void` | `orgrq` for complex | `?ungrq` | `orglq` reversed (v0.2.0) |
 | `ormrq(allocator, io, T, side: Side, trans: Trans, m: usize, n: usize, k: usize, a: []const T, lda: usize, tau: []const T, c: []T, ldc: usize) OrmrqError!void` | `C ← op(Q)C` or `C·op(Q)`, RQ's `Q` | `?ormrq` | `ormlq` reversed (v0.2.0) |
 | `unmrq(allocator, io, T, side: Side, trans: Trans, m: usize, n: usize, k: usize, a: []const T, lda: usize, tau: []const T, c: []T, ldc: usize) OrmrqError!void` | `ormrq` for complex | `?unmrq` | `ormlq` reversed (v0.2.0) |
+| `ggqrf(allocator, io, T, n: usize, m: usize, p: usize, a: []T, lda: usize, taua: []T, b: []T, ldb: usize, taub: []T) GgqrfError!void` | `A = QR`, `B = QTZ` | `?ggqrf` | Reference-LAPACK `dggqrf.f` (v0.2.0) |
+| `ggrqf(allocator, io, T, m: usize, p: usize, n: usize, a: []T, lda: usize, taua: []T, b: []T, ldb: usize, taub: []T) GgrqfError!void` | `A = RQ`, `B = ZTQ` | `?ggrqf` | Reference-LAPACK `dggrqf.f` (v0.2.0) |
 | `geqp3(allocator, io, T, m: usize, n: usize, a: []T, lda: usize, jpvt: []usize, tau: []T) Geqp3Error!void` | `AP = QR`, column pivoting | `?geqp3` | faer v0.24.4's pivoted QR |
 
 #### Least squares
