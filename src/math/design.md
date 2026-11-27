@@ -353,6 +353,8 @@ As `src/math/kernels/lapack/` has it today. Accelerate (macOS 13.3's `$NEWLAPACK
 | Signature | Computes | LAPACK name (Accelerate, MKL) | rstd's source |
 | --- | --- | --- | --- |
 | `lange(allocator, io, T, norm: NormType, m: usize, n: usize, a: []const T, lda: usize) LangeError!Float(T)` | `‖A‖` by `norm`: max, one, infinity or Frobenius | `?lange` | Reference-LAPACK `dlange.f` |
+| `lansy(allocator, io, T, norm: NormType, uplo: Uplo, n: usize, a: []const T, lda: usize) LansyError!Float(T)`, `lanhe` | `lange` for symmetric (Hermitian) `A` from one triangle | `?lansy`, `?lanhe` | Reference-LAPACK `dlansy.f`, `zlanhe.f` (v0.2.0) |
+| `lantr(allocator, io, T, norm: NormType, uplo: Uplo, diag: Diag, m: usize, n: usize, a: []const T, lda: usize) LantrError!Float(T)` | `lange` for trapezoidal `A` | `?lantr` | Reference-LAPACK `dlantr.f` (v0.2.0) |
 | `gecon(allocator, io, T, norm: NormType, n: usize, a: []const T, lda: usize, anorm: Float(T)) GeconError!Float(T)` | reciprocal condition number from `getrf`'s factor | `?gecon` | Reference-LAPACK `dgecon.f` |
 | `laset(T, uplo: ?Uplo, m: usize, n: usize, alpha: T, beta: T, a: []T, lda: usize) LasetError!void` | off-diagonal `alpha`, diagonal `beta` | `?laset` | Reference-LAPACK `dlaset.f` |
 | `lapy2(F, x: F, y: F) F` | `sqrt(x² + y²)` without overflow | `?lapy2` | Reference-LAPACK `dlapy2.f` |
@@ -382,8 +384,6 @@ Each in Reference-LAPACK 3.12.0 (`lapack-netlib/SRC/`, as OpenBLAS ships it; mod
 | `gesvdx(allocator, io, T, jobu: VectorJob, jobvt: VectorJob, range: SpectrumRange(Float(T)), m: usize, n: usize, a: []T, lda: usize, s: []Float(T), u: []T, ldu: usize, vt: []T, ldvt: usize) GesvdxError!usize` | selected singular values and vectors; returns the count | `?gesvdx` |
 | `gejsv(allocator, io, T, jobu: SingularVectorJob, jobv: SingularVectorJob, m: usize, n: usize, a: []T, lda: usize, s: []Float(T), u: []T, ldu: usize, v: []T, ldv: usize) GejsvError!void` | SVD by preconditioned Jacobi, high relative accuracy | `?gejsv` |
 | `ggsvd3(allocator, io, T, jobu: VectorJob, jobv: VectorJob, jobq: VectorJob, m: usize, n: usize, p: usize, a: []T, lda: usize, b: []T, ldb: usize, alpha: []Float(T), beta: []Float(T), u: []T, ldu: usize, v: []T, ldv: usize, q: []T, ldq: usize) Ggsvd3Error!struct { k: usize, l: usize }` | generalized SVD of `(A, B)` | `?ggsvd3` |
-| `lansy(allocator, io, T, norm: NormType, uplo: Uplo, n: usize, a: []const T, lda: usize) LansyError!Float(T)` | `lange` for symmetric `A` | `?lansy`, `?lanhe` |
-| `lantr(allocator, io, T, norm: NormType, uplo: Uplo, diag: Diag, m: usize, n: usize, a: []const T, lda: usize) LantrError!Float(T)` | `lange` for trapezoidal `A` | `?lantr` |
 
 `PairSelector(T)` is `EigenvalueSelector`'s form for a pair: `*const fn (T, T) bool` for complex, `*const fn (Float(T), Float(T), Float(T)) bool` for real (`α_re`, `α_im`, `β`).
 
