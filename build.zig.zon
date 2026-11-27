@@ -28,6 +28,38 @@
             .hash = "vulkan-0.0.0-r7Ytx1eHAwDInvlQSbl5gMYemczKJa6GimvWcgnOjibX",
             .lazy = true,
         },
+        // rgui's fonts, for the font-backed tests and `hint-refs`; only with
+        // -Dtest-fonts (build/testfonts.zig)
+        .font_arimo = .{
+            .url = "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.5.1/Arimo.tar.xz",
+            .hash = "N-V-__8AAOIDbgE-T1VwVU4MxamcHe884ewmWWLNCgFx4iRL",
+            .lazy = true,
+        },
+        .font_jetbrains_mono = .{
+            .url = "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.5.1/JetBrainsMono.tar.xz",
+            .hash = "N-V-__8AACC3fg6jRLitLX-beyor0I_nm4_VNP5vLRPEzDCs",
+            .lazy = true,
+        },
+        .font_ubuntu = .{
+            .url = "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.5.1/Ubuntu.tar.xz",
+            .hash = "N-V-__8AABbDuwJmvIg3x4ZbZE2JDic4WW_OpXW6T6Lmi-GG",
+            .lazy = true,
+        },
+        .font_ibm_plex_serif = .{
+            .url = "https://github.com/IBM/plex/releases/download/%40ibm/plex-serif%402.0.0/ibm-plex-serif.zip",
+            .hash = "N-V-__8AAIAgvADfAA7cONZP2WwyBTPpY8zwMLu_g-OOzIuD",
+            .lazy = true,
+        },
+        .font_commit_mono = .{
+            .url = "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.5.1/CommitMono.tar.xz",
+            .hash = "N-V-__8AAB1YswG1jhhHtI_tBelG7FEUTwhNvjwkUum8H98P",
+            .lazy = true,
+        },
+        .font_atkinson_hyperlegible_mono = .{
+            .url = "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.5.1/AtkinsonHyperlegibleMono.tar.xz",
+            .hash = "N-V-__8AAF5iRwMK9WHZPFu4PfMSXHesuyeuc37vczhf1EQn",
+            .lazy = true,
+        },
         // .rc = .{
         //     .url = "git+https://codeberg.org/ziglang/rc#23b64112d428b13f59967a0e6587b3391d0aeb76",
         //     .hash = "rc-0.0.0-rMftL9REAADo6nZWJwkxvJGHVKNNwXT-SxFQGdbiv5DW",

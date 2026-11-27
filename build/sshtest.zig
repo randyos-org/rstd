@@ -10,8 +10,11 @@ const qemutest = @import("qemu/__root__.zig");
 const bench = @import("bench.zig");
 const tools = @import("tools.zig");
 
+/// The Macs' SSH aliases, `-Dssh-mac` and `-Dssh-mac-intel`.
+pub const Macs = struct { arm: []const u8, intel: []const u8 };
+
 /// Adds the SSH steps and `bench.zig`'s; `filters` is `-Drstd-test-filter`.
-pub fn addSshTests(b: *Build, optimize: Optimize, filters: []const []const u8) !void {
+pub fn addSshTests(b: *Build, optimize: Optimize, filters: []const []const u8) !Macs {
     const mac = b.option([]const u8, "ssh-mac", "SSH alias of the Apple silicon Mac for the ssh-test steps (default " ++ tools.mac_alias ++ ")") orelse tools.mac_alias;
     const intel = b.option([]const u8, "ssh-mac-intel", "SSH alias of the Intel Mac for ssh-test-x86_64-macos (default " ++ tools.intel_mac_alias ++ ")") orelse tools.intel_mac_alias;
     const tool = tools.hostTool(b, .ssh_test);
@@ -29,6 +32,7 @@ pub fn addSshTests(b: *Build, optimize: Optimize, filters: []const []const u8) !
     });
     addGroupRepro(b, optimize, mac, tool, arm);
     try bench.addBenches(b, mac, arm, tool);
+    return .{ .arm = mac, .intel = intel };
 }
 
 /// One `ssh-test-<arch>-macos<suffix>` step: the Mac it runs on and the option

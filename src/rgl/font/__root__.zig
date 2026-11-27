@@ -6,4 +6,5 @@ const zigstd = @import("../../zigstd.zig");
 
 test {
     zigstd.testRefAllDecls(@This());
+    _ = @import("hint/_test/refs_check.zig");
 }
