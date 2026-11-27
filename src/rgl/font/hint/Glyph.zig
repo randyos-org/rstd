@@ -12,6 +12,9 @@ tags: []u8,
 contours: []u16,
 /// 26.6, whole pixels when hinted.
 advance: i32,
+/// The autohinter's rounding of the side bearings, 26.6 (`lsb_delta`, `rsb_delta`).
+lsb_delta: i32 = 0,
+rsb_delta: i32 = 0,
 
 pub fn deinit(g: *Glyph, allocator: std.mem.Allocator) void {
     allocator.free(g.contours);

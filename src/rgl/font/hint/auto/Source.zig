@@ -12,6 +12,7 @@ const Allocator = std.mem.Allocator;
 const Source = @This();
 
 pub const Error = truetype.Loader.Error || cff.LoadError;
+pub const InitError = truetype.Instance.InitError || cff.Instance.Error;
 
 sfnt: *const Sfnt,
 outlines: union(enum) {
@@ -19,7 +20,7 @@ outlines: union(enum) {
     cff: cff.Instance,
 },
 
-pub fn init(allocator: Allocator, sfnt: *const Sfnt) (truetype.Instance.InitError || cff.Instance.Error)!Source {
+pub fn init(allocator: Allocator, sfnt: *const Sfnt) InitError!Source {
     if (sfnt.cff) |table| return .{ .sfnt = sfnt, .outlines = .{ .cff = .{ .sfnt = sfnt, .cff = table, .scale = 1 << 16 } } };
     return .{ .sfnt = sfnt, .outlines = .{ .truetype = try .initUnscaled(allocator, sfnt) } };
 }

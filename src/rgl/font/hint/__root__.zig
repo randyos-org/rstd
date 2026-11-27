@@ -16,4 +16,5 @@ test {
     _ = @import("_test/refs_check.zig");
     _ = @import("_test/truetype_refs.zig");
     _ = @import("_test/cff_refs.zig");
+    _ = @import("_test/auto_refs.zig");
 }
