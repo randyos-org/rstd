@@ -15,8 +15,12 @@
 #include FT_MODULE_H
 #include FT_TRUETYPE_TABLES_H
 
-/* ASCII, then Latin-1 (composite glyphs in TrueType fonts), Greek, Cyrillic, the euro sign */
-static const uint32_t extra[] = {0xC0, 0xC5, 0xC7, 0xC9, 0xDF, 0xE7, 0xE9, 0xF1, 0xF6, 0x3A9, 0x3BB, 0x416, 0x44F, 0x20AC};
+/* ASCII, then Latin-1 (composite glyphs in TrueType fonts), Greek, Cyrillic, the euro sign; Nerd Font icons
+ * (no script covers them: the autohinter's CJK fallback style, issue #814); kana, kanji and CJK punctuation */
+static const uint32_t extra[] = {0xC0,   0xC5,   0xC7,   0xC9,   0xDF,   0xE7,   0xE9,   0xF1,   0xF6,   0x3A9,  0x3BB,
+                                 0x416,  0x44F,  0x20AC, 0xE0A0, 0xE0B0, 0xF015, 0xF07B, 0xF121, 0x3001, 0x3002, 0x3042,
+                                 0x306E, 0x30A2, 0x30AB, 0x4E00, 0x4E2D, 0x56FD, 0x5B57, 0x65E5, 0x6587, 0x672C, 0x6C38,
+                                 0x6771, 0x8A9E, 0xFF01};
 static const unsigned sizes[] = {9, 12, 16, 24};
 #define N_SIZES (sizeof sizes / sizeof sizes[0])
 
@@ -162,13 +166,13 @@ int main(int argc, char **argv) {
     FT_Error err = FT_Init_FreeType(&lib);
     if (err) die("FT_Init_FreeType", err);
 
-    uint32_t cps[128];
+    uint32_t cps[160];
     unsigned n_glyphs = 0;
     for (uint32_t c = 0x20; c < 0x7F; c++) cps[n_glyphs++] = c;
     for (unsigned i = 0; i < sizeof extra / sizeof extra[0]; i++) cps[n_glyphs++] = extra[i];
 
     FT_Face face = open_face(lib, path, 40);
-    FT_UInt gids[128];
+    FT_UInt gids[160];
     for (unsigned i = 0; i < n_glyphs; i++) gids[i] = FT_Get_Char_Index(face, cps[i]);
     int is_cff = !strcmp(FT_Get_Font_Format(face), "CFF");
     FT_UShort upem = face->units_per_EM;

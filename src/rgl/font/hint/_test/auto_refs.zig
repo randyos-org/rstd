@@ -16,6 +16,7 @@ const fonts = .{
     .{ "jetbrains_mono", @embedFile("refs/jetbrains_mono.bin.gz") },
     .{ "ubuntu", @embedFile("refs/ubuntu.bin.gz") },
     .{ "ibm_plex_serif", @embedFile("refs/ibm_plex_serif.bin.gz") },
+    .{ "cica", @embedFile("refs/cica.bin.gz") },
     .{ "commit_mono", @embedFile("refs/commit_mono.bin.gz") },
     .{ "atkynson_mono", @embedFile("refs/atkynson_mono.bin.gz") },
 };

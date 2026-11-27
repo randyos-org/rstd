@@ -1,20 +1,22 @@
-//! A Latin-system style's standard stem widths, from the first of its
-//! standard characters the font has: FreeType 2.14.3
-//! `src/autofit/aflatin.c` (`af_latin_metrics_init_widths`).
+//! A style's standard stem widths, from the first of its standard
+//! characters the font has: FreeType 2.14.3 `src/autofit/aflatin.c`
+//! (`af_latin_metrics_init_widths`) and `afcjk.c`
+//! (`af_cjk_metrics_init_widths`, the same code), for either system's
+//! metrics.
 
 const std = @import("std");
-const Metrics = @import("Metrics.zig");
-const Source = @import("../Source.zig");
-const GlyphHints = @import("../GlyphHints.zig");
-const segments = @import("../segments.zig");
-const shaper = @import("../shaper.zig");
-const sortAndQuantize = @import("../widths.zig").sortAndQuantize;
-const scripts = @import("../data/scripts.zig").scripts;
-const styles = @import("../data/styles.zig").styles;
+const Source = @import("Source.zig");
+const GlyphHints = @import("GlyphHints.zig");
+const segments = @import("segments.zig");
+const shaper = @import("shaper.zig");
+const sortAndQuantize = @import("widths.zig").sortAndQuantize;
+const scripts = @import("data/scripts.zig").scripts;
+const styles = @import("data/styles.zig").styles;
 
 const Allocator = std.mem.Allocator;
 
-pub fn init(allocator: Allocator, m: *Metrics, src: *Source) Source.Error!void {
+/// `m`: a Latin or CJK `Metrics`.
+pub fn init(allocator: Allocator, m: anytype, src: *Source) Source.Error!void {
     m.axis[0].width_count = 0;
     m.axis[1].width_count = 0;
     defer finish(m);
@@ -48,7 +50,7 @@ pub fn init(allocator: Allocator, m: *Metrics, src: *Source) Source.Error!void {
         for (segs, 0..) |seg, i| {
             // stems only: mutual links, each counted once
             if (seg.link == GlyphHints.none or segs[seg.link].link != i or seg.link <= i) continue;
-            if (n < Metrics.max_widths) {
+            if (n < axis.widths.len) {
                 axis.widths[n].org = @intCast(@abs(seg.pos - segs[seg.link].pos));
                 n += 1;
             }
@@ -60,7 +62,7 @@ pub fn init(allocator: Allocator, m: *Metrics, src: *Source) Source.Error!void {
 
 /// The standard width, the first one or the fallback, and the edge distance
 /// threshold, a fifth of it.
-fn finish(m: *Metrics) void {
+fn finish(m: anytype) void {
     for (&m.axis) |*axis| {
         const stdw: i32 = if (axis.width_count > 0) axis.widths[0].org else segments.latinConstant(m.units_per_em, 50);
         axis.edge_distance_threshold = @divTrunc(stdw, 5);

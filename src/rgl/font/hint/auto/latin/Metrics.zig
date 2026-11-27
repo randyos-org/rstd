@@ -11,7 +11,8 @@ const Width = @import("../widths.zig").Width;
 const Source = @import("../Source.zig");
 const shaper = @import("../shaper.zig");
 const coverage = @import("../coverage.zig");
-const widths = @import("widths.zig");
+const stdwidths = @import("../stdwidths.zig");
+const digits = @import("../digits.zig");
 const blues = @import("blues.zig");
 
 const Allocator = std.mem.Allocator;
@@ -77,38 +78,15 @@ digits_have_same_width: bool = true,
 pub fn init(allocator: Allocator, src: *Source, style: u16, gstyles: []u16) InitError!Metrics {
     var m: Metrics = .{ .style = style, .units_per_em = src.unitsPerEm() };
     if (src.sfnt.unicodeCmap() == null) return m;
-    try widths.init(allocator, &m, src);
+    try stdwidths.init(allocator, &m, src);
     if (!try blues.init(allocator, &m, src)) {
         for (gstyles) |*s| {
             if (s.* & coverage.style_mask == style) s.* = coverage.none_style;
         }
         return error.NoBlueZones;
     }
-    m.checkDigits(src);
+    m.digits_have_same_width = digits.sameWidth(src);
     return m;
-}
-
-/// `af_latin_metrics_check_digits`: whether 0 to 9 share one advance.
-fn checkDigits(m: *Metrics, src: *const Source) void {
-    const digits = "0 1 2 3 4 5 6 7 8 9";
-    var at: usize = 0;
-    var started = false;
-    var old_advance: i32 = 0;
-    m.digits_have_same_width = true;
-    while (at < digits.len) {
-        const c = shaper.cluster(src.sfnt, digits, &at);
-        if (c.count > 1 or c.glyph == 0) continue;
-        const advance = src.advance(c.glyph);
-        if (started) {
-            if (advance != old_advance) {
-                m.digits_have_same_width = false;
-                break;
-            }
-        } else {
-            old_advance = advance;
-            started = true;
-        }
-    }
 }
 
 /// `af_latin_metrics_scale_dim`: the scale (the vertical one nudged so the

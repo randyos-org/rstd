@@ -60,6 +60,12 @@
             .hash = "N-V-__8AAF5iRwMK9WHZPFu4PfMSXHesuyeuc37vczhf1EQn",
             .lazy = true,
         },
+        // a Japanese face (fonts OFL-1.1) for the CJK autohinter (issue #814)
+        .font_cica = .{
+            .url = "https://github.com/miiton/Cica/releases/download/v5.0.3/Cica_v5.0.3_without_emoji.zip",
+            .hash = "N-V-__8AACWssgJ9pReyC6e6D5oLT4lCsMPGh02UHsAfa1qX",
+            .lazy = true,
+        },
         // .rc = .{
         //     .url = "git+https://codeberg.org/ziglang/rc#23b64112d428b13f59967a0e6587b3391d0aeb76",
         //     .hash = "rc-0.0.0-rMftL9REAADo6nZWJwkxvJGHVKNNwXT-SxFQGdbiv5DW",

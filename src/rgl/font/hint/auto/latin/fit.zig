@@ -24,13 +24,13 @@ pub const Mode = struct {
 };
 
 /// `FT_PIX_ROUND`.
-fn pixRound(x: i32) i32 {
+pub fn pixRound(x: i32) i32 {
     return (x +% 32) & ~@as(i32, 63);
 }
 
 /// `af_latin_snap_width`: to the nearest standard width within its
 /// rounding's reach.
-fn snapWidth(widths: []const Width, width: i32) i32 {
+pub fn snapWidth(widths: []const Width, width: i32) i32 {
     var best: i32 = 64 + 32 + 2;
     var reference = width;
     for (widths) |w| {

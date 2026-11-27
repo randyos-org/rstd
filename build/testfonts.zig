@@ -24,6 +24,8 @@ pub const fonts = [_]Font{
     .{ .name = "commit_mono", .dep = "font_commit_mono", .path = "CommitMonoNerdFontMono-Regular.otf" },
     // the release's own name for Atkinson Hyperlegible Mono
     .{ .name = "atkynson_mono", .dep = "font_atkinson_hyperlegible_mono", .path = "AtkynsonMonoNerdFontMono-Regular.otf" },
+    // CJK, for the autohinter's CJK writing system
+    .{ .name = "cica", .dep = "font_cica", .path = "Cica-Regular.ttf" },
 };
 
 /// `-Dtest-fonts`, which `build` reads before any test is added.

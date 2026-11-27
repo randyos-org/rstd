@@ -14,12 +14,13 @@ const files = .{
     .{ "jetbrains_mono", @embedFile("refs/jetbrains_mono.bin.gz") },
     .{ "ubuntu", @embedFile("refs/ubuntu.bin.gz") },
     .{ "ibm_plex_serif", @embedFile("refs/ibm_plex_serif.bin.gz") },
+    .{ "cica", @embedFile("refs/cica.bin.gz") },
     .{ "commit_mono", @embedFile("refs/commit_mono.bin.gz") },
     .{ "atkynson_mono", @embedFile("refs/atkynson_mono.bin.gz") },
 };
 
 /// ASCII from the space, then `hintrefs.c`'s `extra`.
-const glyph_count = 0x7F - 0x20 + 14;
+const glyph_count = 0x7F - 0x20 + 36;
 
 fn expectOutline(r: refs.Refs, mode: refs.Mode, o: refs.Outline, unhinted: refs.Outline) !void {
     try testing.expectEqual(@as(i32, 0), o.err);
@@ -55,7 +56,15 @@ test "hinting refs: each file parses, every glyph loads, hinting keeps the conto
                 if (!std.mem.eql([2]i32, o.points, unhinted.points)) moved[i] = true;
             }
         };
-        for (r.modes, 0..) |m, i| try testing.expect(moved[i] == (m != .unhinted));
+        // native hinting moves something in some mode when the face has
+        // hints; not in each (Cica's programs change nothing at v40)
+        var native_moved = false;
+        for (r.modes, 0..) |m, i| switch (m) {
+            .unhinted => try testing.expect(!moved[i]),
+            .native, .native_v35, .native_light => native_moved = native_moved or moved[i],
+            .autohint, .autohint_light => try testing.expect(moved[i]),
+        };
+        try testing.expectEqual(r.cff or r.fpgm_len + r.prep_len > 0, native_moved);
     }
 }
 

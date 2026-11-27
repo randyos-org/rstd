@@ -9,6 +9,7 @@ pub const Source = @import("Source.zig");
 pub const shaper = @import("shaper.zig");
 pub const coverage = @import("coverage.zig");
 pub const LatinMetrics = @import("latin/Metrics.zig");
+pub const CjkMetrics = @import("cjk/Metrics.zig");
 pub const Hinter = @import("Hinter.zig");
 pub const adjust = @import("adjust.zig");
 pub const scripts = @import("data/scripts.zig");
