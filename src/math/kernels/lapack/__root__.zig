@@ -125,6 +125,10 @@ pub const sytrs = sytrs_solve.sytrs;
 pub const hetrs = sytrs_solve.hetrs;
 pub const sytrsRook = sytrs_solve.sytrsRook;
 pub const hetrsRook = sytrs_solve.hetrsRook;
+/// `sysv`, `hesv`: `Singular` for a zero block of `D`, `B` untouched.
+pub const SysvError = drivers.SysvError;
+pub const sysv = drivers.sysv;
+pub const hesv = drivers.hesv;
 pub const sygst = relapack.sygst;
 pub const hegst = relapack.hegst;
 

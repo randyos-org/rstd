@@ -278,6 +278,7 @@ As `src/math/kernels/lapack/` has it today. Accelerate (macOS 13.3's `$NEWLAPACK
 | `sytrfRook(allocator, io, T, uplo: Uplo, n: usize, a: []T, lda: usize, ipiv: []Pivot) SytrfError!?usize` | `sytrf` with rook pivoting | `?sytrf_rook` | Reference-LAPACK `dsytrf_rook.f` |
 | `hetrfRook(allocator, io, T, uplo: Uplo, n: usize, a: []T, lda: usize, ipiv: []Pivot) SytrfError!?usize` | `hetrf` with rook pivoting | `?hetrf_rook` | Reference-LAPACK `zhetrf_rook.f` |
 | `sytrs(T, uplo: Uplo, n: usize, nrhs: usize, a: []const T, lda: usize, ipiv: []const Pivot, b: []T, ldb: usize) SytrsError!void`, `hetrs`, `sytrsRook` | solves from `sytrf`'s (`sytrfRook`'s) factor | `?sytrs`, `?hetrs`, `?sytrs_rook` | Reference-LAPACK `dsytrs.f`, `dsytrs_rook.f` (v0.2.0) |
+| `sysv(allocator, io, T, uplo: Uplo, n: usize, nrhs: usize, a: []T, lda: usize, ipiv: []Pivot, b: []T, ldb: usize) SysvError!void`, `hesv` | `sytrf` (`hetrf`), then `sytrs` (`hetrs`) | `?sysv`, `?hesv` | Reference-LAPACK `dsysv.f`, `zhesv.f`, over `?SYTRS` (v0.2.0) |
 | `sygst(allocator, io, T, problem: GeneralizedProblem, uplo: Uplo, n: usize, a: []T, lda: usize, b: []const T, ldb: usize) SygstError!void` | reduces `Ax = λBx` (and the other `problem`s) to standard form, `B` from `potrf` | `?sygst` | ReLAPACK's recursive `sygst` |
 | `hegst(allocator, io, T, problem: GeneralizedProblem, uplo: Uplo, n: usize, a: []T, lda: usize, b: []const T, ldb: usize) SygstError!void` | `sygst` for Hermitian `A` | `?hegst` | ReLAPACK's recursive `hegst` |
 
@@ -369,7 +370,6 @@ Each in Reference-LAPACK 3.12.0 (`lapack-netlib/SRC/`, as OpenBLAS ships it; mod
 | `gbsv(allocator, io, T, n: usize, kl: usize, ku: usize, nrhs: usize, ab: []T, ldab: usize, ipiv: []usize, b: []T, ldb: usize) GbsvError!void` | `gbtrf`, then `gbtrs` | `?gbsv` |
 | `gesvx(allocator, io, T, fact: FactorizationInput, trans: Trans, n: usize, nrhs: usize, a: []T, lda: usize, af: []T, ldaf: usize, ipiv: []usize, equed: *Equilibration, r: []Float(T), c: []Float(T), b: []T, ldb: usize, x: []T, ldx: usize, ferr: []Float(T), berr: []Float(T)) GesvxError!Float(T)` | `gesv` with equilibration, refinement and error bounds; returns the reciprocal condition number | `?gesvx` |
 | `trcon(allocator, io, T, norm: NormType, uplo: Uplo, diag: Diag, n: usize, a: []const T, lda: usize) TrconError!Float(T)` | reciprocal condition number of triangular `A` | `?trcon` |
-| `sysv(allocator, io, T, uplo: Uplo, n: usize, nrhs: usize, a: []T, lda: usize, ipiv: []Pivot, b: []T, ldb: usize) SysvError!void` | `sytrf`, then `sytrs` | `?sysv`, `?hesv` |
 | `sytri(allocator, io, T, uplo: Uplo, n: usize, a: []T, lda: usize, ipiv: []const Pivot) SytriError!void` | `A⁻¹` from `sytrf`'s factor | `?sytri`, `?hetri` |
 | `gelsd(allocator, io, T, m: usize, n: usize, nrhs: usize, a: []T, lda: usize, b: []T, ldb: usize, s: []Float(T), rcond: Float(T)) GelsdError!usize` | the least-squares solution, any rank, by SVD (divide and conquer); returns the rank | `?gelsd` |
 | `gelss(allocator, io, T, m: usize, n: usize, nrhs: usize, a: []T, lda: usize, b: []T, ldb: usize, s: []Float(T), rcond: Float(T)) GelssError!usize` | `gelsd` by QR iteration | `?gelss` |
