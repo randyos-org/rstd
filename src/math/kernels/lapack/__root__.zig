@@ -34,6 +34,7 @@ const qr_solve = @import("qr_solve.zig");
 const lq = @import("lq.zig");
 const rq = @import("rq.zig");
 const gqr = @import("gqr.zig");
+const gls = @import("gls.zig");
 const qr_pivot = @import("qr_pivot.zig");
 const lsq = @import("lsq.zig");
 const tridiag = @import("tridiag.zig");
@@ -183,6 +184,9 @@ pub const OrgrqError = rq.OrgrqError;
 pub const OrmrqError = rq.OrmrqError;
 pub const GgqrfError = gqr.GgqrfError;
 pub const GgrqfError = gqr.GgrqfError;
+/// `gglse`, `ggglm`: an error per rank deficiency (the reference's `INFO` 1 and 2).
+pub const GglseError = gls.GglseError;
+pub const GgglmError = gls.GgglmError;
 pub const Geqp3Error = qr_pivot.Geqp3Error;
 pub const GelsyError = lsq.GelsyError;
 /// `gelss`, `gelsd`: `error.NoConvergence` from the SVD.
@@ -206,6 +210,8 @@ pub const ormrq = rq.ormrq;
 pub const unmrq = rq.ormrq;
 pub const ggqrf = gqr.ggqrf;
 pub const ggrqf = gqr.ggrqf;
+pub const gglse = gls.gglse;
+pub const ggglm = gls.ggglm;
 pub const geqp3 = qr_pivot.geqp3;
 pub const gelsy = lsq.gelsy;
 pub const gelss = lss.gelss;
@@ -412,6 +418,7 @@ test {
     _ = @import("_test/sytri.zig");
     _ = @import("_test/rq.zig");
     _ = @import("_test/gqr.zig");
+    _ = @import("_test/gls.zig");
     _ = pbtrs_solve;
     _ = @import("tgsen_condition.zig");
     _ = relapack_tests;
