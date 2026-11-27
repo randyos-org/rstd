@@ -180,9 +180,12 @@ pub const ggesReal = gges_schur.ggesReal;
 /// ill-conditioned to make.
 pub const TgexcError = tgexc_move.TgexcError;
 pub const tgexc = tgexc_move.tgexc;
-/// `tgsen` without condition estimates: returns the cluster's size;
-/// `error.SwapRejected`.
+/// `tgsen`: returns `ReorderedPencil`; `error.SwapRejected`.
 pub const TgsenError = tgsen_reorder.TgsenError;
+/// `tgsen`'s `IJOB`.
+pub const TgsenJob = tgsen_reorder.TgsenJob;
+/// `tgsen`'s result: the cluster's size, its projections and separations as `job` asks.
+pub const ReorderedPencil = tgsen_reorder.ReorderedPencil;
 pub const tgsen = tgsen_reorder.tgsen;
 
 /// `geev`: a NaN in `A` is `error.NanInA`; `error.NoConvergence` (also for
@@ -317,6 +320,7 @@ test {
     _ = @import("_test/ggev_real.zig");
     _ = gges_schur;
     _ = @import("_test/tgexc.zig");
+    _ = @import("tgsen_condition.zig");
     _ = relapack_tests;
     _ = evd_tests;
     _ = norm_tests;

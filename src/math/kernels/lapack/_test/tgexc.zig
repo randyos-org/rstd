@@ -11,6 +11,7 @@ const tgsen_mod = @import("../tgsen.zig");
 const lagv2_mod = @import("../lagv2.zig");
 const qz_2x2 = @import("../qz_2x2.zig");
 const schur = @import("../schur.zig");
+const tgsyl_tests = @import("tgsyl.zig");
 
 const testing = std.testing;
 const Float = types.Float;
@@ -161,7 +162,7 @@ fn senCase(comptime T: type, n: usize, seed: u64) !void {
     defer testing.allocator.free(w);
     const alpha: schur.Eigenvalues(T) = if (comptime isComplex(T)) w[0..n] else .{ .re = w[0..n], .im = w[n .. 2 * n] };
     const beta = w[2 * n ..];
-    const got = try tgsen(testing.allocator, check.io, T, .update, .update, select[0..n], n, f.s, n, f.t, n, alpha, beta, f.q, n, f.z, n);
+    const got = (try tgsen(testing.allocator, check.io, T, .none, .update, .update, select[0..n], n, f.s, n, f.t, n, alpha, beta, f.q, n, f.z, n)).selected;
     try f.expectValid();
     var after: [32]C = undefined;
     lambdas(T, n, f.s, f.t, after[0..n]);
@@ -196,7 +197,7 @@ test "tgexc, tgsen: shape and row errors" {
     try testing.expectError(error.SliceTooShort, tgexc(al, check.io, f64, .update, .none, 2, &a, 2, &b, 2, &none, 2, &none, 1, &ifst, &ilst));
     try testing.expectError(error.LeadingDimensionTooSmall, tgexc(al, check.io, f64, .none, .none, 2, &a, 1, &b, 2, &none, 1, &none, 1, &ifst, &ilst));
     var w: [6]f64 = undefined;
-    try testing.expectError(error.SliceTooShort, tgsen(al, check.io, f64, .none, .none, &.{true}, 2, &a, 2, &b, 2, .{ .re = w[0..2], .im = w[2..4] }, w[4..6], &none, 1, &none, 1));
+    try testing.expectError(error.SliceTooShort, tgsen(al, check.io, f64, .none, .none, .none, &.{true}, 2, &a, 2, &b, 2, .{ .re = w[0..2], .im = w[2..4] }, w[4..6], &none, 1, &none, 1));
     // a diagonal pencil: swapping 1 and 2/1 puts 2 first
     ifst = 1;
     ilst = 0;
@@ -227,4 +228,61 @@ test "lagv2: real eigenvalues give triangles, complex ones a diagonal B" {
     const re = 2 * (lr * lr - li * li) + 1 - 0.5 * lr;
     const im = 2 * (2 * lr * li) - 0.5 * li;
     try testing.expect(@abs(re) + @abs(im) < 1e-13);
+}
+
+fn conditionCase(comptime T: type, n: usize, seed: u64, job: tgsen_mod.TgsenJob) !void {
+    const al = testing.allocator;
+    const f = try Form(T).init(n, seed);
+    defer f.deinit();
+    var select: [32]bool = undefined;
+    for (0..n) |k| select[k] = k % 3 == 1;
+    const w = try al.alloc(T, 3 * n);
+    defer al.free(w);
+    const alpha: schur.Eigenvalues(T) = if (comptime isComplex(T)) w[0..n] else .{ .re = w[0..n], .im = w[n .. 2 * n] };
+    const r = try tgsen(al, check.io, T, job, .update, .update, select[0..n], n, f.s, n, f.t, n, alpha, w[2 * n ..], f.q, n, f.z, n);
+    try f.expectValid();
+    const m = r.selected;
+    try testing.expect(m > 0 and m < n);
+    const pq = r.projections orelse return error.TestUnexpectedResult;
+    for (pq) |x| try testing.expect(x > 0 and x <= 1);
+    const sep = r.separations orelse return error.TestUnexpectedResult;
+    // `Dif_u` and `Dif_l` against `σ_min` of their Kronecker forms
+    const m2 = n - m;
+    const s = f.s;
+    const t = f.t;
+    const sig = [2]f64{
+        try tgsyl_tests.kroneckerSigmaMin(T, al, m, m2, s, n, s[m + m * n ..], n, t, n, t[m + m * n ..], n),
+        try tgsyl_tests.kroneckerSigmaMin(T, al, m2, m, s[m + m * n ..], n, s, n, t[m + m * n ..], n, t, n),
+    };
+    const lim = 4 * @sqrt(2 * @as(f64, @floatFromInt(m * m2)));
+    for (sep, sig) |d, sg| {
+        const dd: f64 = @floatCast(d);
+        if (!(dd >= sg * (1 - 1e-3) / lim and dd <= sg * lim)) {
+            check.say("tgsen {s} n={d} {t}: dif {e}, sigma_min {e}\n", .{ @typeName(T), n, job, dd, sg });
+            return error.TestUnexpectedResult;
+        }
+    }
+}
+
+test "tgsen: projections in (0, 1], separations near σ_min of the Kronecker forms" {
+    inline for (.{ f32, f64, types.Complex32, types.Complex64 }) |T| for ([_]usize{ 4, 7 }) |n| {
+        try conditionCase(T, n, n * 7 + 3, .both_frobenius);
+        try conditionCase(T, n, n * 7 + 3, .both_one_norm);
+    };
+}
+
+test "tgsen: nothing moved, projections 1 and separations the pencil's norm" {
+    const al = testing.allocator;
+    const n = 5;
+    const f = try Form(f64).init(n, 77);
+    defer f.deinit();
+    var fro: f64 = 0;
+    for (f.s, f.t) |x, y| fro += x * x + y * y;
+    var w: [3 * n]f64 = undefined;
+    var none: [1]f64 = undefined;
+    const r = try tgsen(al, check.io, f64, .both_one_norm, .none, .none, &@as([n]bool, @splat(false)), n, f.s, n, f.t, n, .{ .re = w[0..n], .im = w[n .. 2 * n] }, w[2 * n ..], &none, 1, &none, 1);
+    try testing.expectEqual(0, r.selected);
+    try testing.expectEqual([2]f64{ 1, 1 }, r.projections.?);
+    try testing.expectApproxEqRel(@sqrt(fro), r.separations.?[0], 1e-14);
+    try testing.expectEqual(r.separations.?[0], r.separations.?[1]);
 }

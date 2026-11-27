@@ -1,7 +1,7 @@
-//! `xTGSEN` without condition estimates (`IJOB = 0`): reordering a
-//! generalized Schur form by a selection, Reference-LAPACK 3.12.0
-//! (`lapack-netlib/SRC/dtgsen.f`, `ztgsen.f`, OpenBLAS v0.3.34-317;
-//! modified BSD), over `tgexc.zig`'s moves.
+//! `xTGSEN`: reordering a generalized Schur form by a selection,
+//! Reference-LAPACK 3.12.0 (`lapack-netlib/SRC/dtgsen.f`, `ztgsen.f`,
+//! OpenBLAS v0.3.34-317; modified BSD), over `tgexc.zig`'s moves, the
+//! condition estimates in `tgsen_condition.zig`.
 
 const std = @import("std");
 const types = @import("../blas/types.zig");
@@ -10,6 +10,7 @@ const ops = @import("ops.zig");
 const schur = @import("schur.zig");
 const tgexc_mod = @import("tgexc.zig");
 const qz_2x2 = @import("qz_2x2.zig");
+const condition = @import("tgsen_condition.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -20,21 +21,25 @@ const Eigenvalues = schur.Eigenvalues;
 const eigenvaluesHold = schur.eigenvaluesHold;
 const Pencil = tgexc_mod.Pencil;
 
+pub const TgsenJob = condition.Job;
+pub const ReorderedPencil = condition.Reordered;
+
 /// What `tgsen` returns: a slice too short or a leading dimension too small,
 /// `SwapRejected` for the reference's `INFO = 1`: a swap failed the
 /// stability tests, `(A, B)` part reordered, the eigenvalues written.
 pub const TgsenError = tgexc_mod.TgexcError;
 
-/// `?TGSEN` with `IJOB = 0` (`dtgsen.f`, `ztgsen.f`): reorders the `n x n`
-/// generalized Schur form `(A, B)` so the eigenvalues `select` picks (`n`;
-/// real: either of a pair picks both) lead it, `(A, B) := Qₘᴴ (A, B) Zₘ`,
-/// `Q := Q Qₘ` and `Z := Z Zₘ` as asked; returns their count. Writes the
+/// `?TGSEN` (`dtgsen.f`, `ztgsen.f`): reorders the `n x n` generalized
+/// Schur form `(A, B)` so the eigenvalues `select` picks (`n`; real: either
+/// of a pair picks both) lead it, `(A, B) := Qₘᴴ (A, B) Zₘ`, `Q := Q Qₘ`
+/// and `Z := Z Zₘ` as asked; returns their count with the condition
+/// estimates `job` asks for (`IJOB`). Writes the
 /// eigenvalues `alpha / beta`: real, `B`'s 1 x 1 diagonal made nonnegative
 /// (its row and `Q`'s column negated) and a pair's by `xLAG2`; complex,
 /// `B`'s diagonal made real and nonnegative. Complex, nothing moved or a
 /// swap rejected: `alpha` and `beta` the diagonals as they are (the
 /// reference leaves them unset).
-pub fn tgsen(allocator: Allocator, io: Io, comptime T: type, compq: ReorderVectors, compz: ReorderVectors, select: []const bool, n: usize, a: []T, lda: usize, b: []T, ldb: usize, alpha: Eigenvalues(T), beta: []T, q: []T, ldq: usize, z: []T, ldz: usize) TgsenError!usize {
+pub fn tgsen(allocator: Allocator, io: Io, comptime T: type, job: TgsenJob, compq: ReorderVectors, compz: ReorderVectors, select: []const bool, n: usize, a: []T, lda: usize, b: []T, ldb: usize, alpha: Eigenvalues(T), beta: []T, q: []T, ldq: usize, z: []T, ldz: usize) TgsenError!ReorderedPencil(Float(T)) {
     comptime ops.requireFloat(T, "tgsen");
     try util.holds(a.len, n, n, lda);
     try util.holds(b.len, n, n, ldb);
@@ -52,8 +57,14 @@ pub fn tgsen(allocator: Allocator, io: Io, comptime T: type, compq: ReorderVecto
             k += 1;
         } else if (select[k]) m += 1;
     }
+    var r: ReorderedPencil(Float(T)) = .{ .selected = m };
     var rejected = false;
-    if (m != n and m != 0) rejected = try collect(allocator, io, T, p, select);
+    if (m == n or m == 0) {
+        condition.trivial(T, p, job, &r);
+    } else {
+        rejected = try collect(allocator, io, T, p, select);
+        if (!rejected) try condition.estimate(allocator, io, T, p, m, job, &r);
+    }
     if (comptime isComplex(T)) {
         if (m == n or m == 0 or rejected) {
             for (0..n) |i| {
@@ -63,7 +74,7 @@ pub fn tgsen(allocator: Allocator, io: Io, comptime T: type, compq: ReorderVecto
         } else normalizeComplex(T, p, alpha, beta);
     } else eigenvaluesReal(T, p, alpha, beta);
     if (rejected) return error.SwapRejected;
-    return m;
+    return r;
 }
 
 /// A real `A`'s row `k` opens a 2 x 2 block.
