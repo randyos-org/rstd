@@ -19,6 +19,7 @@ const sytrs_solve = @import("sytrs.zig");
 const sygv_solve = @import("sygv.zig");
 const gghrd_reduce = @import("gghrd.zig");
 const qz_complex = @import("qz_complex.zig");
+const qz_real = @import("qz_real.zig");
 const householder = @import("householder.zig");
 const qr = @import("qr.zig");
 const qr_solve = @import("qr_solve.zig");
@@ -162,6 +163,7 @@ pub const GghrdError = gghrd_reduce.GghrdError;
 pub const gghrd = gghrd_reduce.gghrd;
 pub const HgeqzError = qz_complex.HgeqzError;
 pub const hgeqzComplex = qz_complex.hgeqzComplex;
+pub const hgeqzReal = qz_real.hgeqzReal;
 
 /// `geev`: a NaN in `A` is `error.NanInA`; `error.NoConvergence` (also for
 /// an infinity in `A`), the count of eigenvalues not found in the last
@@ -287,6 +289,8 @@ test {
     _ = sygv_solve;
     _ = gghrd_reduce;
     _ = qz_complex;
+    _ = qz_real;
+    _ = @import("_test/qz_real.zig");
     _ = relapack_tests;
     _ = evd_tests;
     _ = norm_tests;

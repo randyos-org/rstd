@@ -35,7 +35,8 @@ pub const SchurJob = schur.SchurJob;
 
 /// What the QZ returns: `BlockOutOfRange` unless `lo <= hi <= n`, a slice
 /// too short or a leading dimension too small; `NoConvergence` when the
-/// iteration limit (`30` per row of the block) runs out, a NaN included.
+/// iteration limit (`30` per row of the block) runs out, or for a NaN in
+/// the block of `H` or `T` (checked first).
 pub const HgeqzError = interface.BlockError || interface.ShapeError || error{NoConvergence};
 
 /// `?HGEQZ`, complex: the generalized Schur form `(S, P) = (Qᴴ H Z, Qᴴ T
@@ -132,6 +133,13 @@ fn Pencil(comptime T: type) type {
             s.normalize(j, 0);
         }
 
+        fn hasNan(m: []const T, ld: usize, lo: usize, hi: usize) bool {
+            for (lo..hi + 1) |j| for (lo..hi + 1) |i| {
+                if (std.math.isNan(m[i + j * ld].re) or std.math.isNan(m[i + j * ld].im)) return true;
+            };
+            return false;
+        }
+
         fn maxAbs(m: []const T, ld: usize, lo: usize, hi: usize) F {
             var r: F = 0;
             for (lo..hi + 1) |j| for (lo..hi + 1) |i| {
@@ -142,6 +150,7 @@ fn Pencil(comptime T: type) type {
 
         fn iterate(s: Self, ilo: usize, ihi: usize) HgeqzError!void {
             const n = s.n;
+            if (hasNan(s.h, s.ldh, ilo, ihi) or hasNan(s.t, s.ldt, ilo, ihi)) return error.NoConvergence;
             const ulp = std.math.floatEps(F);
             const safmin = std.math.floatMin(F);
             var ilast = ihi;
