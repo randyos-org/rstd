@@ -191,7 +191,8 @@ pub fn shapes(comptime T: type, io: Io) !void {
     const ms = [_]usize{ 1, um + 1, 2 * blk.p + um + 1, 4 * blk.p + 3, 9 * um + 5 };
     const ns = [_]usize{ 1, un + 1, 3 * un + 1, rr + 1, 2 * rr + 3, 5 * rr };
     const ks = [_]usize{ 1, blk.q + 1, 2 * blk.q + 3 };
-    const step: usize = if (comptime types.isComplex(T)) 5 else 2;
+    // a sixth of the cases on `Evented`'s fibers (`test_io.on_evented`)
+    const step: usize = (if (comptime types.isComplex(T)) 5 else 2) * @as(usize, if (test_io.on_evented) 6 else 1);
     const alpha = scalar(T, -0.75, 0.25);
     const beta = scalar(T, 0.5, -0.125);
     for (transPairs(T)) |tr| {
