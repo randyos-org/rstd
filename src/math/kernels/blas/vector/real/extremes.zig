@@ -27,7 +27,7 @@ pub fn Extremes(comptime F: type, comptime U: comptime_int) type {
                     pub inline fn key(p: [*]const F, s: usize, i: usize) F {
                         return if (find.abs) abs(p[i * s]) else p[i * s];
                     }
-                    pub inline fn block(p: [*]const F, s: usize, i: usize, chk: *V) F {
+                    pub inline fn keys(p: [*]const F, s: usize, i: usize, chk: *V) [4]V {
                         var m: [4]V = undefined;
                         inline for (0..4) |q| {
                             if (s == 1) {
@@ -40,6 +40,9 @@ pub fn Extremes(comptime F: type, comptime U: comptime_int) type {
                             if (find.abs) m[q] = abs(m[q]);
                             chk.* += if (find.abs) m[q] else abs(m[q]);
                         }
+                        return m;
+                    }
+                    pub inline fn extreme(m: [4]V) F {
                         return pick(find, m);
                     }
                 };
@@ -92,33 +95,47 @@ pub fn Extremes(comptime F: type, comptime U: comptime_int) type {
             return if (find.max) k > best else k < best;
         }
 
-        /// `find`'s first extreme of `len` keys at a stride of `s` floats,
-        /// `Key.key` giving one and `Key.block` the extreme of the `4 * W`
-        /// from `i`, adding their magnitudes to `chk`, which only a NaN key
-        /// makes NaN. One pass keeps the first block with the extreme, no
-        /// index kept per element; only that block is searched for the
-        /// index. Its index from 0 and its key, or null for a NaN key.
+        /// The keys of `a` or `b` that are `find`'s better, lane by lane.
+        inline fn keep(comptime find: Find, a: V, b: V) V {
+            if (comptime !hasMinMax(F)) return sel(find, a, b);
+            return if (find.max) @max(a, b) else @min(a, b);
+        }
+
+        /// `find`'s first extreme of `len` keys at a stride of `s` floats:
+        /// `Key.key` gives one, `Key.keys` the `4 * W` from `i` as vectors,
+        /// adding their magnitudes to `chk`, which only a NaN key makes NaN,
+        /// and `Key.extreme` the extreme of such vectors. The blocks keep the
+        /// extremes lane by lane, reduced once at the end, as
+        /// `kernel/x86_64/iamax_sse.S` keeps them in registers; a second pass
+        /// finds the first block holding the extreme, and the key in it
+        /// (issue #846). Its index from 0 and its key, or null for a NaN key.
         pub fn search(len: usize, x: [*]const F, s: usize, comptime find: Find, comptime Key: type) ?struct { usize, F } {
+            // unit strides apart (2 floats for complex), so their loop holds no gather
+            return switch (s) {
+                1 => searchAt(len, x, 1, find, Key),
+                2 => searchAt(len, x, 2, find, Key),
+                else => searchAt(len, x, s, find, Key),
+            };
+        }
+
+        inline fn searchAt(len: usize, x: [*]const F, s: usize, comptime find: Find, comptime Key: type) ?struct { usize, F } {
             const B = 4 * W;
             var best = Key.key(x, s, 0);
             if (best != best) return null;
-            var pos: usize = 0;
-            var i: usize = 0;
-            if (len >= B) {
+            const blocks = len / B * B;
+            if (blocks > 0) {
                 var chk: V = @splat(0);
-                var blk: usize = 0;
-                while (i + B <= len) : (i += B) {
-                    const m = Key.block(x, s, i, &chk);
-                    if (better(find, m, best)) {
-                        best = m;
-                        blk = i;
-                    }
+                var acc = Key.keys(x, s, 0, &chk);
+                var i: usize = B;
+                while (i < blocks) : (i += B) {
+                    const m = Key.keys(x, s, i, &chk);
+                    inline for (0..4) |q| acc[q] = keep(find, m[q], acc[q]);
                 }
                 if (std.math.isNan(@reduce(.Add, chk))) return null;
-                pos = blk;
-                while (Key.key(x, s, pos) != best) pos += 1;
+                best = Key.extreme(acc);
             }
-            while (i < len) : (i += 1) {
+            var pos: ?usize = if (blocks == 0) 0 else null;
+            for (blocks..len) |i| {
                 const k = Key.key(x, s, i);
                 if (k != k) return null;
                 if (better(find, k, best)) {
@@ -126,7 +143,22 @@ pub fn Extremes(comptime F: type, comptime U: comptime_int) type {
                     pos = i;
                 }
             }
-            return .{ pos, Key.key(x, s, pos) };
+            if (pos) |p| return .{ p, best };
+            // the first block with the extreme, then its first key
+            const want: V = @splat(best);
+            var chk: V = @splat(0);
+            var i: usize = 0;
+            while (i < blocks) : (i += B) {
+                const m = Key.keys(x, s, i, &chk);
+                // the lanes' extremes hold `best` where any key does
+                const e = keep(find, keep(find, m[0], m[1]), keep(find, m[2], m[3]));
+                if (@reduce(.Or, e == want)) break;
+            }
+            // from 0 where the vectors' keys round otherwise than `Key.key`'s
+            var p: usize = if (i < blocks) i else 0;
+            while (p < len and Key.key(x, s, p) != best) p += 1;
+            if (p == len) return null;
+            return .{ p, best };
         }
     };
 }
