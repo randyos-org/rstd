@@ -438,6 +438,7 @@ Rstd's workers parallelize around it (`apple_accel/split.zig`), under the rules 
   (columns of `C` with `S` on the left, else rows), `trmm` and `trsm` (`B`'s columns on the
   left, rows on the right), on 64-row or column parts, rstd's level-2 quantum.
 - **Level 3 on arm64, one call.** On the M6 one Accelerate call ran level 3 as fast as its parts or faster on 1 and 12 workers but for a few complex rows (the parts led by up to 14%), up to 2.6 times (`trmm`), where on the Intel Mac the parts gain 1.5 to 4.3 times at 6 workers. Our reading: Accelerate runs level 3 on the matrix units its cores share, so more workers add little and smaller calls lose ([#729](https://github.com/randyos-org/rstd/issues/729)). So on arm64 `gemm`, `symm`, `hemm`, `trmm` and `trsm` make one call at any size (`split3`); the bits are one for any worker count all the same.
+- **Level 2 on arm64, one call to 8 MB.** A routed `gemv` or `ger` whose `A` is at most 8 MB makes one call there (`split2`), as `interface/gemv.c` runs `vortexm4` on one thread to 8 MB: on the M6 the parts lost to one call under it (to 0.47) and gained past it (to 1.45; [#838](https://github.com/randyos-org/rstd/issues/838)).
 - **What does not.** Each part must be a call of the same routine. The partial-vector products
   (`symv`, `trmv` and the rest), the rank updates and the rank-k updates keep one triangle, so
   their parts would be other routines or a fold rstd does not have for them; `gbmv`, `nrm2`

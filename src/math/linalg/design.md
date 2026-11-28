@@ -1527,7 +1527,7 @@ routine and matches the reference; `apple_accel.zig` binds it and routes to it.
   Rstd's workers thread it instead: above a routine's threshold a routed call splits into parts
   of its output fixed by the problem size, one single-threaded Accelerate call each
   ([`threading.md`](../kernels/blas/threading.md#vendor-backends) has which routines and why). On the
-  M6 one call ran level 3 as fast as its parts or faster on nearly every row at 1 and 12 workers, so arm64 makes one call there ([#729](https://github.com/randyos-org/rstd/issues/729)); level 2's split is [#838](https://github.com/randyos-org/rstd/issues/838)'s, x86_64's untimed (T05).
+  M6 one call ran level 3 as fast as its parts or faster on nearly every row at 1 and 12 workers, so arm64 makes one call there ([#729](https://github.com/randyos-org/rstd/issues/729)); level 2 makes one call there to 8 MB of `A` and splits past it, where the parts gain ([#838](https://github.com/randyos-org/rstd/issues/838)); x86_64's split is untimed (T05).
 - **Loading and the off switch.** `blas.init` loads it (`apple_accel.start`), since `setenv` is
   not thread-safe ("need not be thread-safe", POSIX.1-2024,
   <https://pubs.opengroup.org/onlinepubs/9799919799/functions/setenv.html>), unless `RSTD_BLAS_ACCELERATE` is 0 (`Config.accelerate`).
@@ -1567,7 +1567,7 @@ routine and matches the reference; `apple_accel.zig` binds it and routes to it.
 
   Left routed though slower: contiguous `zcopy` at 4M elements (0.83, where 64K is 4.2), a size
   limit no row places.
-- **Kept for speed, arm64, levels 2 and 3.** The M6 sweep of 2026-11-25 ([#712](https://github.com/randyos-org/rstd/issues/712), [#726](https://github.com/randyos-org/rstd/issues/726)), by x86_64's rule (below) at `--threads=12` (`rstd/ob alone`): `gbmv` (medians 0.23 to 0.36; it is not split, so one Accelerate call against rstd's workers), `ger` (0.74 to 0.88; `gerc` follows it) and the real `symv` (0.27, 0.30). `sger` and `dger` win at one thread (1.26, 1.64) and lose at 12, where their split slows them ([#838](https://github.com/randyos-org/rstd/issues/838)). `gemv`, `trsv` and level 3 stay routed (medians 0.97 to 4.6, the one-thread ones 1.02 and over).
+- **Kept for speed, arm64, levels 2 and 3.** The M6 sweep of 2026-11-25 ([#712](https://github.com/randyos-org/rstd/issues/712), [#726](https://github.com/randyos-org/rstd/issues/726)), by x86_64's rule (below) at `--threads=12` (`rstd/ob alone`): `gbmv` (medians 0.23 to 0.36; it is not split, so one Accelerate call against rstd's workers), complex `ger` (0.78 and 0.88; `gerc` follows it) and the real `symv` (0.27, 0.30). `sger` and `dger` lost at 12 (0.77, 0.74) while their split slowed them; with level 2 one call to 8 MB ([#838](https://github.com/randyos-org/rstd/issues/838)) they are routed again (12 threads 0.97 and 1.07, one thread 1.32 and 1.77). `gemv`, `trsv` and level 3 stay routed (medians 0.97 to 4.6, the one-thread ones 1.02 and over).
 - **Kept for speed, x86_64.** The Intel Mac's sweep of 2026-11-26
   ([#772](https://github.com/randyos-org/rstd/issues/772)): each slot's median over its rows of
   `rstd/ob` routed (`--threads=6`) over the same with `--rstd-accelerate=0`, in one process each;

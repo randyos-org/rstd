@@ -2,7 +2,7 @@
 //!
 //! Accelerate runs single-threaded; a call splits by size alone into parts on
 //! rstd's workers, one Accelerate call each (threading.md, Vendor backends),
-//! but level 3 on arm64, one call.
+//! but level 3 on arm64, one call, and level 2 there to 8 MB.
 
 const std = @import("std");
 const types = @import("../types.zig");
@@ -43,6 +43,19 @@ pub fn split(io: Io, comptime family: threading.Family, comptime T: type, work: 
 /// (issue #729).
 pub fn split3(io: Io, comptime family: threading.Family, comptime T: type, work: u64, len: usize, quantum: usize, ctx: anytype, comptime part: fn (@TypeOf(ctx), threading.Chunk) void) Io.Cancelable!void {
     if (comptime !x86_64) return part(ctx, whole(@intCast(len)));
+    return split(io, family, T, work, len, quantum, ctx, part);
+}
+
+/// Bytes of `A` to which a routed `gemv` or `ger` on arm64 is one call:
+/// `interface/gemv.c`'s `get_gemv_optimal_nthreads_vortexm4` (one thread to
+/// 8 MB), which the M6's parts followed: under it they lost to one call (to
+/// 0.47), past it they gained (to 1.45; issue #838).
+pub const one_call_bytes = 8 << 20;
+
+/// `split` for level 2 over `bytes` of `A`; one call on arm64 to
+/// `one_call_bytes`.
+pub fn split2(io: Io, comptime family: threading.Family, comptime T: type, work: u64, len: usize, quantum: usize, bytes: u64, ctx: anytype, comptime part: fn (@TypeOf(ctx), threading.Chunk) void) Io.Cancelable!void {
+    if (comptime !x86_64) if (bytes <= one_call_bytes) return part(ctx, whole(@intCast(len)));
     return split(io, family, T, work, len, quantum, ctx, part);
 }
 
