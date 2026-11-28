@@ -120,6 +120,28 @@ fn haswellLevel2(comptime family: Family, comptime T: type, core: anytype) ?Rule
     };
 }
 
+/// rstd's own level-2 thresholds on `vortexm4` (the M6), as `haswellLevel2`:
+/// where 12 workers paid over one in the bench's `l2thread` runs (issue
+/// #853), against OpenBLAS's 50 to 200, from which they ran down to 0.07
+/// times one. Complex `tpmv` and `symv` keep OpenBLAS's 2 workers below 500,
+/// as timed; real `symv` and the complex symmetric `syr` keep OpenBLAS's.
+/// `tbmv` paid only from 1536 (`z`); `s`, `d` and `c` lost to 2048.
+fn vortexm4Level2(comptime family: Family, comptime T: type, core: anytype) ?Rule {
+    if (!is(core, .vortexm4)) return null;
+    const complex = comptime types.isComplex(T);
+    const F = types.Float(T);
+    const two = comptime &[_]Tier{.{ .below = 500, .max = 2 }};
+    return switch (family) {
+        .syr => if (complex) null else .{ .serial_max = 767 },
+        .her => .{ .serial_max = if (F == f32) 383 else 255 },
+        .trmv => .{ .serial_max = if (complex) (if (F == f32) 383 else 255) else if (F == f32) 1023 else 511 },
+        .tpmv => if (complex) .{ .serial_max = 383, .tiers = two } else .{ .serial_max = if (F == f32) 1023 else 767 },
+        .tbmv => .{ .serial_max = if (complex and F == f64) 1535 else 2047 },
+        .symv => if (complex) .{ .serial_max = if (F == f32) 255 else 191, .tiers = two } else null,
+        else => null,
+    };
+}
+
 /// rstd's own `axpy` and `dot` split on `vortexm4` (the M6: 6 fast cores, 6
 /// efficiency ones): 5000-element chunks, at most 2 workers to 20000, 4 to
 /// 40000 and 6 to 70000, so a slow core never holds a large share. At 12
@@ -140,6 +162,7 @@ fn vortexm4Level1(comptime family: Family, core: anytype) ?Rule {
 /// `DYNAMIC_ARCH` build applies them.
 pub fn rule(comptime family: Family, comptime T: type, core: anytype) Rule {
     if (haswellLevel2(family, T, core)) |r| return r;
+    if (vortexm4Level2(family, T, core)) |r| return r;
     if (vortexm4Level1(family, core)) |r| return r;
     const complex = comptime types.isComplex(T);
     const F = types.Float(T);

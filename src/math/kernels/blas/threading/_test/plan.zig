@@ -141,6 +141,30 @@ test "rules: haswell's own level-2 thresholds (issue #845), the other cores keep
     try zigstd.testExpectEqual(@as(usize, 2), rule(.trmv, f64, X86.skylakex).chunkCount(50));
 }
 
+test "rules: vortexm4's own level-2 thresholds (issue #853), the other cores keeping OpenBLAS's" {
+    const C = std.math.Complex;
+    const A = Arm64.vortexm4;
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.syr, f32, A).sizeMax(767));
+    try zigstd.testExpectEqual(@as(usize, 2), rule(.syr, f64, A).chunkCount(768));
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.her, C(f32), A).sizeMax(383));
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.her, C(f64), A).sizeMax(255));
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.trmv, f32, A).sizeMax(1023));
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.trmv, f64, A).sizeMax(511));
+    try zigstd.testExpectEqual(@as(usize, 2), rule(.trmv, C(f64), A).chunkCount(256));
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.tpmv, f64, A).sizeMax(767));
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.tpmv, C(f32), A).sizeMax(383));
+    try zigstd.testExpectEqual(@as(u32, 2), rule(.tpmv, C(f32), A).sizeMax(499));
+    try zigstd.testExpectEqual(@as(u32, std.math.maxInt(u32)), rule(.tpmv, C(f64), A).sizeMax(500));
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.tbmv, f32, A).sizeMax(2047));
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.tbmv, C(f64), A).sizeMax(1535));
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.symv, C(f32), A).sizeMax(255));
+    try zigstd.testExpectEqual(@as(u32, 2), rule(.symv, C(f64), A).sizeMax(192));
+    // real `symv`, the complex symmetric `syr` and other arm64 cores keep OpenBLAS's
+    try zigstd.testExpectEqual(@as(usize, 2), rule(.symv, f64, A).chunkCount(200));
+    try zigstd.testExpectEqual(@as(usize, 2), rule(.syr, C(f64), A).chunkCount(50));
+    try zigstd.testExpectEqual(@as(usize, 2), rule(.syr, f64, Arm64.vortex).chunkCount(50));
+}
+
 test "rules: vortexm4's own axpy and dot split (issue #728), the other cores keeping OpenBLAS's" {
     const C = std.math.Complex;
     inline for (.{ .axpy, .dot }) |f| inline for (.{ f32, f64, C(f32), C(f64) }) |T| {
