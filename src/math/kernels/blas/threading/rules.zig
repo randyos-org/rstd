@@ -50,6 +50,8 @@ pub const Family = enum {
     her,
     /// `gemm`: `m * n * k`.
     gemm,
+    /// `gemmt`: `(m + 1) * m * k`.
+    gemmt,
     /// `syrk`, `herk`: `(n + 1) * n * k`.
     syrk,
     /// `syr2k`, `her2k`: `n * k`.
@@ -196,6 +198,8 @@ pub fn rule(comptime family: Family, comptime T: type, core: anytype) Rule {
         // `tbmv.c`, `tpmv.c`, `ztbmv.c`, `ztpmv.c`: `n < 50`, `n < 500`
         .tbmv, .tpmv => .{ .serial_max = 49, .tiers = comptime &.{.{ .below = 500, .max = 2 }} },
         .gemm => (if (complex) null else gemmCore(F, core)) orelse .{ .serial_max = @as(u64, if (complex) 8192 else 65536) * mt, .per_unit = true },
+        // `gemmt.c`: `(m + 1) * m * k <= SMP_THRESHOLD_MIN * GEMM_MULTITHREAD_THRESHOLD`
+        .gemmt => .{ .serial_max = @as(u64, if (complex) 8192 else 65536) * mt },
         .syrk => .{ .serial_max = @as(u64, if (complex) 14824 else 109944) * mt },
         // `syr2k.c`: `n * k < 1000`
         .syr2k => .{ .serial_max = 999 },

@@ -39,7 +39,7 @@ pub fn call(comptime T: type, al: std.mem.Allocator, run_io: std.Io, vt: *const 
     const herm = comptime isComplex(T);
     switch (r) {
         .gemm => try driver.gemm(al, run_io, T, vt, case.ta.transposed(), case.tb.transposed(), .of(case.ta.conjugated(), case.tb.conjugated()), case.m, case.n, case.k, alpha, a, lda, b, ldb, beta, c, ldc, want),
-        .gemmt => try driver.gemmt(al, run_io, T, vt, case.upper, case.ta.transposed(), case.tb.transposed(), .of(case.ta.conjugated(), case.tb.conjugated()), case.n, case.k, alpha, a, lda, b, ldb, beta, c, ldc),
+        .gemmt => try driver.gemmt(al, run_io, T, vt, case.upper, case.ta.transposed(), case.tb.transposed(), .of(case.ta.conjugated(), case.tb.conjugated()), case.n, case.k, alpha, a, lda, b, ldb, beta, c, ldc, want),
         .symm => try driver.symm(al, run_io, T, vt, false, case.left, case.upper, case.m, case.n, alpha, a, lda, b, ldb, beta, c, ldc, want),
         .hemm => if (herm) try driver.symm(al, run_io, T, vt, true, case.left, case.upper, case.m, case.n, alpha, a, lda, b, ldb, beta, c, ldc, want) else unreachable,
         .syrk => try driver.syrk(al, run_io, T, vt, false, case.upper, case.ta.transposed(), case.n, case.k, alpha, a, lda, null, 0, beta, c, ldc, want),
