@@ -304,7 +304,8 @@ test "level-1 calls go to Accelerate by routine, letter and stride as `sends` ha
     try expect1(Complex64, .nrm2, 1, false);
     try expect1(f64, .nrm2, 1, false);
     try expect1(f32, .dot, 1, false);
-    try expect1(f32, .dsdot, 1, true);
+    // kept since issue #844
+    try expect1(f32, .dsdot, 1, false);
     try expect1(f64, .dot, 2, true);
     try expect1(Complex64, .dot, 1, true);
     try expect1(Complex64, .dot, 2, false);

@@ -2,8 +2,9 @@
 //! architecture (design.md, Apple Accelerate, "Kept for speed"): a slot is
 //! kept where routing ran under 0.97 of rstd's own past noise. arm64: the
 //! flyoff of 2026-10-29 for level 1, the M6 sweep of 2026-11-25 (issue #726)
-//! for levels 2 and 3, by x86_64's rule. x86_64: the Intel Mac's sweep of
-//! 2026-11-26 (issue #772), each slot's median of `rstd/ob` routed
+//! for levels 2 and 3, by x86_64's rule, the slots they left by the
+//! `accroute` runs of 2026-11-27 (issue #844). x86_64: the Intel Mac's
+//! sweep of 2026-11-26 (issue #772), each slot's median of `rstd/ob` routed
 //! (`--threads=6`) over `--rstd-accelerate=0`, the one-thread runs deciding
 //! the slots within noise; the slots it left, the `accroute` bench section's
 //! runs of 2026-11-27 (issue #797), routed against rstd's own in one process.
@@ -25,8 +26,8 @@ const Strides = enum { all, unit, strided, none };
 /// `Strides` by letter.
 const Letters = struct { s: Strides = .all, d: Strides = .all, c: Strides = .all, z: Strides = .all };
 
-/// The level-1 table; on arm64 the slots the flyoff did not time (`rotm`,
-/// `dsdot`, `axpby`) stay routed.
+/// The level-1 table; on arm64 `rotm`, `dsdot` and `axpby` from the
+/// `accroute` runs of 2026-11-27 (issue #844).
 const sends: std.enums.EnumFieldStruct(L1, Letters, .{}) = if (x86_64) .{
     .asum = .{ .c = .strided, .z = .unit },
     .axpy = .{ .s = .unit, .c = .none, .z = .strided },
@@ -39,6 +40,7 @@ const sends: std.enums.EnumFieldStruct(L1, Letters, .{}) = if (x86_64) .{
     .scal = .{ .s = .none, .d = .unit, .c = .strided, .z = .strided },
     .swap = .{ .d = .unit, .c = .unit },
 } else .{
+    .dsdot = .{ .s = .none },
     .nrm2 = .{ .s = .none, .d = .none, .c = .none, .z = .none },
     .dot = .{ .s = .none, .c = .unit, .z = .unit },
     .dotc = .{ .c = .unit, .z = .unit },
@@ -109,6 +111,21 @@ const kept: std.enums.EnumFieldStruct(L23, Kept, .{}) = if (x86_64) .{
     .gbmv = all,
     .ger = complex,
     .symv = all,
+    .hbmv = complex,
+    .sbmv = real,
+    .hpmv = complex,
+    .spmv = real,
+    .syr = real,
+    .her = complex,
+    .spr = real,
+    .hpr = complex,
+    .syr2 = .{ .s = true },
+    .her2 = complex,
+    .spr2 = real,
+    .hpr2 = complex,
+    .trmv = .{ .z = true },
+    .tbmv = all,
+    .tpmv = complex,
 };
 
 /// Whether `kept` lets `r` over `T` go to Accelerate.
