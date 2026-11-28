@@ -181,8 +181,10 @@ pub fn RealPlan(comptime T: type) type {
             try batch.run(io, layouts.in.count, scratch.len / self.scratch_len, &ctx, Ctx.one);
         }
 
-        /// One transform of `buf` in the halfcomplex order, `rest` its space.
-        fn run(self: *const Self, buf: []T, rest: []T, f: T, fwd: bool) void {
+        /// One transform of `buf` (`n` long) in the halfcomplex order, scaled
+        /// by `f`, `rest` (at least `scratchLen() - n`) its space; for the
+        /// transforms built on it too (`trig_plan.zig`).
+        pub fn run(self: *const Self, buf: []T, rest: []T, f: T, fwd: bool) void {
             switch (self.kind) {
                 .pack => |*p| p.exec(buf, rest[0..self.n], f, fwd),
                 .blue => |*b| {

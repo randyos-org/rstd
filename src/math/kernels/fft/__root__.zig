@@ -1,6 +1,7 @@
 //! `rstd.math.kernels.fft` (`../../design.md`, #611): PocketFFT's algorithms
 //! in Zig, pffft's SIMD (`pffft/`, f32 at its sizes). `Plan` and `RealPlan`
-//! are done (`plan.zig`, `real_plan.zig`); the rest are stubs whose
+//! are done (`plan.zig`, `real_plan.zig`), as are `TrigTransformPlan` and
+//! `ModifiedCosineTransform` (`trig_plan.zig`, `mdct.zig`); the rest are stubs whose
 //! bodies return `error.NotImplemented`, their tests skip. A plan depends only
 //! on `n`, the element type and the core; immutable, it serves every thread.
 //! Transforms allocate nothing.
@@ -9,6 +10,8 @@ const std = @import("std");
 const complex_plan = @import("plan.zig");
 const real_plan = @import("real_plan.zig");
 const vdsp = @import("vdsp.zig");
+const trig_plan = @import("trig_plan.zig");
+const mdct = @import("mdct.zig");
 
 const Allocator = std.mem.Allocator;
 const Complex = std.math.Complex;
@@ -140,90 +143,22 @@ pub fn StaticRealPlan(comptime n: usize, comptime T: type) type {
 /// DCT and DST types 1 to 4, as SciPy's `dct` and `dst`: `.backward` leaves
 /// the forward unscaled, `.ortho` makes the matrix orthogonal. A type 2's
 /// inverse is the type 3, and the reverse.
-pub const TrigTransformKind = enum { dct1, dct2, dct3, dct4, dst1, dst2, dst3, dst4 };
+pub const TrigTransformKind = trig_plan.Kind;
 
-pub fn TrigTransformPlan(comptime T: type) type {
-    comptime checkFloat(T);
-    return struct {
-        n: usize,
-        kind: TrigTransformKind,
-        scratch_len: usize,
+/// `TrigTransformPlan.init`'s errors.
+pub const TrigInitError = trig_plan.InitError;
 
-        const Self = @This();
+/// The DCT and DST, PocketFFT's, on `RealPlan` (`trig_plan.zig`).
+pub const TrigTransformPlan = trig_plan.TrigTransformPlan;
 
-        pub fn init(allocator: Allocator, n: usize, kind: TrigTransformKind) InitError!Self {
-            _ = allocator;
-            _ = kind;
-            if (n == 0) return error.ZeroLength;
-            return error.NotImplemented;
-        }
-
-        pub fn deinit(self: *Self, allocator: Allocator) void {
-            _ = allocator;
-            self.* = undefined;
-        }
-
-        pub fn scratchLen(self: Self) usize {
-            return self.scratch_len;
-        }
-
-        pub fn transform(self: *const Self, io: Io, data: []T, scratch: []T, layout: BatchLayout, normalization: Normalization) TransformError!void {
-            _ = self;
-            _ = io;
-            _ = data;
-            _ = scratch;
-            _ = layout;
-            _ = normalization;
-            return error.NotImplemented;
-        }
-    };
-}
+/// `ModifiedCosineTransform.init`'s errors.
+pub const MdctInitError = mdct.InitError;
 
 /// The MDCT (audio codecs) on a DCT-IV: `2 n` samples to `n` coefficients
-/// and back. The caller windows; with a Princen-Bradley window (sine, KBD),
-/// windowed overlap-add at hop `n` gives back the input (TDAC).
-pub fn ModifiedCosineTransform(comptime T: type) type {
-    comptime checkFloat(T);
-    return struct {
-        n: usize,
-        scratch_len: usize,
-
-        const Self = @This();
-
-        pub fn init(allocator: Allocator, n: usize) InitError!Self {
-            _ = allocator;
-            if (n == 0) return error.ZeroLength;
-            return error.NotImplemented;
-        }
-
-        pub fn deinit(self: *Self, allocator: Allocator) void {
-            _ = allocator;
-            self.* = undefined;
-        }
-
-        pub fn scratchLen(self: Self) usize {
-            return self.scratch_len;
-        }
-
-        /// `out[0..n]` from `in[0 .. 2 n]`.
-        pub fn forward(self: *const Self, out: []T, in: []const T, scratch: []T) FrameError!void {
-            _ = self;
-            _ = out;
-            _ = in;
-            _ = scratch;
-            return error.NotImplemented;
-        }
-
-        /// `out[0 .. 2 n]` from `in[0..n]`, still aliased; overlap-add removes it.
-        pub fn backward(self: *const Self, out: []T, in: []const T, scratch: []T) FrameError!void {
-            _ = self;
-            _ = out;
-            _ = in;
-            _ = scratch;
-            return error.NotImplemented;
-        }
-    };
-}
+/// and back, `n` even. The caller windows; with a Princen-Bradley window
+/// (sine, KBD), windowed overlap-add at hop `n` gives back the input (TDAC;
+/// `mdct.zig`).
+pub const ModifiedCosineTransform = mdct.ModifiedCosineTransform;
 
 fn checkFloat(comptime T: type) void {
     if (@typeInfo(T) != .float) @compileError("rstd.math.kernels.fft: " ++ @typeName(T) ++ " is not a float type");
@@ -234,5 +169,6 @@ test {
     _ = @import("pffft/__root__.zig");
     _ = @import("_test/pffft.zig");
     _ = @import("_test/plan.zig");
+    _ = @import("_test/trig.zig");
     _ = @import("_test/vdsp.zig");
 }

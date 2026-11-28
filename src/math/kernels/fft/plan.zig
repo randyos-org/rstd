@@ -145,7 +145,13 @@ pub fn Plan(comptime T: type) type {
         /// One contiguous transform in place, `rest` its working space.
         fn run(self: *const Self, c: []C(T), rest: []C(T), direction: Direction, normalization: Normalization) void {
             const fwd = direction == .forward;
-            const f = factor(T, self.n, fwd, normalization);
+            self.exec(c, rest, factor(T, self.n, fwd, normalization), fwd);
+        }
+
+        /// `c := f * FFT(c)`, one contiguous transform in place, `rest` (at
+        /// least `scratchLen() - n`) its working space: for the transforms
+        /// built on it (`trig_plan.zig`).
+        pub fn exec(self: *const Self, c: []C(T), rest: []C(T), f: T, fwd: bool) void {
             switch (self.kind) {
                 .pack => |*p| p.exec(c, rest, f, fwd),
                 .blue => |*b| b.exec(c, rest, f, fwd),
