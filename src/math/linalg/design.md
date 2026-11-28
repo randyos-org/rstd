@@ -948,7 +948,9 @@ allows.
   splits by column chunks (independent columns, so the same bits at any worker count), each
   column in `@Vector`s with faer's four partial sums (`bidiag_fused.zig`, T247); the
   fused tridiagonalization and Hessenberg passes, whose threads each sum a partial
-  product, run serially (faer's `Par::Seq` path), so no sum depends on the worker count;
+  product, run in chunks of columns that `symv`'s and `gemv`'s thread rules fix by size alone,
+  each chunk's row sums into a partial vector folded in chunk order (T251), so no sum depends
+  on the worker count;
   the products thread inside the BLAS; and divide-and-conquer's two halves run in turn, as
   rstd's threading splits flat ranges, not task trees.
 - **`gesvd`, `gesdd`** (`svd.zig`): `dgesvd.f`'s and `dgesdd.f`'s arguments, jobs (`Job`:

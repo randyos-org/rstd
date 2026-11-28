@@ -1,12 +1,15 @@
 //! Tridiagonalization of a self-adjoint matrix, from faer v0.24.4
 //! (<https://codeberg.org/sarah-quinones/faer>, tag `faer-v0.24.4`, MIT):
-//! `faer/src/linalg/evd/tridiag.rs`, its fused pass serial (faer's `Par::Seq`
-//! path), so the bits never depend on the worker count.
+//! `faer/src/linalg/evd/tridiag.rs`, its fused pass in fixed chunks of
+//! columns (faer's `Par::Rayon` splits by its thread count instead), so the
+//! bits never depend on the worker count.
 
 const std = @import("std");
 const ops = @import("ops.zig");
 const auxiliary = @import("auxiliary.zig");
 const hh = @import("householder.zig");
+const blas = @import("../blas/__root__.zig");
+const threading = @import("../blas/threading.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -55,9 +58,9 @@ pub fn tridiagonalize(al: Allocator, io: Io, comptime T: type, a: Mat(T), h: Mat
             ap11.* = ops.sub(T, ap11.*, ops.add(T, ops.mul(T, up1, ops.conj(T, y1.*)), ops.mul(T, y1.*, ops.conj(T, up1))));
             for (0..m) |i| ap21[i] = ops.sub(T, ap21[i], ops.add(T, ops.mul(T, up[i], ops.conj(T, y1.*)), ops.mul(T, y2[i], ops.conj(T, up1))));
             @memcpy(w2[0..m], y2[0..m]);
-            fused(T, a22, y2, z2, w2, up, x2, tau_inv);
+            try fused(al, io, T, a22, y2, z2, w2, up, x2, tau_inv);
         } else {
-            fused(T, a22, y2, z2, null, null, x2, tau_inv);
+            try fused(al, io, T, a22, y2, z2, null, null, x2, tau_inv);
         }
         for (0..m) |i| y2[i] = ops.add(T, ops.add(T, y2[i], z2[i]), ops.mulReal(T, ap21[i], tau_inv));
         // y1 := (a11 + A21ᴴ x2) / tau; b := (y1 + x2ᴴ y2) / (2 tau)
@@ -77,12 +80,47 @@ pub fn tridiagonalize(al: Allocator, io: Io, comptime T: type, a: Mat(T), h: Mat
 /// `tridiag_fused_op` over the lower triangle of `a` (`m x m`): with `u`
 /// and `w`, first `A -= u wᴴ + w uᴴ`; then `z := f L x` and
 /// `y := f Lₛᴴ x`, `L` the lower triangle and `Lₛ` the strict one, so
-/// `y + z = f A x`. Partial sums in fours, as faer's `simd_iter!` keeps
-/// them.
-fn fused(comptime T: type, a: Mat(T), y: [*]T, z: [*]T, w: ?[*]const T, u: ?[*]const T, x: [*]const T, f: Float(T)) void {
+/// `y + z = f A x`. In chunks of columns by `symv`'s thread rule, its
+/// counterpart in the BLAS: each chunk's `z` rows into a partial vector,
+/// folded in chunk order (`threading.Partials`). The chunks come from the
+/// rule alone, never `threading.test_serial_max`, which would change how the
+/// partials round between a test's runs.
+fn fused(al: Allocator, io: Io, comptime T: type, a: Mat(T), y: [*]T, z: [*]T, w: ?[*]const T, u: ?[*]const T, x: [*]const T, f: Float(T)) Error!void {
     const m = a.rows;
     @memset(z[0..m], ops.zero(T));
-    for (0..m) |j| {
+    if (m <= comptime threading.serialFloor(.symv, T)) return columns(T, a, y, z, 0, w, u, x, f, 0, m);
+    const p = threading.planWith(&blas.config, threading.rule(.symv, T, blas.coreType()), m, m, .falling, 1);
+    if (p.chunks.count <= 1) return columns(T, a, y, z, 0, w, u, x, f, 0, m);
+    const Ctx = struct {
+        a: Mat(T),
+        y: [*]T,
+        w: ?[*]const T,
+        u: ?[*]const T,
+        x: [*]const T,
+        f: Float(T),
+        parts: *const threading.Partials(T),
+
+        fn rows(ctx: *const @This(), c: threading.Chunk) threading.Rows {
+            return .{ .lo = c.start, .hi = ctx.a.rows };
+        }
+
+        fn one(ctx: *const @This(), c: threading.Chunk) void {
+            columns(T, ctx.a, ctx.y, ctx.parts.take(c.index).ptr, c.start, ctx.w, ctx.u, ctx.x, ctx.f, c.start, c.end);
+        }
+    };
+    var ctx: Ctx = .{ .a = a, .y = y, .w = w, .u = u, .x = x, .f = f, .parts = undefined };
+    const parts: threading.Partials(T) = try .init(al, &p, @as(*const Ctx, &ctx), Ctx.rows);
+    defer parts.deinit(al);
+    ctx.parts = &parts;
+    try threading.forEach(io, &p, @as(*const Ctx, &ctx), Ctx.one);
+    try parts.fold(io, z, 1);
+}
+
+/// `fused`'s columns `j0..j1`, `z[i - lo]` taking row `i`'s part. Partial
+/// sums in fours, as faer's `simd_iter!` keeps them.
+fn columns(comptime T: type, a: Mat(T), y: [*]T, z: [*]T, lo: usize, w: ?[*]const T, u: ?[*]const T, x: [*]const T, f: Float(T), j0: usize, j1: usize) void {
+    const m = a.rows;
+    for (j0..j1) |j| {
         const col = a.col(j);
         const uc = ops.mulReal(T, x[j], f);
         var acc: [4]T = @splat(ops.zero(T));
@@ -92,7 +130,7 @@ fn fused(comptime T: type, a: Mat(T), y: [*]T, z: [*]T, w: ?[*]const T, u: ?[*]c
             var v = col[i];
             if (u) |uv| v = ops.sub(T, ops.sub(T, v, ops.mul(T, wj, uv[i])), ops.mul(T, uj, w.?[i]));
             col[i] = v;
-            z[i] = ops.add(T, z[i], ops.mul(T, v, uc));
+            z[i - lo] = ops.add(T, z[i - lo], ops.mul(T, v, uc));
             acc[(i - j) % 4] = ops.add(T, acc[(i - j) % 4], ops.mul(T, ops.conj(T, v), x[i]));
         }
         const s = ops.add(T, ops.add(T, acc[0], acc[1]), ops.add(T, acc[2], acc[3]));
@@ -107,12 +145,13 @@ const check = @import("../blas/_test/check.zig");
 const lcheck = @import("_test/check.zig");
 const types = @import("../blas/types.zig");
 
-test "faer tridiag: Qᴴ A Q = T, real and complex (test_tridiag_real, test_tridiag_cplx)" {
+test "faer tridiag: Qᴴ A Q = T, real and complex (test_tridiag_real, test_tridiag_cplx), serial and in chunks" {
     // faer's sizes 2, 3, 4, 8, 16 with block size 3, and larger
     const al = testing.allocator;
     inline for (.{ f64, types.Complex64, f32, types.Complex32 }) |T| {
         const F = Float(T);
-        for ([_]usize{ 1, 2, 3, 4, 8, 16, 45 }) |n| {
+        // 300 past `symv`'s rule, in chunks
+        for ([_]usize{ 1, 2, 3, 4, 8, 16, 45, 300 }) |n| {
             const a0 = try ops.alloc(T, al, n, n);
             defer ops.free(T, al, a0);
             lcheck.hermitian(T, a0, 3 * n);

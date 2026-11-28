@@ -129,8 +129,8 @@ pub const ext_cols = lib_cols[0..4].* ++ [_]Col{
 pub const ext_l2 = .{ Ger, Symv, Trsv, Gbmv };
 pub const ext_l3 = .{ Gemm3, Symm, Syrk, Trmm, Trsm };
 /// rstd's LAPACK. An entry gates rstd's call on `@hasDecl`, so it races
-/// once the routine lands; `Geqrf` and `Syevd` race the libraries alone until
-/// their rstd call is added (issue #120).
+/// once the routine lands; `Geqrf` races the libraries alone until its rstd
+/// call is added (issue #120).
 pub const lapack_ops = .{ Potrf, Getrf, Getrs, Gesv, Trtri, Potri, Gesvd, Gesdd, Geqrf, Gehrd, Syevd, SyevdN, Sytrf, Gbtrf };
 
 pub fn libLapack(io: Io, gpa: std.mem.Allocator) !void {

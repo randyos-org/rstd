@@ -1,8 +1,9 @@
 //! Hessenberg reduction, from faer v0.24.4
 //! (<https://codeberg.org/sarah-quinones/faer>, tag `faer-v0.24.4`, MIT):
 //! `faer/src/linalg/evd/hessenberg.rs`'s `hessenberg_rearranged_unblocked`,
-//! its fused pass serial (faer's `Par::Seq` path), and from order 256 the
-//! blocked form (`hessenberg_blocked.zig`).
+//! its fused pass in fixed chunks of columns (faer's `Par::Rayon` splits by
+//! its thread count instead), so the bits never depend on the worker count;
+//! from order 256 the blocked form (`hessenberg_blocked.zig`).
 
 const std = @import("std");
 const ops = @import("ops.zig");
@@ -13,6 +14,8 @@ const qr = @import("qr.zig");
 const util = @import("../blas/util.zig");
 const interface = @import("interface.zig");
 const blocked_form = @import("hessenberg_blocked.zig");
+const blas = @import("../blas/__root__.zig");
+const threading = @import("../blas/threading.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -67,7 +70,7 @@ pub fn hessenbergWith(al: Allocator, io: Io, comptime T: type, a: Mat(T), h: Mat
         const a22 = a.sub(k + 1, k + 1, rem, rem);
         if (k > 0) {
             const up = a.col(k - 1) + k + 1;
-            fused(T, a22, v.ptr + k + 1, w.ptr + k + 1, x2, up, z2, y2);
+            try fused(al, io, T, a22, v.ptr + k + 1, w.ptr + k + 1, x2, up, z2, y2);
             @memcpy(y2[0..rem], v[k + 1 ..][0..rem]);
             @memcpy(z2[0..rem], w[k + 1 ..][0..rem]);
         } else {
@@ -105,12 +108,48 @@ pub fn hessenbergWith(al: Allocator, io: Io, comptime T: type, a: Mat(T), h: Mat
 
 /// `hessenberg_fused_op`: per column `j` of `a`, `a -= l0 r0(j) + l1
 /// conj(r1(j))`, then `lout(j) := l_inᴴ a` and `rout += a r_in(j)`; here
-/// `l_in = r_in = x`, `l0 = r1 = u`, `l1 = z`, `r0 = y`. Partial sums in
-/// fours, as faer's `simd_iter!` keeps them.
-fn fused(comptime T: type, a: Mat(T), lout: [*]T, rout: [*]T, x: [*]const T, u: [*]const T, z: [*]const T, y: [*]const T) void {
+/// `l_in = r_in = x`, `l0 = r1 = u`, `l1 = z`, `r0 = y`. In chunks of
+/// columns by `gemv`'s thread rule (on `a`'s elements), each chunk's `rout`
+/// into a partial vector folded in chunk order (`threading.Partials`); the chunks come from the rule alone,
+/// never `threading.test_serial_max`, which would change how the partials
+/// round between a test's runs.
+fn fused(al: Allocator, io: Io, comptime T: type, a: Mat(T), lout: [*]T, rout: [*]T, x: [*]const T, u: [*]const T, z: [*]const T, y: [*]const T) Error!void {
     const m = a.rows;
     @memset(rout[0..m], ops.zero(T));
-    for (0..a.cols) |j| {
+    const work = threading.product(&.{ m, a.cols });
+    if (work <= comptime threading.serialFloor(.gemv, T)) return columns(T, a, lout, rout, x, u, z, y, 0, a.cols);
+    const p = threading.planWith(&blas.config, threading.rule(.gemv, T, blas.coreType()), work, a.cols, .even, 1);
+    if (p.chunks.count <= 1) return columns(T, a, lout, rout, x, u, z, y, 0, a.cols);
+    const Ctx = struct {
+        a: Mat(T),
+        lout: [*]T,
+        x: [*]const T,
+        u: [*]const T,
+        z: [*]const T,
+        y: [*]const T,
+        parts: *const threading.Partials(T),
+
+        fn rows(ctx: *const @This(), _: threading.Chunk) threading.Rows {
+            return .{ .lo = 0, .hi = ctx.a.rows };
+        }
+
+        fn one(ctx: *const @This(), c: threading.Chunk) void {
+            columns(T, ctx.a, ctx.lout, ctx.parts.take(c.index).ptr, ctx.x, ctx.u, ctx.z, ctx.y, c.start, c.end);
+        }
+    };
+    var ctx: Ctx = .{ .a = a, .lout = lout, .x = x, .u = u, .z = z, .y = y, .parts = undefined };
+    const parts: threading.Partials(T) = try .init(al, &p, @as(*const Ctx, &ctx), Ctx.rows);
+    defer parts.deinit(al);
+    ctx.parts = &parts;
+    try threading.forEach(io, &p, @as(*const Ctx, &ctx), Ctx.one);
+    try parts.fold(io, rout, 1);
+}
+
+/// `fused`'s columns `j0..j1`, adding into `rout`. Partial sums in fours, as
+/// faer's `simd_iter!` keeps them.
+fn columns(comptime T: type, a: Mat(T), lout: [*]T, rout: [*]T, x: [*]const T, u: [*]const T, z: [*]const T, y: [*]const T, j0: usize, j1: usize) void {
+    const m = a.rows;
+    for (j0..j1) |j| {
         const col = a.col(j);
         const yj = y[j];
         const uj = ops.conj(T, u[j]);
@@ -205,11 +244,14 @@ const testing = std.testing;
 const check = @import("../blas/_test/check.zig");
 const types = @import("../blas/types.zig");
 
-test "faer hessenberg: Qᴴ A Q = H, real and complex, unblocked and blocked" {
+test "faer hessenberg: Qᴴ A Q = H, real and complex, unblocked, blocked, and in chunks" {
     const al = testing.allocator;
     inline for (.{ f64, types.Complex64, f32, types.Complex32 }) |T| {
         const F = Float(T);
-        for ([_]usize{ blocking_threshold, 0 }) |threshold| for ([_]usize{ 1, 2, 3, 5, 8, 21, 60 }) |n| {
+        const never = std.math.maxInt(usize);
+        for ([_]usize{ blocking_threshold, 0, never }) |threshold| for ([_]usize{ 1, 2, 3, 5, 8, 21, 60, 700 }) |n| {
+            // order 700 unblocked, past `gemv`'s rule, so in chunks; `f64` only
+            if ((n == 700) != (threshold == never) or (n == 700 and T != f64)) continue;
             const a0 = try ops.alloc(T, al, n, n);
             defer ops.free(T, al, a0);
             check.fill(T, a0.ptr[0 .. n * n], 5 * n);
