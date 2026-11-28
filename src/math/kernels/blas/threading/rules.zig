@@ -120,12 +120,27 @@ fn haswellLevel2(comptime family: Family, comptime T: type, core: anytype) ?Rule
     };
 }
 
+/// rstd's own `axpy` and `dot` split on `vortexm4` (the M6: 6 fast cores, 6
+/// efficiency ones): 5000-element chunks, at most 2 workers to 20000, 4 to
+/// 40000 and 6 to 70000, so a slow core never holds a large share. At 12
+/// threads 1.3 to 1.9 times the generic rule (a chunk and a worker each 10000)
+/// at n = 65536; 0.84 to 0.99 for real `f64` and complex `f32` at 32768 and
+/// real `f32` at 131072 (issue #728).
+fn vortexm4Level1(comptime family: Family, core: anytype) ?Rule {
+    if (!is(core, .vortexm4)) return null;
+    return switch (family) {
+        .axpy, .dot => .{ .serial_max = 10000, .chunk = 5000, .tiers = comptime &.{ upTo(20000, 2), upTo(40000, 4), upTo(70000, 6) } },
+        else => null,
+    };
+}
+
 /// `family`'s rule for `T` on `core` (`blas.coreType()`; any architecture's
 /// core enum, or null for none): OpenBLAS's
 /// interface or kernel thresholds, with its per-core overrides as a
 /// `DYNAMIC_ARCH` build applies them.
 pub fn rule(comptime family: Family, comptime T: type, core: anytype) Rule {
     if (haswellLevel2(family, T, core)) |r| return r;
+    if (vortexm4Level1(family, core)) |r| return r;
     const complex = comptime types.isComplex(T);
     const F = types.Float(T);
     const s: u64 = @sizeOf(F);

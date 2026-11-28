@@ -320,9 +320,9 @@ What is left to upstream's rate past n = 128 is the drivers' own scaling at thes
 | `tbmv`, `tpmv` | `n < 50`: 1, `< 500`: 2 | same |
 | `syr`, `spr`, `syr2`, `spr2` (real and complex symmetric) | `n < 50`: 1, `< 500`: 2 | sqrt-balanced column chunks |
 | `her`, `hpr`, `her2`, `hpr2` | `n < 100`: 1 | same |
-| `axpy` / `scal` / `swap` | `n > 10000` / `n > 1048576` / `n >= 8 MiB / sizeof(T)` | range chunks |
+| `axpy` / `scal` / `swap` | `n > 10000` (`vortexm4`: rstd's own, 5000-element chunks, at most 2, 4 and 6 workers to 20000, 40000 and 70000, [#728](https://github.com/randyos-org/rstd/issues/728)) / `n > 1048576` / `n >= 8 MiB / sizeof(T)` | range chunks |
 | `copy` | `copy_thunderx2t99.c`: `n > 10000` | range chunks |
-| `dot`, `asum`, `sum`, `rot` | x86_64 kernels: `n > 10000` (dot), `> 100000` | range chunks, ordered combine |
+| `dot`, `asum`, `sum`, `rot` | x86_64 kernels: `n > 10000` (dot; `vortexm4` as `axpy`), `> 100000` | range chunks, ordered combine |
 | extremes, indices | `iamax_thunderx2t99.c`, `izamax_thunderx2t99.c`: `n > 10000` | range chunks, exact fold |
 | `omatcopy` (`f32`, `f64`) | `omatcopy.c`: `rows * cols >= 65536 * 4`; transposed, at most `cols / 32` bands | bands of `A`'s columns, 32 wide at least where transposed |
 
