@@ -157,10 +157,10 @@ test "rules: vortexm4's own level-2 thresholds (issue #853), the other cores kee
     try zigstd.testExpectEqual(@as(u32, std.math.maxInt(u32)), rule(.tpmv, C(f64), A).sizeMax(500));
     try zigstd.testExpectEqual(@as(u32, 1), rule(.tbmv, f32, A).sizeMax(2047));
     try zigstd.testExpectEqual(@as(u32, 1), rule(.tbmv, C(f64), A).sizeMax(1535));
-    try zigstd.testExpectEqual(@as(u32, 1), rule(.symv, C(f32), A).sizeMax(255));
-    try zigstd.testExpectEqual(@as(u32, 2), rule(.symv, C(f64), A).sizeMax(192));
-    // real `symv`, the complex symmetric `syr` and other arm64 cores keep OpenBLAS's
+    // `symv` (the fused tridiagonalization's too, #885), the complex symmetric
+    // `syr` and other arm64 cores keep OpenBLAS's
     try zigstd.testExpectEqual(@as(usize, 2), rule(.symv, f64, A).chunkCount(200));
+    try zigstd.testExpectEqual(@as(u32, 2), rule(.symv, C(f32), A).sizeMax(50));
     try zigstd.testExpectEqual(@as(usize, 2), rule(.syr, C(f64), A).chunkCount(50));
     try zigstd.testExpectEqual(@as(usize, 2), rule(.syr, f64, Arm64.vortex).chunkCount(50));
 }
