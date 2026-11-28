@@ -1,7 +1,8 @@
 //! Where rstd's kernels run instead of Accelerate's for speed alone, by
 //! architecture (design.md, Apple Accelerate, "Kept for speed"): a slot is
 //! kept where routing ran under 0.97 of rstd's own past noise. arm64: the
-//! flyoff of 2026-10-29, level 1 only. x86_64: the Intel Mac's sweep of
+//! flyoff of 2026-10-29 for level 1, the M6 sweep of 2026-11-25 (issue #726)
+//! for levels 2 and 3, by x86_64's rule. x86_64: the Intel Mac's sweep of
 //! 2026-11-26 (issue #772), each slot's median of `rstd/ob` routed
 //! (`--threads=6`) over `--rstd-accelerate=0`, the one-thread runs deciding
 //! the slots within noise. Rerun timings revise the tables, not the code.
@@ -67,7 +68,7 @@ const Kept = struct { s: bool = false, d: bool = false, c: bool = false, z: bool
 const all: Kept = .{ .s = true, .d = true, .c = true, .z = true };
 const complex: Kept = .{ .c = true, .z = true };
 
-/// The level-2 and level-3 table: nothing kept on arm64.
+/// The level-2 and level-3 table.
 const kept: std.enums.EnumFieldStruct(L23, Kept, .{}) = if (x86_64) .{
     .gemv = all,
     .gbmv = all,
@@ -79,7 +80,11 @@ const kept: std.enums.EnumFieldStruct(L23, Kept, .{}) = if (x86_64) .{
     .syrk = all,
     .trmm = complex,
     .trsm = complex,
-} else .{};
+} else .{
+    .gbmv = all,
+    .ger = all,
+    .symv = all,
+};
 
 /// Whether `kept` lets `r` over `T` go to Accelerate.
 pub inline fn routes(comptime r: L23, comptime T: type) bool {
