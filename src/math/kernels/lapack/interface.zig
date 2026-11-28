@@ -174,3 +174,13 @@ pub const Equilibration = enum { none, rows, columns, both };
 /// LAPACK's `FACT`: `gesvx` factors `A` (`N`), takes its given factor
 /// (`F`), or equilibrates `A` first (`E`).
 pub const FactorizationInput = enum { factor, factored, equilibrate_and_factor };
+
+/// LAPACK's `RANGE`: every eigenvalue (`A`), those in `(lo, hi]` (`V`), or
+/// the `first`-th to `last`-th smallest, 0-based and inclusive (`I`).
+pub fn SpectrumRange(comptime F: type) type {
+    return union(enum) { all, values: struct { lo: F, hi: F }, indices: struct { first: usize, last: usize } };
+}
+
+/// `stebz`'s `ORDER`: every eigenvalue ascending (`E`), or by split block,
+/// each block's ascending (`B`).
+pub const SpectrumOrder = enum { ascending, by_block };

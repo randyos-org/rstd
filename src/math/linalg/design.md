@@ -1058,6 +1058,7 @@ allows.
 - **`ggqrf`, `ggrqf`** (`gqr.zig`): `dggqrf.f` and `dggrqf.f` over them: `geqrf`, `ormqr`, `gerqf`, or `gerqf`, `ormrq`, `geqrf`.
 - **`geequ`, `laqge`** (`equilibrate.zig`): `dgeequ.f` and `dlaqge.f`; a zero row or column is `geequ`'s error (the reference's `INFO > 0`), `laqge` returns the `Equilibration` it applied (`EQUED`).
 - **`gesvx`** (`gesvx.zig`): `dgesvx.f` over rstd's `geequ`, `laqge`, `getrf`, `gecon`, `getrs` and `gerfs`; its `LuSolveReport` carries `RCOND`, `RPVGRW` and the reference's `INFO > 0` (the first zero pivot, or `rcond` below `eps`) as fields, not errors, as `getrf` returns its zero pivot.
+- **`stebz`** (`stebz.zig`, `laebz.zig`): `dstebz.f` over `dlaebz.f`'s scalar loop (`ILAENV(1, 'DSTEBZ')` is 1, so the vectorized one never runs); 0-based `iblock` and `isplit` (one past each block), the reference's `INFO` 1 to 3 as `BisectedEigenvalues`' flags and `INFO = 4` as `IntervalTooSmall`.
 - **`gglse`, `ggglm`** (`gls.zig`): `dgglse.f` and `dggglm.f` over `ggrqf` and `ggqrf`, with 3.12.0's scaling of `A`, `B` and the right-hand sides by powers of two into `[smlnum, bignum)`; each rank deficiency (the reference's `INFO` 1 and 2) is its own error.
 - **Not positive definite:** `potrf`, `potf2` and `pbtrf` return `error.NotPositiveDefinite`
   without the failing minor's order (user, 2026-11-16,
