@@ -342,6 +342,7 @@ As `src/math/kernels/lapack/` has it today. Accelerate (macOS 13.3's `$NEWLAPACK
 | `sygv(allocator, io, T, problem: GeneralizedProblem, jobz: VectorJob, uplo: Uplo, n: usize, a: []T, lda: usize, b: []T, ldb: usize, w: []Float(T)) SygvError!void`, `sygvd`, `hegv`, `hegvd` | the Hermitian definite pencil by `potrf`, `sygst` and `syev` (`syevd`) | `?sygv`, `?sygvd`, `?hegv`, `?hegvd` | Reference-LAPACK `dsygv.f`, `dsygvd.f` (v0.2.0) |
 | `sytrd(allocator, io, T, uplo: Uplo, n: usize, a: []T, lda: usize, d: []Float(T), e: []Float(T), tau: []T) SytrdError!void`, `hetrd` | `Qᴴ·A·Q = T` tridiagonal, blocked | `?sytrd`, `?hetrd` | Reference-LAPACK `dsytrd.f` (v0.2.0) |
 | `stebz(allocator, F, range: SpectrumRange(F), order: SpectrumOrder, d: []const F, e: []const F, abstol: F, w: []F, iblock: []usize, isplit: []usize) StebzError!BisectedEigenvalues` | selected eigenvalues of a symmetric tridiagonal by bisection, with their split blocks | `?stebz` | Reference-LAPACK `dstebz.f`, `dlaebz.f` (v0.2.0) |
+| `stein(allocator, io, T, d: []const Float(T), e: []const Float(T), w: []const Float(T), iblock: []const usize, isplit: []const usize, z: []T, ldz: usize, ifail: []usize) SteinError!usize` | eigenvectors of a symmetric tridiagonal for `stebz`'s eigenvalues by inverse iteration; returns how many did not converge, listed in `ifail` | `?stein` | Reference-LAPACK `dstein.f`, `zstein.f` (v0.2.0) |
 
 #### Nonsymmetric eigenproblems
 

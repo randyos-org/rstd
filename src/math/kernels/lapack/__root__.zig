@@ -65,6 +65,7 @@ const equilibrate = @import("equilibrate.zig");
 const refine = @import("gerfs.zig");
 const expert = @import("gesvx.zig");
 const bisect = @import("stebz.zig");
+const inverse_iteration = @import("stein.zig");
 
 pub const Uplo = types.Uplo;
 pub const Trans = types.Trans;
@@ -389,6 +390,9 @@ pub const SpectrumOrder = bisect.SpectrumOrder;
 pub const BisectedEigenvalues = bisect.BisectedEigenvalues;
 pub const StebzError = bisect.StebzError;
 pub const stebz = bisect.stebz;
+/// `stein`: eigenvectors of a symmetric tridiagonal by inverse iteration.
+pub const SteinError = inverse_iteration.SteinError;
+pub const stein = inverse_iteration.stein;
 pub const laset = auxiliary.laset;
 pub const lapy2 = auxiliary.lapy2;
 test {
@@ -450,6 +454,7 @@ test {
     _ = @import("_test/gerfs.zig");
     _ = @import("_test/gesvx.zig");
     _ = @import("_test/stebz.zig");
+    _ = @import("_test/stein.zig");
     _ = pbtrs_solve;
     _ = @import("tgsen_condition.zig");
     _ = relapack_tests;
