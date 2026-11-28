@@ -21,7 +21,7 @@ fn expectOutline(r: refs.Refs, mode: refs.Mode, o: refs.Outline, unhinted: refs.
     // hinting moves points and keeps every contour and tag, except that the
     // CFF engine keeps a closing line it drops unhinted, when hinting moves
     // the contour's last point off its first (Atkynson Mono's `a`, say)
-    if (r.cff and (mode == .native or mode == .native_light)) return;
+    if (r.cff and mode != .unhinted and mode != .autohint and mode != .autohint_light and mode != .autohint_mono and mode != .autohint_lcd and mode != .autohint_lcd_v) return;
     try testing.expectEqualSlices(u16, unhinted.ends, o.ends);
     try testing.expectEqualSlices(refs.Tag, unhinted.tags, o.tags);
 }
@@ -36,7 +36,7 @@ test "hinting refs: each file parses, every glyph loads, hinting keeps the conto
         try testing.expectEqual(@as(usize, glyph_count), r.glyphs.len);
         try testing.expect(r.units_per_em > 0);
         // each mode hints: some glyph moves from its unhinted outline
-        var moved: [6]bool = @splat(false);
+        var moved: [std.enums.values(refs.Mode).len]bool = @splat(false);
         for (r.glyphs) |g| for (0..r.sizes.len) |s| {
             const unhinted = r.outline(g, s, .unhinted) orelse continue;
             for (r.modes, 0..) |m, i| {
@@ -50,9 +50,9 @@ test "hinting refs: each file parses, every glyph loads, hinting keeps the conto
         var native_moved = false;
         for (r.modes, 0..) |m, i| switch (m) {
             .unhinted => try testing.expect(!moved[i]),
-            .native, .native_v35, .native_light => native_moved = native_moved or moved[i],
+            .native, .native_v35, .native_light, .native_mono, .native_lcd, .native_lcd_v => native_moved = native_moved or moved[i],
             // the autohinter leaves a synthetic font's glyphs, of no script, alone
-            .autohint, .autohint_light => if (!f.synthetic) try testing.expect(moved[i]),
+            .autohint, .autohint_light, .autohint_mono, .autohint_lcd, .autohint_lcd_v => if (!f.synthetic) try testing.expect(moved[i]),
         };
         try testing.expectEqual(r.cff or r.fpgm_len + r.prep_len > 0, native_moved);
     }

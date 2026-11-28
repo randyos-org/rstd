@@ -16,6 +16,9 @@ const setups = [_]struct { mode: refs.Mode, hinted: bool }{
     .{ .mode = .unhinted, .hinted = false },
     .{ .mode = .native, .hinted = true },
     .{ .mode = .native_light, .hinted = true },
+    .{ .mode = .native_mono, .hinted = true },
+    .{ .mode = .native_lcd, .hinted = true },
+    .{ .mode = .native_lcd_v, .hinted = true },
 };
 
 fn same(g: Glyph, o: refs.Outline) bool {

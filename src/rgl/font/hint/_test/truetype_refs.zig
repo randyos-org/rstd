@@ -20,6 +20,9 @@ const setups = [_]Setup{
     .{ .mode = .native, .hinted = true },
     .{ .mode = .native_v35, .hinted = true, .version = .v35 },
     .{ .mode = .native_light, .hinted = true, .target = .light },
+    .{ .mode = .native_mono, .hinted = true, .target = .mono },
+    .{ .mode = .native_lcd, .hinted = true, .target = .lcd },
+    .{ .mode = .native_lcd_v, .hinted = true, .target = .lcd_v },
 };
 
 fn same(g: Loader.Glyph, o: refs.Outline) bool {

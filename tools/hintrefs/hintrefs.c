@@ -29,7 +29,21 @@ static const unsigned sizes[] = {9, 12, 16, 24};
 #define N_SIZES (sizeof sizes / sizeof sizes[0])
 
 /* refs.zig's `Mode`, by value */
-enum { unhinted, native, native_v35, native_light, autohint, autohint_light, n_modes };
+enum {
+    unhinted,
+    native,
+    native_v35,
+    native_light,
+    autohint,
+    autohint_light,
+    native_mono,
+    native_lcd,
+    native_lcd_v,
+    autohint_mono,
+    autohint_lcd,
+    autohint_lcd_v,
+    n_modes
+};
 static const FT_Int32 mode_flags[n_modes] = {
     FT_LOAD_NO_HINTING,
     FT_LOAD_NO_AUTOHINT,
@@ -37,6 +51,12 @@ static const FT_Int32 mode_flags[n_modes] = {
     FT_LOAD_NO_AUTOHINT | FT_LOAD_TARGET_LIGHT,
     FT_LOAD_FORCE_AUTOHINT,
     FT_LOAD_FORCE_AUTOHINT | FT_LOAD_TARGET_LIGHT,
+    FT_LOAD_NO_AUTOHINT | FT_LOAD_TARGET_MONO,
+    FT_LOAD_NO_AUTOHINT | FT_LOAD_TARGET_LCD,
+    FT_LOAD_NO_AUTOHINT | FT_LOAD_TARGET_LCD_V,
+    FT_LOAD_FORCE_AUTOHINT | FT_LOAD_TARGET_MONO,
+    FT_LOAD_FORCE_AUTOHINT | FT_LOAD_TARGET_LCD,
+    FT_LOAD_FORCE_AUTOHINT | FT_LOAD_TARGET_LCD_V,
 };
 #define no_mode 255
 
@@ -205,7 +225,7 @@ int main(int argc, char **argv) {
     unsigned def_light = default_mode(lib, path, ref, n_glyphs, gids, FT_LOAD_TARGET_LIGHT, native_light, autohint_light);
 
     Buf b = {0};
-    const char magic[] = "RSTDHNT2";
+    const char magic[] = "RSTDHNT3";
     for (unsigned i = 0; i < 8; i++) put(&b, (unsigned char)magic[i]);
     FT_Int major, minor, patch;
     FT_Library_Version(lib, &major, &minor, &patch);

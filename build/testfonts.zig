@@ -37,6 +37,9 @@ pub const fonts = [_]Font{
     .{ .name = "cascadia_code", .dep = "font_cascadia_code", .path = "ttf/CascadiaCode.ttf" },
     // variable CFF2 (wght 200 to 900, avar, HVAR), for blended charstrings and Private DICTs
     .{ .name = "source_sans_3", .dep = "font_source_sans_3_vf", .path = "VF/SourceSans3VF-Upright.otf" },
+    // the italics of both, for the autohinter's italic rule
+    .{ .name = "cascadia_code_italic", .dep = "font_cascadia_code", .path = "ttf/CascadiaCodeItalic.ttf" },
+    .{ .name = "source_sans_3_italic", .dep = "font_source_sans_3_vf", .path = "VF/SourceSans3VF-Italic.otf" },
     // CID-keyed with FontMatrix shears and units per em, and SEAC accents
     .{ .name = "cff_cid", .path = "rstd-cff-cid.otf", .generated = "cid" },
     .{ .name = "cff_seac", .path = "rstd-cff-seac.otf", .generated = "seac" },
@@ -53,7 +56,7 @@ pub const Ref = struct {
 
 /// Each font at its default, and the variable ones at named and unnamed weights.
 pub const refs = blk: {
-    var r: [fonts.len + 6]Ref = undefined;
+    var r: [fonts.len + 8]Ref = undefined;
     for (fonts, 0..) |f, i| r[i] = .{ .name = f.name, .font = f.name };
     r[fonts.len] = .{ .name = "cascadia_code_wght300", .font = "cascadia_code", .design = &.{300 << 16} };
     r[fonts.len + 1] = .{ .name = "cascadia_code_wght550", .font = "cascadia_code", .design = &.{550 << 16} };
@@ -61,6 +64,8 @@ pub const refs = blk: {
     r[fonts.len + 3] = .{ .name = "source_sans_3_wght400", .font = "source_sans_3", .design = &.{400 << 16} };
     r[fonts.len + 4] = .{ .name = "source_sans_3_wght650", .font = "source_sans_3", .design = &.{650 << 16} };
     r[fonts.len + 5] = .{ .name = "source_sans_3_wght900", .font = "source_sans_3", .design = &.{900 << 16} };
+    r[fonts.len + 6] = .{ .name = "cascadia_code_italic_wght600", .font = "cascadia_code_italic", .design = &.{600 << 16} };
+    r[fonts.len + 7] = .{ .name = "source_sans_3_italic_wght700", .font = "source_sans_3_italic", .design = &.{700 << 16} };
     break :blk r;
 };
 

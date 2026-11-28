@@ -4,7 +4,7 @@
 //! records). Regenerated with `zig build hint-refs -Dtest-fonts`, never
 //! edited (issues #805, #809).
 //!
-//! A file is gzipped: "RSTDHNT2"; then, as LEB128 varints (zigzag where
+//! A file is gzipped: "RSTDHNT3"; then, as LEB128 varints (zigzag where
 //! signed), FreeType's version, the instance's axis values, units per em, a
 //! CFF byte, the `fpgm`, `prep` and `cvt ` lengths, the default load's mode byte and the light
 //! target's (255: neither), the sizes, and the glyphs: codepoint and glyph
@@ -52,6 +52,10 @@ pub const files = [_]File{
     file("source_sans_3", "source_sans_3_wght400"),
     file("source_sans_3", "source_sans_3_wght650"),
     file("source_sans_3", "source_sans_3_wght900"),
+    file("cascadia_code_italic", "cascadia_code_italic"),
+    file("cascadia_code_italic", "cascadia_code_italic_wght600"),
+    file("source_sans_3_italic", "source_sans_3_italic"),
+    file("source_sans_3_italic", "source_sans_3_italic_wght700"),
     synthetic("cff_cid"),
     synthetic("cff_seac"),
 };
@@ -76,6 +80,14 @@ pub const Mode = enum(u8) {
     autohint,
     /// `FT_LOAD_FORCE_AUTOHINT | FT_LOAD_TARGET_LIGHT`
     autohint_light,
+    /// `FT_LOAD_NO_AUTOHINT` with `FT_LOAD_TARGET_MONO`, `_LCD` and `_LCD_V`
+    native_mono,
+    native_lcd,
+    native_lcd_v,
+    /// `FT_LOAD_FORCE_AUTOHINT` with the same targets
+    autohint_mono,
+    autohint_lcd,
+    autohint_lcd_v,
 };
 
 /// A `FT_CURVE_TAG` of a point.
@@ -131,8 +143,17 @@ pub const Refs = struct {
 
 pub const ParseError = error{ BadMagic, Truncated, BadValue } || Allocator.Error || std.compress.flate.Decompress.Error;
 
-const ttf_modes = [_]Mode{ .unhinted, .native, .native_v35, .native_light, .autohint, .autohint_light };
-const cff_modes = [_]Mode{ .unhinted, .native, .native_light, .autohint, .autohint_light };
+const ttf_modes = std.enums.values(Mode);
+/// FreeType's CFF engine has no v35.
+const cff_modes = blk: {
+    var m: [ttf_modes.len - 1]Mode = undefined;
+    var k: usize = 0;
+    for (ttf_modes) |x| if (x != .native_v35) {
+        m[k] = x;
+        k += 1;
+    };
+    break :blk m;
+};
 
 /// Parses a `refs/<font>.bin.gz` file into `arena`.
 pub fn parse(arena: Allocator, gz: []const u8) ParseError!Refs {
@@ -145,7 +166,7 @@ pub fn parse(arena: Allocator, gz: []const u8) ParseError!Refs {
         error.StreamTooLong => unreachable,
     };
     var c: Cursor = .{ .bytes = raw };
-    if (!std.mem.eql(u8, try c.take(8), "RSTDHNT2")) return error.BadMagic;
+    if (!std.mem.eql(u8, try c.take(8), "RSTDHNT3")) return error.BadMagic;
     var r: Refs = undefined;
     for (&r.freetype) |*v| v.* = try c.int(u32);
     const design = try arena.alloc(i32, try c.int(usize));
@@ -165,7 +186,7 @@ pub fn parse(arena: Allocator, gz: []const u8) ParseError!Refs {
     const sizes = try arena.alloc(u16, try c.int(usize));
     for (sizes) |*s| s.* = try c.int(u16);
     r.sizes = sizes;
-    r.modes = if (r.cff) &cff_modes else &ttf_modes;
+    r.modes = if (r.cff) &cff_modes else ttf_modes;
     const glyphs = try arena.alloc(Glyph, try c.int(usize));
     for (glyphs) |*g| {
         g.codepoint = try c.int(u21);

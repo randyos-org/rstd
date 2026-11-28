@@ -14,6 +14,9 @@ const testing = std.testing;
 const setups = [_]struct { mode: refs.Mode, render: Hinter.RenderMode }{
     .{ .mode = .autohint, .render = .normal },
     .{ .mode = .autohint_light, .render = .light },
+    .{ .mode = .autohint_mono, .render = .mono },
+    .{ .mode = .autohint_lcd, .render = .lcd },
+    .{ .mode = .autohint_lcd_v, .render = .lcd_v },
 };
 
 fn same(g: Glyph, o: refs.Outline) bool {
