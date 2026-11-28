@@ -347,6 +347,33 @@ pub const Gesdd = struct {
     }
 };
 
+/// The Hessenberg reduction of all of `A` (`ilo = 1`, `ihi = n`), faer's
+/// below order 256 and blocked from it (T250); nominal `10n³/3`. `tau` in
+/// `s`; only the agreement shows, as the reflections' signs may differ.
+pub const Gehrd = struct {
+    pub const name = "gehrd";
+    pub const shape: Shape = .mm;
+    pub const restore: Restore = .{ .a = true };
+    pub const out: Buf = .a;
+    pub fn flops(n: f64) f64 {
+        return 10 * n * n * n / 3;
+    }
+    pub fn Sig(comptime p: Prec) type {
+        return fn (In, In, In, [*]p.F, In, [*]p.F, [*]p.F, In, *c_int) callconv(.c) void;
+    }
+    pub fn lib(comptime p: Prec, f: *const Sig(p), w: *Work(p)) void {
+        const n = w.ni();
+        const lw = w.lw();
+        const lo: c_int = 1;
+        f(&n, &lo, &n, w.a.ptr, &n, w.s.ptr, w.work.ptr, &lw, &w.info);
+    }
+    pub const has_rstd = @hasDecl(lapack, "gehrd");
+    pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
+        const n = w.in();
+        try lapack.gehrd(rstd_alloc, libs.rstd_io, Num(p), w.n, 0, w.n, libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), w.n, cast(p, w.s.ptr)[0..w.n -| 1]);
+    }
+};
+
 /// faer's QR; rstd's call waits on issue #120. `tau` in `s`.
 pub const Geqrf = struct {
     pub const name = "geqrf";
