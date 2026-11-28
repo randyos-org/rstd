@@ -393,7 +393,8 @@ pub const Geqrf = struct {
     }
 };
 
-/// `syevd`, `heevd` complex, with vectors; rstd's call waits on issue #120.
+/// `syevd`, `heevd` complex, with vectors: rstd's over faer's tridiagonalization
+/// (T251).
 pub const Syevd = struct {
     pub const name = "syevd";
     pub const shape: Shape = .mm;
@@ -421,6 +422,11 @@ pub const Syevd = struct {
             const lrw = w.lrw();
             f(&fc.V, &fc.U, &n, w.a.ptr, &n, w.s.ptr, w.work.ptr, &lw, w.rwork.ptr, &lrw, w.iwork.ptr, &liw, &w.info, 1, 1);
         } else f(&fc.V, &fc.U, &n, w.a.ptr, &n, w.s.ptr, w.work.ptr, &lw, w.iwork.ptr, &liw, &w.info, 1, 1);
+    }
+    pub const has_rstd = @hasDecl(lapack, "syevd");
+    pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
+        const n = w.in();
+        try lapack.syevd(rstd_alloc, libs.rstd_io, Num(p), .compute, .u, w.n, libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), w.n, w.s[0..w.n]);
     }
     /// `A Z` against `Z diag(w)`.
     pub fn residual(comptime p: Prec, w: *const Work(p), i: usize, j: usize) ?[2]f64 {
