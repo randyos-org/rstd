@@ -10,8 +10,8 @@ const std = @import("std");
 
 // Index/Dict lookups are O(n) walks, so init() resolves CharStrings/Subrs
 // indexes once up front instead of per glyph; same idea as LocaTable
-// caching num_glyphs/long_format. Charset/Encoding are unused (cmap resolves
-// GIDs directly); the Type 2 charstring interpreter is deferred.
+// caching num_glyphs/long_format. Encoding is unused (cmap resolves GIDs
+// directly); the charset serves SEAC accents (charset.zig).
 
 /// The CFF header.
 const StreamLayout = extern struct {
@@ -147,6 +147,13 @@ pub inline fn numGlyphs(self: CffTable) u16 {
 /// module's other raw index accessors.
 /// A Private DICT's bytes and where they start in the table.
 pub const PrivateDict = struct { data: []const u8, offset: usize };
+
+/// The Top DICT's charset offset, 0 (ISOAdobe) if absent; null if malformed.
+pub fn charsetOffset(self: CffTable) ?usize {
+    const d: Dict = .{ .table_data = self.top_dict_data };
+    const v = (d.getInt(.charset) catch return null) orelse 0;
+    return if (v < 0) null else @intCast(v);
+}
 
 /// The Private DICT `glyph` uses: the Top DICT's, or its FD's for a CID
 /// font; null without one or when its range is out of the table.

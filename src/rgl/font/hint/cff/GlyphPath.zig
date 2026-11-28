@@ -24,6 +24,8 @@ scale_x: i32,
 out: *Builder,
 err: ?Allocator.Error = null,
 too_many_hints: bool = false,
+/// Where the stems' y counts from: a SEAC accent's offset (`hintOriginY`).
+origin_y: i32 = 0,
 
 stems: [hintmap.max_hints]StemHint = undefined,
 n_hstems: usize = 0,
@@ -72,7 +74,7 @@ fn build(p: *GlyphPath, m: *HintMap) void {
         p.mask_valid = true;
     }
     if (!p.initial.valid and !p.countOk()) return;
-    m.build(p.blues, p.hstems(), p.mask, &p.initial, 0);
+    m.build(p.blues, p.hstems(), p.mask, &p.initial, p.origin_y);
     p.mask_new = false;
 }
 
@@ -104,7 +106,7 @@ pub fn hintMask(p: *GlyphPath, bytes: []const u8) void {
 pub fn counterMask(p: *GlyphPath, bytes: []const u8) void {
     if (!p.countOk()) return;
     var m: HintMap = .{ .scale = p.map.scale, .hinted = p.map.hinted };
-    m.build(p.blues, p.hstems(), HintMask.fromBytes(bytes[0..@min(bytes.len, hintmap.max_hints / 8)]), &p.initial, 0);
+    m.build(p.blues, p.hstems(), HintMask.fromBytes(bytes[0..@min(bytes.len, hintmap.max_hints / 8)]), &p.initial, p.origin_y);
 }
 
 fn hintPoint(p: *GlyphPath, m: *const HintMap, pt: Point) Point {
@@ -209,9 +211,4 @@ pub fn closeOpenPath(p: *GlyphPath) void {
 /// The evaluator closes contours at each move; the path does it itself.
 pub fn close(p: *GlyphPath) void {
     _ = p;
-}
-
-pub fn finish(p: *GlyphPath) void {
-    p.closeOpenPath();
-    p.out.closeContour();
 }

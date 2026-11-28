@@ -2,13 +2,15 @@
 //! evaluates them (`src/psaux/psintrp.c`), after fontations
 //! `read-fonts/src/ps/charstring.rs` and `cff/stack.rs` (commit 4f115482,
 //! MIT): commands go to a sink with `moveTo`, `lineTo`, `curveTo`,
-//! `close`, `hstem`, `vstem`, `hintMask`, `counterMask` and `finish`.
+//! `close`, `hstem`, `vstem`, `hintMask`, `counterMask` and
+//! `closeOpenPath`. A charstring ending in an implied SEAC returns its
+//! components for the caller to draw (`cf2_cmdENDCHAR`).
 
 const std = @import("std");
 const fixed = @import("../fixed.zig");
 const Index = @import("../../sfnt/tables/cff/Index.zig");
 
-pub const Error = error{ InvalidCharstring, StackOverflow, StackUnderflow, LimitExceeded, UnsupportedSeac };
+pub const Error = error{ InvalidCharstring, StackOverflow, StackUnderflow, LimitExceeded };
 
 const nesting_limit = 10;
 const max_operations = 1_000_000;
@@ -72,15 +74,24 @@ const Stack = struct {
 
 const Mode = enum { dxdy, xdy, dxy, dx_initial_y, larger_coord_dist, dx_maybe_dy, maybe_dx_dy };
 
-/// Evaluates `charstring` into `sink`; returns the width the charstring
-/// gives, if any (before `nominalWidthX`).
-pub fn evaluate(ctx: Context, charstring: []const u8, sink: anytype) Error!?i32 {
-    var e: Evaluator(@TypeOf(sink)) = .{ .ctx = ctx, .sink = sink };
+/// An implied SEAC: an accent at (`adx`, `ady`), 16.16, over a base, both
+/// by Standard Encoding code.
+pub const Seac = struct { adx: i32, ady: i32, base: i32, accent: i32 };
+
+pub const Result = struct {
+    /// The width the charstring gives, if any (before `nominalWidthX`).
+    width: ?i32,
+    seac: ?Seac = null,
+};
+
+/// Evaluates `charstring` into `sink`, from `start` (16.16).
+pub fn evaluate(ctx: Context, charstring: []const u8, sink: anytype, start: [2]i32) Error!Result {
+    var e: Evaluator(@TypeOf(sink)) = .{ .ctx = ctx, .sink = sink, .x = start[0], .y = start[1] };
     const seen_endchar = try e.run(charstring, 0);
     if (!seen_endchar) _ = try e.endchar();
     if (e.is_open) e.sink.close();
-    e.sink.finish();
-    return if (e.have_width) e.width else null;
+    e.sink.closeOpenPath();
+    return .{ .width = if (e.have_width) e.width else null, .seac = e.seac };
 }
 
 fn Evaluator(comptime Sink: type) type {
@@ -100,6 +111,7 @@ fn Evaluator(comptime Sink: type) type {
         stem_count: usize = 0,
         ops: u32 = 0,
         storage: [storage_len]i32 = @splat(0),
+        seac: ?Seac = null,
 
         fn reset(e: *Self) void {
             e.stack.top = 0;
@@ -225,8 +237,14 @@ fn Evaluator(comptime Sink: type) type {
             const n = e.stack.top;
             if ((n == 1 or n == 5) and !e.seen_width) e.readWidth();
             e.seen_width = true;
-            // an implied SEAC (n > 1) builds the glyph from two others
-            if (n > 1) return error.UnsupportedSeac;
+            // an implied SEAC builds the glyph from two others
+            if (n > 1) {
+                const accent = try e.stack.popInt();
+                const base = try e.stack.popInt();
+                const ady = try e.stack.popFixed();
+                const adx = try e.stack.popFixed();
+                e.seac = .{ .adx = adx, .ady = ady, .base = base, .accent = accent };
+            }
             return false;
         }
 
@@ -472,10 +490,9 @@ fn Evaluator(comptime Sink: type) type {
                 },
                 // HSBW, DOTSECTION, SBW, POP, SETCURRENTPOINT: nothing in Type 2
                 13, 0x0C00, 0x0C07, 0x0C11, 0x0C21 => {},
-                0x0C06 => return error.UnsupportedSeac,
                 // VSINDEX and BLEND belong to CFF2
                 15, 16 => return error.InvalidCharstring,
-                // the reserved operators, HSTEM3, VSTEM3 and RANDOM clear the stack
+                // the reserved operators, HSTEM3, VSTEM3, RANDOM and Type 1's SEAC clear the stack
                 else => e.reset(),
             }
             return true;

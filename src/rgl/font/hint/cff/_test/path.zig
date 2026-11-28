@@ -17,7 +17,9 @@ fn draw(out: *Builder, code: []const u8) !?i32 {
     const blues: Blues = .init(&priv, 0x400);
     var path: GlyphPath = .init(&blues, out, 0x400 * 64, 0x400 * 64, false);
     const empty: Index = try .init(&.{ 0, 0 }, true);
-    return charstring.evaluate(.{ .global = empty, .local = null }, code, &path);
+    const r = try charstring.evaluate(.{ .global = empty, .local = null }, code, &path, .{ 0, 0 });
+    out.closeContour();
+    return r.width;
 }
 
 /// `n` as a one-byte charstring integer.
@@ -47,12 +49,10 @@ test "cff path: a curve's control points are cubic, a zero-length line is droppe
     try testing.expectEqualSlices([2]i32, &.{ .{ 0, 0 }, .{ 640, 0 }, .{ 1280, 640 }, .{ 1280, 1280 } }, out.points.items);
 }
 
-test "cff charstring: arithmetic, subroutine limits and SEAC" {
+test "cff charstring: arithmetic and subroutine limits" {
     var out: Builder = .{ .allocator = testing.allocator };
     defer out.deinit();
     // 7 2 div 3 add: 6.5, then its width; then a callsubr with no subrs
     try testing.expectEqual(@as(?i32, 0x68000), try draw(&out, &.{ n(7), n(2), 12, 12, n(3), 12, 10, n(0), 22, 14 }));
     try testing.expectError(error.InvalidCharstring, draw(&out, &.{ n(0), 10 }));
-    // endchar with four arguments is an accented SEAC
-    try testing.expectError(error.UnsupportedSeac, draw(&out, &.{ n(0), n(0), n(65), n(66), 14 }));
 }
