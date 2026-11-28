@@ -1,7 +1,8 @@
 //! Apple Accelerate's vDSP DFTs (`vDSP_DFT_zop`, `vDSP_DFT_zrop`, macOS 10.7+):
 //! `Plan` and `RealPlan` hand vDSP's lengths, `f 2^k` with `f` in 1, 3, 5
-//! and 15, to it on macOS, as the BLAS hands its calls to Accelerate
-//! (issue #155). `useAccelerate(false)` before planning keeps rstd's own.
+//! and 15, to it on macOS where it ran faster than rstd's own (`faster`), as
+//! the BLAS hands its calls to Accelerate (issues #155, #856).
+//! `useAccelerate(false)` before planning keeps rstd's own.
 //! vDSP takes split complex data; one call per transform, single-threaded,
 //! so a batch's bits depend on neither the worker count nor the order.
 
@@ -9,6 +10,7 @@ const std = @import("std");
 const sysinfo = @import("builtin");
 const dll = @import("../../../dll.zig");
 const cmplx = @import("cmplx.zig");
+const pffft = @import("pffft/__root__.zig");
 
 const C = cmplx.C;
 
@@ -41,12 +43,37 @@ var state = std.atomic.Value(State).init(.unloaded);
 var table: Table = undefined;
 /// Whether new plans use vDSP.
 var on = std.atomic.Value(bool).init(true);
+/// Whether new plans use it at every length it takes, not only `faster` ones.
+var every = std.atomic.Value(bool).init(false);
 
 /// Turns the use of vDSP by plans made after this on or off (macOS, `f32`
 /// and `f64`); true if new plans use it. Plans keep what they were made with.
 pub fn useAccelerate(enable: bool) bool {
     on.store(enable, .release);
     return enable and loaded() != null;
+}
+
+/// Makes plans made after this take vDSP at every length it takes, `faster`
+/// or not (`enable`), or only where it is (the default): for the tests and
+/// the bench's `fft` section, which compare them all.
+pub fn useAccelerateEverywhere(enable: bool) void {
+    every.store(enable, .release);
+}
+
+/// Whether vDSP ran length `n` (one of `validLength`'s) of `Plan(T)`, or of
+/// `RealPlan(T)` if `real`, at least 0.97 times rstd's own in two runs of
+/// the bench's `fft` section. x86_64 (the Intel Mac, #155): everywhere but
+/// complex `f32` at pffft's sizes. aarch64 (the M6, #856): complex `f32`
+/// from 3840 and where pffft lacks `n`, complex `f64` at powers of 2, real
+/// from 32, `f64` only at powers of 2 up to 16384.
+pub fn faster(comptime T: type, comptime real: bool, n: usize) bool {
+    const pow2 = std.math.isPowerOfTwo(n);
+    if (comptime sysinfo.target.cpu.arch == .aarch64) return switch (T) {
+        f32 => if (real) n >= 32 else n >= 3840 or !pffft.validSize(n, .complex),
+        f64 => if (real) pow2 and n >= 32 and n <= 16384 else pow2,
+        else => false,
+    };
+    return real or T != f32 or !pffft.validSize(n, .complex);
 }
 
 /// The bound table, loading Accelerate the first time; null off macOS or
@@ -121,7 +148,7 @@ pub fn validLength(n: usize, real: bool) bool {
 }
 
 /// `Plan`'s and `RealPlan`'s vDSP setup for `T`: `Setup` for `f32` and
-/// `f64`, a type no plan holds for the others.
+/// `f64` at the lengths it is `faster` at, a type no plan holds for the others.
 pub fn Vdsp(comptime T: type, comptime real: bool) type {
     if (T != f32 and T != f64) return struct {
         const Self = @This();
@@ -137,6 +164,7 @@ pub fn Vdsp(comptime T: type, comptime real: bool) type {
         setup: Setup(T, real),
 
         pub fn init(n: usize) ?Self {
+            if (!every.load(.acquire) and !faster(T, real, n)) return null;
             return .{ .setup = Setup(T, real).init(n) orelse return null };
         }
 
