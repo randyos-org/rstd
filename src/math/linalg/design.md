@@ -1557,7 +1557,7 @@ routine and matches the reference; `apple_accel.zig` binds it and routes to it.
   routed. Routed over rstd's own:
   - `nrm2`, none: `dznrm2` 0.06 to 0.21, `dnrm2` 0.25 to 0.48, `snrm2` and `scnrm2` 0.53 to 0.92.
   - `sdot`, none: 0.41 to 0.50 through `cblas_dsdot`, 0.97 strided. `dsdot` and `sdsdot`, with
-    a kernel of their own the flyoff did not time, stay routed.
+    a kernel of their own the flyoff did not time, are kept since [#844](https://github.com/randyos-org/rstd/issues/844) (below).
   - `scopy`, `dcopy`, unit only: 0.53 and 0.52 strided; `ccopy` and `zcopy` strided are 2.0 and
     1.8.
   - `swap`, unit only: 0.90, 0.90, 0.94, 0.96 strided.
@@ -1568,6 +1568,12 @@ routine and matches the reference; `apple_accel.zig` binds it and routes to it.
   Left routed though slower: contiguous `zcopy` at 4M elements (0.83, where 64K is 4.2), a size
   limit no row places.
 - **Kept for speed, arm64, levels 2 and 3.** The M6 sweep of 2026-11-25 ([#712](https://github.com/randyos-org/rstd/issues/712), [#726](https://github.com/randyos-org/rstd/issues/726)), by x86_64's rule (below) at `--threads=12` (`rstd/ob alone`): `gbmv` (medians 0.23 to 0.36; it is not split, so one Accelerate call against rstd's workers), complex `ger` (0.78 and 0.88; `gerc` follows it) and the real `symv` (0.27, 0.30). `sger` and `dger` lost at 12 (0.77, 0.74) while their split slowed them; with level 2 one call to 8 MB ([#838](https://github.com/randyos-org/rstd/issues/838)) they are routed again (12 threads 0.97 and 1.07, one thread 1.32 and 1.77). `gemv`, `trsv` and level 3 stay routed (medians 0.97 to 4.6, the one-thread ones 1.02 and over).
+- **Kept for speed, arm64, the rest.** The slots the flyoff and #712's sweep left, timed on the M6 on 2026-11-27 ([#844](https://github.com/randyos-org/rstd/issues/844)) by the `accroute` section as on x86_64 below, twice at 12 threads and twice at one, by #772's rule. Kept, routed over rstd's own at 12 threads:
+  - Level 1: `dsdot` and `sdsdot` (0.64 and 0.71 unit, 0.89 and 0.90 strided). Routed: `rotm` (1.05 to 6.7) and `axpby` (1.00 to 7.4; the real strided ones 1.00, one-thread 1.00).
+  - Level 2: `hbmv` (0.43, 0.38), `hpmv` (0.26, 0.21), `sbmv` (0.53, 0.62), `spmv` (0.52, 0.38); `syr` (0.80, 0.94), `her` (0.34, 0.27), `spr` (0.46, 0.48), `hpr` (0.50, 0.49); `ssyr2` (0.84), `her2` (0.38, 0.36), `spr2` (0.68, 0.56), `hpr2` (0.56, 0.44); `ztrmv` (0.81), `tbmv` (0.36 to 0.57), complex `tpmv` (0.58, 0.52). Routed: `hemv` (1.16, 1.15), `dsyr2` (1.15), `tbsv` (0.99 to 1.22), `tpsv` (1.09 to 1.42), real `tpmv` (0.99, 1.15), the other `trmv` (1.82 to 6.5).
+  - Level 3: all routed, `syr2k` (1.48 to 3.95), `hemm` (2.20, 1.35), `herk` (2.65, 1.35), `her2k` (2.47, 1.48).
+
+  As on x86_64, a level-2 slot's rows spread widely: Accelerate wins at the smallest order and loses past it, where rstd's threads take the call.
 - **Kept for speed, x86_64.** The Intel Mac's sweep of 2026-11-26
   ([#772](https://github.com/randyos-org/rstd/issues/772)): each slot's median over its rows of
   `rstd/ob` routed (`--threads=6`) over the same with `--rstd-accelerate=0`, in one process each;
