@@ -102,6 +102,7 @@ Each type the kernel layer defines or takes, after the moves; the high-level opt
 | `SpectrumRange(F)` | `union(enum) { all, values: struct { lo: F, hi: F }, indices: struct { first: usize, last: usize } }`: which eigenvalues or singular values | same | `kernels.lapack` | yes |
 | `SpectrumOrder` | `enum { ascending, by_block }`: `stebz`'s order, all ascending or by split block | same | `kernels.lapack` | yes |
 | `BisectedEigenvalues` | `struct { count: usize, blocks: usize, unconverged: bool = false, incomplete: bool = false }`: what `stebz` found, the reference's `M`, `NSPLIT` and `INFO` 1 to 3 | same | `kernels.lapack` | yes |
+| `SelectedEigenpairs` | `struct { count: usize, unconverged: usize = 0, values_unconverged: bool = false, incomplete: bool = false }`: what `syevx` found, the reference's `M` and `INFO > 0` | same | `kernels.lapack` | yes |
 | `FactorizationInput` | `enum { factor, factored, equilibrate_and_factor }`: `gesvx` factors `A`, takes its given factor, or equilibrates first | same | `kernels.lapack` | yes |
 | `Equilibration` | `enum { none, rows, columns, both }`: what `laqge` and `gesvx` scaled | none | `kernels.lapack` | yes |
 | `LuSolveReport(F)` | `struct { rcond: F, pivot_growth: F, singular: ?usize = null, ill_conditioned: bool = false }`: what `gesvx` reports besides `X`, the reference's `RCOND`, `RPVGRW` and `INFO > 0` | same | `kernels.lapack` | yes |
@@ -344,6 +345,7 @@ As `src/math/kernels/lapack/` has it today. Accelerate (macOS 13.3's `$NEWLAPACK
 | `ormtr(allocator, io, T, side: Side, uplo: Uplo, trans: Trans, m: usize, n: usize, a: []const T, lda: usize, tau: []const T, c: []T, ldc: usize) OrmtrError!void`, `unmtr` | `C ← op(Q)C` or `C·op(Q)` with `sytrd`'s `Q` | `?ormtr`, `?unmtr` | Reference-LAPACK `dormtr.f` over `ormqr` and a QL `ormql` by reversal (v0.2.0) |
 | `stebz(allocator, F, range: SpectrumRange(F), order: SpectrumOrder, d: []const F, e: []const F, abstol: F, w: []F, iblock: []usize, isplit: []usize) StebzError!BisectedEigenvalues` | selected eigenvalues of a symmetric tridiagonal by bisection, with their split blocks | `?stebz` | Reference-LAPACK `dstebz.f`, `dlaebz.f` (v0.2.0) |
 | `stein(allocator, io, T, d: []const Float(T), e: []const Float(T), w: []const Float(T), iblock: []const usize, isplit: []const usize, z: []T, ldz: usize, ifail: []usize) SteinError!usize` | eigenvectors of a symmetric tridiagonal for `stebz`'s eigenvalues by inverse iteration; returns how many did not converge, listed in `ifail` | `?stein` | Reference-LAPACK `dstein.f`, `zstein.f` (v0.2.0) |
+| `syevx(allocator, io, T, jobz: VectorJob, range: SpectrumRange(Float(T)), uplo: Uplo, n: usize, a: []T, lda: usize, abstol: Float(T), w: []Float(T), z: []T, ldz: usize, ifail: []usize) SyevxError!SelectedEigenpairs`, `heevx` | selected eigenvalues and vectors by bisection and inverse iteration (`stebz`, `stein`), or every one by the QR algorithm | `?syevx`, `?heevx` | Reference-LAPACK `dsyevx.f`, `zheevx.f` (v0.2.0) |
 
 #### Nonsymmetric eigenproblems
 
@@ -397,7 +399,6 @@ Each in Reference-LAPACK 3.12.0 (`lapack-netlib/SRC/`, as OpenBLAS ships it; mod
 | Signature | Computes | LAPACK name (Accelerate, MKL) |
 | --- | --- | --- |
 | `syevr(allocator, io, T, jobz: VectorJob, range: SpectrumRange(Float(T)), uplo: Uplo, n: usize, a: []T, lda: usize, abstol: Float(T), w: []Float(T), z: []T, ldz: usize, isuppz: []usize) SyevrError!usize` | selected eigenvalues and vectors, relatively robust representations; returns the count | `?syevr`, `?heevr` |
-| `syevx(allocator, io, T, jobz: VectorJob, range: SpectrumRange(Float(T)), uplo: Uplo, n: usize, a: []T, lda: usize, abstol: Float(T), w: []Float(T), z: []T, ldz: usize, ifail: []usize) SyevxError!usize` | `syevr` by bisection and inverse iteration | `?syevx`, `?heevx` |
 | `geevx(allocator, io, T, balance: Balancing, jobvl: VectorJob, jobvr: VectorJob, n: usize, a: []T, lda: usize, w: Eigenvalues(T), vl: []T, ldvl: usize, vr: []T, ldvr: usize, scale: []Float(T), rconde: []Float(T), rcondv: []Float(T)) GeevxError!BalancedRange` | `geev` with balancing and condition numbers | `?geevx` |
 | `gges(allocator, io, T, jobvsl: VectorJob, jobvsr: VectorJob, select: ?PairSelector(T), n: usize, a: []T, lda: usize, b: []T, ldb: usize, alpha: Eigenvalues(T), beta: []T, vsl: []T, ldvsl: usize, vsr: []T, ldvsr: usize) GgesError!usize` | `gges` with `select`'s ordering (over `tgsen`), the shipped `ggesComplex`, `ggesReal` being unordered | `?gges3` |
 | `gesvdx(allocator, io, T, jobu: VectorJob, jobvt: VectorJob, range: SpectrumRange(Float(T)), m: usize, n: usize, a: []T, lda: usize, s: []Float(T), u: []T, ldu: usize, vt: []T, ldvt: usize) GesvdxError!usize` | selected singular values and vectors; returns the count | `?gesvdx` |
