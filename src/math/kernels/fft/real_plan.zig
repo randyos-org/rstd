@@ -4,7 +4,8 @@
 //! `rfftp/` unless its cost model prefers Bluestein's on complex values,
 //! through FFTPACK's halfcomplex order either way. For f32 at pffft's sizes
 //! (`n = 32 2^a 3^b 5^c`, at most `2^26`), pffft's SIMD instead
-//! (`pffft/`), which alone has the unordered forms.
+//! (`pffft/`), which alone has the unordered forms. On macOS, the other
+//! `f32` and `f64` lengths of vDSP's go to vDSP (`vdsp.zig`, issue #155).
 
 const std = @import("std");
 const fft = @import("__root__.zig");
@@ -14,6 +15,7 @@ const complex_plan = @import("plan.zig");
 const rfftp = @import("rfftp/__root__.zig");
 const bluestein = @import("bluestein.zig");
 const pffft = @import("pffft/__root__.zig");
+const vdsp = @import("vdsp.zig");
 const batch = @import("batch.zig");
 
 const Allocator = std.mem.Allocator;
@@ -22,6 +24,7 @@ const C = cmplx.C;
 const BatchLayout = fft.BatchLayout;
 const BatchLayouts = fft.BatchLayouts;
 const Normalization = fft.Normalization;
+const Vdsp = vdsp.Vdsp;
 
 pub fn RealPlan(comptime T: type) type {
     if (@typeInfo(T) != .float) @compileError("rstd.math.kernels.fft: " ++ @typeName(T) ++ " is not a float type");
@@ -31,7 +34,7 @@ pub fn RealPlan(comptime T: type) type {
         kind: Kind,
 
         const Self = @This();
-        const Kind = union(enum) { pack: rfftp.Rfftp(T), blue: bluestein.Bluestein(T), simd: pffft.Simd(T) };
+        const Kind = union(enum) { pack: rfftp.Rfftp(T), blue: bluestein.Bluestein(T), simd: pffft.Simd(T), vdsp: Vdsp(T, true) };
 
         pub fn init(allocator: Allocator, n: usize) fft.InitError!Self {
             if (n == 0) return error.ZeroLength;
@@ -39,6 +42,10 @@ pub fn RealPlan(comptime T: type) type {
                 const s = try pffft.Setup.init(allocator, n, .real);
                 // the gathered reals and pffft's work buffer
                 return .{ .n = n, .scratch_len = 2 * n, .kind = .{ .simd = s } };
+            }
+            if (Vdsp(T, true).init(n)) |v| {
+                // the gathered reals and the split input and output
+                return .{ .n = n, .scratch_len = 3 * n, .kind = .{ .vdsp = v } };
             }
             // `pocketfft_r`'s choice
             const lpf = if (n < 50) 0 else util.largestPrimeFactor(n);
@@ -58,6 +65,11 @@ pub fn RealPlan(comptime T: type) type {
             const p = try rfftp.Rfftp(T).init(allocator, n);
             // the gathered reals and the ping-pong buffer
             return .{ .n = n, .scratch_len = 2 * n, .kind = .{ .pack = p } };
+        }
+
+        /// Whether vDSP runs this plan's transforms.
+        pub fn routed(self: Self) bool {
+            return self.kind == .vdsp;
         }
 
         pub fn deinit(self: *Self, allocator: Allocator) void {
@@ -196,6 +208,7 @@ pub fn RealPlan(comptime T: type) type {
                         x.* *= f;
                     };
                 } else unreachable,
+                .vdsp => |*v| v.runReal(buf, rest, fwd, f),
             }
         }
 
@@ -203,7 +216,7 @@ pub fn RealPlan(comptime T: type) type {
         fn unordered(self: *const Self) error{UnsupportedSize}!*const pffft.Setup {
             return switch (self.kind) {
                 .simd => |*s| s,
-                .pack, .blue => error.UnsupportedSize,
+                .pack, .blue, .vdsp => error.UnsupportedSize,
             };
         }
 

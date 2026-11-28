@@ -8,6 +8,7 @@
 const std = @import("std");
 const complex_plan = @import("plan.zig");
 const real_plan = @import("real_plan.zig");
+const vdsp = @import("vdsp.zig");
 
 const Allocator = std.mem.Allocator;
 const Complex = std.math.Complex;
@@ -50,6 +51,11 @@ pub const Plan = complex_plan.Plan;
 /// pffft's sizes, `32 2^a 3^b 5^c`, pffft's SIMD, with its unordered forms
 /// for fast convolution (`real_plan.zig`).
 pub const RealPlan = real_plan.RealPlan;
+
+/// Whether plans made from now on hand vDSP's lengths to Apple's vDSP (macOS,
+/// `f32` and `f64`; on by default); true if they will. A plan keeps what it
+/// was made with (`vdsp.zig`).
+pub const useAccelerate = vdsp.useAccelerate;
 
 /// `Plan` for a comptime `n`: factors and twiddles at comptime, unrolled, no
 /// allocator; the same calls on a value `.{}`.
@@ -224,4 +230,5 @@ test {
     _ = @import("pffft/__root__.zig");
     _ = @import("_test/pffft.zig");
     _ = @import("_test/plan.zig");
+    _ = @import("_test/vdsp.zig");
 }
