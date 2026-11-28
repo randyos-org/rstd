@@ -92,27 +92,93 @@ test "rules: thresholds at their edges, tiers and the chunk cap" {
     try zigstd.testExpectEqual(@as(u32, 1), rule(.swap, std.math.Complex(f64), X86.haswell).sizeMax(524287));
     try zigstd.testExpectEqual(@as(usize, 2), rule(.swap, std.math.Complex(f64), X86.haswell).chunkCount(524288));
 
-    const ztrmv = rule(.trmv, std.math.Complex(f64), X86.haswell);
+    // OpenBLAS's level 2, on a core without rstd's own (haswell's, below)
+    const ztrmv = rule(.trmv, std.math.Complex(f64), X86.zen);
     try zigstd.testExpectEqual(@as(u32, 1), ztrmv.sizeMax(96));
     try zigstd.testExpectEqual(@as(u32, 2), ztrmv.sizeMax(97));
     try zigstd.testExpectEqual(@as(u32, 2), ztrmv.sizeMax(127));
     try zigstd.testExpectEqual(@as(u32, std.math.maxInt(u32)), ztrmv.sizeMax(128));
-    try zigstd.testExpectEqual(@as(u32, 2), rule(.trmv, f64, X86.haswell).sizeMax(499));
+    try zigstd.testExpectEqual(@as(u32, 2), rule(.trmv, f64, X86.zen).sizeMax(499));
     try zigstd.testExpectEqual(@as(u32, 1), rule(.symv, f64, X86.haswell).sizeMax(199));
     try zigstd.testExpectEqual(@as(usize, 2), rule(.symv, f64, X86.haswell).chunkCount(200));
     try zigstd.testExpectEqual(@as(u32, 1), rule(.hemv, std.math.Complex(f64), X86.haswell).sizeMax(361));
     try zigstd.testExpectEqual(@as(usize, 8), rule(.hemv, std.math.Complex(f64), X86.haswell).chunkCount(362));
     try zigstd.testExpectEqual(@as(usize, 21), rule(.hemv, std.math.Complex(f64), X86.haswell).chunkCount(1024));
-    try zigstd.testExpectEqual(@as(u32, 2), rule(.tpmv, std.math.Complex(f32), X86.haswell).sizeMax(499));
+    try zigstd.testExpectEqual(@as(u32, 2), rule(.tpmv, std.math.Complex(f32), X86.zen).sizeMax(499));
 
     try zigstd.testExpectEqual(@as(u32, 1), rule(.asum, f32, X86.haswell).sizeMax(100000));
     try zigstd.testExpectEqual(@as(u32, 3), rule(.asum, f32, X86.haswell).sizeMax(300000));
     try zigstd.testExpectEqual(@as(u32, 3), rule(.asum, std.math.Complex(f32), X86.haswell).sizeMax(30000));
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.asum, f64, Arm64.vortexm4).sizeMax(10000));
+    try zigstd.testExpectEqual(@as(u32, std.math.maxInt(u32)), rule(.asum, f64, Arm64.vortexm4).sizeMax(10001));
+    try zigstd.testExpectEqual(@as(u32, 3), rule(.asum, f32, Arm64.cortexa53).sizeMax(300000));
     try zigstd.testExpectEqual(@as(u32, 1), rule(.trsm, f64, X86.haswell).sizeMax(1023));
     try zigstd.testExpectEqual(@as(u32, 1), rule(.syrk, f64, X86.haswell).sizeMax(product(&.{ 101, 100, 43 })));
     try zigstd.testExpectEqual(@as(u32, std.math.maxInt(u32)), rule(.syrk, f64, X86.haswell).sizeMax(product(&.{ 101, 100, 44 })));
     try zigstd.testExpectEqual(@as(u32, 1), rule(.syr2k, f64, X86.haswell).sizeMax(999));
     try zigstd.testExpectEqual(@as(u32, std.math.maxInt(u32)), rule(.syr2k, std.math.Complex(f32), X86.haswell).sizeMax(1000));
+}
+
+test "rules: haswell's own level-2 thresholds (issue #845), the other cores keeping OpenBLAS's" {
+    const C = std.math.Complex;
+    inline for (.{ .syr, .tpmv }) |f| {
+        try zigstd.testExpectEqual(@as(u32, 1), rule(f, f64, X86.haswell).sizeMax(511));
+        try zigstd.testExpectEqual(@as(usize, 2), rule(f, f64, X86.haswell).chunkCount(512));
+    }
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.her, C(f32), X86.haswell).sizeMax(255));
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.trmv, f32, X86.haswell).sizeMax(511));
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.trmv, C(f32), X86.haswell).sizeMax(383));
+    try zigstd.testExpectEqual(@as(usize, 2), rule(.trmv, C(f64), X86.haswell).chunkCount(256));
+    // `tbmv` (issue #854), chunked as `tpmv`
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.tbmv, f32, X86.haswell).sizeMax(1535));
+    try zigstd.testExpectEqual(@as(usize, 4), rule(.tbmv, f32, X86.haswell).chunkCount(1536));
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.tbmv, C(f32), X86.haswell).sizeMax(1023));
+    try zigstd.testExpectEqual(@as(usize, 3), rule(.tbmv, f64, X86.haswell).chunkCount(1024));
+    try zigstd.testExpectEqual(@as(usize, 2), rule(.tbmv, f64, X86.zen).chunkCount(50));
+    // the complex symmetric `syr` and other cores keep OpenBLAS's
+    try zigstd.testExpectEqual(@as(usize, 2), rule(.syr, C(f64), X86.haswell).chunkCount(50));
+    try zigstd.testExpectEqual(@as(usize, 2), rule(.syr, f64, X86.zen).chunkCount(50));
+    try zigstd.testExpectEqual(@as(usize, 2), rule(.trmv, f64, X86.skylakex).chunkCount(50));
+}
+
+test "rules: vortexm4's own level-2 thresholds (issue #853), the other cores keeping OpenBLAS's" {
+    const C = std.math.Complex;
+    const A = Arm64.vortexm4;
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.syr, f32, A).sizeMax(767));
+    try zigstd.testExpectEqual(@as(usize, 2), rule(.syr, f64, A).chunkCount(768));
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.her, C(f32), A).sizeMax(383));
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.her, C(f64), A).sizeMax(255));
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.trmv, f32, A).sizeMax(1023));
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.trmv, f64, A).sizeMax(511));
+    try zigstd.testExpectEqual(@as(usize, 2), rule(.trmv, C(f64), A).chunkCount(256));
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.tpmv, f64, A).sizeMax(767));
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.tpmv, C(f32), A).sizeMax(383));
+    try zigstd.testExpectEqual(@as(u32, 2), rule(.tpmv, C(f32), A).sizeMax(499));
+    try zigstd.testExpectEqual(@as(u32, std.math.maxInt(u32)), rule(.tpmv, C(f64), A).sizeMax(500));
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.tbmv, f32, A).sizeMax(2047));
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.tbmv, C(f64), A).sizeMax(1535));
+    // `symv` (the fused tridiagonalization's too, #885), the complex symmetric
+    // `syr` and other arm64 cores keep OpenBLAS's
+    try zigstd.testExpectEqual(@as(usize, 2), rule(.symv, f64, A).chunkCount(200));
+    try zigstd.testExpectEqual(@as(u32, 2), rule(.symv, C(f32), A).sizeMax(50));
+    try zigstd.testExpectEqual(@as(usize, 2), rule(.syr, C(f64), A).chunkCount(50));
+    try zigstd.testExpectEqual(@as(usize, 2), rule(.syr, f64, Arm64.vortex).chunkCount(50));
+}
+
+test "rules: vortexm4's own axpy and dot split (issue #728), the other cores keeping OpenBLAS's" {
+    const C = std.math.Complex;
+    inline for (.{ .axpy, .dot }) |f| inline for (.{ f32, f64, C(f32), C(f64) }) |T| {
+        const r = rule(f, T, Arm64.vortexm4);
+        try zigstd.testExpectEqual(@as(u32, 1), r.sizeMax(10000));
+        try zigstd.testExpectEqual(@as(u32, 2), r.sizeMax(20000));
+        try zigstd.testExpectEqual(@as(u32, 4), r.sizeMax(32768));
+        try zigstd.testExpectEqual(@as(u32, 6), r.sizeMax(65536));
+        try zigstd.testExpectEqual(@as(u32, std.math.maxInt(u32)), r.sizeMax(70001));
+        try zigstd.testExpectEqual(@as(usize, 7), r.chunkCount(32768));
+        try zigstd.testExpectEqual(@as(usize, 14), r.chunkCount(65536));
+        try zigstd.testExpectEqual(@as(usize, 2), rule(f, T, Arm64.vortex).chunkCount(10001));
+        try zigstd.testExpectEqual(@as(u32, std.math.maxInt(u32)), rule(f, T, Arm64.vortex).sizeMax(65536));
+    };
 }
 
 test "rules: OpenBLAS's per-core overrides apply to their core and precision only" {

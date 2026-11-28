@@ -8,6 +8,7 @@ const std = @import("std");
 const types = @import("../blas/types.zig");
 const util = @import("../blas/util.zig");
 const driver = @import("../blas/blas3/driver.zig");
+const threaded = @import("../blas/blas3/threaded.zig");
 const triangular = @import("../blas/blas2/triangular.zig");
 const Vtable = @import("../blas/Vtable.zig");
 const ops = @import("ops.zig");
@@ -269,18 +270,20 @@ fn productParallel(allocator: Allocator, io: Io, comptime T: type, vt: *const Vt
 /// Block `j` (`bk` wide) of `lauum`: with `C` its columns above the
 /// diagonal (`u`) or rows left of it, `A(:j, :j) += C Cᴴ` (`HERK_UN`; `l`:
 /// `Cᴴ C`, `HERK_LC`), then `C := C U(j, j)ᴴ` (`TRMM_RCUN`; `l`:
-/// `L(j, j)ᴴ C`, `TRMM_LCLN`).
+/// `L(j, j)ᴴ C`, `TRMM_LCLN`). Each takes at most the workers its public
+/// entry point would (issue #841).
 fn offDiagonal(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, upper: bool, j: usize, bk: usize, a: [*]T, lda: usize, want: u32) driver.Error!void {
     if (j == 0) return;
     const complex = comptime isComplex(T);
     const one = scalar(T, 1);
     const d = a + j * (lda + 1);
     const c = if (upper) a + j * lda else a + j;
-    try driver.syrk(allocator, io, T, vt, complex, upper, !upper, j, bk, one, c, lda, null, 0, one, a, lda, want);
+    try driver.syrk(allocator, io, T, vt, complex, upper, !upper, j, bk, one, c, lda, null, 0, one, a, lda, @min(want, threaded.syrkWorkers(T, false, j, bk)));
+    const w = @min(want, threaded.triWorkers(T, j, bk, bk));
     if (upper) {
-        try driver.trmm(allocator, io, T, vt, false, true, true, complex, false, j, bk, one, d, lda, c, lda, want);
+        try driver.trmm(allocator, io, T, vt, false, true, true, complex, false, j, bk, one, d, lda, c, lda, w);
     } else {
-        try driver.trmm(allocator, io, T, vt, true, false, true, complex, false, bk, j, one, d, lda, c, lda, want);
+        try driver.trmm(allocator, io, T, vt, true, false, true, complex, false, bk, j, one, d, lda, c, lda, w);
     }
 }
 

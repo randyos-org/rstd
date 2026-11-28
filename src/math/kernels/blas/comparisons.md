@@ -296,11 +296,9 @@ strides; zero passes through to kernels, which loop sequentially. `frame/compat/
 `incx <= 0` guard, so BLIS `dscal` with a negative stride scales the vector and with zero
 scales `x(1)` `n` times: a deviation from the reference.
 
-**MKL** documents a zero increment on an input vector as all elements equal to `x[0]`
-(<https://www.intel.com/content/www/us/en/docs/onemkl/developer-reference-c/2025-2/vector-arguments-in-blas.html>).
-A zero stride on an *output* vector is not specified by any standard I found; the reference's
-sequential semantics is the de facto definition (uncertain: I could not locate the BLAS
-Technical Forum text on this).
+**MKL** documents a zero increment on an input vector as all elements equal to `x[0]` (<https://www.intel.com/content/www/us/en/docs/onemkl/developer-reference-c/2025-2/vector-arguments-in-blas.html>).
+
+**BLAS Technical Forum standard (2001).** Its own interface makes a zero increment illegal, on input and output vectors alike: "INCX = 0 is an illegal value" (chapter 2, section 2.5.3, p. 30, <https://www.netlib.org/blas/blast-forum/chapter2.pdf>), and each routine's binding sets an error flag for `incx` or `incy` equal to zero (DOT, section 2.8.2, p. 38, for one). For the Legacy BLAS it defers to the reference: the C interface "must supply error checking corresponding to that provided by the reference Fortran 77 BLAS implementation" (Annex B, section B.2.9, p. 186, <https://www.netlib.org/blas/blast-forum/cinterface.pdf>), and its sections on arguments (B.2.2 to B.2.10) say nothing of increments. So for the Legacy BLAS rstd implements, the reference's sequential semantics is the only definition of a zero stride on an *output* vector.
 
 **Assessment.** rstd follows the reference's sequential meaning everywhere but `axpy` with both
 strides zero, where it follows OpenBLAS's closed form. That closed form rounds once instead of `n`
@@ -619,9 +617,9 @@ real types and multiplies by a reciprocal for complex (`blas2/triangular_driver.
 
 **References.**
 
-- Neither OpenBLAS nor BLIS sets FTZ/DAZ; MKL also leaves it to the application (from memory;
+- Neither OpenBLAS nor BLIS sets FTZ/DAZ. Whether MKL does is unsourced: its documentation says nothing on it that we found ([#121](https://github.com/randyos-org/rstd/issues/121)), while
   Intel's compilers set FTZ and DAZ from `main` at every `-O` level but `-O0`: oneAPI DPC++/C++
-  Compiler 2025.2, "ftz, Qftz", <https://www.intel.com/content/www/us/en/docs/dpcpp-cpp-compiler/developer-guide-reference/2025-2/ftz-qftz.html>).
+  Compiler 2025.2, "ftz, Qftz", <https://www.intel.com/content/www/us/en/docs/dpcpp-cpp-compiler/developer-guide-reference/2025-2/ftz-qftz.html>.
 - BLIS `configure:375-387`: pre-inversion is the default, and disabling it improves "numerical
   robustness ... for certain cases involving denormal numbers that would otherwise result in
   overflow in the pre-inverted values".
@@ -763,5 +761,4 @@ Where BLIS is not better and rstd should not follow it:
 
 - f64 `sdot` throughput on M6 and Zen: unmeasured after `4407e5a`.
 - ARMv7 NEON and AltiVec flushing: seen on the rigs, not on hardware.
-- The BLAS Technical Forum standard's wording on zero increments: not located.
 - BLIS level-3 thread-count invariance: true by construction (no `k` split), not documented.

@@ -289,7 +289,10 @@ test "faer svd: gesvd's INFO > 0, the unconverged superdiagonals, QR iteration c
                 try testing.expectEqual(5, count);
                 // no out-parameter: the same error
                 a = a0;
-                try testing.expectError(error.NoConvergence, gesvd(al, check.io, T, .none, .none, n, n, &a, n, &s, u[0..0], 1, vt[0..0], 1, null));
+                try testing.expectError(error.NoConvergence, gesvd(al, check.io, T, .all, .none, n, n, &a, n, &s, &u, n, vt[0..0], 1, null));
+                // values alone go to dqds, which the cap does not touch
+                a = a0;
+                try gesvd(al, check.io, T, .none, .none, n, n, &a, n, &s, u[0..0], 1, vt[0..0], 1, null);
             }
         }
     }

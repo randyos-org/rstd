@@ -10,8 +10,8 @@ const std = @import("std");
 
 // Index/Dict lookups are O(n) walks, so init() resolves CharStrings/Subrs
 // indexes once up front instead of per glyph; same idea as LocaTable
-// caching num_glyphs/long_format. Charset/Encoding are unused (cmap resolves
-// GIDs directly); the Type 2 charstring interpreter is deferred.
+// caching num_glyphs/long_format. Encoding is unused (cmap resolves GIDs
+// directly); the charset serves SEAC accents (charset.zig).
 
 /// The CFF header.
 const StreamLayout = extern struct {
@@ -32,7 +32,7 @@ pub const CffError = Dict.ParseError || error{
 /// its Subrs operator (relative to the Private DICT's own start; a spec
 /// quirk, unlike every other CFF offset). Null means no Private entry or no
 /// local Subrs, both common.
-fn resolvePrivateSubrs(cff_bytes: []const u8, dict: Dict, check: bool) (bytes.BytesError || CffError)!?Index {
+fn resolvePrivateSubrs(cff_bytes: []const u8, dict: Dict, check: bool, long: bool) (bytes.BytesError || CffError)!?Index {
     var priv: [2]i32 = undefined;
     if (try dict.getInts(.private, &priv) != 2) return null;
     if (priv[0] <= 0 or priv[1] < 0) return null;
@@ -46,7 +46,7 @@ fn resolvePrivateSubrs(cff_bytes: []const u8, dict: Dict, check: bool) (bytes.By
     if (subrs_rel < 0) return null;
     const subrs_offset = priv_offset + @as(usize, @intCast(subrs_rel));
     if (check) try bytes.checkOffset(cff_bytes, subrs_offset);
-    return try Index.init(cff_bytes[subrs_offset..], check);
+    return if (long) try Index.initCff2(cff_bytes[subrs_offset..], check) else try Index.init(cff_bytes[subrs_offset..], check);
 }
 
 /// Compact Font Format: PostScript-flavored (Type 2 charstring) glyph
@@ -54,6 +54,8 @@ fn resolvePrivateSubrs(cff_bytes: []const u8, dict: Dict, check: bool) (bytes.By
 const CffTable = @This();
 
 table_data: []const u8,
+/// The first Top DICT's bytes.
+top_dict_data: []const u8,
 charstrings_index: Index,
 global_subrs_index: Index,
 is_cid: bool,
@@ -65,6 +67,12 @@ local_subrs_index: ?Index,
 fd_array_index: ?Index,
 /// Set when is_cid; absolute offset of the FDSelect table.
 fdselect_offset: ?usize,
+/// A `CFF2` table (`cff2.zig`): its INDEXes count in 32 bits.
+cff2: bool = false,
+/// CFF2's variation store, if any.
+vstore_offset: ?usize = null,
+/// CFF2's operand stack depth.
+maxstack: u16 = 0,
 
 pub fn init(table_data: []const u8, check: bool) (bytes.BytesError || CffError)!CffTable {
     if (check) try bytes.checkSize(table_data, 0, StreamLayout);
@@ -113,11 +121,12 @@ pub fn init(table_data: []const u8, check: bool) (bytes.BytesError || CffError)!
         if (check) try bytes.checkOffset(table_data, fdselect_off);
         fdselect_offset = fdselect_off;
     } else {
-        local_subrs_index = try resolvePrivateSubrs(table_data, top_dict, check);
+        local_subrs_index = try resolvePrivateSubrs(table_data, top_dict, check, false);
     }
 
     return .{
         .table_data = table_data,
+        .top_dict_data = top_dict.table_data,
         .charstrings_index = charstrings_index,
         .global_subrs_index = global_subrs_index,
         .is_cid = is_cid,
@@ -142,6 +151,29 @@ pub inline fn numGlyphs(self: CffTable) u16 {
 /// One glyph's raw, unparsed Type 2 charstring bytes. Bounds are the
 /// caller's responsibility (glyph < numGlyphs()), matching this
 /// module's other raw index accessors.
+/// A Private DICT's bytes and where they start in the table.
+pub const PrivateDict = struct { data: []const u8, offset: usize };
+
+/// The Top DICT's charset offset, 0 (ISOAdobe) if absent; null if malformed.
+pub fn charsetOffset(self: CffTable) ?usize {
+    const d: Dict = .{ .table_data = self.top_dict_data };
+    const v = (d.getInt(.charset) catch return null) orelse 0;
+    return if (v < 0) null else @intCast(v);
+}
+
+/// The Private DICT `glyph` uses: the Top DICT's, or its FD's for a CID
+/// font; null without one or when its range is out of the table.
+pub fn privateDictForGlyph(self: CffTable, glyph: GlyphIndex) ?PrivateDict {
+    const dict: Dict = if (self.fd_array_index) |fd_array| .{ .table_data = fd_array.get(self.getFdIndexForGlyph(glyph)) } else .{ .table_data = self.top_dict_data };
+    var priv: [2]i32 = undefined;
+    if ((dict.getInts(.private, &priv) catch return null) != 2) return null;
+    if (priv[0] < 0 or priv[1] < 0) return null;
+    const size: usize = @intCast(priv[0]);
+    const offset: usize = @intCast(priv[1]);
+    if (offset > self.table_data.len or size > self.table_data.len - offset) return null;
+    return .{ .data = self.table_data[offset..][0..size], .offset = offset };
+}
+
 pub fn getCharString(self: CffTable, glyph: GlyphIndex) []const u8 {
     return self.charstrings_index.get(@intCast(@backingInt(glyph)));
 }
@@ -151,8 +183,8 @@ pub fn getGlobalSubr(self: CffTable, index: usize) []const u8 {
 }
 
 /// Decodes FDSelect's mapping of `glyph` to a Font DICT index. Formats
-/// 0 (a direct per-glyph array) and 3 (sorted ranges) are supported;
-/// format 4 is CFF2-only. Only meaningful when is_cid is true.
+/// 0 (a direct per-glyph array), 3 (sorted ranges) and CFF2's 4 (32-bit
+/// ranges); its FD is a byte, as FreeType keeps it (`cff_fd_select_get`).
 pub fn getFdIndexForGlyph(self: CffTable, glyph: GlyphIndex) u8 {
     const off = self.fdselect_offset orelse return 0;
     const data = self.table_data[off..];
@@ -171,6 +203,18 @@ pub fn getFdIndexForGlyph(self: CffTable, glyph: GlyphIndex) u8 {
             }
             break :blk data[3 + (lo - 1) * 3 + 2];
         },
+        4 => blk: {
+            const n_ranges = std.mem.readInt(u32, data[1..5], .big);
+            var lo: usize = 0;
+            var hi: usize = n_ranges;
+            while (lo < hi) {
+                const mid = lo + (hi - lo) / 2;
+                const first = std.mem.readInt(u32, data[5 + mid * 6 ..][0..4], .big);
+                if (first <= gid) lo = mid + 1 else hi = mid;
+            }
+            if (lo == 0) break :blk 0;
+            break :blk @truncate(std.mem.readInt(u16, data[5 + (lo - 1) * 6 + 4 ..][0..2], .big));
+        },
         else => 0,
     };
 }
@@ -183,7 +227,7 @@ pub fn getLocalSubrIndexForGlyph(self: CffTable, glyph: GlyphIndex) ?Index {
     const fd_array = self.fd_array_index orelse return self.local_subrs_index;
     const fd = self.getFdIndexForGlyph(glyph);
     const font_dict: Dict = .{ .table_data = fd_array.get(fd) };
-    return resolvePrivateSubrs(self.table_data, font_dict, false) catch null;
+    return resolvePrivateSubrs(self.table_data, font_dict, false, self.cff2) catch null;
 }
 
 test "CFF StreamLayout matches the actual spec header (4 bytes, no padding)" {

@@ -24,6 +24,7 @@ const timing: bench.Timing = .{ .min_ns = 5 * std.time.ns_per_ms, .batches = 9 }
 const Op = enum { dot, length, gemv, gemm, det, solve };
 
 pub fn run(io: Io, gpa: std.mem.Allocator) !void {
+    libs.sectionMark("inline");
     try bb.clock(io, "inline start");
     std.debug.print(
         \\

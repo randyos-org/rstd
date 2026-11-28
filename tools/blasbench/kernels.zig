@@ -6,6 +6,7 @@ const rstd = @import("rstd");
 const bench = @import("bench.zig");
 const bb = @import("blas_bench.zig");
 const obx86 = @import("obx86.zig");
+const tb = @import("libs/table.zig");
 const k2 = @import("kernels/level2.zig");
 const k3 = @import("kernels/level3.zig");
 const kg = @import("kernels/own_gemm.zig");
@@ -353,6 +354,7 @@ pub fn asmFor(comptime name: []const u8, comptime vortex: bool) ?struct { f: Fn(
 }
 
 pub fn level1(io: Io, gpa: std.mem.Allocator) !void {
+    tb.sectionMark("l1");
     try clock(io, "level 1 start");
     // x86_64 adds the selected core's own kernel, `core`
     const head = if (bb.arm)

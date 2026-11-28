@@ -212,17 +212,17 @@ test "relapack tgsyl: A R - L B = scale C, D R - L E = scale F and the transpose
 
 /// `σ_min(Z)` of `dtgsyl.f`'s (2), from `gesvd` in `f64` or `c64`.
 fn sigmaMin(comptime T: type, al: Allocator, g: Gen(T)) !f64 {
+    return kroneckerSigmaMin(T, al, g.m, g.n, g.a, g.m + Gen(T).ld.a, g.b, g.n + Gen(T).ld.b, g.d, g.m + Gen(T).ld.d, g.e, g.n + Gen(T).ld.e);
+}
+
+/// `σ_min` of the Kronecker form of `A R - L B`, `D R - L E` (`A`, `D`
+/// `m x m`, `B`, `E` `n x n`), in f64 (`Dif[(A, D), (B, E)]`).
+pub fn kroneckerSigmaMin(comptime T: type, al: Allocator, m: usize, n: usize, a: []const T, lda: usize, b: []const T, ldb: usize, d: []const T, ldd: usize, e: []const T, lde: usize) !f64 {
     const C = if (comptime isComplex(T)) types.Complex64 else f64;
-    const m = g.m;
-    const n = g.n;
     const k = m * n;
     const z = try al.alloc(C, 4 * k * k);
     defer al.free(z);
     @memset(z, scalar(C, 0));
-    const lda = m + Gen(T).ld.a;
-    const ldb = n + Gen(T).ld.b;
-    const ldd = m + Gen(T).ld.d;
-    const lde = n + Gen(T).ld.e;
     const to = struct {
         fn f(v: T) C {
             return if (comptime isComplex(T)) .init(@floatCast(v.re), @floatCast(v.im)) else @floatCast(v);
@@ -231,12 +231,12 @@ fn sigmaMin(comptime T: type, al: Allocator, g: Gen(T)) !f64 {
     for (0..n) |j| for (0..m) |i| {
         const r = i + m * j;
         for (0..m) |kk| {
-            z[r + 2 * k * (kk + m * j)] = to(g.a[i + kk * lda]);
-            z[k + r + 2 * k * (kk + m * j)] = to(g.d[i + kk * ldd]);
+            z[r + 2 * k * (kk + m * j)] = to(a[i + kk * lda]);
+            z[k + r + 2 * k * (kk + m * j)] = to(d[i + kk * ldd]);
         }
         for (0..n) |kk| {
-            z[r + 2 * k * (k + i + m * kk)] = ops.neg(C, to(g.b[kk + j * ldb]));
-            z[k + r + 2 * k * (k + i + m * kk)] = ops.neg(C, to(g.e[kk + j * lde]));
+            z[r + 2 * k * (k + i + m * kk)] = ops.neg(C, to(b[kk + j * ldb]));
+            z[k + r + 2 * k * (k + i + m * kk)] = ops.neg(C, to(e[kk + j * lde]));
         }
     };
     const s = try al.alloc(f64, 2 * k);

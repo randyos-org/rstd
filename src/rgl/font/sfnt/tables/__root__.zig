@@ -17,14 +17,19 @@ pub const Os2Table = @import("os2.zig").Os2Table;
 pub const FvarTable = @import("fvar.zig").FvarTable;
 pub const AvarTable = @import("avar.zig").AvarTable;
 pub const GvarTable = @import("gvar.zig").GvarTable;
+/// A glyph's `gvar` deltas at normalized coordinates.
+pub const gvar_deltas = @import("gvar_deltas.zig");
 pub const CvarTable = @import("cvar.zig").CvarTable;
 pub const HvarTable = @import("hvar.zig").HvarTable;
+/// An Item Variation Store's delta at normalized coordinates.
+pub const ivs_delta = @import("ivs_delta.zig");
 pub const VvarTable = @import("vvar.zig").VvarTable;
 pub const MvarTable = @import("mvar.zig").MvarTable;
 pub const StatTable = @import("stat.zig").StatTable;
 
 const cff = @import("cff/__root__.zig");
 pub const CffTable = cff.CffTable;
+pub const cff2 = cff.cff2;
 pub const CffError = cff.CffError;
 pub const CharstringError = cff.CharstringError;
 

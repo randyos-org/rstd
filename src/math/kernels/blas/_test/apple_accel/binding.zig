@@ -48,7 +48,8 @@ test "load binds the CBLAS table on macOS, and nothing elsewhere" {
 /// `vecLib.framework` `libBLAS.tbd` and `libLAPACK.tbd` (MacOSX11.3, 12.3 and
 /// 13.3.sdk, <https://github.com/alexey-lysiuk/macos-sdk> at 896cd40d; arm64
 /// and x86_64 list the same). Every field but `cblas_i?amin` is there, each
-/// `?potrf_` also as `?potrf`; 13.3 adds each with `$NEWLAPACK` and
+/// LAPACK one (`?potrf_`, `?getrf_`, `?getrs_`) also without its underscore;
+/// 13.3 adds each with `$NEWLAPACK` and
 /// `$NEWLAPACK$ILP64`, LAPACK's without the underscore. None has
 /// `BLASSetThreading` (macOS 15+). Re-derive from a newer SDK's `.tbd`s
 /// rather than editing by hand.
@@ -83,8 +84,8 @@ test "macOS 11 and 12 bind the classic 32-bit names" {
     for ([_]bool{ false, true }) |lp64| {
         const b = bindBlas(&old, lp64) orelse return error.TestUnexpectedResult;
         try zigstd.testExpectTrue(b == .lp64);
-        // 158 fields, less the four `i?amin`
-        try zigstd.testExpectEqual(@as(usize, 154), b.lp64.count());
+        // 166 fields, less the four `i?amin`
+        try zigstd.testExpectEqual(@as(usize, 162), b.lp64.count());
         try zigstd.testExpectEqualStrings("cblas_dgemm", b.lp64.name(lp64Names, .cblas_dgemm).?);
         try zigstd.testExpectEqualStrings("catlas_daxpby", b.lp64.name(lp64Names, .catlas_daxpby).?);
         try zigstd.testExpectEqualStrings("zpotrf_", b.lp64.name(lp64Names, .zpotrf_).?);
@@ -100,13 +101,13 @@ test "macOS 13.3 binds ILP64, or the new 32-bit names" {
     const new: RecordedAccelerate = .{ .new = true };
     const ilp = bindBlas(&new, false) orelse return error.TestUnexpectedResult;
     try zigstd.testExpectTrue(ilp == .ilp64);
-    try zigstd.testExpectEqual(@as(usize, 154), ilp.ilp64.count());
+    try zigstd.testExpectEqual(@as(usize, 162), ilp.ilp64.count());
     try zigstd.testExpectEqualStrings("cblas_dgemm$NEWLAPACK$ILP64", ilp.ilp64.name(ilp64Names, .cblas_dgemm).?);
     try zigstd.testExpectEqualStrings("catlas_daxpby$NEWLAPACK$ILP64", ilp.ilp64.name(ilp64Names, .catlas_daxpby).?);
     try zigstd.testExpectEqualStrings("dpotrf$NEWLAPACK$ILP64", ilp.ilp64.name(ilp64Names, .dpotrf_).?);
     const lp = bindBlas(&new, true) orelse return error.TestUnexpectedResult;
     try zigstd.testExpectTrue(lp == .lp64);
-    try zigstd.testExpectEqual(@as(usize, 154), lp.lp64.count());
+    try zigstd.testExpectEqual(@as(usize, 162), lp.lp64.count());
     try zigstd.testExpectEqualStrings("cblas_dgemm$NEWLAPACK", lp.lp64.name(lp64Names, .cblas_dgemm).?);
     try zigstd.testExpectEqualStrings("spotrf$NEWLAPACK", lp.lp64.name(lp64Names, .spotrf_).?);
     // a library with none of it

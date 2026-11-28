@@ -11,7 +11,14 @@ pub const stderr_writer_vtable: Io.Writer.VTable = .{
 };
 
 fn stderrDrain(w: *Io.Writer, data: []const []const u8, splat: usize) Io.Writer.Error!usize {
-    return w.consume(console.writeSplat(state.con_out, w.buffered(), data, splat));
+    return w.consume(writeSplat(w.buffered(), data, splat));
+}
+
+/// Stderr bytes to `con_out`, and to `con_err` when it is a console of its
+/// own; the bytes written.
+pub fn writeSplat(header: []const u8, data: []const []const u8, splat: usize) usize {
+    if (state.con_err) |err| _ = console.writeSplat(err, header, data, splat);
+    return console.writeSplat(state.con_out, header, data, splat);
 }
 
 pub fn lockStderr(userdata: ?*anyopaque, terminal_mode: ?Io.Terminal.Mode) Io.Cancelable!Io.LockedStderr {

@@ -888,6 +888,7 @@ allows.
   `lauu2_[UL].c` and `zlauu2_[UL].c` are loops in upstream order (`scal`, then `dot` and
   `gemv`), not the reference's (`dot` and `gemv` with `beta`). Threaded, `lauum_[UL]_parallel.c`:
   blocks of half `n` rounded up to `unroll_n`, at most `GEMM_Q` (`:91`), down to `2 * unroll_n`.
+  Each `herk` and `trmm` takes at most the workers its public entry point would, where upstream gives each the whole count (measured, [#841](https://github.com/randyos-org/rstd/issues/841)); the bits never depend on the workers.
 - **`trtrs`** (`triangular.zig`): `trtrs_single.c` and `ztrtrs_single.c`, `trsm` through the
   driver, `trsv` for one right-hand side; `trtrs_parallel.c` is that `trsm` on threads. It
   takes `trans` `r`, as upstream does, and checks its arguments in the reference's order
@@ -913,8 +914,11 @@ allows.
   factored recursively; then for each block the caller updates the next block's columns
   (rounded up to whole `unroll_n` panels) and factors that block, while the other workers
   update the rest in chunks cut at panel edges (`inner_basic_thread`), each on packing space
-  allocated before the tasks start (`threading.team`). Upstream sizes its blocks by its thread
-  count (`FORMULA1`, `FORMULA2`, `:527`), which would change the bits; here they are
+  allocated before the tasks start (`threading.team`). With no columns past the next block, as
+  at the last block of each level, every worker updates in chunks, one per `team_grain` of
+  the update, and the next block recurses after them ([#839](https://github.com/randyos-org/rstd/issues/839)),
+  where the caller alone did both. Upstream sizes its blocks by its thread count (`FORMULA1`,
+  `FORMULA2`, `:527`), which would change the bits; here they are
   `getrf_single.c`'s, and every column gets the serial kernel calls, so the factors are the
   serial ones. The closing interchanges, threaded upstream, are serial.
 - **`getrs`** (`lu.zig`): `getrs_single.c` and `zgetrs_single.c`, which are `xGETRS`: the
@@ -945,9 +949,12 @@ allows.
   `dgebak.f`, which faer lacks), `trevc.zig` (Reference-LAPACK's `dtrevc3.f`, `ztrevc3.f`
   and `dlaln2.f`, whose scaling faer lacks), and `evd.zig` (`evd/mod.rs`, with `syevd`,
   `syev` and `geev`). Faer's `rayon` parallelism becomes rstd's: the fused bidiagonalization pass
-  splits by column chunks (independent columns, so the same bits at any worker count); the
+  splits by column chunks (independent columns, so the same bits at any worker count), each
+  column in `@Vector`s with faer's four partial sums (`bidiag_fused.zig`, T247); the
   fused tridiagonalization and Hessenberg passes, whose threads each sum a partial
-  product, run serially (faer's `Par::Seq` path), so no sum depends on the worker count;
+  product, run in chunks of columns that `symv`'s and `gemv`'s thread rules fix by size alone,
+  each chunk's row sums into a partial vector folded in chunk order (T251), so no sum depends
+  on the worker count;
   the products thread inside the BLAS; and divide-and-conquer's two halves run in turn, as
   rstd's threading splits flat ranges, not task trees.
 - **`gesvd`, `gesdd`** (`svd.zig`): `dgesvd.f`'s and `dgesdd.f`'s arguments, jobs (`Job`:
@@ -1054,6 +1061,15 @@ allows.
   implements, run on `Aᴴ` (LQ of `A` is QR of `Aᴴ`), with the reference's storage (`conj(v)` in
   each row, `tau` its own). No libflame code is ported. As faer's `geqrf`, a complex `L`'s
   diagonal stays complex (`tau` is real instead).
+- **`gerqf`, `orgrq`, `ormrq`** (`rq.zig`): `gelqf`, `orglq` and `ormlq` on `J A J`, `J` the reversal: `J A J = (J R J)(J Q J)` is an LQ, and its reflections and `tau`s, reversed, are the reference's (`dgerqf.f`).
+- **`ggqrf`, `ggrqf`** (`gqr.zig`): `dggqrf.f` and `dggrqf.f` over them: `geqrf`, `ormqr`, `gerqf`, or `gerqf`, `ormrq`, `geqrf`.
+- **`geequ`, `laqge`** (`equilibrate.zig`): `dgeequ.f` and `dlaqge.f`; a zero row or column is `geequ`'s error (the reference's `INFO > 0`), `laqge` returns the `Equilibration` it applied (`EQUED`).
+- **`gesvx`** (`gesvx.zig`): `dgesvx.f` over rstd's `geequ`, `laqge`, `getrf`, `gecon`, `getrs` and `gerfs`; its `LuSolveReport` carries `RCOND`, `RPVGRW` and the reference's `INFO > 0` (the first zero pivot, or `rcond` below `eps`) as fields, not errors, as `getrf` returns its zero pivot.
+- **`stebz`** (`stebz.zig`, `laebz.zig`): `dstebz.f` over `dlaebz.f`'s scalar loop (`ILAENV(1, 'DSTEBZ')` is 1, so the vectorized one never runs); 0-based `iblock` and `isplit` (one past each block), the reference's `INFO` 1 to 3 as `BisectedEigenvalues`' flags and `INFO = 4` as `IntervalTooSmall`.
+- **`stein`** (`stein.zig`, `lagtf.zig`, `laruv.zig`): `dstein.f` and `zstein.f` over `dlagtf.f`, `dlagts.f`'s `JOB = -1` and `dlarnv.f`'s uniform draws from `dlaruv.f`'s generator (its multiplier table copied), so each iteration starts where the reference's does; the unconverged columns' count is the result, their 0-based indices in `ifail`.
+- **`ormtr`, `unmtr`** (`ormtr.zig`): `dormtr.f` over `ormqr` (lower) and `ormql` (upper), the latter `ormqr` on `J A J`'s reflections, `tau` reversed and `C` reversed along the side (`ql.zig`), with the reversal shared with `rq.zig` (`reversal.zig`).
+- **`syevx`, `heevx`** (`syevx.zig`): `dsyevx.f` over `sytrd`, `stebz`, `stein` and `ormtr`, with its scaling (`ISCALE`); every eigenvalue with `abstol <= 0` by the QR algorithm (`DSTERF`, `DSTEQR` in the reference), `Q` applied by `ormtr` rather than formed by `DORGTR`; the reference's `INFO > 0` as `SelectedEigenpairs`' fields; `ifail` follows the sorted columns, where `dsyevx.f` swaps its entries as if they were per column.
+- **`gglse`, `ggglm`** (`gls.zig`): `dgglse.f` and `dggglm.f` over `ggrqf` and `ggqrf`, with 3.12.0's scaling of `A`, `B` and the right-hand sides by powers of two into `[smlnum, bignum)`; each rank deficiency (the reference's `INFO` 1 and 2) is its own error.
 - **Not positive definite:** `potrf`, `potf2` and `pbtrf` return `error.NotPositiveDefinite`
   without the failing minor's order (user, 2026-11-16,
   [Z13](https://github.com/randyos-org/rstd/issues/314)): unlike `getrf`, they stop with half a
@@ -1416,7 +1432,7 @@ M16 (2026-11-12): pffft's lane shuffles, for its FFT kernels ([#65](https://gith
 
 ### Sparse matrices
 
-`rstd.math.kernels.sparse` (`src/math/kernels/sparse/`, also `rstd.math.linalg.sparse`; [#610](https://github.com/randyos-org/rstd/issues/610)), T150 ([#84](https://github.com/randyos-org/rstd/issues/84)): the 2025 linear-algebra discussions, as corrected on review (Randy ChatGPT discussions). The iterative solvers `cg` and `gmres` are still stubs ([#85](https://github.com/randyos-org/rstd/issues/85)).
+`rstd.math.kernels.sparse` (`src/math/kernels/sparse/`, also `rstd.math.linalg.sparse`; [#610](https://github.com/randyos-org/rstd/issues/610)), T150 ([#84](https://github.com/randyos-org/rstd/issues/84)): the 2025 linear-algebra discussions, as corrected on review (Randy ChatGPT discussions). The iterative solvers: `cg` and `bicgstab`, from faer, and restarted `gmres` and `minres`, from SciPy ([#161](https://github.com/randyos-org/rstd/issues/161), [#162](https://github.com/randyos-org/rstd/issues/162)).
 
 - **Scope.** The kernels a sparse SQP solver needs, not the Sparse BLAS interface: `A x` and `Aᵀ y` (`mulVec`, all eight `Trans` letters), `A B` with `B` dense (`mulDense`), sparse `axpy`, `dot` and `dotc` against a dense vector (`SparseVector`, a column's view), `scal`, submatrix extraction (`sub`, `selectCols`), `transpose` and `ctranspose`, symbolic and numeric `spgemm`, and triangular solves with sparse `L` and `U` (`solveTriangular`). NIST's Sparse BLAS reference calls no dense BLAS, so the dense kernels are not reused; only the BLAS's threading is.
 - **Storage: CSC (`CompressedColumns`).** `u32` row indices, ascending and unique within each column, and `n + 1` `u32` column starts; explicit zeros may be stored. Constructors narrow with `error.TooLarge`. `Triplets.toCompressedColumns` sorts stably by row, then by column, and sums duplicates in insertion order; `fromDense` drops entries of magnitude at most `drop_below`. `CompressedRows` is the row-major twin: the CSC of `A` is the CSR of `Aᵀ`, the same arrays (`asRowsOfTranspose`, `asColumnsOfTranspose`), and `CompressedRows.mulVec` is the CSC one on that view with the transpose flipped.
@@ -1504,9 +1520,9 @@ routine and matches the reference; `apple_accel.zig` binds it and routes to it.
   `ACCELERATE_NEW_LAPACK`, `ACCELERATE_LAPACK_ILP64`,
   <https://developer.apple.com/documentation/macos-release-notes/macos-13_3-release-notes>).
   The spellings are ours, checked by `_test/apple_accel/binding.zig` on the M6 ("the 32-bit table binds
-  the new names first"). macOS 27 binds 150 of the `Table`'s 154 CBLAS fields: there is no
+  the new names first"). macOS 27 binds 158 of the `Table`'s 162 fields: there is no
   `cblas_i?amin` (seen on the M6; no SDK since 11.3 lists it). `axpby` is
-  `catlas_?axpby`. LAPACK's `?potrf_` is bound as `dpotrf$NEWLAPACK$ILP64` or
+  `catlas_?axpby`. LAPACK's `?potrf_` (and `?getrf_`, `?getrs_`) is bound as `dpotrf$NEWLAPACK$ILP64` or
   `dpotrf_$NEWLAPACK$ILP64` (and the 32-bit forms, then the classic `dpotrf_`); the 13.3 SDK
   lists the first. The fallbacks for macOS before 13.3 (zfls supports 11.0), which no Mac here
   runs, are tested with recorded inputs: `bindBlas` against the MacOSX11.3, 12.3 and 13.3 SDKs'
@@ -1522,8 +1538,8 @@ routine and matches the reference; `apple_accel.zig` binds it and routes to it.
   <https://developer.apple.com/documentation/accelerate/blassetthreading(_:)>). One thread cost `gemm` 1.15x at 2000 (our timing for 72b2efc; no results file kept).
   Rstd's workers thread it instead: above a routine's threshold a routed call splits into parts
   of its output fixed by the problem size, one single-threaded Accelerate call each
-  ([`threading.md`](../kernels/blas/threading.md#vendor-backends) has which routines and why). The split's
-  speed against one Accelerate call is untimed (T05).
+  ([`threading.md`](../kernels/blas/threading.md#vendor-backends) has which routines and why). On the
+  M6 one call ran level 3 as fast as its parts or faster on nearly every row at 1 and 12 workers, so arm64 makes one call there ([#729](https://github.com/randyos-org/rstd/issues/729)); level 2 makes one call there to 8 MB of `A` and splits past it, where the parts gain ([#838](https://github.com/randyos-org/rstd/issues/838)); x86_64's split is untimed (T05).
 - **Loading and the off switch.** `blas.init` loads it (`apple_accel.start`), since `setenv` is
   not thread-safe ("need not be thread-safe", POSIX.1-2024,
   <https://pubs.opengroup.org/onlinepubs/9799919799/functions/setenv.html>), unless `RSTD_BLAS_ACCELERATE` is 0 (`Config.accelerate`).
@@ -1536,21 +1552,24 @@ routine and matches the reference; `apple_accel.zig` binds it and routes to it.
 - **Routed:** `copy`, `swap`, `scal`, `dot`, `dotc`, `dsdot`, `sdsdot`, `nrm2`, `asum`, `rot`,
   `rotm`, `axpy`, `axpby`; `gemv`, `gbmv`, `ger`, `gerc`, the real `symv`, `sbmv`, `spmv`,
   `syr`, `spr`, `syr2`, `spr2`, the Hermitian `hemv`, `hbmv`, `hpmv`, `her`, `hpr`, `her2`,
-  `hpr2`, and the six triangular routines; all of level 3, less what is kept for speed (below);
+  `hpr2`, and the six triangular routines; all of level 3; less, in each level, what is kept for
+  speed (below);
   LAPACK's `potrf` (its `INFO` becomes rstd's error, 0-based in `potrfChecked`; after a failure
-  `A` holds Accelerate's partial factor).
+  `A` holds Accelerate's partial factor); on arm64 `getrf`, `getrs` but for `z` (rstd's threaded solve wins there), and with them `gesv` ([#840](https://github.com/randyos-org/rstd/issues/840): Accelerate's single-threaded `getrf` ran 1.2 to 5.8 times OpenBLAS on the M6), `IPIV` 0-based on both sides, with the ILP64 table only, not for an `A` holding NaN or an infinity (Accelerate's `i?amax` does not take the first NaN, which rstd's pivot search does), nor for `getrs` a `B` that is not finite or a tiny pivot, as `trsm`.
   Routed, `sdot` is `cblas_dsdot` rounded, and `snrm2` and `scnrm2` the root of `dsdot(x, x)`,
   so `s` sums in `f64` as rstd's kernels do. `d` and `z` `nrm2`, and `asum`, take `incx > 0` only.
-- **Kept for speed (arm64).** Level 1 goes by routine, letter and stride, one table
-  (`apple_accel/quirks.zig`'s `sends`): Accelerate gets every call, the unit-stride ones only (every
-  stride 1), or none. A slot is kept where rstd's kernel ran faster than Accelerate past noise
-  (ratio under 0.97) in the flyoff of 2026-10-29
+- **Kept for speed.** Per architecture, in `apple_accel/speed.zig`. Level 1 goes by routine,
+  letter and stride (`sends`): Accelerate gets every call, the unit-stride ones only (every
+  stride 1), the strided ones only, or none. Levels 2 and 3 go by routine and letter (`kept`).
+  Rerun timings revise the tables, not the code; untimed slots stay routed.
+- **Kept for speed, arm64.** Level 1 here, levels 2 and 3 in the next item. A slot is kept where rstd's kernel ran faster than
+  Accelerate past noise (ratio under 0.97) in the flyoff of 2026-10-29
   ([`results-flyoff-macos-aarch64.md`](../../../tools/blasbench/results/results-flyoff-macos-aarch64.md#accelerate-routing),
   routed against `--rstd-accelerate=0`, strided at 2); a slot within noise or faster stays
-  routed. Rerun timings revise the table, not the code. Routed over rstd's own:
+  routed. Routed over rstd's own:
   - `nrm2`, none: `dznrm2` 0.06 to 0.21, `dnrm2` 0.25 to 0.48, `snrm2` and `scnrm2` 0.53 to 0.92.
   - `sdot`, none: 0.41 to 0.50 through `cblas_dsdot`, 0.97 strided. `dsdot` and `sdsdot`, with
-    a kernel of their own the flyoff did not time, stay routed.
+    a kernel of their own the flyoff did not time, are kept since [#844](https://github.com/randyos-org/rstd/issues/844) (below).
   - `scopy`, `dcopy`, unit only: 0.53 and 0.52 strided; `ccopy` and `zcopy` strided are 2.0 and
     1.8.
   - `swap`, unit only: 0.90, 0.90, 0.94, 0.96 strided.
@@ -1559,7 +1578,36 @@ routine and matches the reference; `apple_accel.zig` binds it and routes to it.
   - `csrot`, unit only: 0.88 strided; `zdrot` strided is 0.97, noise.
 
   Left routed though slower: contiguous `zcopy` at 4M elements (0.83, where 64K is 4.2), a size
-  limit no row places. x86_64 has no such data and keeps every call.
+  limit no row places.
+- **Kept for speed, arm64, levels 2 and 3.** The M6 sweep of 2026-11-25 ([#712](https://github.com/randyos-org/rstd/issues/712), [#726](https://github.com/randyos-org/rstd/issues/726)), by x86_64's rule (below) at `--threads=12` (`rstd/ob alone`): `gbmv` (medians 0.23 to 0.36; it is not split, so one Accelerate call against rstd's workers), complex `ger` (0.78 and 0.88; `gerc` follows it) and the real `symv` (0.27, 0.30). `sger` and `dger` lost at 12 (0.77, 0.74) while their split slowed them; with level 2 one call to 8 MB ([#838](https://github.com/randyos-org/rstd/issues/838)) they are routed again (12 threads 0.97 and 1.07, one thread 1.32 and 1.77). `gemv`, `trsv` and level 3 stay routed (medians 0.97 to 4.6, the one-thread ones 1.02 and over).
+- **Kept for speed, arm64, the rest.** The slots the flyoff and #712's sweep left, timed on the M6 on 2026-11-27 ([#844](https://github.com/randyos-org/rstd/issues/844)) by the `accroute` section as on x86_64 below, twice at 12 threads and twice at one, by #772's rule. Kept, routed over rstd's own at 12 threads:
+  - Level 1: `dsdot` and `sdsdot` (0.64 and 0.71 unit, 0.89 and 0.90 strided). Routed: `rotm` (1.05 to 6.7) and `axpby` (1.00 to 7.4; the real strided ones 1.00, one-thread 1.00).
+  - Level 2: `hbmv` (0.43, 0.38), `hpmv` (0.26, 0.21), `sbmv` (0.53, 0.62), `spmv` (0.52, 0.38); `syr` (0.80, 0.94), `her` (0.34, 0.27), `spr` (0.46, 0.48), `hpr` (0.50, 0.49); `ssyr2` (0.84), `her2` (0.38, 0.36), `spr2` (0.68, 0.56), `hpr2` (0.56, 0.44); `ztrmv` (0.81), `tbmv` (0.36 to 0.57), complex `tpmv` (0.58, 0.52). Routed: `hemv` (1.16, 1.15), `dsyr2` (1.15), `tbsv` (0.99 to 1.22), `tpsv` (1.09 to 1.42), real `tpmv` (0.99, 1.15), the other `trmv` (1.82 to 6.5).
+  - Level 3: all routed, `syr2k` (1.48 to 3.95), `hemm` (2.20, 1.35), `herk` (2.65, 1.35), `her2k` (2.47, 1.48).
+
+  As on x86_64, a level-2 slot's rows spread widely: Accelerate wins at the smallest order and loses past it, where rstd's threads take the call.
+- **Kept for speed, x86_64.** The Intel Mac's sweep of 2026-11-26
+  ([#772](https://github.com/randyos-org/rstd/issues/772)): each slot's median over its rows of
+  `rstd/ob` routed (`--threads=6`) over the same with `--rstd-accelerate=0`, in one process each;
+  kept under 0.97, and a slot within noise (0.97 to 1.03) kept if its one-thread median is
+  under 0.97. Kept, routed over rstd's own:
+  - Level 1: every `nrm2` (0.15 to 0.71); `sscal` (0.52, 0.97 unit), `zdot` and `zdotc` (0.90,
+    0.97 strided), complex `axpy` (0.71 and 0.76; `zaxpy` unit 1.03, one-thread 0.94).
+  - Level 1 strided only: `scopy` 0.59, `dcopy` 0.75, `ccopy` 0.96, `dscal` 0.55, `cswap` 0.64,
+    `dswap` 0.95, `saxpy` 0.44, `zasum` 0.50, `drot` 0.96.
+  - Level 1 unit only: `cscal` 0.55, `zscal` 0.92, `casum` 0.96, `srot` 0.90.
+  - Level 2: `gemv` both ways (0.51 to 1.01, the one-thread runs under 0.92), `gbmv` (0.37 to
+    0.61), `ger` (0.79 to 1.03; `gerc` follows it), the real `symv` (0.66, 0.70), complex `trsv`
+    (0.60, 0.48).
+  - Level 3: `gemm` (0.26 to 0.94), `symm` but `dsymm` (0.27 to 0.94; `dsymm` is 1.21), `syrk`
+    (0.11 to 0.46), complex `trmm` and `trsm` (0.33 to 0.46; real ones
+    1.05 to 3.71).
+- **Kept for speed, x86_64, the rest.** The slots #772 left, timed on the Intel Mac on 2026-11-27 ([#797](https://github.com/randyos-org/rstd/issues/797)) by the bench's `accroute` section: rstd's public routine with routing on and off in one process, the two calls' batches in turn, twice at 6 threads and twice at one; each slot's median of routed over own, by #772's rule. Kept, routed over rstd's own:
+  - Level 1 strided only: `saxpby` 0.47. Routed: `rotm` (1.14 to 6.4), `dsdot` and `sdsdot` (0.99 and 1.00 unit, one-thread 1.00; 1.21 and 1.19 strided), the other `axpby` (1.04 to 4.0).
+  - Level 2: `hemv`, `hbmv`, `hpmv` (0.30 to 0.35); `sbmv` (0.66, 0.62), `spmv` (0.88, 0.65); `syr` (0.84, 0.82), `her` (0.77, 0.82), `sspr` (0.76), `hpr` (0.73, 0.71); `syr2` (0.70, 0.75), `her2` (0.60, 0.60), `sspr2` (0.96), `hpr2` (0.57, 0.64); `ztrmv` (0.81); `tbmv` (0.37 to 0.67), `tpmv` (0.32 to 0.77); complex `tbsv` (0.67, 0.59) and `tpsv` (0.66, 0.68). Routed: `dspr` (0.97, one-thread 1.12), `dspr2` (0.98, one-thread 1.71), `strmv`, `dtrmv`, `ctrmv` (1.65, 1.42, 1.12), real `tbsv` and `tpsv` (1.28 to 1.44).
+  - Level 3: `syr2k` (0.11 to 0.84), `hemm` (0.28, 0.29), `herk` and `her2k` (0.11 to 0.12).
+
+  Each level 2 slot's rows spread widely: routing wins at the smallest order (to 16 times rstd's rate for `dsyr` at n = 64) and loses past it, as rstd's threads take the larger ones while Accelerate runs single-threaded in rstd's process; the medians weigh the three orders alike, as #772's did.
 - **Not routed:** what CBLAS lacks: `sum`, the extremes, `axpyc`, `rotg`, `zrotg`, `rotmg`, the
   complex symmetric level 2, the conjugated-`x` letters `o` to `d`, a complex `r`, `HEMVREV`'s
   `v` and `m`; `i?amax`, which does not take the first NaN.
@@ -1966,7 +2014,7 @@ interface mirrors an upstream one with a CBLAS row-major branch (`ger`'s `gerv_k
 | `blas2/` | `gemv` (its x86_64 drivers in `driver.zig`, `driver_real.zig`, `driver_complex.zig`), `ger`, `symv`, `hemv` directories; `interface.zig`, `triangular.zig` (drivers in `triangular_driver.zig`), `banded.zig`, `symmetric.zig`; `buffers.md`, `coverage.md` |
 | `blas3/` | one directory per routine; `interface.zig`, `driver.zig`; `gemm/` holds the tile kernels, `params.zig`, `params_data/`, `notes.md`, `coverage.md` |
 | `ext/` | `bf16/` (bfloat16 and half kernels); `interface.zig`; `geadd/`, `matcopy.zig` (the `omatcopy` and `imatcopy` kernels), `laswp/` and `neg/` (their kernels over the gemm tile, in `kernel.zig`) |
-| `../lapack/` | LAPACK over these routines: `cholesky.zig` (`potrf`, `potf2`, `potrs`, `potri`), `lu.zig` (`getrf`, `getrs`, `gesv`, `getri`), `gbtrf.zig` (`gbtrf`), `triangular.zig` (`trtri`, `trti2`, `lauum`, `lauu2`, `trtrs`), `relapack.zig` with `relapack_sygst.zig` and `relapack_pbtrf.zig` (ReLAPACK's `sygst`, `hegst`, `pbtrf`, and under `-Drelapack` `potrf`, `getrf`, `trtri`, `lauum`), `sytrf.zig` (`sytrf`, `hetrf` and `_rook` forms) over `indefinite.zig`'s and `indefinite_panel.zig`'s kernels, `trsyl.zig` and `tgsyl.zig` over `sylvester.zig`'s, `laln2.zig`'s, `lasy2.zig`'s and `tgsy2.zig`'s; Reference-LAPACK's own: `norm.zig` (`lange`), `gecon.zig` (`gecon`) over `lacn2.zig` and `latrs.zig`, `schur.zig` (`hseqr`, `gees`), `trexc.zig` and `trsen.zig` over `laexc.zig`, `lsq.zig` (`gelsy`), `stebr.zig` (values-only divide and conquer, `xSTEBR`) over `laed8_br.zig`, `laed9_br.zig` and `laed4.zig`; `lq.zig` (`gelqf`, `orglq`, `ormlq`, libflame's method), `trevc.zig` (`trevc3`); shared: `interface.zig` (argument checks, vtable, thread rules), `Kept.zig` (one packing space for a routine's threaded level-3 calls), `auxiliary.zig` (`lascl`, `lartg`, `larfg`, `lapy2`, `laset` and the rest); faer's ports: `ops.zig`, `blas_calls.zig`, `householder.zig`, `qr.zig` (`geqrf`, `orgqr`, `ormqr`), `qr_pivot.zig` (`geqp3`), `qr_solve.zig` (`gels`), `bidiag.zig`, `bidiag_svd.zig` (with `bdsqr.zig`, `bidiag_secular.zig`, `bidiag_deflate.zig`), `svd.zig` (`gesvd`, `gesdd`), `tridiag.zig`, `tridiag_evd.zig`, `hessenberg.zig` (`gehrd`, `orghr`), `real_schur.zig`, `complex_schur.zig`, `balance.zig` (`gebal`, `gebak`), `evd.zig` (`syevd`, `syev`, `geev`) |
+| `../lapack/` | LAPACK over these routines: `cholesky.zig` (`potrf`, `potf2`, `potrs`, `potri`), `lu.zig` (`getrf`, `getrs`, `gesv`, `getri`), `gbtrf.zig` (`gbtrf`), `triangular.zig` (`trtri`, `trti2`, `lauum`, `lauu2`, `trtrs`), `relapack.zig` with `relapack_sygst.zig` and `relapack_pbtrf.zig` (ReLAPACK's `sygst`, `hegst`, `pbtrf`, and under `-Drelapack` `potrf`, `getrf`, `trtri`, `lauum`), `sytrf.zig` (`sytrf`, `hetrf` and `_rook` forms) over `indefinite.zig`'s and `indefinite_panel.zig`'s kernels, `trsyl.zig` and `tgsyl.zig` over `sylvester.zig`'s, `laln2.zig`'s, `lasy2.zig`'s and `tgsy2.zig`'s; Reference-LAPACK's own: `norm.zig` (`lange`), `gecon.zig` (`gecon`) over `lacn2.zig` and `latrs.zig`, `schur.zig` (`hseqr`, `gees`), `trexc.zig` and `trsen.zig` over `laexc.zig`, `lsq.zig` (`gelsy`), `stebr.zig` (values-only divide and conquer, `xSTEBR`) over `laed8_br.zig`, `laed9_br.zig` and `laed4.zig`; `lq.zig` (`gelqf`, `orglq`, `ormlq`, libflame's method), `rq.zig` (`gerqf`, `orgrq`, `ormrq` over it), `gqr.zig` (`ggqrf`, `ggrqf`), `gls.zig` (`gglse`, `ggglm`), `equilibrate.zig` (`geequ`, `laqge`), `trevc.zig` (`trevc3`); shared: `interface.zig` (argument checks, vtable, thread rules), `Kept.zig` (one packing space for a routine's threaded level-3 calls), `auxiliary.zig` (`lascl`, `lartg`, `larfg`, `lapy2`, `laset` and the rest); faer's ports: `ops.zig`, `blas_calls.zig`, `householder.zig`, `qr.zig` (`geqrf`, `orgqr`, `ormqr`), `qr_pivot.zig` (`geqp3`), `qr_solve.zig` (`gels`), `bidiag.zig`, `bidiag_svd.zig` (with `bdsqr.zig`, `bidiag_secular.zig`, `bidiag_deflate.zig`), `svd.zig` (`gesvd`, `gesdd`), `tridiag.zig`, `tridiag_evd.zig`, `hessenberg.zig` (`gehrd`, `orghr`), `real_schur.zig`, `complex_schur.zig`, `balance.zig` (`gebal`, `gebak`), `evd.zig` (`syevd`, `syev`, `geev`) |
 | `blas3/gemmt/` | `gemmt`'s tests; it runs the driver |
 | `_test/` | test-only code, wired by `_test/__root__.zig` (below) |
 | `unused/` | git-ignored, kept locally: kernels, slots and stubs no column-major Zig caller reaches (above) |
@@ -2228,7 +2276,7 @@ Questions decided once, with the reason, so they are not reopened without new ev
 | Interfaces | `_test/blas1/interface.zig`, `_test/blas2/interface.zig`, `_test/blas3/interface.zig` | argument errors and their order, quick returns |
 | LAPACK | `../lapack/_test/cholesky.zig`, `_test/lu.zig`, `_test/lu_solve.zig`, `_test/triangular.zig` and the others in each routine file | on every core, shrunk and own blocking: `potrf` of `A = L Lᴴ` from a known `L` (backward within `2 (n + 2)` ulps, forward loosely), the exact failing pivot for a negative, NaN or infinite element, nothing outside the triangle read or written; `potrs`'s residual within `8 (n + 2)` ulps of `L`, `Lᴴ` and `X` multiplied in magnitude, a NaN in `B` filling its column alone; `getrf` on square, tall and wide shapes (`P A` within `2 (min(m, n) + 2)` ulps of `L` and `U` multiplied in magnitude, `L` at most 1 in magnitude, `sqrt 2` complex), the first zero pivot with the factorization completed, NaN never singular, pivoting ties, NaN and infinite pivots, denormal pivots divided by; `getrs` for every `op`, its residual within `8 (n + 2)` ulps of `L`, `U` and `X` multiplied in magnitude, a NaN in `B` filling its column alone; `gesv` bit for bit `getrf` then `getrs`, singular before `B` is touched; `potri`'s `A X = I` within `32 (n + 2)` ulps of `A` and `X` multiplied in magnitude; `trtri`'s `A X = I` within `8 (n + 2)` ulps, both triangles and diagonals, a unit diagonal never read; `lauum`'s products within `2 (n + 2)` ulps, the complex diagonal exactly real; `trtrs` for every `op`, within `8 (n + 2)` ulps; each blocked routine's single and parallel algorithms, and the threaded ones (`potrf`, `potri`, `trtri`, `lauum`, `trtrs`, `getrf`'s lookahead, `getrs`, `gesv`) bit for bit one worker's at 2, 3 and 8, inline and on `Io.Threaded`; `potrf` through Accelerate on macOS; ReLAPACK's routines (`_test/relapack.zig`, `sytrf.zig`, `trsyl.zig`, `tgsyl.zig`, `gbtrf.zig`): `sytrf`, `hetrf` and the `_rook` forms, random and zero-diagonal, rebuilt as `L D Lᵀ` from LAPACK's format within `32 (n + 2)` ulps of `A` and the factors multiplied in magnitude, singular at a zero `D` block; `sygst`, `hegst` for every problem against `M X Mᴴ` within `32 (n + 2)` ulps; `pbtrf` within `2 (n + 2)` ulps of the factor and its transpose multiplied in magnitude, stopping at a negative or NaN pivot; `gbtrf`'s `P L U` within `2 (min(m, n) + 2)` ulps; `trsyl`'s residual within `32 (m + n + 2)` ulps for every `op` and sign on quasi-triangular input; ReLAPACK's `potrf`, `getrf`, `trtri`, `lauum` by `cholesky.zig`'s and the rest's checks, and with `-Drelapack` against OpenBLAS's within `64 n` ulps; the bits inline and on `Io.Threaded` |
 | LAPACK, faer | `../lapack/*.zig`, `../lapack/_test/*.zig` | on the selected core: `gesvd` and `gesdd` in the four precisions, every job, square, tall and wide (past `11 / 6`, and past 128 for divide and conquer), `A - U Σ Vᴴ`, `Uᴴ U - I` and `V Vᴴ - I` within faer's `test_svd` tolerance (`128 eps sqrt(8 max(m, n))`), `Σ` nonincreasing and the same for every job; faer's `test_special` (zero, ones, identity), rank deficient, scaled past `SMLNUM` and `BIGNUM`, a lone denormal; NaN and infinity; the argument errors; one worker's bits at 3 and 8; and the parts: `Q R = A`, `Uᴴ A V = B`, block reflections against single ones, Givens, faer's bidiagonal tests (`test_qr_algorithm`, `test_divide_and_conquer` at thresholds 4 and 8, `test_zink`, the deflation cases). QR: `Q R = A` and `Qᴴ Q - I` within `4 (m + n) eps` of `‖A‖`, square, tall, wide, rank deficient and a zero column; `ormqr` for both sides and `op`s and `orgqr` against one reflection at a time, with geqrf's `tau` and the reference's complex form; `gels` against a known least-squares or minimum-norm answer for `A` and `Aᴴ`, tall and wide, the residual in `B`'s trailing rows, an inconsistent system's `Aᴴ r` (`dqrt17.f`, Reference-LAPACK's threshold 30), rank deficient, zero, scaled, NaN. Eigen: `syevd` and `syev` for both triangles at faer's sizes and past 128, `A V - V Λ` and `Vᴴ V - I` within faer's `128 eps sqrt(8 n)`, values alone the same; faer's `test_special`, clustered, graded and Wilkinson matrices; OpenBLAS's `test_laed3_nan.c`; faer's tridiagonal tests (`test_evd_2_0` to `test_gh_82_mini`) through QR iteration and divide and conquer, and random, clustered, graded and zero tridiagonals; `Qᴴ A Q` tridiagonal and Hessenberg; `lahqr`'s `Z T Zᴴ = H` with standardized blocks; `geev`'s right and left residuals, unit vectors with a real largest entry, pairs positive first, on random, zero, identity, Jordan, rotation, companion and triangular matrices; balancing (`D⁻¹ Pᵀ A P D`, and `D M D⁻¹`'s eigenvalues to `M`'s scale); NaN, infinity, scaling and the argument errors; and one worker's bits at 3 and 8 for `geqrf` with `ormqr`, `syevd` and `geev` |
-| LAPACK, reference | `../lapack/_test/norm.zig`, `_test/balance.zig`, `_test/trexc.zig`, `lq.zig`, `lsq.zig`, `qr_pivot.zig` | on the selected core, the reference's own test ratios and thresholds (`TESTING/dtest.in`'s 30, `dec.in`'s 20): `gecon` within `dget06.f`'s ratio of `1 / (‖A‖ ‖A⁻¹‖)`, `latrs`'s scaled residual near overflow, `lange`'s norms at the range's ends; `gebal` on `dbal.in`'s cases (case 5's swap order, which 3.12.0's `dgebal.f` does not give, and case 13 past `f64`'s range checked only by `gebak` back) and `gebak` back; `trexc` every move with `dget36.f`'s residuals, `trsen`'s `s` and `sep` against the Kronecker operator; `gelqf`, `orglq`, `ormlq` by `dlqt01.f`, `dlqt03.f`; `geqp3` by `dqpt01.f`, `dqrt11.f`; `gelsy`'s rank and the SVD's minimum-norm solution; `gelqf` and `gelsy` give the same bits at 1, 3 and 8 workers |
+| LAPACK, reference | `../lapack/_test/norm.zig`, `_test/rq.zig`, `_test/gqr.zig`, `_test/gls.zig`, `_test/equilibrate.zig`, `_test/balance.zig`, `_test/trexc.zig`, `lq.zig`, `lsq.zig`, `qr_pivot.zig` | on the selected core, the reference's own test ratios and thresholds (`TESTING/dtest.in`'s 30, `dec.in`'s 20): `gecon` within `dget06.f`'s ratio of `1 / (‖A‖ ‖A⁻¹‖)`, `latrs`'s scaled residual near overflow, `lange`'s norms at the range's ends; `gebal` on `dbal.in`'s cases (case 5's swap order, which 3.12.0's `dgebal.f` does not give, and case 13 past `f64`'s range checked only by `gebak` back) and `gebak` back; `trexc` every move with `dget36.f`'s residuals, `trsen`'s `s` and `sep` against the Kronecker operator; `gelqf`, `orglq`, `ormlq` by `dlqt01.f`, `dlqt03.f`, and `gerqf`, `orgrq`, `ormrq` by `drqt01.f`, `drqt03.f`; `ggqrf`, `ggrqf` by `dgqrts.f`, `dgrqts.f`; `gglse`, `ggglm` by `dlsets.f`'s and `dglmts.f`'s residuals and scalings and the optimality conditions; `geequ` by `dchkeq.f`'s powers of ten and its zero row and column, `laqge`'s four outcomes exactly; `geqp3` by `dqpt01.f`, `dqrt11.f`; `gelsy`'s rank and the SVD's minimum-norm solution; `gelqf` and `gelsy` give the same bits at 1, 3 and 8 workers |
 | Ported suites | `_test/from_openblas/` | OpenBLAS's `blat1`, `blat2`, `blat3`, `utest`, `utest/test_extensions` |
 | Selection | `cpu/`, `cpu/_test/`, `cpu/detect/_test/` | decisions on synthetic `Caps`, served objects, names |
 | Initialization | `__root__.zig` | the handshake, `shutdown`, environment copies, racing threads |

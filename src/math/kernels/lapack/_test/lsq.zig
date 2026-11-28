@@ -1,4 +1,4 @@
-//! Tests of `../lsq.zig`.
+//! Tests of `../lsq.zig` and `../lss.zig`.
 
 const std = @import("std");
 const blas = @import("../../blas/__root__.zig");
@@ -10,6 +10,10 @@ const Allocator = std.mem.Allocator;
 const Mat = ops.Mat;
 const Float = types.Float;
 const gelsy = lroot.gelsy;
+const lss = @import("../lss.zig");
+
+/// The driver a case runs.
+const Driver = enum { gelsy, gelss, gelsd };
 
 // ---- tests -----------------------------------------------------------------------
 
@@ -40,9 +44,10 @@ fn problem(comptime T: type, al: Allocator, m: usize, n: usize, r: usize, nrhs: 
     return .{ .a = a, .b = b };
 }
 
-/// `gelsy` against the SVD's minimum-norm solution (`svd.zig`) cut at
-/// rank `r`: the rank exactly, `X` within `thresh n eps cond(A) ‖X‖`.
-fn gelsyCase(comptime T: type, al: Allocator, m: usize, n: usize, r: usize, nrhs: usize, s: Float(T), seed: u64) !void {
+/// A driver against the SVD's minimum-norm solution (`svd.zig`) cut at
+/// rank `r`: the rank exactly, `X` within `thresh n eps cond(A) ‖X‖`;
+/// `gelss`'s and `gelsd`'s singular values too.
+fn lsqCase(comptime T: type, al: Allocator, drv: Driver, m: usize, n: usize, r: usize, nrhs: usize, s: Float(T), seed: u64) !void {
     const F = Float(T);
     const eps = std.math.floatEps(F);
     const p = try problem(T, al, m, n, r, nrhs, s, seed);
@@ -79,36 +84,66 @@ fn gelsyCase(comptime T: type, al: Allocator, m: usize, n: usize, r: usize, nrhs
     const jpvt = try al.alloc(usize, n);
     defer al.free(jpvt);
     @memset(jpvt, 0);
+    const got_s = try al.alloc(F, k);
+    defer al.free(got_s);
     const rcond = 1000 * eps;
-    const rank = try gelsy(al, check.io, T, m, n, nrhs, p.a.slice(), p.a.ld, p.b.slice(), p.b.ld, jpvt, rcond);
+    const rank = switch (drv) {
+        .gelsy => try gelsy(al, check.io, T, m, n, nrhs, p.a.slice(), p.a.ld, p.b.slice(), p.b.ld, jpvt, rcond),
+        .gelss => try lss.gelss(al, check.io, T, m, n, nrhs, p.a.slice(), p.a.ld, p.b.slice(), p.b.ld, got_s, rcond),
+        .gelsd => try lss.gelsd(al, check.io, T, m, n, nrhs, p.a.slice(), p.a.ld, p.b.slice(), p.b.ld, got_s, rcond),
+    };
     try testing.expectEqual(r, rank);
+    // the given A's singular values: the reference's, scaled by `s`
+    if (drv != .gelsy) for (got_s, sv) |g, w| {
+        try testing.expect(@abs(g - s * w) <= thresh * @as(F, @floatFromInt(@max(m, n))) * eps * s * sv[0]);
+    };
     const cond = if (r > 0) sv[0] / sv[r - 1] else 1;
     const tol = thresh * @as(F, @floatFromInt(@max(m, n))) * eps * cond * @max(wmax, 1);
     for (0..nrhs) |c| for (0..n) |j| {
         const d = ops.abs(T, ops.sub(T, p.b.get(j, c), want.get(j, c)));
         if (!(d <= tol)) {
-            check.say("gelsy {s} {d} x {d} rank {d} scale {e}: X({d}, {d}) off by {e}, tolerance {e}\n", .{ @typeName(T), m, n, r, @as(f64, @floatCast(s)), j, c, @as(f64, @floatCast(d)), @as(f64, @floatCast(tol)) });
+            check.say("{t} {s} {d} x {d} rank {d} scale {e}: X({d}, {d}) off by {e}, tolerance {e}\n", .{ drv, @typeName(T), m, n, r, @as(f64, @floatCast(s)), j, c, @as(f64, @floatCast(d)), @as(f64, @floatCast(tol)) });
             return error.TestUnexpectedResult;
         }
     };
 }
 
-test "lapack gelsy: the minimum-norm solution and rank, full and deficient rank, tall and wide, scaled near the range's ends" {
+test "lapack gelsy, gelss, gelsd: the minimum-norm solution and rank, full and deficient rank, tall and wide, scaled near the range's ends" {
     const al = testing.allocator;
-    inline for (test_types) |T| {
+    inline for (test_types) |T| for ([_]Driver{ .gelsy, .gelss, .gelsd }) |d| {
         const F = Float(T);
         const cases = [_][4]usize{ .{ 1, 1, 1, 1 }, .{ 6, 4, 4, 2 }, .{ 4, 6, 4, 1 }, .{ 8, 6, 3, 2 }, .{ 6, 8, 3, 3 }, .{ 20, 15, 10, 4 }, .{ 40, 40, 25, 2 } };
         for (cases, 0..) |c, i| {
-            try gelsyCase(T, al, c[0], c[1], c[2], c[3], 1, i * 11 + 1);
+            try lsqCase(T, al, d, c[0], c[1], c[2], c[3], 1, i * 11 + 1);
         }
         // past smlnum and bignum, so A and B are scaled and back; normal
         // entries, so the rank survives. Not at an extended type, whose
         // `nrm2` is `nrm2.S`'s unscaled sum of squares and underflows there.
         if (comptime !types.isExtended(F)) {
-            try gelsyCase(T, al, 8, 6, 3, 2, std.math.floatMin(F) / std.math.floatEps(F) / 64, 3);
-            try gelsyCase(T, al, 6, 8, 4, 2, std.math.floatMax(F) / 4096, 5);
+            try lsqCase(T, al, d, 8, 6, 3, 2, std.math.floatMin(F) / std.math.floatEps(F) / 64, 3);
+            try lsqCase(T, al, d, 6, 8, 4, 2, std.math.floatMax(F) / 4096, 5);
         }
-    }
+    };
+}
+
+test "lapack gelss, gelsd: a zero A, no right-hand sides, empty, bad arguments" {
+    const al = testing.allocator;
+    inline for (.{ f64, types.Complex32 }) |T| inline for (.{ lss.gelss, lss.gelsd }) |f| {
+        var a: [6]T = @splat(ops.zero(T));
+        var b: [3]T = @splat(ops.one(T));
+        var s: [2]Float(T) = @splat(1);
+        try testing.expectEqual(0, try f(al, check.io, T, 3, 2, 1, &a, 3, &b, 3, &s, 0.01));
+        for (b) |v| try testing.expect(ops.isZero(T, v));
+        try testing.expectEqualSlices(Float(T), &.{ 0, 0 }, &s);
+        // no `B`: the values alone
+        var c = [_]T{ ops.scalar(T, 3), ops.zero(T), ops.zero(T), ops.scalar(T, -4) };
+        try testing.expectEqual(2, try f(al, check.io, T, 2, 2, 0, &c, 2, &b, 2, &s, -1));
+        try testing.expect(@abs(s[0] - 4) <= 8 * std.math.floatEps(Float(T)));
+        try testing.expect(@abs(s[1] - 3) <= 8 * std.math.floatEps(Float(T)));
+        try testing.expectEqual(0, try f(al, check.io, T, 0, 2, 1, &a, 1, &b, 2, &s, 0.01));
+        try testing.expectError(error.SliceTooShort, f(al, check.io, T, 2, 2, 1, &a, 2, &b, 2, s[0..1], 0.01));
+        try testing.expectError(error.LeadingDimensionTooSmall, f(al, check.io, T, 2, 1, 1, &a, 1, &b, 2, &s, 0));
+    };
 }
 
 test "lapack gelsy: A and B both past BIGNUM, a small column of X is not flushed" {

@@ -183,6 +183,21 @@ test "mul through @Matrix has its column code's bits" {
     inline for (.{ f32, f64 }) |T| inline for (shapes) |s| try expectNativeBits(T, s[0], s[1], s[2], prng.random());
 }
 
+test "mul through @Matrix keeps its column code's NaN payloads" {
+    if (!rstd_matrix.has_matrix) return error.SkipZigTest;
+    inline for (.{ f32, f64 }) |T| {
+        const U = if (T == f32) u32 else u64;
+        // quiet NaNs told apart by payload, summed into each other (issue #103)
+        const nan_a: T = @bitCast(@as(U, @bitCast(std.math.nan(T))) | 1);
+        const nan_b: T = @bitCast(@as(U, @bitCast(std.math.nan(T))) | 2);
+        const a: StaticMat(2, 2, T) = .{ .data = .{ .{ nan_a, nan_a }, .{ nan_b, nan_b } } };
+        const ones: StaticMat(2, 2, T) = .{ .data = @splat(@splat(1)) };
+        try expectSameMatBits(mulCols(a, ones), mul(a, ones));
+        const w: Vec(2, T) = .{ nan_a, nan_b };
+        try expectSameOrX87(@as(Vec(2, T), vecMat(w, ones)), mul(w, ones));
+    }
+}
+
 test "det, inv and solve on known matrices" {
     const m2 = fromRows(M2f64, .{ .{ 4, 7 }, .{ 2, 6 } });
     try zigstd.testExpectEqual(@as(f64, 10), det(m2));

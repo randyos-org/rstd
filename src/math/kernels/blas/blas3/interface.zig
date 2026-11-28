@@ -110,7 +110,8 @@ pub fn gemmt(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, transa:
     if (m == 0) return;
     try gemmtFits(transa, transb, m, k, lda, ldb, ldc, @sizeOf(T), @sizeOf(T));
     const conj: driver.Conj = .of(conjugated(T, transa), conjugated(T, transb));
-    try driver.gemmt(allocator, io, T, table(T), uplo == .u, ta, tb, conj, @intCast(m), @intCast(k), alpha, a, @intCast(lda), b, @intCast(ldb), beta, c, @intCast(ldc));
+    const w = threaded.gemmtWorkers(T, @intCast(m), @intCast(k));
+    try driver.gemmt(allocator, io, T, table(T), uplo == .u, ta, tb, conj, @intCast(m), @intCast(k), alpha, a, @intCast(lda), b, @intCast(ldb), beta, c, @intCast(ldc), w);
 }
 
 /// `gemmt`'s argument checks, in `xerbla`'s order.

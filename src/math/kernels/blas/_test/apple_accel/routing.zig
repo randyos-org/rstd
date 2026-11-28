@@ -21,6 +21,8 @@ const calls = &accel.calls;
 const route = accel.route;
 const routing = accel.routing;
 const x86_64 = accel.x86_64;
+const sent = accel.sent;
+const routes = accel.routes;
 
 // ---- routing tests -------------------------------------------------------------
 
@@ -77,42 +79,42 @@ pub fn everyRoutine(comptime T: type, on_: bool) !void {
     var p: Probe = .init(on_);
 
     try l1.copy(io, T, n, &x, 1, &y, 1);
-    try p.saw(true, "copy");
+    try p.saw(sent(.copy, T, true), "copy");
     try l1.swap(io, T, n, &x, 1, &y, 1);
-    try p.saw(true, "swap");
+    try p.saw(sent(.swap, T, true), "swap");
     // strided calls go by `sends`; see the test of it
     try l1.swap(io, T, n, &x, 1, &y, -1);
-    try p.saw(x86_64, "swap, a negative stride");
+    try p.saw(x86_64 and sent(.swap, T, false), "swap, a negative stride");
     try l1.scal(io, T, n, al1, &x, 1);
-    try p.saw(true, "scal");
+    try p.saw(sent(.scal, T, true), "scal");
     _ = try l1.dot(io, T, n, &x, 1, &y, 1);
     // `.plain`'s complex `f32` sums in rstd's `f64` slot (issue #584)
-    try p.saw(T != Complex32 and (T != f32 or (x86_64 and !accel.rosetta())), "dot");
+    try p.saw(T != Complex32 and (T != f32 or (x86_64 and !accel.rosetta())) and sent(.dot, T, true), "dot");
     if (cx) {
         _ = try l1.dotc(io, T, n, &x, 1, &y, 1);
-        try p.saw(T != Complex32, "dotc");
+        try p.saw(T != Complex32 and sent(.dotc, T, true), "dotc");
         try l1.axpyc(io, T, n, al1, &x, 1, &y, 1);
         try p.saw(false, "axpyc");
         // `alpha` has a zero imaginary part, a quirk on arm64 only
         try l1.scalReal(io, T, n, 0.5, &x, 1);
-        try p.saw(x86_64, "scalReal");
+        try p.saw(x86_64 and sent(.scal, T, true), "scalReal");
     } else {
         var param = [5]T{ -1, 0.5, 0.25, -0.25, 0.75 };
         try l1.rotm(io, T, n, &x, 1, &y, 1, &param);
-        try p.saw(true, "rotm");
+        try p.saw(sent(.rotm, T, true), "rotm");
     }
     if (T == f32) {
         _ = try l1.dsdot(io, n, &x, 1, &y, 1);
-        try p.saw(!accel.rosetta(), "dsdot");
+        try p.saw(!accel.rosetta() and sent(.dsdot, T, true), "dsdot");
         _ = try l1.sdsdot(io, n, 0.5, &x, 1, &y, 1);
-        try p.saw(!accel.rosetta(), "sdsdot");
+        try p.saw(!accel.rosetta() and sent(.dsdot, T, true), "sdsdot");
     }
     _ = try l1.nrm2(io, T, n, &x, 1);
-    try p.saw(x86_64 and (Float(T) == f64 or !accel.rosetta()), "nrm2");
+    try p.saw(x86_64 and (Float(T) == f64 or !accel.rosetta()) and sent(.nrm2, T, true), "nrm2");
     _ = try l1.nrm2(io, T, n, &x, -1);
     try p.saw(false, "nrm2, a negative stride");
     _ = try l1.asum(io, T, n, &x, 1);
-    try p.saw(Float(T) != f32, "asum");
+    try p.saw(Float(T) != f32 and sent(.asum, T, true), "asum");
     _ = try l1.sum(io, T, n, &x, 1);
     try p.saw(false, "sum");
     _ = try l1.index(io, T, .largest_magnitude, n, &x, 1);
@@ -122,93 +124,93 @@ pub fn everyRoutine(comptime T: type, on_: bool) !void {
     _ = try l1.extreme(io, T, .largest_magnitude, n, &x, 1);
     try p.saw(false, "extreme amax");
     try l1.rot(io, T, n, &x, 1, &y, 1, 0.6, 0.8);
-    try p.saw(true, "rot");
+    try p.saw(sent(.rot, T, true), "rot");
     try l1.axpy(io, T, n, al1, &x, 1, &y, 1);
-    try p.saw(true, "axpy");
+    try p.saw(sent(.axpy, T, true), "axpy");
     try l1.axpby(io, T, n, al1, &x, 1, be1, &y, 1);
-    try p.saw(true, "axpby");
+    try p.saw(sent(.axpby, T, true), "axpby");
 
     try l2.gemv(al, io, T, .n, n, n, al1, &a, n, &x, 1, be1, &y, 1);
-    try p.saw(true, "gemv");
+    try p.saw(routes(.gemv, T), "gemv");
     try l2.gemv(al, io, T, if (cx) .c else .t, n, n, al1, &a, n, &x, 1, be1, &y, 1);
-    try p.saw(true, "gemv transposed");
+    try p.saw(routes(.gemv, T), "gemv transposed");
     try l2.gemv(al, io, T, .r, n, n, al1, &a, n, &x, 1, be1, &y, 1);
-    try p.saw(real, "gemv r");
+    try p.saw(real and routes(.gemv, T), "gemv r");
     try l2.gbmv(al, io, T, .t, n, n, 1, 1, al1, &a, 3, &x, 1, be1, &y, 1);
-    try p.saw(true, "gbmv");
+    try p.saw(routes(.gbmv, T), "gbmv");
     try l2.ger(al, io, T, n, n, al1, &x, 1, &y, 1, &c, n);
-    try p.saw(true, "ger");
+    try p.saw(routes(.ger, T), "ger");
     if (cx) {
         try l2.gerc(al, io, T, n, n, al1, &x, 1, &y, 1, &c, n);
-        try p.saw(true, "gerc");
+        try p.saw(routes(.ger, T), "gerc");
         try l2.hemv(al, io, T, .l, n, al1, &a, n, &x, 1, be1, &y, 1);
-        try p.saw(true, "hemv");
+        try p.saw(routes(.hemv, T), "hemv");
         try l2.hemv(al, io, T, .v, n, al1, &a, n, &x, 1, be1, &y, 1);
         try p.saw(false, "hemv v");
         try l2.hbmv(al, io, T, .u, n, 1, al1, &a, 2, &x, 1, be1, &y, 1);
-        try p.saw(true, "hbmv");
+        try p.saw(routes(.hbmv, T), "hbmv");
         try l2.hpmv(al, io, T, .l, n, al1, &c, &x, 1, be1, &y, 1);
-        try p.saw(true, "hpmv");
+        try p.saw(routes(.hpmv, T), "hpmv");
         try l2.her(al, io, T, .u, n, 0.5, &x, 1, &c, n);
-        try p.saw(true, "her");
+        try p.saw(routes(.her, T), "her");
         try l2.hpr(al, io, T, .l, n, 0.5, &x, 1, &c);
-        try p.saw(true, "hpr");
+        try p.saw(routes(.hpr, T), "hpr");
         try l2.her2(al, io, T, .u, n, al1, &x, 1, &y, 1, &c, n);
-        try p.saw(true, "her2");
+        try p.saw(routes(.her2, T), "her2");
         try l2.hpr2(al, io, T, .l, n, al1, &x, 1, &y, 1, &c);
-        try p.saw(true, "hpr2");
+        try p.saw(routes(.hpr2, T), "hpr2");
     }
     try l2.symv(al, io, T, .u, n, al1, &a, n, &x, 1, be1, &y, 1);
-    try p.saw(real, "symv");
+    try p.saw(real and routes(.symv, T), "symv");
     try l2.sbmv(al, io, T, .l, n, 1, al1, &a, 2, &x, 1, be1, &y, 1);
-    try p.saw(real, "sbmv");
+    try p.saw(real and routes(.sbmv, T), "sbmv");
     try l2.spmv(al, io, T, .u, n, al1, &c, &x, 1, be1, &y, 1);
-    try p.saw(real, "spmv");
+    try p.saw(real and routes(.spmv, T), "spmv");
     try l2.syr(al, io, T, .u, n, al1, &x, 1, &c, n);
-    try p.saw(real, "syr");
+    try p.saw(real and routes(.syr, T), "syr");
     try l2.spr(al, io, T, .l, n, al1, &x, 1, &c);
-    try p.saw(real, "spr");
+    try p.saw(real and routes(.spr, T), "spr");
     try l2.syr2(al, io, T, .u, n, al1, &x, 1, &y, 1, &c, n);
-    try p.saw(real, "syr2");
+    try p.saw(real and routes(.syr2, T), "syr2");
     try l2.spr2(al, io, T, .l, n, al1, &x, 1, &y, 1, &c);
-    try p.saw(real, "spr2");
+    try p.saw(real and routes(.spr2, T), "spr2");
     try l2.trmv(al, io, T, .u, .t, .n, n, &a, n, &x, 1);
-    try p.saw(true, "trmv");
+    try p.saw(routes(.trmv, T), "trmv");
     try l2.trmv(al, io, T, .u, .r, .n, n, &a, n, &x, 1);
-    try p.saw(real, "trmv r");
+    try p.saw(real and routes(.trmv, T), "trmv r");
     try l2.trsv(al, io, T, .l, .n, .u, n, &a, n, &x, -1);
-    try p.saw(true, "trsv");
+    try p.saw(routes(.trsv, T), "trsv");
     try l2.tbmv(al, io, T, .u, .n, .n, n, 1, &a, 2, &x, 1);
-    try p.saw(true, "tbmv");
+    try p.saw(routes(.tbmv, T), "tbmv");
     try l2.tbsv(al, io, T, .l, .c, .n, n, 1, &a, 2, &x, 1);
-    try p.saw(true, "tbsv");
+    try p.saw(routes(.tbsv, T), "tbsv");
     try l2.tpmv(al, io, T, .u, .n, .u, n, &a, &x, 1);
-    try p.saw(true, "tpmv");
+    try p.saw(routes(.tpmv, T), "tpmv");
     try l2.tpsv(al, io, T, .l, .n, .u, n, &a, &x, 1);
-    try p.saw(true, "tpsv");
+    try p.saw(routes(.tpsv, T), "tpsv");
 
     try l3.gemm(al, io, T, .n, if (cx) .c else .t, n, n, n, al1, &a, n, &bm, n, be1, &c, n);
-    try p.saw(true, "gemm");
+    try p.saw(routes(.gemm, T), "gemm");
     try l3.gemm(al, io, T, .r, .n, n, n, n, al1, &a, n, &bm, n, be1, &c, n);
-    try p.saw(real, "gemm r");
+    try p.saw(real and routes(.gemm, T), "gemm r");
     try l3.symm(al, io, T, .l, .u, n, n, al1, &a, n, &bm, n, be1, &c, n);
-    try p.saw(true, "symm");
+    try p.saw(routes(.symm, T), "symm");
     try l3.syrk(al, io, T, .u, .n, n, n, al1, &a, n, be1, &c, n);
-    try p.saw(true, "syrk");
+    try p.saw(routes(.syrk, T), "syrk");
     try l3.syr2k(al, io, T, .l, .t, n, n, al1, &a, n, &bm, n, be1, &c, n);
-    try p.saw(true, "syr2k");
+    try p.saw(routes(.syr2k, T), "syr2k");
     if (cx) {
         try l3.hemm(al, io, T, .r, .l, n, n, al1, &a, n, &bm, n, be1, &c, n);
-        try p.saw(true, "hemm");
+        try p.saw(routes(.hemm, T), "hemm");
         try l3.herk(al, io, T, .l, .c, n, n, 1.5, &a, n, 0.5, &c, n);
-        try p.saw(true, "herk");
+        try p.saw(routes(.herk, T), "herk");
         try l3.her2k(al, io, T, .u, .n, n, n, al1, &a, n, &bm, n, 0.5, &c, n);
-        try p.saw(true, "her2k");
+        try p.saw(routes(.her2k, T), "her2k");
     }
     try l3.trmm(al, io, T, .r, .u, .t, .n, n, n, al1, &a, n, &c, n);
-    try p.saw(true, "trmm");
+    try p.saw(routes(.trmm, T), "trmm");
     try l3.trsm(al, io, T, .l, .l, .n, .u, n, n, al1, &a, n, &c, n);
-    try p.saw(true, "trsm");
+    try p.saw(routes(.trsm, T), "trsm");
 }
 
 test "the public routines call Accelerate on macOS where it has them, for s, d, c and z only" {

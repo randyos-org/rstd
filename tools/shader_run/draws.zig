@@ -1,6 +1,6 @@
 //! rgl's three pipelines (`shapes`, `glyph`, `image`) on the device, checked
 //! against the software renderer (issue #380): one scene drawn through
-//! `rgl.vulkan` and recorded with `gpu.zig`, and through `rgl.sw`, then
+//! `rgl.vulkan` and recorded with `gpu.SurfaceDraws`, and through `rgl.sw`, then
 //! compared pixel by pixel. Text and images sample texels 1:1 and must match
 //! everywhere; shapes, whose edges the shaders antialias and `sw` does not,
 //! must match wherever `sw`'s image is uniform `margin` pixels around.
@@ -59,20 +59,6 @@ fn testImage(gpa: Allocator) !RgbaImage {
     return img;
 }
 
-/// The VGA font as one row of 256 glyphs, one coverage byte per texel:
-/// the atlas `rgl.vulkan.drawText` lays text out on.
-fn vgaAtlas(gpa: Allocator) ![]u8 {
-    const w = vga.glyph_count * vga.width;
-    const atlas = try gpa.alloc(u8, w * vga.height);
-    for (0..vga.glyph_count) |cp| for (vga.glyph(@intCast(cp)), 0..) |bits, row| {
-        for (0..vga.width) |col| {
-            const on = (bits >> @intCast(7 - col)) & 1 != 0;
-            atlas[row * w + cp * vga.width + col] = if (on) 255 else 0;
-        }
-    };
-    return atlas;
-}
-
 /// Draws the scene both ways; the count of pixels that differ.
 pub fn run(h: *Headless, gpa: Allocator) !u32 {
     var image = try testImage(gpa);
@@ -92,44 +78,10 @@ pub fn run(h: *Headless, gpa: Allocator) !u32 {
     defer pipelines.deinit(h.dev);
     var res: gpu.FrameResources = .{};
     defer res.deinit(h.dev);
-
-    const sampler = try h.dev.createSampler(&.{
-        .mag_filter = .nearest,
-        .min_filter = .nearest,
-        .mipmap_mode = .nearest,
-        .address_mode_u = .clamp_to_edge,
-        .address_mode_v = .clamp_to_edge,
-        .address_mode_w = .clamp_to_edge,
-        .mip_lod_bias = 0,
-        .anisotropy_enable = .false,
-        .max_anisotropy = 1,
-        .compare_enable = .false,
-        .compare_op = .always,
-        .min_lod = 0,
-        .max_lod = 0,
-        .border_color = .float_transparent_black,
-        .unnormalized_coordinates = .false,
-    }, null);
-    defer h.dev.destroySampler(sampler, null);
-
-    const atlas_bytes = try vgaAtlas(gpa);
-    defer gpa.free(atlas_bytes);
-    const atlas = try h.texture(.r8_unorm, vga.glyph_count * vga.width, vga.height, atlas_bytes);
-    defer atlas.deinit(h);
-    const img_tex = try h.texture(.r8g8b8a8_unorm, image_size, image_size, std.mem.sliceAsBytes(image.data));
-    defer img_tex.deinit(h);
-
-    const sizes = [_]vk.DescriptorPoolSize{.{ .type = .combined_image_sampler, .descriptor_count = 2 }};
-    const pool = try h.dev.createDescriptorPool(&.{ .max_sets = 2, .pool_size_count = sizes.len, .p_pool_sizes = &sizes }, null);
-    defer h.dev.destroyDescriptorPool(pool, null);
-    const atlas_set = try textureSet(h, pool, pipelines.glyph, sampler, atlas);
-    const image_set = try textureSet(h, pool, pipelines.image, sampler, img_tex);
-
-    // the image pipeline's instances, one draw per image (`rgl.vulkan`
-    // groups them by source image)
-    if (surface.images.items.len != 1) return error.UnexpectedImageDraws;
-    const image_instance = try h.bufferWith(std.mem.asBytes(&surface.images.items[0].instance), .{ .vertex_buffer = true });
-    defer image_instance.deinit(h);
+    var draws: gpu.SurfaceDraws = .{};
+    defer draws.deinit(gpa, h.dev);
+    const ctx: gpu.Texture.Context = .{ .dev = h.dev, .mem_props = h.mem_props, .queue = h.queue, .pool = h.pool };
+    try draws.prepare(gpa, ctx, pipelines, &surface);
 
     const out = try h.buffer(width * height * 4, .{ .transfer_dst = true });
     defer out.deinit(h);
@@ -138,10 +90,8 @@ pub fn run(h: *Headless, gpa: Allocator) !u32 {
         .target = target,
         .pipelines = pipelines,
         .res = &res,
+        .draws = &draws,
         .surface = &surface,
-        .atlas_set = atlas_set,
-        .image_set = image_set,
-        .image_instance = image_instance.buf,
         .out = out,
     }, Frame.record);
     const pixels = try out.map(h);
@@ -149,51 +99,20 @@ pub fn run(h: *Headless, gpa: Allocator) !u32 {
     return compare(pixels, cpu.target);
 }
 
-fn textureSet(h: *const Headless, pool: vk.DescriptorPool, pipeline: gpu.Pipeline, sampler: vk.Sampler, tex: Headless.Image) !vk.DescriptorSet {
-    var set: [1]vk.DescriptorSet = undefined;
-    try h.dev.allocateDescriptorSets(&.{ .descriptor_pool = pool, .descriptor_set_count = 1, .p_set_layouts = &.{pipeline.descriptor_set_layout} }, &set);
-    const info = [_]vk.DescriptorImageInfo{.{ .sampler = sampler, .image_view = tex.view, .image_layout = .shader_read_only_optimal }};
-    const write = [_]vk.WriteDescriptorSet{.{
-        .dst_set = set[0],
-        .dst_binding = 0,
-        .dst_array_element = 0,
-        .descriptor_count = 1,
-        .descriptor_type = .combined_image_sampler,
-        .p_image_info = &info,
-        .p_buffer_info = &.{},
-        .p_texel_buffer_view = &.{},
-    }};
-    h.dev.updateDescriptorSets(&write, null);
-    return set[0];
-}
-
 const Frame = struct {
     h: *const Headless,
     target: Headless.Target,
     pipelines: gpu.Pipelines,
     res: *gpu.FrameResources,
+    draws: *const gpu.SurfaceDraws,
     surface: *const rgl.vulkan.VkSurface,
-    atlas_set: vk.DescriptorSet,
-    image_set: vk.DescriptorSet,
-    image_instance: vk.Buffer,
     out: Headless.Buffer,
 
     fn record(f: Frame, cmd: vk.CommandBuffer) !void {
         const h = f.h;
         const bg = background.toRGBAf32();
         f.target.begin(h, cmd, .{ bg.r, bg.g, bg.b, bg.a });
-        const globals: gpu.Globals = .{
-            .screen_size = .{ width, height },
-            .atlas_size = .{ vga.glyph_count * vga.width, vga.height },
-        };
-        try gpu.recordBatch(h.dev, h.mem_props, cmd, f.pipelines.rect, &f.res.rect, f.surface.batch(rgl.vulkan.rect_pipeline_id), globals, null);
-        try gpu.recordBatch(h.dev, h.mem_props, cmd, f.pipelines.glyph, &f.res.glyph, f.surface.batch(rgl.vulkan.glyph_pipeline_id), globals, f.atlas_set);
-        const image = f.pipelines.image;
-        h.dev.cmdBindPipeline(cmd, .graphics, image.handle);
-        h.dev.cmdBindDescriptorSets(cmd, .graphics, image.layout, 0, &.{f.image_set}, null);
-        h.dev.cmdPushConstants(cmd, image.layout, .{ .vertex = true, .fragment = true }, 0, @sizeOf(gpu.Globals), &globals);
-        h.dev.cmdBindVertexBuffers(cmd, 0, &.{f.image_instance}, &.{0});
-        h.dev.cmdDraw(cmd, 4, 1, 0, 0);
+        try f.draws.record(h.dev, h.mem_props, cmd, f.pipelines, f.res, f.surface, .{ width, height });
         f.target.end(h, cmd, f.out);
     }
 };

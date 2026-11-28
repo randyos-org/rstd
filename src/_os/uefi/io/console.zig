@@ -1,5 +1,5 @@
-//! Bytes to a UEFI `SimpleTextOutput` console, as UCS-2 with "\n" as "\r\n"; ASCII only. Shared by `stderr.zig`'s drain and
-//! `operate.zig`'s stdout and stderr writes, which land on the same console.
+//! Bytes to a UEFI `SimpleTextOutput` console, as UCS-2 with "\n" as "\r\n"; ASCII only. Shared by `operate.zig`'s stdout
+//! writes and `stderr.zig`'s, which also reach `con_err`.
 
 const std = @import("std");
 const uefi = std.os.uefi;

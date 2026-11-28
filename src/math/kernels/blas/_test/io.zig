@@ -63,6 +63,12 @@ pub fn counts() [6]u32 {
 /// caller alone, fewer than asked, oversubscribed.
 pub const limits = [_]Io.Limit{ .nothing, .limited(3), .limited(8) };
 
+/// Whether `eachTestIo` is on its `Evented` leg. On `Dispatch` every task is a
+/// fiber whose 60 MiB stack `std.mem.Allocator` fills with `undefined`'s 0xAA
+/// outside release-fast builds, so a sweep of many calls samples its cases
+/// there (issue #800).
+pub var on_evented = false;
+
 /// `f(ctx, io)` on each threaded-test `Io`: `Io.failing`; `TestIo` at each of
 /// `limits` (async and concurrent); `Evented` with 3 workers.
 pub fn eachTestIo(ctx: anytype, comptime f: anytype) !void {
@@ -76,6 +82,8 @@ pub fn eachTestIo(ctx: anytype, comptime f: anytype) !void {
         var ev: Evented = undefined;
         try zigstd.testExpectTrue(initEvented(&ev, 3));
         defer ev.deinit();
+        on_evented = true;
+        defer on_evented = false;
         try f(ctx, ev.io());
     }
 }

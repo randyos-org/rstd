@@ -99,9 +99,13 @@ Each type the kernel layer defines or takes, after the moves; the high-level opt
 | `ReorderedSchur(T)` | `struct { selected: usize, eigenvalue_condition: ?Float(T) = null, subspace_separation: ?Float(T) = null }` | same | `kernels.lapack` | yes |
 | `SylvesterSolution(F)` | `struct { scale: F, perturbed: bool }`: `X` was scaled by `scale`; `perturbed` when eigenvalues were nudged apart | same | `kernels.lapack` | yes |
 | `GeneralizedSylvesterSolution(F)` | `struct { scale: F, separation: ?F = null, perturbed: bool }` | same | `kernels.lapack` | yes |
-| `SpectrumRange(F)` | `union(enum) { all, values: struct { lo: F, hi: F }, indices: struct { first: usize, last: usize } }`: which eigenvalues or singular values | none | `kernels.lapack` | backlog (#623) |
-| `FactorizationInput` | `enum { factor, factored, equilibrate_and_factor }`: `gesvx` factors `A`, takes its given factor, or equilibrates first | none | `kernels.lapack` | backlog (#623) |
-| `Equilibration` | `enum { none, rows, columns, both }`: what `gesvx` scaled | none | `kernels.lapack` | backlog (#623) |
+| `SpectrumRange(F)` | `union(enum) { all, values: struct { lo: F, hi: F }, indices: struct { first: usize, last: usize } }`: which eigenvalues or singular values | same | `kernels.lapack` | yes |
+| `SpectrumOrder` | `enum { ascending, by_block }`: `stebz`'s order, all ascending or by split block | same | `kernels.lapack` | yes |
+| `BisectedEigenvalues` | `struct { count: usize, blocks: usize, unconverged: bool = false, incomplete: bool = false }`: what `stebz` found, the reference's `M`, `NSPLIT` and `INFO` 1 to 3 | same | `kernels.lapack` | yes |
+| `SelectedEigenpairs` | `struct { count: usize, unconverged: usize = 0, values_unconverged: bool = false, incomplete: bool = false }`: what `syevx` found, the reference's `M` and `INFO > 0` | same | `kernels.lapack` | yes |
+| `FactorizationInput` | `enum { factor, factored, equilibrate_and_factor }`: `gesvx` factors `A`, takes its given factor, or equilibrates first | same | `kernels.lapack` | yes |
+| `Equilibration` | `enum { none, rows, columns, both }`: what `laqge` and `gesvx` scaled | none | `kernels.lapack` | yes |
+| `LuSolveReport(F)` | `struct { rcond: F, pivot_growth: F, singular: ?usize = null, ill_conditioned: bool = false }`: what `gesvx` reports besides `X`, the reference's `RCOND`, `RPVGRW` and `INFO > 0` | same | `kernels.lapack` | yes |
 | `CompressedColumns(T)`, `CompressedRows(T)` | `struct { rows: u32, cols: u32, col_start: []u32, row: []u32, value: []T }` (rows: `row_start`, `col`): compressed sparse columns and rows | same | `kernels.sparse` | yes |
 | `Triplets(T)` | `struct { rows: u32, cols: u32, i: ArrayList(u32), j: ArrayList(u32), x: ArrayList(T) }`: assembly | same | `kernels.sparse` | yes |
 | `SparseVector(T)` | `struct { len: usize, index: []const u32, value: []const T }`: a sparse column or row | same | `kernels.sparse` | yes |
@@ -114,8 +118,8 @@ Each type the kernel layer defines or takes, after the moves; the high-level opt
 | `BatchLayout`, `BatchLayouts` | `struct { count: usize = 1, stride: usize = 1, distance: ?usize = null }`; `struct { in: BatchLayout = .{}, out: BatchLayout = .{} }`: a batch's shape in memory | same | `kernels.fft` | yes |
 | `Plan(T)`, `RealPlan(T)` | `struct { n: usize, scratch_len: usize, kind: Kind }`: a complex or real transform of length `n`, immutable, shared by threads | same | `kernels.fft` | yes |
 | `StaticPlan(n, T)`, `StaticRealPlan(n, T)` | `struct {}`: `Plan` with `n` fixed at compile time, no allocation | same | `kernels.fft` | stub (#625) |
-| `TrigTransformKind`, `TrigTransformPlan(T)` | `enum { dct1, dct2, dct3, dct4, dst1, dst2, dst3, dst4 }`; `struct { n: usize, kind: TrigTransformKind, scratch_len: usize }`: the discrete cosine and sine transforms of types I to IV | same | `kernels.fft` | stub (#625) |
-| `ModifiedCosineTransform(T)` | `struct { n: usize, scratch_len: usize }`: the MDCT of audio codecs | same | `kernels.fft` | stub (#625) |
+| `TrigTransformKind`, `TrigTransformPlan(T)` | `enum { dct1, dct2, dct3, dct4, dst1, dst2, dst3, dst4 }`; `struct { n: usize, kind: TrigTransformKind, scratch_len: usize }`: the discrete cosine and sine transforms of types I to IV | same | `kernels.fft` | done ([#153](https://github.com/randyos-org/rstd/issues/153)) |
+| `ModifiedCosineTransform(T)` | `struct { n: usize, scratch_len: usize }`: the MDCT of audio codecs | same | `kernels.fft` | done ([#153](https://github.com/randyos-org/rstd/issues/153)) |
 | `MultiDimPlan(T)` | `struct { shape: []const usize, plans: []Plan(T), scratch_len: usize }`: complex transforms over every axis | none | `kernels.fft` | backlog (#625) |
 | `Window`, `Symmetry` | `union(enum) { hann, hamming, blackman, kaiser: f64, sine, kbd: f64 }`; `enum { symmetric, periodic }` | same | `kernels.dsp` | yes |
 | `ConvolutionMode` | `enum { full, same, valid }`: NumPy's `convolve` modes | none | `kernels.dsp` | backlog (#627) |
@@ -244,8 +248,14 @@ As `src/math/kernels/lapack/` has it today. Accelerate (macOS 13.3's `$NEWLAPACK
 | `potrf(allocator, io, T, uplo: Uplo, n: usize, a: []T, lda: usize) PotrfError!void` | `A = UᴴU` or `LLᴴ`, blocked | `?potrf` (Accelerate: routed) | OpenBLAS `interface/lapack/potrf.c`; ReLAPACK with `-Drelapack` |
 | `potf2(T, uplo: Uplo, n: usize, a: []T, lda: usize) Potf2Error!void` | `potrf`, unblocked | `?potf2` | OpenBLAS `potf2.c` |
 | `potrs(allocator, io, T, uplo: Uplo, n: usize, nrhs: usize, a: []const T, lda: usize, b: []T, ldb: usize) PotrsError!void` | solves `AX = B` from `potrf`'s factor | `?potrs` | Reference-LAPACK `dpotrs.f` |
+| `posv(allocator, io, T, uplo: Uplo, n: usize, nrhs: usize, a: []T, lda: usize, b: []T, ldb: usize) PosvError!void` | `potrf`, then `potrs` | `?posv` | Reference-LAPACK `dposv.f` (v0.2.0) |
+| `pocon(allocator, io, T, uplo: Uplo, n: usize, a: []const T, lda: usize, anorm: Float(T)) PoconError!Float(T)` | reciprocal condition number from `potrf`'s factor | `?pocon` | Reference-LAPACK `dpocon.f` (v0.2.0) |
 | `potri(allocator, io, T, uplo: Uplo, n: usize, a: []T, lda: usize) PotriError!void` | `A⁻¹` from `potrf`'s factor | `?potri` | OpenBLAS `potri.c` |
 | `pbtrf(allocator, io, T, uplo: Uplo, n: usize, kd: usize, ab: []T, ldab: usize) PbtrfError!void` | `potrf` for band `A` (`kd`) | `?pbtrf` | ReLAPACK's recursive `pbtrf` |
+| `pbtrs(allocator, io, T, uplo: Uplo, n: usize, kd: usize, nrhs: usize, ab: []const T, ldab: usize, b: []T, ldb: usize) PbtrsError!void` | solves from `pbtrf`'s factor | `?pbtrs` | Reference-LAPACK `dpbtrs.f` (v0.2.0) |
+| `pptrf(allocator, io, T, uplo: Uplo, n: usize, ap: []T) PptrfError!void` | `potrf` for packed `A` | `?pptrf` | Reference-LAPACK `dpptrf.f` (v0.2.0) |
+| `pptrs(allocator, io, T, uplo: Uplo, n: usize, nrhs: usize, ap: []const T, b: []T, ldb: usize) PptrsError!void` | solves from `pptrf`'s factor | `?pptrs` | Reference-LAPACK `dpptrs.f` (v0.2.0) |
+| `pstrf(allocator, io, T, uplo: Uplo, n: usize, a: []T, lda: usize, piv: []usize, tol: Float(T)) PstrfError!usize` | `Pᵀ·A·P = UᴴU` or `LLᴴ`, complete pivoting, blocked; returns the rank | `?pstrf` | Reference-LAPACK `dpstrf.f`, `?pstf2` as its single block |
 
 #### LU
 
@@ -254,8 +264,14 @@ As `src/math/kernels/lapack/` has it today. Accelerate (macOS 13.3's `$NEWLAPACK
 | `getrf(allocator, io, T, m: usize, n: usize, a: []T, lda: usize, ipiv: []usize) GetrfError!?usize` | `PA = LU`, partial pivoting; the first zero `U(i, i)`, if any | `?getrf` | OpenBLAS `getrf_single.c`, `getrf_parallel.c`; ReLAPACK with `-Drelapack` |
 | `getrs(allocator, io, T, trans: Trans, n: usize, nrhs: usize, a: []const T, lda: usize, ipiv: []const usize, b: []T, ldb: usize) GetrsError!void` | solves `op(A)X = B` from `getrf`'s factor | `?getrs` | OpenBLAS `getrs` |
 | `gesv(allocator, io, T, n: usize, nrhs: usize, a: []T, lda: usize, ipiv: []usize, b: []T, ldb: usize) GesvError!void` | `getrf`, then `getrs` | `?gesv` | OpenBLAS `gesv` |
+| `gerfs(allocator, io, T, trans: Trans, n: usize, nrhs: usize, a: []const T, lda: usize, af: []const T, ldaf: usize, ipiv: []const usize, b: []const T, ldb: usize, x: []T, ldx: usize, ferr: []Float(T), berr: []Float(T)) GerfsError!void` | refines `getrs`'s `X` by `af`, `getrf`'s factor, with each column's backward error and forward bound (`lacn2`) | `?gerfs` | Reference-LAPACK `dgerfs.f`, `zgerfs.f` (v0.2.0) |
+| `gesvx(allocator, io, T, fact: FactorizationInput, trans: Trans, n: usize, nrhs: usize, a: []T, lda: usize, af: []T, ldaf: usize, ipiv: []usize, equed: *Equilibration, r: []Float(T), c: []Float(T), b: []T, ldb: usize, x: []T, ldx: usize, ferr: []Float(T), berr: []Float(T)) GesvxError!LuSolveReport(Float(T))` | `gesv` with equilibration (`geequ`, `laqge`), refinement (`gerfs`) and error bounds; reports `rcond` (`gecon`), the pivot growth and a singular or ill-conditioned `A` | `?gesvx` | Reference-LAPACK `dgesvx.f`, `zgesvx.f` (v0.2.0) |
 | `getri(allocator, io, T, n: usize, a: []T, lda: usize, ipiv: []const usize) GetriError!void` | `A⁻¹` from `getrf`'s factor | `?getri` | Reference-LAPACK `dgetri.f` |
 | `gbtrf(T, m: usize, n: usize, kl: usize, ku: usize, ab: []T, ldab: usize, ipiv: []usize) GbtrfError!?usize` | `getrf` for band `A` (`kl`, `ku`) | `?gbtrf` | Reference-LAPACK `dgbtf2.f` |
+| `gbtrs(allocator, io, T, trans: Trans, n: usize, kl: usize, ku: usize, nrhs: usize, ab: []const T, ldab: usize, ipiv: []const usize, b: []T, ldb: usize) GbtrsError!void` | solves from `gbtrf`'s factor | `?gbtrs` | Reference-LAPACK `dgbtrs.f` (v0.2.0) |
+| `gbsv(allocator, io, T, n: usize, kl: usize, ku: usize, nrhs: usize, ab: []T, ldab: usize, ipiv: []usize, b: []T, ldb: usize) GbsvError!void` | `gbtrf`, then `gbtrs` | `?gbsv` | Reference-LAPACK `dgbsv.f` (v0.2.0) |
+| `getrfComplete(io, T, m: usize, n: usize, a: []T, lda: usize, ipiv: []usize, jpiv: []usize) GetrfCompleteError!usize` | `PAQ = LU`, complete pivoting, unblocked, its trailing updates threaded; returns the rank | none (LAPACK's `?getc2` perturbs small pivots) | faer `lu/full_pivoting/factor.rs` (v0.2.0) |
+| `getrsComplete(allocator, io, T, trans: Trans, n: usize, nrhs: usize, a: []const T, lda: usize, ipiv: []const usize, jpiv: []const usize, b: []T, ldb: usize) GetrsCompleteError!void` | solves `op(A)X = B` from `getrfComplete`'s factor | none | faer `lu/full_pivoting/solve.rs` (v0.2.0) |
 
 #### Triangular
 
@@ -266,6 +282,7 @@ As `src/math/kernels/lapack/` has it today. Accelerate (macOS 13.3's `$NEWLAPACK
 | `lauum(allocator, io, T, uplo: Uplo, n: usize, a: []T, lda: usize) LauumError!void` | `UUᴴ` or `LᴴL`, blocked | `?lauum` | OpenBLAS `lauum.c`; ReLAPACK with `-Drelapack` |
 | `lauu2(T, uplo: Uplo, n: usize, a: []T, lda: usize) ArgError!void` | `lauum`, unblocked | `?lauu2` | OpenBLAS `lauu2.c` |
 | `trtrs(allocator, io, T, uplo: Uplo, trans: Trans, diag: Diag, n: usize, nrhs: usize, a: []const T, lda: usize, b: []T, ldb: usize) TrtrsError!void` | solves `op(A)X = B`, triangular `A` | `?trtrs` | OpenBLAS `trtrs.c` |
+| `trcon(allocator, io, T, norm: NormType, uplo: Uplo, diag: Diag, n: usize, a: []const T, lda: usize) TrconError!Float(T)` | reciprocal condition number of triangular `A` | `?trcon` | Reference-LAPACK `dtrcon.f` (v0.2.0) |
 
 #### Symmetric indefinite
 
@@ -275,6 +292,9 @@ As `src/math/kernels/lapack/` has it today. Accelerate (macOS 13.3's `$NEWLAPACK
 | `hetrf(allocator, io, T, uplo: Uplo, n: usize, a: []T, lda: usize, ipiv: []Pivot) SytrfError!?usize` | `sytrf` for Hermitian `A` | `?hetrf` | Reference-LAPACK `zhetrf.f` |
 | `sytrfRook(allocator, io, T, uplo: Uplo, n: usize, a: []T, lda: usize, ipiv: []Pivot) SytrfError!?usize` | `sytrf` with rook pivoting | `?sytrf_rook` | Reference-LAPACK `dsytrf_rook.f` |
 | `hetrfRook(allocator, io, T, uplo: Uplo, n: usize, a: []T, lda: usize, ipiv: []Pivot) SytrfError!?usize` | `hetrf` with rook pivoting | `?hetrf_rook` | Reference-LAPACK `zhetrf_rook.f` |
+| `sytrs(T, uplo: Uplo, n: usize, nrhs: usize, a: []const T, lda: usize, ipiv: []const Pivot, b: []T, ldb: usize) SytrsError!void`, `hetrs`, `sytrsRook` | solves from `sytrf`'s (`sytrfRook`'s) factor | `?sytrs`, `?hetrs`, `?sytrs_rook` | Reference-LAPACK `dsytrs.f`, `dsytrs_rook.f` (v0.2.0) |
+| `sysv(allocator, io, T, uplo: Uplo, n: usize, nrhs: usize, a: []T, lda: usize, ipiv: []Pivot, b: []T, ldb: usize) SysvError!void`, `hesv` | `sytrf` (`hetrf`), then `sytrs` (`hetrs`) | `?sysv`, `?hesv` | Reference-LAPACK `dsysv.f`, `zhesv.f`, over `?SYTRS` (v0.2.0) |
+| `sytri(allocator, io, T, uplo: Uplo, n: usize, a: []T, lda: usize, ipiv: []const Pivot) SytriError!void` | `A⁻¹` from `sytrf`'s factor | `?sytri`, `?hetri` | Reference-LAPACK `dsytri.f`, `zhetri.f` (v0.2.0) |
 | `sygst(allocator, io, T, problem: GeneralizedProblem, uplo: Uplo, n: usize, a: []T, lda: usize, b: []const T, ldb: usize) SygstError!void` | reduces `Ax = λBx` (and the other `problem`s) to standard form, `B` from `potrf` | `?sygst` | ReLAPACK's recursive `sygst` |
 | `hegst(allocator, io, T, problem: GeneralizedProblem, uplo: Uplo, n: usize, a: []T, lda: usize, b: []const T, ldb: usize) SygstError!void` | `sygst` for Hermitian `A` | `?hegst` | ReLAPACK's recursive `hegst` |
 
@@ -292,6 +312,13 @@ As `src/math/kernels/lapack/` has it today. Accelerate (macOS 13.3's `$NEWLAPACK
 | `unglq(allocator, io, T, m: usize, n: usize, k: usize, a: []T, lda: usize, tau: []const T) OrglqError!void` | `orglq` for complex | `?unglq` | libflame 5.2.0 |
 | `ormlq(allocator, io, T, side: Side, trans: Trans, m: usize, n: usize, k: usize, a: []const T, lda: usize, tau: []const T, c: []T, ldc: usize) OrmlqError!void` | `C ← op(Q)C` or `C·op(Q)`, LQ's `Q` | `?ormlq` | libflame 5.2.0 |
 | `unmlq(allocator, io, T, side: Side, trans: Trans, m: usize, n: usize, k: usize, a: []const T, lda: usize, tau: []const T, c: []T, ldc: usize) OrmlqError!void` | `ormlq` for complex | `?unmlq` | libflame 5.2.0 |
+| `gerqf(allocator, io, T, m: usize, n: usize, a: []T, lda: usize, tau: []T) GerqfError!void` | `A = RQ` | `?gerqf` | `gelqf` on `A` reversed (v0.2.0) |
+| `orgrq(allocator, io, T, m: usize, n: usize, k: usize, a: []T, lda: usize, tau: []const T) OrgrqError!void` | forms `Q` from `gerqf`'s reflectors | `?orgrq` | `orglq` reversed (v0.2.0) |
+| `ungrq(allocator, io, T, m: usize, n: usize, k: usize, a: []T, lda: usize, tau: []const T) OrgrqError!void` | `orgrq` for complex | `?ungrq` | `orglq` reversed (v0.2.0) |
+| `ormrq(allocator, io, T, side: Side, trans: Trans, m: usize, n: usize, k: usize, a: []const T, lda: usize, tau: []const T, c: []T, ldc: usize) OrmrqError!void` | `C ← op(Q)C` or `C·op(Q)`, RQ's `Q` | `?ormrq` | `ormlq` reversed (v0.2.0) |
+| `unmrq(allocator, io, T, side: Side, trans: Trans, m: usize, n: usize, k: usize, a: []const T, lda: usize, tau: []const T, c: []T, ldc: usize) OrmrqError!void` | `ormrq` for complex | `?unmrq` | `ormlq` reversed (v0.2.0) |
+| `ggqrf(allocator, io, T, n: usize, m: usize, p: usize, a: []T, lda: usize, taua: []T, b: []T, ldb: usize, taub: []T) GgqrfError!void` | `A = QR`, `B = QTZ` | `?ggqrf` | Reference-LAPACK `dggqrf.f` (v0.2.0) |
+| `ggrqf(allocator, io, T, m: usize, p: usize, n: usize, a: []T, lda: usize, taua: []T, b: []T, ldb: usize, taub: []T) GgrqfError!void` | `A = RQ`, `B = ZTQ` | `?ggrqf` | Reference-LAPACK `dggrqf.f` (v0.2.0) |
 | `geqp3(allocator, io, T, m: usize, n: usize, a: []T, lda: usize, jpvt: []usize, tau: []T) Geqp3Error!void` | `AP = QR`, column pivoting | `?geqp3` | faer v0.24.4's pivoted QR |
 
 #### Least squares
@@ -300,6 +327,10 @@ As `src/math/kernels/lapack/` has it today. Accelerate (macOS 13.3's `$NEWLAPACK
 | --- | --- | --- | --- |
 | `gels(allocator, io, T, trans: Trans, m: usize, n: usize, nrhs: usize, a: []T, lda: usize, b: []T, ldb: usize) GelsError!void` | the least-squares or minimum-norm solution, full rank, by QR or LQ | `?gels` | faer v0.24.4 `qr/no_pivoting/solve.rs` |
 | `gelsy(allocator, io, T, m: usize, n: usize, nrhs: usize, a: []T, lda: usize, b: []T, ldb: usize, jpvt: []usize, rcond: Float(T)) GelsyError!usize` | the least-squares solution, any rank, by pivoted QR; returns the rank | `?gelsy` | Reference-LAPACK `dgelsy.f` over faer's pivoted QR |
+| `gelss(allocator, io, T, m: usize, n: usize, nrhs: usize, a: []T, lda: usize, b: []T, ldb: usize, s: []Float(T), rcond: Float(T)) GelssError!usize` | `gelsd` by QR iteration | `?gelss` | Reference-LAPACK `dgelss.f` over rstd's SVD (v0.2.0) |
+| `gelsd(allocator, io, T, m: usize, n: usize, nrhs: usize, a: []T, lda: usize, b: []T, ldb: usize, s: []Float(T), rcond: Float(T)) GelsdError!usize` | the least-squares solution, any rank, by SVD (divide and conquer); returns the rank | `?gelsd` | Reference-LAPACK `dgelsd.f` over rstd's divide-and-conquer SVD (v0.2.0) |
+| `gglse(allocator, io, T, m: usize, n: usize, p: usize, a: []T, lda: usize, b: []T, ldb: usize, c: []T, d: []T, x: []T) GglseError!void` | the least-squares solution with equality constraints `Bx = d` | `?gglse` | Reference-LAPACK `dgglse.f` over `ggrqf` (v0.2.0) |
+| `ggglm(allocator, io, T, n: usize, m: usize, p: usize, a: []T, lda: usize, b: []T, ldb: usize, d: []T, x: []T, y: []T) GgglmError!void` | general Gauss-Markov linear model | `?ggglm` | Reference-LAPACK `dggglm.f` over `ggqrf` (v0.2.0) |
 
 #### Symmetric eigenproblems
 
@@ -309,6 +340,12 @@ As `src/math/kernels/lapack/` has it today. Accelerate (macOS 13.3's `$NEWLAPACK
 | `heevd(allocator, io, T, jobz: VectorJob, uplo: Uplo, n: usize, a: []T, lda: usize, w: []Float(T)) SyevError!void` | `syevd` for Hermitian `A` | `?heevd` | Reference-LAPACK `zheevd.f` |
 | `syev(allocator, io, T, jobz: VectorJob, uplo: Uplo, n: usize, a: []T, lda: usize, w: []Float(T)) SyevError!void` | `syevd` by QR iteration | `?syev` | Reference-LAPACK `dsyev.f` |
 | `heev(allocator, io, T, jobz: VectorJob, uplo: Uplo, n: usize, a: []T, lda: usize, w: []Float(T)) SyevError!void` | `syev` for Hermitian `A` | `?heev` | Reference-LAPACK `zheev.f` |
+| `sygv(allocator, io, T, problem: GeneralizedProblem, jobz: VectorJob, uplo: Uplo, n: usize, a: []T, lda: usize, b: []T, ldb: usize, w: []Float(T)) SygvError!void`, `sygvd`, `hegv`, `hegvd` | the Hermitian definite pencil by `potrf`, `sygst` and `syev` (`syevd`) | `?sygv`, `?sygvd`, `?hegv`, `?hegvd` | Reference-LAPACK `dsygv.f`, `dsygvd.f` (v0.2.0) |
+| `sytrd(allocator, io, T, uplo: Uplo, n: usize, a: []T, lda: usize, d: []Float(T), e: []Float(T), tau: []T) SytrdError!void`, `hetrd` | `Qᴴ·A·Q = T` tridiagonal, blocked | `?sytrd`, `?hetrd` | Reference-LAPACK `dsytrd.f` (v0.2.0) |
+| `ormtr(allocator, io, T, side: Side, uplo: Uplo, trans: Trans, m: usize, n: usize, a: []const T, lda: usize, tau: []const T, c: []T, ldc: usize) OrmtrError!void`, `unmtr` | `C ← op(Q)C` or `C·op(Q)` with `sytrd`'s `Q` | `?ormtr`, `?unmtr` | Reference-LAPACK `dormtr.f` over `ormqr` and a QL `ormql` by reversal (v0.2.0) |
+| `stebz(allocator, F, range: SpectrumRange(F), order: SpectrumOrder, d: []const F, e: []const F, abstol: F, w: []F, iblock: []usize, isplit: []usize) StebzError!BisectedEigenvalues` | selected eigenvalues of a symmetric tridiagonal by bisection, with their split blocks | `?stebz` | Reference-LAPACK `dstebz.f`, `dlaebz.f` (v0.2.0) |
+| `stein(allocator, io, T, d: []const Float(T), e: []const Float(T), w: []const Float(T), iblock: []const usize, isplit: []const usize, z: []T, ldz: usize, ifail: []usize) SteinError!usize` | eigenvectors of a symmetric tridiagonal for `stebz`'s eigenvalues by inverse iteration; returns how many did not converge, listed in `ifail` | `?stein` | Reference-LAPACK `dstein.f`, `zstein.f` (v0.2.0) |
+| `syevx(allocator, io, T, jobz: VectorJob, range: SpectrumRange(Float(T)), uplo: Uplo, n: usize, a: []T, lda: usize, abstol: Float(T), w: []Float(T), z: []T, ldz: usize, ifail: []usize) SyevxError!SelectedEigenpairs`, `heevx` | selected eigenvalues and vectors by bisection and inverse iteration (`stebz`, `stein`), or every one by the QR algorithm | `?syevx`, `?heevx` | Reference-LAPACK `dsyevx.f`, `zheevx.f` (v0.2.0) |
 
 #### Nonsymmetric eigenproblems
 
@@ -328,6 +365,12 @@ As `src/math/kernels/lapack/` has it today. Accelerate (macOS 13.3's `$NEWLAPACK
 | `trsen(allocator, io, T, job: ConditionJob, compq: ReorderVectors, select: []const bool, n: usize, t_in: []T, ldt: usize, q: []T, ldq: usize, w: Eigenvalues(T)) TrsenError!ReorderedSchur(T)` | reorders a Schur form by `select`, with condition numbers | `?trsen` | Reference-LAPACK `dtrsen.f` |
 | `trsyl(allocator, io, T, trana: Trans, tranb: Trans, isgn: isize, m: usize, n: usize, a: []const T, lda: usize, b: []const T, ldb: usize, c: []T, ldc: usize) TrsylError!SylvesterSolution(Float(T))` | solves `op(A)X ± X·op(B) = scale·C` | `?trsyl` | ReLAPACK `dtrsyl.c` |
 | `tgsyl(allocator, io, T, trans: Trans, ijob: usize, m: usize, n: usize, a: []const T, lda: usize, b: []const T, ldb: usize, c: []T, ldc: usize, d: []const T, ldd: usize, e: []const T, lde: usize, f: []T, ldf: usize) TgsylError!GeneralizedSylvesterSolution(Float(T))` | the generalized Sylvester equation, with its `dif` estimate | `?tgsyl` | ReLAPACK `dtgsyl.c` |
+| `gghrd(T, compq: SchurVectors, compz: SchurVectors, n: usize, lo: usize, hi: usize, a: []T, lda: usize, b: []T, ldb: usize, q: []T, ldq: usize, z: []T, ldz: usize) GghrdError!void` | `(A, B)` to Hessenberg-triangular form | `?gghrd` | faer v0.24.4, unblocked (v0.2.0) |
+| `hgeqzComplex(T, job: SchurJob, compq: SchurVectors, compz: SchurVectors, n: usize, lo: usize, hi: usize, h: []T, ldh: usize, t: []T, ldt: usize, alpha: []T, beta: []T, q: []T, ldq: usize, z: []T, ldz: usize) HgeqzError!void`, `hgeqzReal(io, T, ...)` (`alphar`, `alphai`) | the QZ iteration: the generalized Schur form | `?hgeqz` | faer v0.24.4 with `?hgeqz.f`'s ranges (v0.2.0) |
+| `ggevComplex(allocator, io, T, jobvl: VectorJob, jobvr: VectorJob, n: usize, a: []T, lda: usize, b: []T, ldb: usize, alpha: []T, beta: []T, vl: []T, ldvl: usize, vr: []T, ldvr: usize) GgevError!void`, `ggevReal(...)` (`alphar`, `alphai`) | generalized eigenvalues `α/β`, and vectors | `?ggev` | faer v0.24.4's driver (v0.2.0) |
+| `ggesComplex(allocator, io, T, jobvsl: VectorJob, jobvsr: VectorJob, n: usize, a: []T, lda: usize, b: []T, ldb: usize, alpha: []T, beta: []T, vsl: []T, ldvsl: usize, vsr: []T, ldvsr: usize) GgevError!void`, `ggesReal(...)` | the generalized Schur form, unordered | `?gges` | faer v0.24.4 (v0.2.0) |
+| `tgexc(allocator, io, T, compq: ReorderVectors, compz: ReorderVectors, n: usize, a: []T, lda: usize, b: []T, ldb: usize, q: []T, ldq: usize, z: []T, ldz: usize, ifst: *usize, ilst: *usize) TgexcError!void` | moves one block of a generalized Schur form | `?tgexc` | Reference-LAPACK `dtgexc.f` (v0.2.0) |
+| `tgsen(allocator, io, T, job: TgsenJob, compq: ReorderVectors, compz: ReorderVectors, select: []const bool, n: usize, a: []T, lda: usize, b: []T, ldb: usize, alpha: Eigenvalues(T), beta: []T, q: []T, ldq: usize, z: []T, ldz: usize) TgsenError!ReorderedPencil(Float(T))` | reorders a generalized Schur form by `select`, with condition estimates | `?tgsen` | Reference-LAPACK `dtgsen.f` (v0.2.0) |
 
 #### SVD
 
@@ -341,7 +384,11 @@ As `src/math/kernels/lapack/` has it today. Accelerate (macOS 13.3's `$NEWLAPACK
 | Signature | Computes | LAPACK name (Accelerate, MKL) | rstd's source |
 | --- | --- | --- | --- |
 | `lange(allocator, io, T, norm: NormType, m: usize, n: usize, a: []const T, lda: usize) LangeError!Float(T)` | `‖A‖` by `norm`: max, one, infinity or Frobenius | `?lange` | Reference-LAPACK `dlange.f` |
+| `lansy(allocator, io, T, norm: NormType, uplo: Uplo, n: usize, a: []const T, lda: usize) LansyError!Float(T)`, `lanhe` | `lange` for symmetric (Hermitian) `A` from one triangle | `?lansy`, `?lanhe` | Reference-LAPACK `dlansy.f`, `zlanhe.f` (v0.2.0) |
+| `lantr(allocator, io, T, norm: NormType, uplo: Uplo, diag: Diag, m: usize, n: usize, a: []const T, lda: usize) LantrError!Float(T)` | `lange` for trapezoidal `A` | `?lantr` | Reference-LAPACK `dlantr.f` (v0.2.0) |
 | `gecon(allocator, io, T, norm: NormType, n: usize, a: []const T, lda: usize, anorm: Float(T)) GeconError!Float(T)` | reciprocal condition number from `getrf`'s factor | `?gecon` | Reference-LAPACK `dgecon.f` |
+| `geequ(T, m: usize, n: usize, a: []const T, lda: usize, r: []Float(T), c: []Float(T)) GeequError!Scaling(Float(T))` | row and column factors that equilibrate `A`, with `rowcnd`, `colcnd`, `amax`; a zero row or column is an error | `?geequ` | Reference-LAPACK `dgeequ.f` |
+| `laqge(T, m: usize, n: usize, a: []T, lda: usize, r: []const Float(T), c: []const Float(T), scaling: Scaling(Float(T))) LaqgeError!Equilibration` | applies `geequ`'s factors where they matter; returns what it scaled | `?laqge` | Reference-LAPACK `dlaqge.f` |
 | `laset(T, uplo: ?Uplo, m: usize, n: usize, alpha: T, beta: T, a: []T, lda: usize) LasetError!void` | off-diagonal `alpha`, diagonal `beta` | `?laset` | Reference-LAPACK `dlaset.f` |
 | `lapy2(F, x: F, y: F) F` | `sqrt(x² + y²)` without overflow | `?lapy2` | Reference-LAPACK `dlapy2.f` |
 
@@ -351,33 +398,12 @@ Each in Reference-LAPACK 3.12.0 (`lapack-netlib/SRC/`, as OpenBLAS ships it; mod
 
 | Signature | Computes | LAPACK name (Accelerate, MKL) |
 | --- | --- | --- |
-| `posv(allocator, io, T, uplo: Uplo, n: usize, nrhs: usize, a: []T, lda: usize, b: []T, ldb: usize) PosvError!void` | `potrf`, then `potrs` | `?posv` |
-| `pbtrs(allocator, io, T, uplo: Uplo, n: usize, kd: usize, nrhs: usize, ab: []const T, ldab: usize, b: []T, ldb: usize) PbtrsError!void` | solves from `pbtrf`'s factor | `?pbtrs` |
-| `pptrf(allocator, io, T, uplo: Uplo, n: usize, ap: []T) PptrfError!void` | `potrf` for packed `A` | `?pptrf` |
-| `pstrf(allocator, io, T, uplo: Uplo, n: usize, a: []T, lda: usize, piv: []usize, tol: Float(T)) PstrfError!usize` | `Pᵀ·A·P = UᴴU`, complete pivoting; returns the rank | `?pstrf` |
-| `pocon(allocator, io, T, uplo: Uplo, n: usize, a: []const T, lda: usize, anorm: Float(T)) PoconError!Float(T)` | reciprocal condition number from `potrf`'s factor | `?pocon` |
-| `gbtrs(allocator, io, T, trans: Trans, n: usize, kl: usize, ku: usize, nrhs: usize, ab: []const T, ldab: usize, ipiv: []const usize, b: []T, ldb: usize) GbtrsError!void` | solves from `gbtrf`'s factor | `?gbtrs` |
-| `gbsv(allocator, io, T, n: usize, kl: usize, ku: usize, nrhs: usize, ab: []T, ldab: usize, ipiv: []usize, b: []T, ldb: usize) GbsvError!void` | `gbtrf`, then `gbtrs` | `?gbsv` |
-| `gesvx(allocator, io, T, fact: FactorizationInput, trans: Trans, n: usize, nrhs: usize, a: []T, lda: usize, af: []T, ldaf: usize, ipiv: []usize, equed: *Equilibration, r: []Float(T), c: []Float(T), b: []T, ldb: usize, x: []T, ldx: usize, ferr: []Float(T), berr: []Float(T)) GesvxError!Float(T)` | `gesv` with equilibration, refinement and error bounds; returns the reciprocal condition number | `?gesvx` |
-| `trcon(allocator, io, T, norm: NormType, uplo: Uplo, diag: Diag, n: usize, a: []const T, lda: usize) TrconError!Float(T)` | reciprocal condition number of triangular `A` | `?trcon` |
-| `sytrs(allocator, io, T, uplo: Uplo, n: usize, nrhs: usize, a: []const T, lda: usize, ipiv: []const Pivot, b: []T, ldb: usize) SytrsError!void` | solves from `sytrf`'s factor | `?sytrs`, `?hetrs` |
-| `sysv(allocator, io, T, uplo: Uplo, n: usize, nrhs: usize, a: []T, lda: usize, ipiv: []Pivot, b: []T, ldb: usize) SysvError!void` | `sytrf`, then `sytrs` | `?sysv`, `?hesv` |
-| `sytri(allocator, io, T, uplo: Uplo, n: usize, a: []T, lda: usize, ipiv: []const Pivot) SytriError!void` | `A⁻¹` from `sytrf`'s factor | `?sytri`, `?hetri` |
-| `gelsd(allocator, io, T, m: usize, n: usize, nrhs: usize, a: []T, lda: usize, b: []T, ldb: usize, s: []Float(T), rcond: Float(T)) GelsdError!usize` | the least-squares solution, any rank, by SVD (divide and conquer); returns the rank | `?gelsd` |
-| `gelss(allocator, io, T, m: usize, n: usize, nrhs: usize, a: []T, lda: usize, b: []T, ldb: usize, s: []Float(T), rcond: Float(T)) GelssError!usize` | `gelsd` by QR iteration | `?gelss` |
-| `gglse(allocator, io, T, m: usize, n: usize, p: usize, a: []T, lda: usize, b: []T, ldb: usize, c: []T, d: []T, x: []T) GglseError!void` | the least-squares solution with equality constraints `Bx = d` | `?gglse` |
-| `ggglm(allocator, io, T, n: usize, m: usize, p: usize, a: []T, lda: usize, b: []T, ldb: usize, d: []T, x: []T, y: []T) GgglmError!void` | general Gauss-Markov linear model | `?ggglm` |
 | `syevr(allocator, io, T, jobz: VectorJob, range: SpectrumRange(Float(T)), uplo: Uplo, n: usize, a: []T, lda: usize, abstol: Float(T), w: []Float(T), z: []T, ldz: usize, isuppz: []usize) SyevrError!usize` | selected eigenvalues and vectors, relatively robust representations; returns the count | `?syevr`, `?heevr` |
-| `syevx(allocator, io, T, jobz: VectorJob, range: SpectrumRange(Float(T)), uplo: Uplo, n: usize, a: []T, lda: usize, abstol: Float(T), w: []Float(T), z: []T, ldz: usize, ifail: []usize) SyevxError!usize` | `syevr` by bisection and inverse iteration | `?syevx`, `?heevx` |
-| `sygvd(allocator, io, T, problem: GeneralizedProblem, jobz: VectorJob, uplo: Uplo, n: usize, a: []T, lda: usize, b: []T, ldb: usize, w: []Float(T)) SygvdError!void` | generalized symmetric-definite eigenproblem | `?sygvd`, `?hegvd` |
 | `geevx(allocator, io, T, balance: Balancing, jobvl: VectorJob, jobvr: VectorJob, n: usize, a: []T, lda: usize, w: Eigenvalues(T), vl: []T, ldvl: usize, vr: []T, ldvr: usize, scale: []Float(T), rconde: []Float(T), rcondv: []Float(T)) GeevxError!BalancedRange` | `geev` with balancing and condition numbers | `?geevx` |
-| `ggev(allocator, io, T, jobvl: VectorJob, jobvr: VectorJob, n: usize, a: []T, lda: usize, b: []T, ldb: usize, alpha: Eigenvalues(T), beta: []T, vl: []T, ldvl: usize, vr: []T, ldvr: usize) GgevError!void` | generalized eigenproblem `Ax = λBx`, `λ = α/β` | `?ggev3` |
-| `gges(allocator, io, T, jobvsl: VectorJob, jobvsr: VectorJob, select: ?PairSelector(T), n: usize, a: []T, lda: usize, b: []T, ldb: usize, alpha: Eigenvalues(T), beta: []T, vsl: []T, ldvsl: usize, vsr: []T, ldvsr: usize) GgesError!usize` | generalized Schur form, sorted; returns the count selected | `?gges3` |
+| `gges(allocator, io, T, jobvsl: VectorJob, jobvsr: VectorJob, select: ?PairSelector(T), n: usize, a: []T, lda: usize, b: []T, ldb: usize, alpha: Eigenvalues(T), beta: []T, vsl: []T, ldvsl: usize, vsr: []T, ldvsr: usize) GgesError!usize` | `gges` with `select`'s ordering (over `tgsen`), the shipped `ggesComplex`, `ggesReal` being unordered | `?gges3` |
 | `gesvdx(allocator, io, T, jobu: VectorJob, jobvt: VectorJob, range: SpectrumRange(Float(T)), m: usize, n: usize, a: []T, lda: usize, s: []Float(T), u: []T, ldu: usize, vt: []T, ldvt: usize) GesvdxError!usize` | selected singular values and vectors; returns the count | `?gesvdx` |
 | `gejsv(allocator, io, T, jobu: SingularVectorJob, jobv: SingularVectorJob, m: usize, n: usize, a: []T, lda: usize, s: []Float(T), u: []T, ldu: usize, v: []T, ldv: usize) GejsvError!void` | SVD by preconditioned Jacobi, high relative accuracy | `?gejsv` |
 | `ggsvd3(allocator, io, T, jobu: VectorJob, jobv: VectorJob, jobq: VectorJob, m: usize, n: usize, p: usize, a: []T, lda: usize, b: []T, ldb: usize, alpha: []Float(T), beta: []Float(T), u: []T, ldu: usize, v: []T, ldv: usize, q: []T, ldq: usize) Ggsvd3Error!struct { k: usize, l: usize }` | generalized SVD of `(A, B)` | `?ggsvd3` |
-| `lansy(allocator, io, T, norm: NormType, uplo: Uplo, n: usize, a: []const T, lda: usize) LansyError!Float(T)` | `lange` for symmetric `A` | `?lansy`, `?lanhe` |
-| `lantr(allocator, io, T, norm: NormType, uplo: Uplo, diag: Diag, m: usize, n: usize, a: []const T, lda: usize) LantrError!Float(T)` | `lange` for trapezoidal `A` | `?lantr` |
 
 `PairSelector(T)` is `EigenvalueSelector`'s form for a pair: `*const fn (T, T) bool` for complex, `*const fn (Float(T), Float(T), Float(T)) bool` for real (`α_re`, `α_im`, `β`).
 
@@ -398,8 +424,10 @@ The routines are methods of the formats. Since [#610](https://github.com/randyos
 | `CompressedColumns(T)`: `solveTriangular(self: Self, uplo: Uplo, trans: Trans, diag: Diag, x: []T) TriSolveError!void` | `x ← op(A)⁻¹x`, triangular `A` | `SparseSolve` (triangular) | `mkl_sparse_?_trsv` | rstd | yes |
 | `Triplets(T)`: `init(rows: usize, cols: usize) error{TooLarge}!Self`, `deinit(self: *Self, allocator) void`, `append(self: *Self, allocator, row: usize, col: usize, value: T) (Allocator.Error \|\| error{IndexOutOfRange})!void`, `toCompressedColumns(self: Self, allocator) Error!CompressedColumns(T)` | assembly, duplicates summed | `SparseConvertFromCoordinate` | `mkl_sparse_?_create_coo` | rstd | yes |
 | `SparseVector(T)`: `axpy(x: Self, alpha: T, y: []T) VectorError!void`, `dot(x: Self, y: []const T) VectorError!T`, `dotc(x: Self, y: []const T) VectorError!T` | sparse level 1 | none | `cblas_?axpyi`, `cblas_?doti`, `cblas_?dotci` | rstd | yes |
-| `cg(allocator, io, T, a: LinearOperator(T), preconditioner: ?LinearOperator(T), tol: Float(T), max_iterations: usize, b: []const T, x: []T) SolveError!SolveReport` | conjugate gradients, symmetric positive definite `A` | `SparseConjugateGradient` | RCI ISS `dcg` | rstd | yes (#610) |
-| `gmres(allocator, io, T, a: LinearOperator(T), preconditioner: ?LinearOperator(T), tol: Float(T), max_iterations: usize, restart: usize, b: []const T, x: []T) SolveError!SolveReport` | restarted GMRES | `SparseGMRES` | RCI ISS `dfgmres` | rstd | yes; as `cg` (#610) |
+| `cg(allocator, io, T, a: LinearOperator(T), preconditioner: ?LinearOperator(T), tol: Float(T), max_iterations: usize, b: []const T, x: []T) SolveError!SolveReport` | conjugate gradients, symmetric positive definite `A` | `SparseConjugateGradient` | RCI ISS `dcg` | faer | yes; #161 (#610) |
+| `gmres(allocator, io, T, a: LinearOperator(T), preconditioner: ?LinearOperator(T), tol: Float(T), max_iterations: usize, restart: usize, b: []const T, x: []T) SolveError!SolveReport` | restarted GMRES | `SparseGMRES` | RCI ISS `dfgmres` | SciPy | yes; #161 (#610) |
+| `bicgstab(allocator, io, T, a: LinearOperator(T), preconditioner: ?LinearOperator(T), tol: Float(T), max_iterations: usize, b: []const T, x: []T) SolveError!SolveReport` | BiCGSTAB, right preconditioned | none | none | faer | yes; #162 |
+| `minres(allocator, io, T, a: LinearOperator(T), preconditioner: ?LinearOperator(T), tol: Float(T), max_iterations: usize, b: []const T, x: []T) SolveError!SolveReport` | MINRES, Hermitian `A`, definite or not | none | none | SciPy | yes; #162 |
 | `CompressedColumns(T)`: `add(self: Self, allocator, alpha: T, b: Self, beta: T) AddError!Self` | `αA + βB` | none | `mkl_sparse_?_add` | SciPy `csr_plus_csr`; rstd's `spgemm` merge | backlog |
 | `SparseCholesky(T)`: `analyze(allocator, a: CompressedColumns(T), uplo: Uplo) AnalyzeError!Self`, `factor(self: *Self, allocator, io, a: CompressedColumns(T)) FactorError!void`, `solve(self: Self, io, b: []T) SolveError!void`, `deinit(self: *Self, allocator) void` | sparse `A = LLᴴ`: AMD ordering and elimination tree, then values, then solves | `SparseFactor(SparseFactorizationCholesky)` | PARDISO (`mtype` 2, 4) | faer v0.24.4 `sparse/linalg/cholesky.rs`, `amd.rs` (MIT) | backlog |
 | `SparseLdlt(T)`: as `SparseCholesky(T)` | sparse `A = L·D·Lᴴ` | `SparseFactorizationLDLT` | PARDISO (`mtype` -2) | faer v0.24.4 (MIT) | backlog |
@@ -415,16 +443,16 @@ Since [#611](https://github.com/randyos-org/rstd/issues/611) the transforms take
 
 | Signature | Computes | Accelerate | MKL | Source | v0.1.0 |
 | --- | --- | --- | --- | --- | --- |
-| `Plan(T)`: `init(allocator, n: usize) InitError!Self`, `deinit(self: *Self, allocator) void`, `scratchLen(self: Self) usize` | plans a complex transform of length `n` | `vDSP_DFT_zop_CreateSetup` | `DftiCreateDescriptor`, `DftiCommitDescriptor` | PocketFFT `cfftp`, Bluestein; pffft for `f32` | yes |
-| `Plan(T)`: `transform(self: *const Self, io, data: []Complex(T), scratch: []Complex(T), direction: Direction, layout: BatchLayout, normalization: Normalization) TransformError!void` | in place, a batch by `layout` | `vDSP_DFT_Execute`, `vDSP_fft_zip` | `DftiComputeForward`, `DftiComputeBackward` | as above | yes (#611) |
+| `Plan(T)`: `init(allocator, n: usize) InitError!Self`, `deinit(self: *Self, allocator) void`, `scratchLen(self: Self) usize` | plans a complex transform of length `n` | `vDSP_DFT_zop_CreateSetup` (routed, #155) | `DftiCreateDescriptor`, `DftiCommitDescriptor` | PocketFFT `cfftp`, Bluestein; pffft for `f32` | yes |
+| `Plan(T)`: `transform(self: *const Self, io, data: []Complex(T), scratch: []Complex(T), direction: Direction, layout: BatchLayout, normalization: Normalization) TransformError!void` | in place, a batch by `layout` | `vDSP_DFT_Execute` (routed), `vDSP_fft_zip` | `DftiComputeForward`, `DftiComputeBackward` | as above | yes (#611) |
 | `Plan(T)`: `transformInto(self: *const Self, io, out: []Complex(T), in: []const Complex(T), scratch: []Complex(T), direction: Direction, layouts: BatchLayouts, normalization: Normalization) TransformIntoError!void` | out of place | `vDSP_DFT_Execute` | `DftiComputeForward` | as above | yes (#611) |
-| `RealPlan(T)`: `init(allocator, n: usize) InitError!Self`, `deinit(self: *Self, allocator) void`, `scratchLen(self: Self) usize` | plans a real transform | `vDSP_DFT_zrop_CreateSetup` | `DftiCreateDescriptor` (real) | PocketFFT `rfftp`; pffft | yes |
-| `RealPlan(T)`: `forward(self: *const Self, io, out: []Complex(T), in: []const T, scratch: []T, layouts: BatchLayouts, normalization: Normalization) TransformIntoError!void`, `backward(self: *const Self, io, out: []T, in: []const Complex(T), scratch: []T, layouts: BatchLayouts, normalization: Normalization) TransformIntoError!void` | real to half-spectrum and back | `vDSP_DFT_Execute`, `vDSP_fft_zrip` | `DftiComputeForward` | as above | yes (#611) |
+| `RealPlan(T)`: `init(allocator, n: usize) InitError!Self`, `deinit(self: *Self, allocator) void`, `scratchLen(self: Self) usize` | plans a real transform | `vDSP_DFT_zrop_CreateSetup` (routed, #155) | `DftiCreateDescriptor` (real) | PocketFFT `rfftp`; pffft | yes |
+| `RealPlan(T)`: `forward(self: *const Self, io, out: []Complex(T), in: []const T, scratch: []T, layouts: BatchLayouts, normalization: Normalization) TransformIntoError!void`, `backward(self: *const Self, io, out: []T, in: []const Complex(T), scratch: []T, layouts: BatchLayouts, normalization: Normalization) TransformIntoError!void` | real to half-spectrum and back | `vDSP_DFT_Execute` (routed), `vDSP_fft_zrip` | `DftiComputeForward` | as above | yes (#611) |
 | `RealPlan(T)`: `forwardUnordered(self: *const Self, out: []T, in: []const T, scratch: []T) UnorderedError!void`, `backwardUnordered(self: *const Self, out: []T, in: []const T, scratch: []T) UnorderedError!void`, `convolveAccumulate(self: *const Self, acc: []T, a: []const T, b: []const T, scale: T) UnorderedError!void` | the spectrum in the transform's own order, and `acc += scale·a⊙b` in it: fast convolution | none | none | pffft `pffft_zconvolve_accumulate` | yes |
 | `StaticPlan(n, T)`: `scratchLen(_: Self) usize`, `transform(self: Self, io, data: []Complex(T), scratch: []Complex(T), direction: Direction, layout: BatchLayout, normalization: Normalization) TransformError!void`, `transformInto(self: Self, io, out: []Complex(T), in: []const Complex(T), scratch: []Complex(T), direction: Direction, layouts: BatchLayouts, normalization: Normalization) TransformIntoError!void` | `Plan` with `n` at compile time | none | none | PocketFFT, unrolled | stub (#625) |
 | `StaticRealPlan(n, T)`: `scratchLen(_: Self) usize`, `forward(self: Self, io, out: []Complex(T), in: []const T, scratch: []T, layouts: BatchLayouts, normalization: Normalization) TransformIntoError!void`, `backward(self: Self, io, out: []T, in: []const Complex(T), scratch: []T, layouts: BatchLayouts, normalization: Normalization) TransformIntoError!void` | `RealPlan` with `n` at compile time | none | none | PocketFFT, unrolled | stub (#625) |
-| `TrigTransformPlan(T)`: `init(allocator, n: usize, kind: TrigTransformKind) InitError!Self`, `deinit(self: *Self, allocator) void`, `scratchLen(self: Self) usize`, `transform(self: *const Self, io, data: []T, scratch: []T, layout: BatchLayout, normalization: Normalization) TransformError!void` | DCT and DST types I to IV | `vDSP_DCT_CreateSetup` (II, III, IV) | trigonometric transforms (`d_init_trig_transform`) | PocketFFT C++ `pocketfft_hdronly.hpp` `T_dcst4`, `T_dct1` (BSD-3) | stub (#625) |
-| `ModifiedCosineTransform(T)`: `init(allocator, n: usize) InitError!Self`, `deinit(self: *Self, allocator) void`, `scratchLen(self: Self) usize`, `forward(self: *const Self, out: []T, in: []const T, scratch: []T) FrameError!void`, `backward(self: *const Self, out: []T, in: []const T, scratch: []T) FrameError!void` | modified DCT of `n` samples to `n/2` and back, by a DCT-IV | none | none | Princen-Bradley via `TrigTransformPlan(.dct4)` | stub (#625) |
+| `TrigTransformPlan(T)`: `init(allocator, n: usize, kind: TrigTransformKind) TrigInitError!Self`, `deinit(self: *Self, allocator) void`, `scratchLen(self: Self) usize`, `transform(self: *const Self, io, data: []T, scratch: []T, layout: BatchLayout, normalization: Normalization) TransformError!void` | DCT and DST types I to IV | `vDSP_DCT_CreateSetup` (II, III, IV) | trigonometric transforms (`d_init_trig_transform`) | PocketFFT C++ `pocketfft_hdronly.hpp` `T_dcst4`, `T_dct1` (BSD-3) | done ([#153](https://github.com/randyos-org/rstd/issues/153)) |
+| `ModifiedCosineTransform(T)`: `init(allocator, n: usize) MdctInitError!Self`, `deinit(self: *Self, allocator) void`, `scratchLen(self: Self) usize`, `forward(self: *const Self, out: []T, in: []const T, scratch: []T) FrameError!void`, `backward(self: *const Self, out: []T, in: []const T, scratch: []T) FrameError!void` | modified DCT of `2n` samples to `n` (`n` even) and back, by a DCT-IV | none | none | Princen-Bradley via `TrigTransformPlan(.dct4)` | done ([#153](https://github.com/randyos-org/rstd/issues/153)) |
 | `MultiDimPlan(T)`: `init(allocator, shape: []const usize) InitError!Self`, `deinit(self: *Self, allocator) void`, `scratchLen(self: Self) usize`, `transform(self: *const Self, io, data: []Complex(T), scratch: []Complex(T), direction: Direction, normalization: Normalization) TransformError!void` | complex transform over every axis, column-major | `vDSP_fft2d_zip` (powers of two) | DFTI, multidimensional | PocketFFT C++ `c2c` over axes (BSD-3) | backlog |
 | `binFrequencies(T, n: usize, d: T, out: []T) LengthError!void`, `realBinFrequencies(T, n: usize, d: T, out: []T) LengthError!void` | the frequencies of the bins | none | none | NumPy `numpy.fft.fftfreq`, `rfftfreq` | backlog |
 | `centerZeroFrequency(T, x: []T) void`, `uncenterZeroFrequency(T, x: []T) void` | moves the zero frequency to the middle and back | none | none | NumPy `numpy.fft.fftshift` | backlog |
@@ -561,6 +589,8 @@ MATLAB's names and argument order where MATLAB has the routine; NumPy's where it
 
 #### The `linalg` functions
 
+The last column is `yes` for what v0.1.0 has, or the release that added the row.
+
 | Signature | Computes | v0.1.0 |
 | --- | --- | --- |
 | `dot(io, x: anytype, y: anytype) VectorError!ElementOf(@TypeOf(x))` | `xᴴy` | yes |
@@ -579,12 +609,21 @@ MATLAB's names and argument order where MATLAB has the routine; NumPy's where it
 | `inv(allocator, io, a: anytype) InvError!Mat(ElementOf(@TypeOf(a)))`, `invInto(allocator, io, out: anytype, a: anytype) InvIntoError!void` | `A⁻¹` | yes |
 | `solve(allocator, io, a: anytype, b: anytype) SolveError!Mat(ElementOf(@TypeOf(a)))`, `solveInto(allocator, io, out: anytype, a: anytype, b: anytype) SolveError!void` | `A \ B`: square by its structure (triangular, Cholesky, LU), else least squares | yes |
 | `lu(allocator, io, a: anytype) (Allocator.Error \|\| Io.Cancelable)!Lu(ElementOf(@TypeOf(a)))` | `PA = LU` | yes |
+| `luComplete(allocator, io, a: anytype) (Allocator.Error \|\| Io.Cancelable)!LuComplete(ElementOf(@TypeOf(a)))` | `PAQ = LU` with complete pivoting and its rank (Eigen's `FullPivLU`) | v0.2.0 |
 | `chol(allocator, io, a: anytype) CholError!Mat(ElementOf(@TypeOf(a)))` | `A = RᴴR` | yes |
 | `qr(allocator, io, a: anytype, mode: QrMode) (Allocator.Error \|\| Io.Cancelable)!Qr(ElementOf(@TypeOf(a)))` | `A = QR` | yes |
 | `svd(allocator, io, a: anytype, mode: SvdMode) SvdError!Svd(ElementOf(@TypeOf(a)))` | `A = U·Σ·Vᴴ` | yes |
 | `eig(allocator, io, a: anytype, want_vectors: bool) EigError!Eig(ElementOf(@TypeOf(a)))` | eigenvalues, and vectors; Hermitian `A` by the symmetric path | yes |
 | `hess(allocator, io, a: anytype) HessError!Hess(ElementOf(@TypeOf(a)))` | `A = Q·H·Qᴴ` | yes |
 | `schur(allocator, io, a: anytype) SchurError!Schur(ElementOf(@TypeOf(a)))`, `schurComplex(...)` | real or complex Schur form | yes |
+| `ldl(allocator, io, a: anytype) LdlError!Ldl(ElementOf(@TypeOf(a)))` | `A = L·D·Lᴴ` by Bunch and Kaufman (MATLAB's `ldl`) | v0.2.0 |
+| `cholupdate(allocator, r: anytype, x: anytype, op: CholupdateOp) CholupdateError!Mat(ElementOf(@TypeOf(r)))` | `R1ᴴR1 = RᴴR ± xxᴴ` (MATLAB's `cholupdate`) | v0.2.0 |
+| `lsqminnorm(allocator, io, a: anytype, b: anytype) LsqminnormError!Mat(ElementOf(@TypeOf(a)))`, `lsqminnormWith(..., options: LsqminnormOptions(...))` | the minimum-norm least-squares solution | v0.2.0 |
+| `balance(allocator, io, a: anytype, mode: BalanceMode) BalanceError!Balance(ElementOf(@TypeOf(a)))` | `T⁻¹AT` balanced (MATLAB's `balance`) | v0.2.0 |
+| `eigGeneralized(allocator, io, a: anytype, b: anytype, want_vectors: bool) EigGeneralizedError!Eig(ElementOf(@TypeOf(a)))` | `eig(A, B)`: a Hermitian definite pencil by `sygvd`, any other by `ggev` | v0.2.0 |
+| `qz(allocator, io, a: anytype, b: anytype) QzError!Qz(ElementOf(@TypeOf(a)))`, `qzComplex(...)` | `QAZ = AA`, `QBZ = BB` (MATLAB's `qz`) | v0.2.0 |
+| `ordschur(allocator, io, u: anytype, t: anytype, select: OrdschurSelect) OrdschurError!Schur(ElementOf(@TypeOf(t)))`, `ordqz(allocator, io, aa: anytype, bb: anytype, q: anytype, z: anytype, select: OrdschurSelect) OrdqzError!Qz(ElementOf(@TypeOf(aa)))` | a Schur or generalized Schur form reordered by a mask, a region (`lhp`, `rhp`, `udi`, `udo`) or clusters | v0.2.0 |
+| `sylvester(allocator, io, a: anytype, b: anytype, c: anytype) SylvesterError!Mat(ElementOf(@TypeOf(a)))`, `lyap(allocator, io, a: anytype, q: anytype)`, `lyapSylvester(allocator, io, a, b, c)`, `lyapGeneralized(allocator, io, a, q, e)` | `AX + XB = C`; `AX + XAᴴ + Q = 0`, `AX + XB + C = 0`, `AXEᴴ + EXAᴴ + Q = 0` | v0.2.0 |
 | `matrixNorm(allocator, io, a: anytype, which: MatrixNorm) MatrixNormError!Real(ElementOf(@TypeOf(a)))` | `norm(A, p)` | yes |
 | `cond(allocator, io, a: anytype) SvdError!Real(ElementOf(@TypeOf(a)))`, `rcond(allocator, io, a: anytype) RcondError!Real(ElementOf(@TypeOf(a)))` | the 2-norm condition number; its one-norm reciprocal estimate | yes |
 | `rank(allocator, io, a: anytype, tol: ?Real(ElementOf(@TypeOf(a)))) SvdError!usize` | numerical rank | yes |
@@ -600,7 +639,7 @@ MATLAB's names and argument order where MATLAB has the routine; NumPy's where it
 | `magic(allocator, T, n: usize) Allocator.Error!Mat(T)`, `hilbert`, `invHilbert`; `uniform(allocator, T, rows: usize, cols: usize, rnd: std.Random) Allocator.Error!Mat(T)`, `normal`, `fillUniform(T, v: View(T), rnd: std.Random) void`, `fillNormal` | MATLAB's gallery and random matrices | yes |
 | `trace`, `logDet`, `cross`, `outer` | `trace`, `log(det)` without overflow, `cross`, `xyᴴ` | named; #615 |
 | `sumWith`, `dotWith`, `normWith` | the reductions with `.{ .summation = ... }` | named; #615 |
-| `eigGeneralized`, `schurGeneralized`, `svdGeneralized` | `eig(A, B)`, `qz`, `gsvd` over the backlog's `ggev`, `gges`, `ggsvd3` | named; backlog (#623) |
+| `svdGeneralized` | `gsvd` over the backlog's `ggsvd3` | named; backlog (#623) |
 | `polyfit`, `polyval` | least-squares fit; evaluation over `kernels.dsp.evaluatePolynomial` | named; backlog (#627) |
 
 - N-d arrays beyond storage: indexing, broadcasting, reductions along a dimension. Spec to be decided.

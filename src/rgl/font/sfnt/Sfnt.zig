@@ -6,6 +6,7 @@ const types = @import("types.zig");
 const aux_types = @import("aux_types.zig");
 const charstring = @import("tables/cff/charstring.zig");
 const glyf_shape = @import("tables/glyf/shape.zig");
+const advance = @import("advance.zig");
 
 const Vertex = aux_types.Vertex;
 const Allocator = zigstd.Allocator;
@@ -45,6 +46,8 @@ glyf: ?tables.GlyfTable = null,
 loca: ?tables.LocaTable = null,
 /// Only if not glyf.
 cff: ?tables.CffTable = null,
+/// A variable font's CFF outlines, which only the hinter reads (issue #833).
+cff2: ?tables.CffTable = null,
 
 // Optional tables.
 
@@ -53,6 +56,14 @@ kern: ?tables.KernTable = null,
 gpos: ?tables.GposTable = null,
 /// For FreeType-exact ascender, descender and line height.
 os2: ?tables.Os2Table = null,
+
+// TrueType hinting's tables, raw (`hint/truetype/Instance.zig`).
+
+fpgm: ?[]const u8 = null,
+prep: ?[]const u8 = null,
+/// Big-endian FWords.
+cvt: ?[]const u8 = null,
+hdmx: ?[]const u8 = null,
 
 // Variable fonts.
 
@@ -151,6 +162,7 @@ pub fn init(alloc: Allocator, font_data: []const u8, options: InitOptions) SfntE
             .kern => self.kern = try tables.KernTable.init(table_data, options.check),
             .GPOS => self.gpos = try tables.GposTable.init(table_data, options.check),
             .CFF => self.cff = try tables.CffTable.init(table_data, options.check),
+            .CFF2 => self.cff2 = try tables.cff2.init(table_data, options.check),
             .@"OS/2" => self.os2 = try tables.Os2Table.init(table_data, options.check),
             .fvar => self.fvar = try tables.FvarTable.init(table_data, options.check),
             .avar => self.avar = try tables.AvarTable.init(table_data, options.check),
@@ -160,6 +172,10 @@ pub fn init(alloc: Allocator, font_data: []const u8, options: InitOptions) SfntE
             .VVAR => self.vvar = try tables.VvarTable.init(table_data, options.check),
             .MVAR => self.mvar = try tables.MvarTable.init(table_data, options.check),
             .STAT => self.stat = try tables.StatTable.init(table_data, options.check),
+            .fpgm => self.fpgm = table_data,
+            .prep => self.prep = table_data,
+            .cvt => self.cvt = table_data,
+            .hdmx => self.hdmx = table_data,
             else => {},
         }
     }
@@ -253,12 +269,32 @@ pub fn getGlyphBoundingBox(self: Self, glyph: GlyphIndex) ?aux_types.GlyphBoundi
     return null;
 }
 
+/// `glyph`'s advance width at normalized coordinates (`coords.normalize`):
+/// `hmtx`'s, plus HVAR's or the `gvar` phantom points' delta, rounded.
+pub fn advanceWidthAt(self: Self, gpa: Allocator, glyph: GlyphIndex, coords: []const types.F2Dot14) advance.Error!types.UFWord {
+    const base: f32 = if (self.hmtx) |hmtx| @floatFromInt(hmtx.getMetrics(glyph).advance_width) else 0;
+    const varied = @round(base + try advance.advanceDelta(self, gpa, glyph, coords));
+    return @intFromFloat(std.math.clamp(varied, 0, std.math.maxInt(types.UFWord)));
+}
+
 /// Combines hmtx's advance width with the glyph outline's own bounding box.
 pub fn getGlyphMetrics(self: Self, glyph: GlyphIndex) aux_types.GlyphMetricsDesign {
     const advance_width = if (self.hmtx) |hmtx| hmtx.getMetrics(glyph).advance_width else 0;
     const bbox = self.getGlyphBoundingBox(glyph) orelse
         return .{ .advance_width = advance_width, .bearing_x = 0, .bearing_y = 0 };
     return .{ .advance_width = advance_width, .bearing_x = @intCast(bbox.x_min), .bearing_y = @intCast(bbox.y_max) };
+}
+
+/// The preferred Unicode cmap subtable, as `getGlyphIndex` picks it.
+/// The CFF outlines the hinter reads: `CFF`, else `CFF2`.
+pub fn cffOutlines(self: Self) ?tables.CffTable {
+    return self.cff orelse self.cff2;
+}
+
+pub fn unicodeCmap(self: Self) ?tables.CmapSubtable {
+    const cmap = self.cmap orelse return null;
+    const record = cmap.findUnicodeFullRecord() orelse cmap.findUnicodeBmpRecord() orelse return null;
+    return cmap.getSubtable(record, false) catch null;
 }
 
 /// Resolves a Unicode codepoint to a glyph index via the font's preferred
@@ -268,21 +304,27 @@ pub fn getGlyphMetrics(self: Self, glyph: GlyphIndex) aux_types.GlyphMetricsDesi
 /// null if the font has no Unicode subtable, or the subtable has no mapping
 /// for this codepoint.
 pub fn getGlyphIndex(self: Self, codepoint: u32) ?GlyphIndex {
-    const cmap = self.cmap orelse return null;
-    const record = cmap.findUnicodeFullRecord() orelse cmap.findUnicodeBmpRecord() orelse return null;
-    const subtable = cmap.getSubtable(record, false) catch return null;
+    const subtable = self.unicodeCmap() orelse return null;
     const glyph = subtable.getGlyphIndex(codepoint);
     return if (glyph == .notdef) null else glyph;
 }
 
 /// Format-agnostic glyph outline extraction: dispatches to the `glyf`-table
 /// path or the CFF/Type2 charstring path depending on which outline format
-/// this font uses.
+/// this font uses. A variable font's default instance; see `glyphShapeAt`.
 pub fn glyphShape(self: Self, gpa: Allocator, glyph: GlyphIndex) ![]Vertex {
+    return self.glyphShapeAt(gpa, glyph, &.{});
+}
+
+/// `glyphShape` at normalized coordinates (`coords.normalize`), which `gvar`
+/// deltas apply to `glyf` outlines; CFF outlines, and no `coords`, give the
+/// default instance.
+pub fn glyphShapeAt(self: Self, gpa: Allocator, glyph: GlyphIndex, coords: []const types.F2Dot14) ![]Vertex {
     if (self.cff) |cff| return charstring.glyphShapeT2(cff, gpa, glyph);
     if (self.glyf) |glyf| {
         const loca = self.loca orelse return &.{};
-        return glyf_shape.glyphShapeTT(loca, glyf, gpa, glyph);
+        const variation: ?glyf_shape.Variation = if (self.gvar) |gvar| (if (coords.len > 0) .{ .gvar = gvar, .coords = coords } else null) else null;
+        return glyf_shape.glyphShapeTT(loca, glyf, gpa, glyph, variation);
     }
     return &.{};
 }

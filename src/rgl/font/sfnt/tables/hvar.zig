@@ -22,8 +22,15 @@ pub const HvarTable = struct {
 
     table_data: []const u8,
 
+    /// With `check`, also that every offset lands inside the table, so the
+    /// accessors below can slice at them.
     pub fn init(table_data: []const u8, check: bool) !Self {
-        if (check) try bytes.checkSize(table_data, 0, StreamLayout);
+        if (check) {
+            try bytes.checkSize(table_data, 0, StreamLayout);
+            inline for (.{ "item_variation_store_offset", "advance_width_mapping_offset", "lsb_mapping_offset", "rsb_mapping_offset" }) |name| {
+                try bytes.checkOffset(table_data, types.field(StreamLayout, name, table_data));
+            }
+        }
         return .{ .table_data = table_data };
     }
 

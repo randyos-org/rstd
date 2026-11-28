@@ -4,6 +4,8 @@ const Allocator = zigstd.Allocator;
 
 const Sfnt = @import("../sfnt/Sfnt.zig");
 const aux_types = @import("../sfnt/aux_types.zig");
+const sfnt_coords = @import("../sfnt/coords.zig");
+const F2Dot14 = @import("../sfnt/types.zig").F2Dot14;
 const pack = @import("../../pack.zig");
 
 const coloring = @import("coloring.zig");
@@ -63,17 +65,18 @@ pub fn fontMetrics(self: *Generator) !FontMetrics {
     };
 }
 
-/// `error.UnsupportedVariations` for axis coordinates on a variable font:
-/// they are not yet applied to glyph outlines (`gvar` deformation is unimplemented).
-fn handleVarFont(self: *Generator, var_args: []const VarFontArgument) error{UnsupportedVariations}!void {
-    if (var_args.len == 0) return;
-
-    if (self.sfnt.fvar == null) {
+/// The normalized coordinates of `var_args` (`sfnt.coords.normalize`); none
+/// without arguments, or for a font with no `fvar`. The caller frees them.
+fn varCoords(self: *Generator, gpa: Allocator, var_args: []const VarFontArgument) ![]F2Dot14 {
+    if (var_args.len == 0) return &.{};
+    const fvar = self.sfnt.fvar orelse {
         std.log.warn("Var font args supplied, but the font has no fvar table", .{});
-        return;
-    }
-
-    return error.UnsupportedVariations;
+        return &.{};
+    };
+    const out = try gpa.alloc(F2Dot14, fvar.axisCount());
+    errdefer gpa.free(out);
+    try sfnt_coords.normalize(fvar, self.sfnt.avar, var_args, out);
+    return out;
 }
 
 /// Walks a decomposed glyph outline (see Sfnt.glyphShape) into `shape`,
@@ -120,6 +123,29 @@ fn appendVertices(shape: *Shape, allocator: Allocator, vertices: []const Vertex,
     };
 }
 
+/// The box of `vertices`' points and control points, as a `glyf` header's
+/// box covers every point; null for none.
+fn vertexBox(vertices: []const Vertex) ?aux_types.GlyphBoundingBox {
+    if (vertices.len == 0) return null;
+    var box: aux_types.GlyphBoundingBox = .{ .x_min = vertices[0].x, .y_min = vertices[0].y, .x_max = vertices[0].x, .y_max = vertices[0].y };
+    for (vertices) |v| {
+        const n: usize = switch (v.type) {
+            .vcurve => 2,
+            .vcubic => 3,
+            else => 1,
+        };
+        const xs = [3]i16{ v.x, v.cx, v.cx1 };
+        const ys = [3]i16{ v.y, v.cy, v.cy1 };
+        for (xs[0..n], ys[0..n]) |x, y| {
+            box.x_min = @min(box.x_min, x);
+            box.x_max = @max(box.x_max, x);
+            box.y_min = @min(box.y_min, y);
+            box.y_max = @max(box.y_max, y);
+        }
+    }
+    return box;
+}
+
 fn scaledVertexVec(x: i16, y: i16, scale: f64) V2f64 {
     return .{ f64i(x) * scale, f64i(y) * scale };
 }
@@ -131,7 +157,8 @@ pub fn generateSingle(
     codepoint: u21,
     opts: *const Options,
 ) !GeneratedGlyph {
-    try self.handleVarFont(opts.var_font_args);
+    const var_coords = try self.varCoords(allocator, opts.var_font_args);
+    defer allocator.free(var_coords);
 
     const head = self.sfnt.head orelse return error.MissingHead;
     const scale = 1.0 / f64i(head.unitsPerEm());
@@ -140,11 +167,18 @@ pub fn generateSingle(
     var shape: Shape = .{};
     defer shape.deinit(allocator);
 
-    const outline_vertices = try self.sfnt.glyphShape(allocator, glyph_index);
+    const outline_vertices = try self.sfnt.glyphShapeAt(allocator, glyph_index, var_coords);
     defer allocator.free(outline_vertices);
     try appendVertices(&shape, allocator, outline_vertices, scale);
 
-    const metrics = self.sfnt.getGlyphMetrics(glyph_index);
+    var metrics = self.sfnt.getGlyphMetrics(glyph_index);
+    if (var_coords.len > 0) {
+        metrics.advance_width = try self.sfnt.advanceWidthAt(allocator, glyph_index, var_coords);
+        if (vertexBox(outline_vertices)) |box| {
+            metrics.bearing_x = @intCast(box.x_min);
+            metrics.bearing_y = @intCast(box.y_max);
+        }
+    }
     if (shape.contours.items.len == 0)
         return .{
             .metrics = .{
@@ -419,4 +453,14 @@ test {
     _ = Shape;
     _ = math;
     _ = error_correction;
+}
+
+test "vertexBox covers a curve's control point" {
+    var v: [3]Vertex = undefined;
+    v[0].set(.vmove, 0, 0, 0, 0);
+    v[1].set(.vcurve, 100, 0, 50, -40);
+    v[2].set(.vline, 0, 0, 0, 0);
+    const box = vertexBox(&v).?;
+    try zigstd.testExpectEqual(aux_types.GlyphBoundingBox{ .x_min = 0, .y_min = -40, .x_max = 100, .y_max = 0 }, box);
+    try zigstd.testExpectEqual(@as(?aux_types.GlyphBoundingBox, null), vertexBox(&.{}));
 }

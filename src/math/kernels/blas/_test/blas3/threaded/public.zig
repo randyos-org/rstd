@@ -71,7 +71,7 @@ test "the public gemm threads above the threshold and keeps the serial bits" {
     }
 }
 
-test "the public symm, herk, syr2k and trmm thread above their thresholds and keep the serial bits" {
+test "the public symm, herk, syr2k, gemmt and trmm thread above their thresholds and keep the serial bits" {
     if (comptime !test_io.threaded_tests) return error.SkipZigTest;
     // selecting the core fills `blas.config` once; override after
     _ = blas.coreName();
@@ -113,6 +113,10 @@ test "the public symm, herk, syr2k and trmm thread above their thresholds and ke
     try zigstd.testExpectEqual(@as(u32, 5), l3.syrkWorkers(T, true, n, k));
     try driver.syrk(al, Io.failing, T, vt, false, true, false, n, k, alpha, a.ptr, n, b.ptr, n, alpha, want.ptr, n, 1);
     try interface.syr2k(al, io, T, .u, .n, n, k, alpha, a.ptr, n, b.ptr, n, alpha, got.ptr, n);
+    try zigstd.testExpectTrue(sameBits(T, want, got));
+    try zigstd.testExpectEqual(@as(u32, 5), l3.gemmtWorkers(T, n, k));
+    try driver.gemmt(al, Io.failing, T, vt, false, true, false, .of(true, false), n, k, alpha, a.ptr, k, b.ptr, k, alpha, want.ptr, n, 1);
+    try interface.gemmt(al, io, T, .l, .c, .n, n, k, alpha, a.ptr, k, b.ptr, k, alpha, got.ptr, n);
     try zigstd.testExpectTrue(sameBits(T, want, got));
     try zigstd.testExpectEqual(@as(u32, 5), l3.triWorkers(T, k, n, n));
     try driver.trmm(al, Io.failing, T, vt, false, false, true, true, true, k, n, alpha, a.ptr, n, want.ptr, n, 1);

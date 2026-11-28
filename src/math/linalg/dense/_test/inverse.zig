@@ -39,6 +39,10 @@ const inv = inverse.inv;
 const invInto = inverse.invInto;
 const solve = inverse.solve;
 const solveInto = inverse.solveInto;
+const lsqminnorm = inverse.lsqminnorm;
+const lsqminnormWith = inverse.lsqminnormWith;
+const Structure = inverse.Structure;
+const structureOf = inverse.structureOf;
 const products = @import("../products.zig");
 const ctranspose = products.ctranspose;
 const mul = products.mul;
@@ -102,6 +106,17 @@ pub fn hermitianPd(comptime T: type, rnd: std.Random, n: usize) !Mat(T) {
     return a;
 }
 
+/// A random Hermitian `n` by `n` with a zero diagonal: indefinite, and
+/// `sytrf` takes 2 by 2 pivots.
+pub fn hermitianZeroDiag(comptime T: type, rnd: std.Random, n: usize) !Mat(T) {
+    const a = try randomMat(T, rnd, n, n);
+    for (0..n) |j| {
+        for (j + 1..n) |i| a.data[j + i * n] = ops.conj(T, a.data[i + j * n]);
+        a.data[j + j * n] = ops.zero(T);
+    }
+    return a;
+}
+
 /// `‖a x - b‖ <= tol (n ‖a‖ ‖x‖ + ‖b‖)`, max norms.
 pub fn expectSolves(comptime T: type, a: ConstView(T), x: ConstView(T), b: ConstView(T)) !void {
     const al = testing.allocator;
@@ -131,14 +146,19 @@ pub fn expectSolveRoutes(comptime T: type, n: usize, rnd: std.Random) !void {
     shiftDiag(T, lower, 4);
     const pd = try hermitianPd(T, rnd, n);
     defer pd.deinit(al);
-    // Hermitian, positive diagonal, indefinite: `potrf` fails, LU solves
+    // Hermitian, positive diagonal, indefinite: `potrf` fails, `L D Lᴴ` solves
     const indefinite = try Mat(T).zeros(al, n, n);
     defer indefinite.deinit(al);
     shiftDiag(T, indefinite, 1);
     indefinite.data[1] = if (comptime isComplex(T)) T.init(2, 0) else 2;
     indefinite.data[n] = indefinite.data[1];
     try testing.expectError(error.NotPositiveDefinite, chol(al, test_io, indefinite));
-    for ([_]Mat(T){ general, upper, lower, pd, indefinite }) |a| {
+    try testing.expectEqual(Structure.hermitian_positive, structureOf(indefinite.constView()));
+    // Hermitian with a zero diagonal: straight to `L D Lᴴ`, 2 by 2 pivots
+    const zero_diag = try hermitianZeroDiag(T, rnd, n);
+    defer zero_diag.deinit(al);
+    try testing.expectEqual(Structure.hermitian, structureOf(zero_diag.constView()));
+    for ([_]Mat(T){ general, upper, lower, pd, indefinite, zero_diag }) |a| {
         const x = try solve(al, test_io, a, b);
         defer x.deinit(al);
         try expectSolves(T, a.constView(), x.constView(), b.constView());
@@ -288,4 +308,58 @@ test "inv past the inline limit: a a⁻¹ is I" {
         shiftDiag(T, id, 1);
         try expectSolves(T, a.constView(), ai.constView(), id.constView());
     };
+}
+
+test "lsqminnorm: the minimum-norm solution of a rank-deficient system; rcond cuts the rank" {
+    const al = testing.allocator;
+    // A = u vᵀ, rank 1: the minimum-norm X is v (uᵀ b) / (‖u‖² ‖v‖²)
+    const u = [_]f64{ 1, 2, -1, 0.5, 3 };
+    const v = [_]f64{ 2, -1, 1 };
+    const a = try Mat(f64).init(al, 5, 3);
+    defer a.deinit(al);
+    for (0..3) |j| for (0..5) |i| {
+        a.data[i + j * 5] = u[i] * v[j];
+    };
+    const b = try Mat(f64).init(al, 5, 1);
+    defer b.deinit(al);
+    @memcpy(b.data, &[_]f64{ 1, 0, 2, -1, 0.5 });
+    var utb: f64 = 0;
+    var uu: f64 = 0;
+    for (u, b.data) |x, y| {
+        utb += x * y;
+        uu += x * x;
+    }
+    const vv: f64 = 6;
+    const x = try lsqminnorm(al, test_io, a, b);
+    defer x.deinit(al);
+    for (v, x.data) |vj, xj| try testing.expectApproxEqAbs(vj * utb / (uu * vv), xj, 1e-14);
+
+    // full rank and square: solve's answer
+    var prng: std.Random.DefaultPrng = .init(0x15a);
+    const g = try randomMat(f64, prng.random(), 6, 6);
+    defer g.deinit(al);
+    shiftDiag(f64, g, 3);
+    const gb = try randomMat(f64, prng.random(), 6, 2);
+    defer gb.deinit(al);
+    const gx = try lsqminnorm(al, test_io, g, gb);
+    defer gx.deinit(al);
+    try expectSolves(f64, g.constView(), gx.constView(), gb.constView());
+
+    // diag(1, 1e-3): rcond 0.01 drops the second direction
+    const d = try Mat(f64).zeros(al, 2, 2);
+    defer d.deinit(al);
+    d.data[0] = 1;
+    d.data[3] = 1e-3;
+    const db = try Mat(f64).init(al, 2, 1);
+    defer db.deinit(al);
+    @memcpy(db.data, &[_]f64{ 2, 3 });
+    const dx = try lsqminnormWith(al, test_io, d, db, .{ .rcond = 0.01 });
+    defer dx.deinit(al);
+    try testing.expectApproxEqAbs(2, dx.data[0], 1e-15);
+    try testing.expectEqual(0, dx.data[1]);
+    const full = try lsqminnorm(al, test_io, d, db);
+    defer full.deinit(al);
+    try testing.expectApproxEqAbs(3000, full.data[1], 1e-9);
+
+    try testing.expectError(error.DimensionMismatch, lsqminnorm(al, test_io, d, b));
 }

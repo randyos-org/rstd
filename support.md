@@ -130,7 +130,7 @@ and every POWER core is tier 3.
 | --- | --- | --- |
 | x86 | `katmai`, `coppermine`, `northwood`, `banias`, `p5`, `p6`, `viac3`, `opteron` | `i386` (`pentium3`), `i386-max` |
 | x86 | `prescott`, `yonah`, `atom`, `core2`, `penryn`, `dunnington`, `nehalem`, `opteron_sse3`, `barcelona`, `nano`, `bobcat` | `i386-max` |
-| x86 | `athlon` (3DNow!) | unsettled: whether TCG `max` shows 3DNow! is unchecked; the Zen 3 host has none |
+| x86 | `athlon` (3DNow!) | `i386-max`: TCG `max` shows 3DNow! (checked 2026-11-27, [#372](https://github.com/randyos-org/rstd/issues/372)); the Zen 3 host has none |
 | powerpc64, powerpc64le | `power3`, `power4`, `power5`, `power6`, `ppc970`, `cell`, `power8`, `power9` | `powerpc64` (every 64-bit core), `powerpc64le`, `linux-powerpc64le` |
 | powerpc64, powerpc64le | `power10` | `powerpc64`, `powerpc64le-power10`, CI's `powerpc64le-linux-power10` leg (qemu-user), `linux-powerpc64le-power10` (local) |
 | powerpc | `power3`, `power4`, `power5`, `power6`, `ppc970`, `cell` | `powerpc-pseries` (32-bit code on POWER10) |

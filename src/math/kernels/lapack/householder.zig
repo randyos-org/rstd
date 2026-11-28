@@ -69,8 +69,8 @@ pub fn blockFactor(al: Allocator, io: Io, comptime T: type, v: Mat(T), t: Mat(T)
     for (0..b) |j| for (0..b) |i| {
         w.at(i, j).* = if (i == j) ops.one(T) else if (i > j) v.get(i, j) else ops.zero(T);
     };
-    try blas_calls.gramUpper(al, io, T, 1, w, 0, t);
-    if (v.rows > b) try blas_calls.gramUpper(al, io, T, 1, v.sub(b, 0, v.rows - b, b), 1, t);
+    try blas_calls.gram(al, io, T, true, 1, w, 0, t);
+    if (v.rows > b) try blas_calls.gram(al, io, T, true, 1, v.sub(b, 0, v.rows - b, b), 1, t);
     for (taus, 0..) |x, i| t.at(i, i).* = x;
 }
 

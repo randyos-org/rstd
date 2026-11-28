@@ -19,6 +19,7 @@ const Real = vector.Real;
 const ElementOf = util.ElementOf;
 const constOf = util.constOf;
 const copyOf = util.copyOf;
+const complexOf = util.complexOf;
 
 pub const HessError = error{NotSquare} || Allocator.Error || Io.Cancelable;
 
@@ -88,15 +89,76 @@ pub fn schur(allocator: Allocator, io: Io, a: anytype) SchurError!Schur(ElementO
 /// `schur(A, 'complex')`).
 pub fn schurComplex(allocator: Allocator, io: Io, a: anytype) SchurError!Schur(std.math.Complex(Real(ElementOf(@TypeOf(a))))) {
     const T = ElementOf(@TypeOf(a));
-    const C = std.math.Complex(Real(T));
     const ca = constOf(a);
     if (ca.rows != ca.cols) return error.NotSquare;
-    const n = ca.rows;
-    const t = try Mat(C).init(allocator, n, n);
-    for (0..n) |j| for (t.data[j * n ..][0..n], ca.col(j)) |*d, x| {
-        d.* = if (comptime isComplex(T)) x else C.init(x, 0);
+    return gees(std.math.Complex(Real(T)), allocator, io, try complexOf(T, allocator, ca));
+}
+
+/// `qz`'s and `qzComplex`'s: `NoConvergence` also for a NaN or infinity.
+pub const QzError = error{ NotSquare, DimensionMismatch, NoConvergence } || Allocator.Error || Io.Cancelable;
+
+pub fn Qz(comptime T: type) type {
+    return struct {
+        /// Upper triangular, or for real `T` quasi-triangular.
+        aa: Mat(T),
+        /// Upper triangular, its diagonal real and nonnegative.
+        bb: Mat(T),
+        /// Unitary, `Q A Z = AA` and `Q B Z = BB`.
+        q: Mat(T),
+        z: Mat(T),
+
+        pub fn deinit(f: @This(), allocator: Allocator) void {
+            f.aa.deinit(allocator);
+            f.bb.deinit(allocator);
+            f.q.deinit(allocator);
+            f.z.deinit(allocator);
+        }
     };
-    return gees(C, allocator, io, t);
+}
+
+/// The generalized Schur form `Q A Z = AA`, `Q B Z = BB` (MATLAB's `[AA, BB,
+/// Q, Z] = qz(A, B)`), by `gges`: for real `A` and `B` the real form, a 2 x 2
+/// block of `AA` per complex pair.
+pub fn qz(allocator: Allocator, io: Io, a: anytype, b: anytype) QzError!Qz(ElementOf(@TypeOf(a))) {
+    const T = ElementOf(@TypeOf(a));
+    const ca = constOf(a);
+    const cb = constOf(b);
+    if (ca.rows != ca.cols or cb.rows != cb.cols) return error.NotSquare;
+    if (cb.rows != ca.rows) return error.DimensionMismatch;
+    return gges(T, allocator, io, try copyOf(T, allocator, ca), try copyOf(T, allocator, cb));
+}
+
+/// `qz` with `AA` triangular even for real `A` and `B` (MATLAB's `qz(A, B,
+/// "complex")`).
+pub fn qzComplex(allocator: Allocator, io: Io, a: anytype, b: anytype) QzError!Qz(std.math.Complex(Real(ElementOf(@TypeOf(a))))) {
+    const T = ElementOf(@TypeOf(a));
+    const ca = constOf(a);
+    const cb = constOf(b);
+    if (ca.rows != ca.cols or cb.rows != cb.cols) return error.NotSquare;
+    if (cb.rows != ca.rows) return error.DimensionMismatch;
+    const f = try complexOf(T, allocator, ca);
+    errdefer f.deinit(allocator);
+    return gges(std.math.Complex(Real(T)), allocator, io, f, try complexOf(T, allocator, cb));
+}
+
+/// `gges` on `aa` and `bb` (taken), `Q` returned as LAPACK's `Qᴴ`.
+fn gges(comptime T: type, allocator: Allocator, io: Io, aa: Mat(T), bb: Mat(T)) QzError!Qz(T) {
+    errdefer aa.deinit(allocator);
+    errdefer bb.deinit(allocator);
+    const n = aa.rows;
+    const ld = @max(n, 1);
+    const q = try Mat(T).init(allocator, n, n);
+    errdefer q.deinit(allocator);
+    const z = try Mat(T).init(allocator, n, n);
+    errdefer z.deinit(allocator);
+    const w = try allocator.alloc(T, 3 * n);
+    defer allocator.free(w);
+    if (comptime isComplex(T)) {
+        lapack.ggesComplex(allocator, io, T, .compute, .compute, n, aa.data, ld, bb.data, ld, w[0..n], w[n .. 2 * n], q.data, ld, z.data, ld) catch |e| return ops.narrow(QzError, e);
+    } else lapack.ggesReal(allocator, io, T, .compute, .compute, n, aa.data, ld, bb.data, ld, w[0..n], w[n .. 2 * n], w[2 * n ..], q.data, ld, z.data, ld) catch |e| return ops.narrow(QzError, e);
+    // MATLAB's `Q` is LAPACK's `Qᴴ`
+    util.adjointInPlace(T, q);
+    return .{ .aa = aa, .bb = bb, .q = q, .z = z };
 }
 
 /// `gees` on `t` (taken), with `U` from its Schur vectors.
@@ -119,20 +181,7 @@ fn gees(comptime T: type, allocator: Allocator, io: Io, t: Mat(T)) SchurError!Sc
 // ---- tests ----
 
 const testing = std.testing;
-
-/// `‖Q X Qᴴ - A‖` over the entries, real `T`.
-fn residual(a: []const f64, q: Mat(f64), x: Mat(f64)) f64 {
-    const n = q.rows;
-    var worst: f64 = 0;
-    for (0..n) |i| for (0..n) |j| {
-        var s: f64 = 0;
-        for (0..n) |k| for (0..n) |l| {
-            s += q.at(i, k) * x.at(k, l) * q.at(j, l);
-        };
-        worst = @max(worst, @abs(s - a[i + j * n]));
-    };
-    return worst;
-}
+const residual = @import("_test/similarity.zig").residual;
 
 test "hess and schur: P H Pᵀ and U T Uᵀ give A back, forms as promised" {
     const al = testing.allocator;

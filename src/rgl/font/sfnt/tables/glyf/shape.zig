@@ -8,27 +8,47 @@ const GlyfTable = @import("GlyfTable.zig");
 const SimpleGlyph = @import("SimpleGlyph.zig");
 const CompositeGlyph = @import("CompositeGlyph.zig");
 const vector = @import("../../../../../math/linalg/__root__.zig").vector;
+const GvarTable = @import("../gvar.zig").GvarTable;
+const gvar_deltas = @import("../gvar_deltas.zig");
+const gvar_example = @import("../_test/gvar_example.zig");
 
 const Allocator = zigstd.Allocator;
 const GlyphIndex = types.GlyphIndex;
 const Vertex = aux_types.Vertex;
 const V2f32 = aux_types.V2f32;
+const F2Dot14 = types.F2Dot14;
+
+/// An instance of a variable font: its `gvar` and normalized coordinates
+/// (`sfnt.coords.normalize`).
+pub const Variation = struct {
+    gvar: GvarTable,
+    coords: []const F2Dot14,
+};
+
+pub const Error = bytes.BytesError || GlyfTable.Error || gvar_deltas.Error;
 
 /// Decodes the glyph occupying `range` (via GlyfTable+CompositeGlyph's
 /// checked parse), then walks its points/components into vmove/vline/vcurve
 /// vertices; the same state machine as the raw-cursor upstream version,
 /// just fed from the already-decoded, bounds-checked types instead of a
-/// raw byte cursor.
-pub fn glyphShapeTT(loca: LocaTable, glyf: GlyfTable, gpa: Allocator, glyph: GlyphIndex) (Allocator.Error || bytes.BytesError || GlyfTable.Error)![]Vertex {
+/// raw byte cursor. With `variation`, its `gvar` deltas move the points,
+/// and a composite's component offsets, first.
+pub fn glyphShapeTT(loca: LocaTable, glyf: GlyfTable, gpa: Allocator, glyph: GlyphIndex, variation: ?Variation) Error![]Vertex {
     const range = loca.getGlyphRange(glyph) orelse return &.{};
 
     var decoded = try glyf.getGlyph(gpa, range, true);
     defer decoded.deinit(gpa);
 
-    return switch (decoded) {
-        .simple => |simple| simpleGlyphVertices(gpa, simple),
-        .composite => |composite| compositeGlyphVertices(loca, glyf, gpa, composite),
-    };
+    switch (decoded) {
+        .simple => |*simple| {
+            if (variation) |v| try varySimple(gpa, v, glyph, simple);
+            return simpleGlyphVertices(gpa, simple.*);
+        },
+        .composite => |*composite| {
+            if (variation) |v| try varyComposite(gpa, v, glyph, composite);
+            return compositeGlyphVertices(loca, glyf, gpa, composite.*, variation);
+        },
+    }
 }
 
 /// Reads just the 10-byte GlyphHeader directly rather than decoding the
@@ -42,6 +62,39 @@ pub fn glyphBoxTT(loca: LocaTable, glyf: GlyfTable, glyph: GlyphIndex) ?aux_type
     const header_bytes = glyf.table_data[range.start..][0..header_size];
     const header = bytes.typeBEToNative(GlyfTable.GlyphHeader, header_bytes);
     return .{ .x_min = header.x_min, .y_min = header.y_min, .x_max = header.x_max, .y_max = header.y_max };
+}
+
+/// Moves `simple`'s points by their `gvar` deltas, rounded to whole units.
+fn varySimple(gpa: Allocator, v: Variation, glyph: GlyphIndex, simple: *SimpleGlyph) Error!void {
+    const n = simple.numPoints();
+    if (n > simple.x_coordinates.len or n > simple.y_coordinates.len) return error.EndOfStream;
+    const d = try gpa.alloc(f32, 2 * (n + 4));
+    defer gpa.free(d);
+    const dx = d[0 .. n + 4];
+    const dy = d[n + 4 ..];
+    const outline: gvar_deltas.Outline = .{ .xs = simple.x_coordinates[0..n], .ys = simple.y_coordinates[0..n], .ends = simple.end_pts_of_contours };
+    try gvar_deltas.glyphDeltas(gpa, v.gvar, @backingInt(glyph), v.coords, outline, dx, dy);
+    for (simple.x_coordinates[0..n], simple.y_coordinates[0..n], dx[0..n], dy[0..n]) |*x, *y, ddx, ddy| {
+        x.* = moved(x.*, ddx);
+        y.* = moved(y.*, ddy);
+    }
+}
+
+/// Moves `composite`'s component offsets by their `gvar` deltas, rounded.
+fn varyComposite(gpa: Allocator, v: Variation, glyph: GlyphIndex, composite: *CompositeGlyph) Error!void {
+    const n = composite.components.len;
+    const d = try gpa.alloc(f32, 2 * (n + 4));
+    defer gpa.free(d);
+    try gvar_deltas.glyphDeltas(gpa, v.gvar, @backingInt(glyph), v.coords, .{}, d[0 .. n + 4], d[n + 4 ..]);
+    for (composite.components, d[0..n], d[n + 4 ..][0..n]) |*c, ddx, ddy| {
+        c.dx = @round(c.dx + ddx);
+        c.dy = @round(c.dy + ddy);
+    }
+}
+
+fn moved(c: i16, d: f32) i16 {
+    const f = @round(@as(f32, @floatFromInt(c)) + d);
+    return @intFromFloat(std.math.clamp(f, std.math.minInt(i16), std.math.maxInt(i16)));
 }
 
 fn simpleGlyphVertices(gpa: Allocator, simple: SimpleGlyph) ![]Vertex {
@@ -120,7 +173,7 @@ fn simpleGlyphVertices(gpa: Allocator, simple: SimpleGlyph) ![]Vertex {
     return vertices.toOwnedSlice(gpa);
 }
 
-fn compositeGlyphVertices(loca: LocaTable, glyf: GlyfTable, gpa: Allocator, composite: CompositeGlyph) ![]Vertex {
+fn compositeGlyphVertices(loca: LocaTable, glyf: GlyfTable, gpa: Allocator, composite: CompositeGlyph, variation: ?Variation) Error![]Vertex {
     var vertices: std.ArrayList(Vertex) = .empty;
     defer vertices.deinit(gpa);
 
@@ -140,7 +193,7 @@ fn compositeGlyphVertices(loca: LocaTable, glyf: GlyfTable, gpa: Allocator, comp
         const translate: V2f32 = .{ c.dx, c.dy };
 
         // Get indexed glyph.
-        const comp_verts = try glyphShapeTT(loca, glyf, gpa, c.glyph_index);
+        const comp_verts = try glyphShapeTT(loca, glyf, gpa, c.glyph_index, variation);
         defer gpa.free(comp_verts);
         if (comp_verts.len > 0) {
             // Transform vertices.
@@ -197,4 +250,32 @@ fn closeShape(
 fn appendVertex(vertices: *std.ArrayList(Vertex), gpa: Allocator, ty: Vertex.Type, x: i32, y: i32, cx: i32, cy: i32) Allocator.Error!void {
     try vertices.append(gpa, undefined);
     vertices.items[vertices.items.len - 1].set(ty, x, y, cx, cy);
+}
+
+test "a variation moves a simple glyph's points and a composite's offsets, rounded" {
+    var buf: [128]u8 = undefined;
+    const gvar = try GvarTable.init(gvar_example.twoTuples(&buf), true);
+    const v: Variation = .{ .gvar = gvar, .coords = &.{F2Dot14.fromFloat(0.5)} };
+    const gpa = zigstd.testAllocator;
+    const header: GlyfTable.GlyphHeader = .{ .number_of_contours = 1, .x_min = 0, .y_min = 0, .x_max = 100, .y_max = 100 };
+
+    // the square of `gvar_deltas`' test: deltas (5.5, 2) (10.5, 2) (10.5, 4) (5.5, 4)
+    var ends = [_]u16{3};
+    var flags: [4]SimpleGlyph.Flag = @splat(@bitCast(@as(u8, 1)));
+    var xs = [_]i16{ 0, 100, 100, 0 };
+    var ys = [_]i16{ 0, 0, 100, 100 };
+    var simple: SimpleGlyph = .{ .header = header, .end_pts_of_contours = &ends, .instructions = &.{}, .flags = &flags, .x_coordinates = &xs, .y_coordinates = &ys };
+    try varySimple(gpa, v, .notdef, &simple);
+    try zigstd.testExpectEqualSlices(i16, &.{ 6, 111, 111, 6 }, &xs);
+    try zigstd.testExpectEqualSlices(i16, &.{ 2, 2, 104, 104 }, &ys);
+
+    // four components: no inferred deltas, so 1 and 3 move by tuple 2 alone
+    const none: CompositeGlyph.Component = .{ .glyph_index = .notdef, .dx = 0, .dy = 0, .xscale = 1, .scale01 = 0, .scale10 = 0, .yscale = 1, .round_xy_to_grid = false, .use_my_metrics = false, .overlap_compound = false, .scaled_component_offset = false, .unscaled_component_offset = false };
+    var comps: [4]CompositeGlyph.Component = @splat(none);
+    var composite: CompositeGlyph = .{ .header = header, .components = &comps, .instructions = &.{} };
+    try varyComposite(gpa, v, .notdef, &composite);
+    for (comps, [_]f32{ 6, 1, 11, 1 }, [_]f32{ 2, 0, 4, 0 }) |c, x, y| {
+        try zigstd.testExpectEqual(x, c.dx);
+        try zigstd.testExpectEqual(y, c.dy);
+    }
 }

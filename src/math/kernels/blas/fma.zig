@@ -123,7 +123,9 @@ const by_bits = blk: {
 };
 
 /// `a*b + c` by the setting alone, as the fork's `@Matrix` products: fused
-/// in floats it allows, in software past the hardware's width.
+/// in floats it allows, in software past the hardware's width. Unfused it
+/// adds `c + a*b`, the sum first as Sema does, so two NaNs keep the same
+/// payload (issue #103).
 pub inline fn mulAdd(comptime T: type, a: T, b: T, c: T) T {
     const E = switch (@typeInfo(T)) {
         .vector => |v| v.child,
@@ -131,7 +133,7 @@ pub inline fn mulAdd(comptime T: type, a: T, b: T, c: T) T {
     };
     const policy = comptime by_bits[@typeInfo(E).float.bits];
     if (policy.fuse) return fusedMadd(T, a, b, c);
-    return if (policy.allow and compiles) @mulAdd(T, a, b, c) else a * b + c;
+    return if (policy.allow and compiles) @mulAdd(T, a, b, c) else c + a * b;
 }
 
 /// `a*b + c` rounded once, for a `fusible` `T`: `@mulAdd`, or with

@@ -19,6 +19,9 @@ fn signal(out: []f32, seed: f32) void {
 
 test "Plan(f32) at pffft's sizes matches PocketFFT's, both ways" {
     const al = testing.allocator;
+    // rstd's own, not vDSP's
+    _ = fft.useAccelerate(false);
+    defer _ = fft.useAccelerate(true);
     const sizes = [_]usize{ 16, 32, 48, 80, 144, 240, 1024, 4800 };
     for (sizes) |n| {
         var p = try fft.Plan(f32).init(al, n);
@@ -58,6 +61,8 @@ test "Plan(f32) at pffft's sizes matches PocketFFT's, both ways" {
 
 test "RealPlan(f32) at pffft's sizes matches PocketFFT's, both ways" {
     const al = testing.allocator;
+    _ = fft.useAccelerate(false);
+    defer _ = fft.useAccelerate(true);
     const sizes = [_]usize{ 32, 64, 96, 160, 480, 1024, 2400 };
     for (sizes) |n| {
         var p = try fft.RealPlan(f32).init(al, n);
@@ -100,6 +105,8 @@ test "RealPlan(f32) at pffft's sizes matches PocketFFT's, both ways" {
 
 test "pffft's routing: f32 at its sizes only" {
     const al = testing.allocator;
+    _ = fft.useAccelerate(false);
+    defer _ = fft.useAccelerate(true);
     const Case = struct { n: usize, simd: bool };
     for ([_]Case{ .{ .n = 16, .simd = true }, .{ .n = 8, .simd = false }, .{ .n = 24, .simd = false }, .{ .n = 112, .simd = false }, .{ .n = 4800, .simd = true } }) |c| {
         var p = try fft.Plan(f32).init(al, c.n);

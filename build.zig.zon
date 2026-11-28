@@ -1,7 +1,7 @@
 .{
     .name = .rstd,
     .fingerprint = 0xb74978b15a370f39, // Changing this has security and trust implications.
-    .version = "0.1.0",
+    .version = "0.2.0",
     // .minimum_zig_version = "0.17.0-dev.1444+8d6b8a643",
     .dependencies = .{
         .win32 = .{
@@ -26,6 +26,62 @@
         .vulkan = .{
             .url = "git+https://github.com/Snektron/vulkan-zig#91a3537868952be63763db2b0725bcf9cf7f0d93",
             .hash = "vulkan-0.0.0-r7Ytx1eHAwDInvlQSbl5gMYemczKJa6GimvWcgnOjibX",
+            .lazy = true,
+        },
+        // rgui's fonts, for the font-backed tests and `hint-refs`; only with
+        // -Dtest-fonts (build/testfonts.zig)
+        .font_arimo = .{
+            .url = "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.5.1/Arimo.tar.xz",
+            .hash = "N-V-__8AAOIDbgE-T1VwVU4MxamcHe884ewmWWLNCgFx4iRL",
+            .lazy = true,
+        },
+        .font_jetbrains_mono = .{
+            .url = "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.5.1/JetBrainsMono.tar.xz",
+            .hash = "N-V-__8AACC3fg6jRLitLX-beyor0I_nm4_VNP5vLRPEzDCs",
+            .lazy = true,
+        },
+        .font_ubuntu = .{
+            .url = "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.5.1/Ubuntu.tar.xz",
+            .hash = "N-V-__8AABbDuwJmvIg3x4ZbZE2JDic4WW_OpXW6T6Lmi-GG",
+            .lazy = true,
+        },
+        .font_ibm_plex_serif = .{
+            .url = "https://github.com/IBM/plex/releases/download/%40ibm/plex-serif%402.0.0/ibm-plex-serif.zip",
+            .hash = "N-V-__8AAIAgvADfAA7cONZP2WwyBTPpY8zwMLu_g-OOzIuD",
+            .lazy = true,
+        },
+        .font_commit_mono = .{
+            .url = "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.5.1/CommitMono.tar.xz",
+            .hash = "N-V-__8AAB1YswG1jhhHtI_tBelG7FEUTwhNvjwkUum8H98P",
+            .lazy = true,
+        },
+        .font_atkinson_hyperlegible_mono = .{
+            .url = "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.5.1/AtkinsonHyperlegibleMono.tar.xz",
+            .hash = "N-V-__8AAF5iRwMK9WHZPFu4PfMSXHesuyeuc37vczhf1EQn",
+            .lazy = true,
+        },
+        // a Japanese face (fonts OFL-1.1) for the CJK autohinter (issue #814)
+        .font_cica = .{
+            .url = "https://github.com/miiton/Cica/releases/download/v5.0.3/Cica_v5.0.3_without_emoji.zip",
+            .hash = "N-V-__8AACWssgJ9pReyC6e6D5oLT4lCsMPGh02UHsAfa1qX",
+            .lazy = true,
+        },
+        // a Limbu face (OFL-1.1) for the Indic autohinter (issue #815)
+        .font_noto_sans_limbu = .{
+            .url = "https://github.com/notofonts/limbu/releases/download/NotoSansLimbu-v2.005/NotoSansLimbu-v2.005.zip",
+            .hash = "N-V-__8AAHTwAgATUehau_k7JASR6PBpaZ1sIjR5ZbdkeuvA",
+            .lazy = true,
+        },
+        // a variable, bytecode-hinted face (OFL-1.1) for variable TrueType hinting (issue #809)
+        .font_cascadia_code = .{
+            .url = "https://github.com/microsoft/cascadia-code/releases/download/v2407.24/CascadiaCode-2407.24.zip",
+            .hash = "N-V-__8AANgOrQ1hsWxAoTjfIlDeafqAWgpNfVESANGMmZJQ",
+            .lazy = true,
+        },
+        // a variable CFF2 face (OFL-1.1) for blended charstrings and Private DICTs (issue #833)
+        .font_source_sans_3_vf = .{
+            .url = "https://github.com/adobe-fonts/source-sans/releases/download/3.052R/VF-source-sans-3.052R.zip",
+            .hash = "N-V-__8AAAS9HAAynRXF4f4jUt6s0Lk8N6gBZFdvl5D4ZhuL",
             .lazy = true,
         },
         // .rc = .{

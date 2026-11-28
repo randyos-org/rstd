@@ -23,6 +23,7 @@ const fills = [_]f64{ 0.01, 0.02, 0.05, 0.1, 0.2, 0.3, 0.4, 0.6 };
 const Pattern = enum { random, banded };
 
 pub fn run(io: Io, gpa: std.mem.Allocator) !void {
+    libs.sectionMark("sparse");
     try bb.clock(io, "sparse start");
     // 10 000 only when asked: its dense matrix is 800 MB
     const cap = if (libs.n_max == std.math.maxInt(usize)) 3000 else libs.n_max;
@@ -30,7 +31,7 @@ pub fn run(io: Io, gpa: std.mem.Allocator) !void {
         \\
         \\µs per call, best of {d} batches of at least {d} ms; one worker; `f64`; ratios are CSC over dense, the variants over CSC Aᵀ y (gather: x86_64 with AVX2)
         \\
-        \\| pattern | n | fill | nnz | gemv N | CSC A x | ratio | gemv T | CSC Aᵀ y | ratio | 4 sums | ratio | gather | ratio |
+        \\| pattern | n | fill | nnz | gemv N | CSC A x | CSC A x/gemv N | gemv T | CSC Aᵀ y | CSC Aᵀ y/gemv T | 4 sums | 4 sums/CSC Aᵀ y | gather | gather/CSC Aᵀ y |
         \\| ------- | -: | ---: | --: | -----: | ------: | ----: | -----: | -------: | ----: | -----: | ----: | -----: | ----: |
         \\
     , .{ timing.batches, @divTrunc(timing.min_ns, std.time.ns_per_ms) });

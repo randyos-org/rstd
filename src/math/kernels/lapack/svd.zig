@@ -12,6 +12,7 @@ const hh = @import("householder.zig");
 const qr = @import("qr.zig");
 const bidiag = @import("bidiag.zig");
 const bsvd = @import("bidiag_svd.zig");
+const lasq = @import("lasq.zig");
 const util = @import("../blas/util.zig");
 const interface = @import("interface.zig");
 
@@ -301,6 +302,13 @@ fn realBidiagSvd(al: Allocator, io: Io, comptime F: type, diag: []F, subdiag: []
         if (unconverged) |c| c.* = n - 1;
         return error.NoConvergence;
     };
+    // `xBDSQR` with no vectors: dqds, the QR iteration finishing what it
+    // leaves (`dbdsqr.f:337-346`)
+    if (u == null and v == null and n > 0) {
+        const work = try al.alloc(F, 4 * n);
+        defer al.free(work);
+        if (lasq.lasq1(F, diag, subdiag[0 .. n - 1], work) == .converged) return;
+    }
     if (n < threshold) {
         if (u) |x| x.identity();
         if (v) |x| x.identity();

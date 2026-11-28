@@ -12,38 +12,6 @@ const Float = types.Float;
 const isZero = util.isZero;
 const x86_64 = binding.x86_64;
 
-/// The level-1 routines `sends` covers; `dot` over `f32` is `sdot`.
-pub const L1 = enum { copy, swap, scal, dot, dotc, dsdot, nrm2, asum, rot, rotm, axpy, axpby };
-
-/// Which calls go to Accelerate: all, those whose every stride is 1, none.
-const Strides = enum { all, unit, none };
-
-/// `Strides` by letter.
-const Letters = struct { s: Strides = .all, d: Strides = .all, c: Strides = .all, z: Strides = .all };
-
-/// Where rstd's kernels are the faster, by speed alone: the arm64 flyoff of
-/// 2026-10-29 (design.md, Apple Accelerate, has the rule and its rows);
-/// strided there is 2. x86_64 has no data and keeps every call.
-const sends: std.enums.EnumFieldStruct(L1, Letters, .{}) = if (x86_64) .{} else .{
-    .nrm2 = .{ .s = .none, .d = .none, .c = .none, .z = .none },
-    .dot = .{ .s = .none, .c = .unit, .z = .unit },
-    .dotc = .{ .c = .unit, .z = .unit },
-    .copy = .{ .s = .unit, .d = .unit },
-    .swap = .{ .s = .unit, .d = .unit, .c = .unit, .z = .unit },
-    .axpy = .{ .c = .unit, .z = .unit },
-    .rot = .{ .c = .unit },
-};
-
-/// Whether `sends` lets `r` over `T` go to Accelerate; `unit` if every
-/// stride is 1.
-pub inline fn sent(comptime r: L1, comptime T: type, unit: bool) bool {
-    return switch (comptime @field(@field(sends, @tagName(r)), portable.letter(T).?)) {
-        .all => true,
-        .unit => unit,
-        .none => false,
-    };
-}
-
 /// Zeroes the imaginary parts of the diagonal of the order `n` Hermitian
 /// matrix at `a`, full (`ld`) or packed (`ld` 0) on the `lower` triangle.
 pub fn realDiagonal(comptime T: type, n: isize, a: [*]T, ld: isize, lower: bool) void {
@@ -80,12 +48,32 @@ pub fn nonFinite(comptime T: type, n: isize, x: [*]const T, inc: isize) bool {
     const w: usize = if (comptime isComplex(T)) 2 else 1;
     const f: [*]const F = @ptrCast(x);
     const step = w * @abs(inc);
+    const un: usize = @intCast(n);
+    if (step == w) return nanTimesZero(F, f[0 .. un * w]);
     // `v * 0` is NaN only for NaN and the infinities
     var acc: F = 0;
-    for (0..@intCast(n)) |i| {
+    for (0..un) |i| {
         for (0..w) |p| acc += f[i * step + p] * 0;
     }
     return acc != acc;
+}
+
+/// Whether some `v[i] * 0` is NaN, summed in vectors: each product is a zero
+/// or NaN, so any order finds it; one chain of scalar adds cost routed `trmm`
+/// up to half its time on the M6 (issue #729).
+fn nanTimesZero(comptime F: type, v: []const F) bool {
+    const L = std.simd.suggestVectorLength(F) orelse 1;
+    const V = @Vector(L, F);
+    const zero: V = @splat(0);
+    var acc: [4]V = .{ zero, zero, zero, zero };
+    var i: usize = 0;
+    while (i + 4 * L <= v.len) : (i += 4 * L) {
+        for (&acc, 0..) |*a, k| a.* += @as(V, v[i + k * L ..][0..L].*) * zero;
+    }
+    var s: F = 0;
+    for (v[i..]) |e| s += e * 0;
+    const t = (acc[0] + acc[1]) + (acc[2] + acc[3]);
+    return s != s or @reduce(.Or, t != t);
 }
 
 /// Whether some `j` has `x(j)`, and `y(j)` if given, zero: a column the
@@ -123,6 +111,8 @@ pub fn tinyDiagonal(comptime T: type, n: isize, a: [*]const T, lda: isize) bool 
 
 /// `nonFinite` of a `rows` by `cols` matrix at leading dimension `ld`.
 pub fn nonFiniteMat(comptime T: type, rows: isize, cols: isize, b: [*]const T, ld: isize) bool {
+    // contiguous columns, one pass
+    if (ld == rows) return nonFinite(T, rows * cols, b, 1);
     for (0..@intCast(cols)) |j| {
         if (nonFinite(T, rows, b + j * @as(usize, @intCast(ld)), 1)) return true;
     }

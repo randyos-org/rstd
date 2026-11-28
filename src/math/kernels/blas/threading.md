@@ -3,7 +3,7 @@
 This document specifies how rstd's BLAS routines use multiple threads: the public API, how
 work is divided, how results stay reproducible, and how the design degrades on targets
 without threads. The plan is implemented (`threading.zig`, `blas3/threaded.zig`, the level 1
-and 2 interfaces): every level 3 routine but `gemmt` threads, and levels 1 and 2 thread where
+and 2 interfaces): every level 3 routine threads, and levels 1 and 2 thread where
 the split keeps the bits ([Levels 1 and 2](#levels-1-and-2-fixed-chunks-dynamic-claiming-ordered-combine)).
 Upstream references are to the OpenBLAS checkout the kernels were converted from
 (v0.3.34-794), BLIS references to its tag 2.1, std references to Zig's `lib/std` at
@@ -262,8 +262,8 @@ their `jc` groups are balanced by cost (`Shape.rising`, `falling`), as OpenBLAS'
 are added, which rounds differently from the kernel's own update, so a triangle's column cuts
 fall where the serial driver's chunks start, and its rows follow the serial column block
 (`drive`'s `r_lo`, `r_hi`); a full region's columns may split anywhere. `syr2k` runs its
-second pass over the same split. `gemmt` stays serial; upstream threads it through
-`syrk_thread` (`interface/gemmt.c`), which is T189
+second pass over the same split. `gemmt` runs the same loops over its triangle, as upstream's
+`interface/gemmt.c` takes `syrk_thread`, at that file's threshold
 ([#529](https://github.com/randyos-org/rstd/issues/529)).
 
 `trmm` and `trsm` split `B` into independent parts, as OpenBLAS's `gemm_thread_n` (left side,
@@ -293,13 +293,14 @@ its `_parallel.c` algorithms, with other blocks, whenever it has more than one t
 the problem size alone picks the algorithm, so its bits never depend on the worker count.
 `getrf`'s lookahead runs on `team`: the caller factors the next block while the other workers
 update the columns past it, every part on packing space allocated before the tasks start, and
-with `getrf_single.c`'s blocks, where upstream's depend on its thread count.
+with `getrf_single.c`'s blocks, where upstream's depend on its thread count; with no columns
+past the next block, all update and the next block recurses after them.
 
 Inside `potrf` a level-3 call takes one worker per `team_grain` (`threading/grain.zig`'s `crew`: 1000000 real multiply-adds, 4000000 on Windows, a complex one counting four), not the routine's whole count, and a block whose first `trsm` and `herk` would each take one worker at `block_grain` (1000000 everywhere) is factored by the single form, as upstream does on one thread (T193, [#546](https://github.com/randyos-org/rstd/issues/546)). Both follow the sizes alone, the drivers give the same bits for any count, and only `block_grain` picks an algorithm, so no result changes with the workers or the system. Upstream's `potrf_U_parallel.c` hands every `trsm` and `herk` all its threads, down to blocks of `4 * unroll_n`, which costs it nothing as its workers spin between calls. Here each call started a team (`Group.concurrent`, a wake per worker) and waited for it, before the pool ([#710](https://github.com/randyos-org/rstd/issues/710)); its grains stand until [#712](https://github.com/randyos-org/rstd/issues/712) times them again. Measured on the M6 (`vortexm4`, 12 CPUs, `tools/blasbench`'s `potrf` section, and a scratch build calling the drivers at fixed worker counts, 2026-11-19): an order 16 `herk` takes 0.3 us on one worker, 2.5 on 2, 6 on 4 and 20 on 12, an order 16 `trsm` 0.7 and 4; an order 64 complex `potrf` ran 16 such teams around 16 us of arithmetic, 1.2 GFLOP/s against 21 on one worker. A team pays from about 2000000 multiply-adds (order 128: `herk` 47 us on one worker, 36 on 2, 67 on 4; `trsm` 91, 61 and 59), and `potrf`'s rate is flat for grains from 400000 to 2500000.
 
 On Zen 3 (Windows, 16 CPUs) a team costs more (an order 16 `herk`: 0.8 us on one worker, 7 on 2, 16 on 4, 117 on 12), and so does fresh packing space: each driver asks its allocator, and with `malloc`'s new pages every call no team paid below order 512 (`herk` of order 256, `f64`: 466 us on one worker, 497 on 4 from `malloc`, 200 from a buffer touched before). With the grain alone `potrf` at n = 512 ran 12.5 GFLOP/s against 18.7 on one worker, and 25.2 from a warm buffer; at 1024, 23.0, 22.4 and 43.9. So `potrf` keeps what its calls free for the next ones (`../lapack/Kept.zig`), as upstream takes its buffer once per interface call (`blas_memory_alloc`). The M6 shows no difference between the two. Each `potrf` call still pays for its first buffer, which upstream's pool keeps between calls: at 1000000 the workers lost to one worker at n = 256 on Zen 3 (0.63 to 0.82 of its rate) and gained from 1024 (1.3 to 2.2), hence Windows' grain of 4000000, where n = 256 real runs on one worker.
 
-What is left to upstream's rate past n = 128 is the drivers' own scaling at these sizes, not `potrf`'s (the M6, `f64`, us on 1, 4 and 12 workers): `herk` of order 256 364, 216 and 157, of order 512 3009, 1180 and 538; `trsm` of order 256 640, 271 and 229, of order 512 4765, 1629 and 859. Twelve workers give 2.3 to 5.6 times one where upstream's `potrf` gets 5.6 at n = 1024. Dividing the triangle by columns alone (`ic` 1, as `level3_syrk_threaded.c`) halves `herk`'s time at orders 32 to 128 on 3 to 8 workers and changes nothing from 256 or in `potrf`; packing space from a warm buffer changes nothing either. `trtri`, `lauum` (so `potri`), `getrs` and `trtrs` still hand each call their whole count.
+What is left to upstream's rate past n = 128 is the drivers' own scaling at these sizes, not `potrf`'s (the M6, `f64`, us on 1, 4 and 12 workers): `herk` of order 256 364, 216 and 157, of order 512 3009, 1180 and 538; `trsm` of order 256 640, 271 and 229, of order 512 4765, 1629 and 859. Twelve workers give 2.3 to 5.6 times one where upstream's `potrf` gets 5.6 at n = 1024. Dividing the triangle by columns alone (`ic` 1, as `level3_syrk_threaded.c`) halves `herk`'s time at orders 32 to 128 on 3 to 8 workers and changes nothing from 256 or in `potrf`; packing space from a warm buffer changes nothing either. `lauum` (so `potri`'s second half) caps each call by its public entry point's rule (`blas3/threaded.zig`'s `syrkWorkers`, `triWorkers`): with each call's whole count it ran slower on 12 workers than on one up to n = 256 to 512 on the M6, `c` at 128 a third of one's rate, and now never drops below one ([#841](https://github.com/randyos-org/rstd/issues/841)). `trtri`, `getrs` and `trtrs` still hand each call their whole count.
 
 ### Thresholds
 
@@ -309,6 +310,7 @@ What is left to upstream's rate past n = 128 is the drivers' own scaling at thes
 | complex `gemm` | `MNK > 8192 * 4` | same |
 | `syrk`, `symm` | `(n+1)nk` over `109944 * 4`; `2m^2 n` over `65536 * 4` | triangle-balanced ways; `gemm`'s |
 | `syr2k` | `n * k >= 1000` | triangle-balanced ways |
+| `gemmt` | `(m+1)mk` over `65536 * 4` (`8192 * 4` complex) | triangle-balanced ways |
 | `trsm`, `trmm` | `m * n >= SMP_FACTOR (256 real, 128 cplx) * 4` | left: N panels; right: M panels |
 | `gemv` | `m * n >= 115200 * 4` | N: 4096-row chunks (arm64: 256-row); T: column chunks |
 | `gbmv` | `m * n >= 250000` (125000 complex), `kl + ku >= 15` | T: column chunks; N: partials |
@@ -320,9 +322,9 @@ What is left to upstream's rate past n = 128 is the drivers' own scaling at thes
 | `tbmv`, `tpmv` | `n < 50`: 1, `< 500`: 2 | same |
 | `syr`, `spr`, `syr2`, `spr2` (real and complex symmetric) | `n < 50`: 1, `< 500`: 2 | sqrt-balanced column chunks |
 | `her`, `hpr`, `her2`, `hpr2` | `n < 100`: 1 | same |
-| `axpy` / `scal` / `swap` | `n > 10000` / `n > 1048576` / `n >= 8 MiB / sizeof(T)` | range chunks |
+| `axpy` / `scal` / `swap` | `n > 10000` (`vortexm4`: rstd's own, 5000-element chunks, at most 2, 4 and 6 workers to 20000, 40000 and 70000, [#728](https://github.com/randyos-org/rstd/issues/728)) / `n > 1048576` / `n >= 8 MiB / sizeof(T)` | range chunks |
 | `copy` | `copy_thunderx2t99.c`: `n > 10000` | range chunks |
-| `dot`, `asum`, `sum`, `rot` | x86_64 kernels: `n > 10000` (dot), `> 100000` | range chunks, ordered combine |
+| `dot`, `asum`, `sum`, `rot` | x86_64 kernels: `n > 10000` (dot; `vortexm4` as `axpy`), `> 100000` | range chunks, ordered combine |
 | extremes, indices | `iamax_thunderx2t99.c`, `izamax_thunderx2t99.c`: `n > 10000` | range chunks, exact fold |
 | `omatcopy` (`f32`, `f64`) | `omatcopy.c`: `rows * cols >= 65536 * 4`; transposed, at most `cols / 32` bands | bands of `A`'s columns, 32 wide at least where transposed |
 
@@ -437,6 +439,8 @@ Rstd's workers parallelize around it (`apple_accel/split.zig`), under the rules 
   (columns); `gemm` (columns of `C` if it has as many as rows, else rows), `symm` and `hemm`
   (columns of `C` with `S` on the left, else rows), `trmm` and `trsm` (`B`'s columns on the
   left, rows on the right), on 64-row or column parts, rstd's level-2 quantum.
+- **Level 3 on arm64, one call.** On the M6 one Accelerate call ran level 3 as fast as its parts or faster on 1 and 12 workers but for a few complex rows (the parts led by up to 14%), up to 2.6 times (`trmm`), where on the Intel Mac the parts gain 1.5 to 4.3 times at 6 workers. Our reading: Accelerate runs level 3 on the matrix units its cores share, so more workers add little and smaller calls lose ([#729](https://github.com/randyos-org/rstd/issues/729)). So on arm64 `gemm`, `symm`, `hemm`, `trmm` and `trsm` make one call at any size (`split3`); the bits are one for any worker count all the same.
+- **Level 2 on arm64, one call to 8 MB.** A routed `gemv` or `ger` whose `A` is at most 8 MB makes one call there (`split2`), as `interface/gemv.c` runs `vortexm4` on one thread to 8 MB: on the M6 the parts lost to one call under it (to 0.47) and gained past it (to 1.45; [#838](https://github.com/randyos-org/rstd/issues/838)).
 - **What does not.** Each part must be a call of the same routine. The partial-vector products
   (`symv`, `trmv` and the rest), the rank updates and the rank-k updates keep one triangle, so
   their parts would be other routines or a fold rstd does not have for them; `gbmv`, `nrm2`
@@ -462,7 +466,7 @@ Reproducibility:
   a chunk may start anywhere.
 - **The caller's control state.** Threads do not inherit floating-point control state (x86
   Windows starts them at 53-bit x87 precision, 0x27f, where a MinGW main thread has 64-bit,
-  0x37f; on x86, seen during T03, no test records it; x64's convention fixes 0x27f at start,
+  0x37f; on x86 and x64 a test in `FpState.zig` checks a new thread's; x64's convention fixes 0x27f at start,
   Microsoft, "x64 calling convention", FPCSR, <https://learn.microsoft.com/en-us/cpp/build/x64-calling-convention>;
   MinGW's `crtexe.c:216` runs `_fpreset`, an `fninit`, in Zig's `lib/libc/mingw/crt`, but not on
   an exe's new threads, `tlssup.c:84`). Every task enters through `team`'s worker or `Region.work`; `team` and `forEachIn`
@@ -655,7 +659,7 @@ wash to 4% ahead (geometric mean of the 32 cells per run).
 4. **Level 2** (done): `gemv`, `ger`, the rank updates and transposed `gbmv`; the symmetric,
    triangular, banded and packed products and untransposed `gbmv` by partial vectors.
 5. **Remaining level 3** (done): `symm`, `hemm` and the rank-k updates over the same
-   driver; `trmm` and `trsm` by panels of `B`.
+   driver, and `gemmt`; `trmm` and `trsm` by panels of `B`.
 6. **LAPACK** (done): `potrf`, `potri`, `trtri`, `lauum` by size-picked parallel algorithms,
    `getrf`'s lookahead, and `getrs`, `gesv`, `trtrs` through the drivers.
 

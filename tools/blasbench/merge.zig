@@ -1,5 +1,5 @@
 //! `blas_bench --merge <out.md> <log>...`: merges runs of one configuration by the timing rule (`readme.md`): a row agreeing within 3%
-//! shows the pair's better rates, else is marked noisy; deterministic cells must match. Prints `NOISY` and `MISMATCH` lines for `flyoff.sh`.
+//! shows the pair's better rates (lower times in the timed sections), else is marked noisy; deterministic cells must match. Prints `NOISY` and `MISMATCH` lines for `flyoff.sh`.
 
 const std = @import("std");
 const Io = std.Io;
@@ -49,6 +49,14 @@ pub fn run(io: Io, gpa: Allocator, args: []const [:0]const u8, labels: []const L
 
 fn isRate(h: []const u8, labels: []const Label) bool {
     for (labels) |l| if (std.mem.eql(u8, h, l.label)) return true;
+    return false;
+}
+
+/// Sections whose cells are times, where the lower of two runs is the better.
+const timed = [_][]const u8{ "sparse", "inline", "compensated" };
+
+fn isTimed(section: []const u8) bool {
+    for (timed) |s| if (std.mem.eql(u8, s, section)) return true;
     return false;
 }
 
@@ -148,6 +156,7 @@ fn mergeTable(arena: Allocator, base: *const Table, runs: []const []const Item, 
             }
         };
         const noisy = best == null or best_dev > tolerance;
+        const lower = isTimed(base.section);
         const row = try arena.dupe([]const u8, cand.items[0]);
         for (h, 0..) |name, j| {
             if (!isRate(name, labels)) continue;
@@ -155,9 +164,9 @@ fn mergeTable(arena: Allocator, base: *const Table, runs: []const []const Item, 
             for (cand.items, 0..) |c, k| {
                 if (!noisy and k != best.?[0] and k != best.?[1]) continue;
                 const v = num(c[j]) orelse continue;
-                top = if (top) |t| @max(t, v) else v;
+                top = if (top) |t| (if (lower) @min(t, v) else @max(t, v)) else v;
             }
-            if (top) |t| row[j] = try arena.print("{d:.1}", .{t});
+            if (top) |t| row[j] = if (lower) try arena.print("{d:.3}", .{t}) else try arena.print("{d:.1}", .{t});
         }
         // ratios `x/ob` over the merged rates
         for (h, 0..) |name, j| {
@@ -200,4 +209,19 @@ test "a pair within 3% merges to its better rates" {
     try mergeTable(arena, runs[0][0].table, &runs, &labels, &md, &report);
     try std.testing.expectEqualStrings("", report.items);
     try std.testing.expect(std.mem.find(u8, md.items, "| d | 64 | 10.2 | 20.0 | 1.96 | 1.0 |") != null);
+}
+
+test "a timed section keeps the lower times, and its ratios follow them" {
+    const labels = [_]Label{ .{ .label = "inline", .short = "inline" }, .{ .label = "library", .short = "library" } };
+    const a = "<!-- section inline -->\n| op | T | n | inline | library | library/inline |\n| -- | - | -: | -: | -: | -: |\n| gemv | f64 | 4 | 10.0 | 20.0 | 2.00 |\n";
+    const b = "<!-- section inline -->\n| op | T | n | inline | library | library/inline |\n| -- | - | -: | -: | -: | -: |\n| gemv | f64 | 4 | 10.2 | 19.8 | 1.94 |\n";
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const runs = [_][]const Item{ try parse(arena, a, &labels), try parse(arena, b, &labels) };
+    var md: std.ArrayList(u8) = .empty;
+    var report: std.ArrayList(u8) = .empty;
+    try mergeTable(arena, runs[0][1].table, &runs, &labels, &md, &report);
+    try std.testing.expectEqualStrings("", report.items);
+    try std.testing.expect(std.mem.find(u8, md.items, "| gemv | f64 | 4 | 10.000 | 19.800 | 1.98 |") != null);
 }

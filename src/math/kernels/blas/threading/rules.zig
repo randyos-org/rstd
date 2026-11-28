@@ -40,7 +40,9 @@ pub const Family = enum {
     hemv,
     /// `trmv`: `n`.
     trmv,
-    /// `tbmv`, `tpmv`: `n`.
+    /// `tbmv`: `n`.
+    tbmv,
+    /// `tpmv`: `n`.
     tpmv,
     /// `syr`, `spr`, `syr2`, `spr2`, real and complex symmetric: `n`.
     syr,
@@ -48,6 +50,8 @@ pub const Family = enum {
     her,
     /// `gemm`: `m * n * k`.
     gemm,
+    /// `gemmt`: `(m + 1) * m * k`.
+    gemmt,
     /// `syrk`, `herk`: `(n + 1) * n * k`.
     syrk,
     /// `syr2k`, `her2k`: `n * k`.
@@ -96,11 +100,72 @@ pub const Rule = struct {
     }
 };
 
+/// rstd's own level-2 thresholds on `haswell` (Coffee Lake, the Intel Mac), a
+/// worker per call from each order up: where a second one paid in the bench's
+/// `l2thread` runs (issue #845), against OpenBLAS's 50 to 100, below which
+/// rstd's pool costs more than the call. The complex symmetric `syr` keeps
+/// OpenBLAS's, untimed.
+/// `tbmv` pays later than `tpmv`, its columns `k + 1` long: from n = 1024 at
+/// `k = 32` (1536 `s`), 768 at 128, 1536 at 8 (issue #854); chunked as
+/// `tpmv`.
+fn haswellLevel2(comptime family: Family, comptime T: type, core: anytype) ?Rule {
+    if (!isX86(core, .haswell)) return null;
+    const complex = comptime types.isComplex(T);
+    const F = types.Float(T);
+    return switch (family) {
+        .syr => if (complex) null else .{ .serial_max = 511 },
+        .tpmv => .{ .serial_max = 511 },
+        .tbmv => .{ .serial_max = if (!complex and F == f32) 1535 else 1023, .chunk = 511 },
+        .her => .{ .serial_max = 255 },
+        .trmv => .{ .serial_max = if (!complex) 511 else if (F == f32) 383 else 255 },
+        else => null,
+    };
+}
+
+/// rstd's own level-2 thresholds on `vortexm4` (the M6), as `haswellLevel2`:
+/// where 12 workers paid over one in the bench's `l2thread` runs (issue
+/// #853), against OpenBLAS's 50 to 200, from which they ran down to 0.07
+/// times one. Complex `tpmv` keeps OpenBLAS's 2 workers below 500, as timed;
+/// `symv` keeps OpenBLAS's, as the fused tridiagonalization plans by it too
+/// (#885), and so does the complex symmetric `syr`.
+/// `tbmv` paid only from 1536 (`z`); `s`, `d` and `c` lost to 2048.
+fn vortexm4Level2(comptime family: Family, comptime T: type, core: anytype) ?Rule {
+    if (!is(core, .vortexm4)) return null;
+    const complex = comptime types.isComplex(T);
+    const F = types.Float(T);
+    const two = comptime &[_]Tier{.{ .below = 500, .max = 2 }};
+    return switch (family) {
+        .syr => if (complex) null else .{ .serial_max = 767 },
+        .her => .{ .serial_max = if (F == f32) 383 else 255 },
+        .trmv => .{ .serial_max = if (complex) (if (F == f32) 383 else 255) else if (F == f32) 1023 else 511 },
+        .tpmv => if (complex) .{ .serial_max = 383, .tiers = two } else .{ .serial_max = if (F == f32) 1023 else 767 },
+        .tbmv => .{ .serial_max = if (complex and F == f64) 1535 else 2047 },
+        else => null,
+    };
+}
+
+/// rstd's own `axpy` and `dot` split on `vortexm4` (the M6: 6 fast cores, 6
+/// efficiency ones): 5000-element chunks, at most 2 workers to 20000, 4 to
+/// 40000 and 6 to 70000, so a slow core never holds a large share. At 12
+/// threads 1.3 to 1.9 times the generic rule (a chunk and a worker each 10000)
+/// at n = 65536; 0.84 to 0.99 for real `f64` and complex `f32` at 32768 and
+/// real `f32` at 131072 (issue #728).
+fn vortexm4Level1(comptime family: Family, core: anytype) ?Rule {
+    if (!is(core, .vortexm4)) return null;
+    return switch (family) {
+        .axpy, .dot => .{ .serial_max = 10000, .chunk = 5000, .tiers = comptime &.{ upTo(20000, 2), upTo(40000, 4), upTo(70000, 6) } },
+        else => null,
+    };
+}
+
 /// `family`'s rule for `T` on `core` (`blas.coreType()`; any architecture's
 /// core enum, or null for none): OpenBLAS's
 /// interface or kernel thresholds, with its per-core overrides as a
 /// `DYNAMIC_ARCH` build applies them.
 pub fn rule(comptime family: Family, comptime T: type, core: anytype) Rule {
+    if (haswellLevel2(family, T, core)) |r| return r;
+    if (vortexm4Level2(family, T, core)) |r| return r;
+    if (vortexm4Level1(family, core)) |r| return r;
     const complex = comptime types.isComplex(T);
     const F = types.Float(T);
     const s: u64 = @sizeOf(F);
@@ -112,7 +177,7 @@ pub fn rule(comptime family: Family, comptime T: type, core: anytype) Rule {
         .copy => .{ .serial_max = 10000 },
         .rot => .{ .serial_max = 100000 },
         .dot => (if (complex) null else dotCore(F, core)) orelse .{ .serial_max = 10000 },
-        .asum => .{ .serial_max = if (complex) 10000 else 100000, .per_unit = true },
+        .asum => asumCore(core) orelse .{ .serial_max = if (complex) 10000 else 100000, .per_unit = true },
         // `kernel/arm64/iamax_thunderx2t99.c`, `izamax_thunderx2t99.c`: `n <= 10000`
         .index => .{ .serial_max = 10000 },
         .gemv => if (complex) .{ .serial_max = 1024 * mt - 1 } else gemvCore(F, core) orelse .{ .serial_max = 115200 * mt - 1 },
@@ -131,8 +196,10 @@ pub fn rule(comptime family: Family, comptime T: type, core: anytype) Rule {
         // of `zsymv.c`'s 50 columns, not 361, which ran 2 or 3 workers (#706)
         .hemv => .{ .serial_max = 361, .chunk = 50 },
         // `tbmv.c`, `tpmv.c`, `ztbmv.c`, `ztpmv.c`: `n < 50`, `n < 500`
-        .tpmv => .{ .serial_max = 49, .tiers = comptime &.{.{ .below = 500, .max = 2 }} },
+        .tbmv, .tpmv => .{ .serial_max = 49, .tiers = comptime &.{.{ .below = 500, .max = 2 }} },
         .gemm => (if (complex) null else gemmCore(F, core)) orelse .{ .serial_max = @as(u64, if (complex) 8192 else 65536) * mt, .per_unit = true },
+        // `gemmt.c`: `(m + 1) * m * k <= SMP_THRESHOLD_MIN * GEMM_MULTITHREAD_THRESHOLD`
+        .gemmt => .{ .serial_max = @as(u64, if (complex) 8192 else 65536) * mt },
         .syrk => .{ .serial_max = @as(u64, if (complex) 14824 else 109944) * mt },
         // `syr2k.c`: `n * k < 1000`
         .syr2k => .{ .serial_max = 999 },
@@ -149,6 +216,25 @@ fn is(core: anytype, comptime c: coretypes.Arm64CoreType) bool {
     if (C == coretypes.Arm64CoreType) return core == c;
     if (C == ?coretypes.Arm64CoreType) return if (core) |k| k == c else false;
     return false;
+}
+
+/// Whether `core` (`rule`'s) is the x86_64 core `c`.
+fn isX86(core: anytype, comptime c: coretypes.X86CoreType) bool {
+    const C = @TypeOf(core);
+    if (C == coretypes.X86CoreType) return core == c;
+    if (C == ?coretypes.X86CoreType) return if (core) |k| k == c else false;
+    return false;
+}
+
+/// The arm64 cores whose `KERNEL.<core>` takes `?asum_thunderx2t99.c`.
+const thunder_asum = [_]coretypes.Arm64CoreType{ .thunderx2t99, .neoversen1, .neoversev1, .neoversev2, .neoversen2, .thunderx3t110, .armv8sve, .a64fx, .armv9sme, .vortex, .vortexm4, .cortexa510, .cortexa710, .cortexx2, .ampere1 };
+
+/// `kernel/arm64/?asum_thunderx2t99.c`: past `n <= 10000`, every thread
+/// (issue #728); `?sum_thunderx2t99.c`, on `neoversen1`, `vortex`,
+/// `vortexm4` and `ampere1`, alike. Elsewhere `kernel/x86_64/dasum.c`'s.
+fn asumCore(core: anytype) ?Rule {
+    inline for (thunder_asum) |c| if (is(core, c)) return .{ .serial_max = 10000 };
+    return null;
 }
 
 /// `kernel/arm64/dot.c`'s tables.

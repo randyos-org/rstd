@@ -8,6 +8,7 @@ const GlyphIndex = types.GlyphIndex;
 const pack = @import("../../pack.zig");
 const Image = @import("../../image.zig").Image;
 const rasterize = @import("rasterize.zig");
+const hint = @import("../hint/__root__.zig");
 const test_font = @import("_test/font.zig");
 
 // A persistent, incrementally-populated glyph atlas: unlike
@@ -75,13 +76,32 @@ pub fn getOrAdd(self: *Self, gpa: Allocator, sfnt: Sfnt, glyph: GlyphIndex, scal
     defer raster_pixels.deinit(gpa);
 
     const bmp = try rasterize.glyphBitmap(sfnt, gpa, &raster_pixels, glyph, scale, scale);
-    if (bmp.width == 0 or bmp.height == 0) {
+    return self.store(gpa, glyph, bmp.width, bmp.height, raster_pixels.items);
+}
+
+/// As `getOrAdd`, the glyph hinted at `ppem` (`hint.Font`); one cache
+/// still backs one font, size and hinting.
+pub fn getOrAddHinted(self: *Self, gpa: Allocator, font: *hint.Font, glyph: GlyphIndex, ppem: u16, opts: hint.Font.Options) !?PixelRect {
+    if (self.locations.get(glyph)) |rect| {
+        return if (rect.w == 0) null else rect;
+    }
+
+    var raster_pixels: std.ArrayList(u8) = .empty;
+    defer raster_pixels.deinit(gpa);
+
+    const r = try rasterize.glyphBitmapHinted(font, gpa, &raster_pixels, @backingInt(glyph), ppem, opts);
+    return self.store(gpa, glyph, r.bitmap.width, r.bitmap.height, raster_pixels.items);
+}
+
+/// Places a rasterized glyph, or caches its emptiness.
+fn store(self: *Self, gpa: Allocator, glyph: GlyphIndex, w: u16, h: u16, pixels: []const u8) !?PixelRect {
+    if (w == 0 or h == 0) {
         try self.locations.put(gpa, glyph, empty_rect);
         return null;
     }
 
-    const rect = try self.place(gpa, bmp.width, bmp.height);
-    self.atlas.blit(rect.x, rect.y, bmp.width, raster_pixels.items);
+    const rect = try self.place(gpa, w, h);
+    self.atlas.blit(rect.x, rect.y, w, pixels);
     try self.locations.put(gpa, glyph, rect);
     return rect;
 }

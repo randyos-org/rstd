@@ -8,6 +8,8 @@ const blaskern = @import("blaskern.zig");
 const qemutest = @import("qemu/__root__.zig");
 const wasmtest = @import("wasmtest.zig");
 const sshtest = @import("sshtest.zig");
+const testfonts = @import("testfonts.zig");
+const hintrefs = @import("hintrefs.zig");
 const bench = @import("bench.zig");
 const shader_probe = @import("../src/rgl/shaders/probe.zig");
 const Build = rstdbuild.Build;
@@ -69,6 +71,7 @@ pub fn addRstdTest(b: *Build, mod: *Module, target: ResolvedTarget, optimize: Op
     const test_mod = try rstdbuild.cloneModuleWithTarget(b, mod, target);
     test_mod.optimize = optimize;
     if (tsan and target.result.os.tag == .linux and target.result.abi.isGnu()) test_mod.sanitize_thread = true;
+    test_mod.addImport("rstd_test_fonts", try testfonts.module(b));
     const t = b.addTest(.{ .root_module = test_mod, .filters = filters });
     // POWER: the Debug test object passes a branch's 32 MiB reach; with function
     // sections the linker adds long-branch stubs (issue #265)
@@ -101,6 +104,8 @@ pub fn build(b: *Build) !void {
     // the toolchain lacks (issue #178). Read before any module, as the BLAS
     // kernel objects follow it (issue #652).
     tsan = b.option(bool, "rstd-tsan", "Build rstd's linux-gnu tests with ThreadSanitizer; the x86_64 and aarch64 Linux rigs then take glibc from Nix on -Dtest-host") orelse false;
+    // the font-backed tests' fonts (about 300 MB of releases to fetch)
+    testfonts.enabled = b.option(bool, "test-fonts", "Fetch rgui's fonts and embed them in rstd's tests, for the font-backed tests and hint-refs") orelse false;
 
     // Debug builds link only the target's BLAS kernels, which is far faster
     // to compile; `-Dblas-cores=all` builds every core to test dispatch.
@@ -219,7 +224,8 @@ pub fn build(b: *Build) !void {
         }
     } else x87_step.dependOn(&b.addFail("rstd-test-x87 runs on x86 Windows and Linux hosts").step);
     // the same tests on real machines over SSH, for targets no emulator covers
-    try sshtest.addSshTests(b, optimize, test_filter);
+    const macs = try sshtest.addSshTests(b, optimize, test_filter);
+    try hintrefs.add(b, macs.intel);
 
     // Mach-O, which no machine here runs: building is what catches assembly
     // that other object formats accept (`.align`), so build every core's

@@ -10,20 +10,44 @@ const ops = @import("ops.zig");
 const auxiliary = @import("auxiliary.zig");
 const cholesky = @import("cholesky.zig");
 const lu = @import("lu.zig");
+const getrf_complete = @import("getrf_complete.zig");
 const gbtrf_factor = @import("gbtrf.zig");
 const triangular = @import("triangular.zig");
 const relapack = @import("relapack.zig");
 const indefinite = @import("indefinite.zig");
 const sytrf_factor = @import("sytrf.zig");
+const sytrs_solve = @import("sytrs.zig");
+const sytri_invert = @import("sytri.zig");
+const lss = @import("lss.zig");
+const sygv_solve = @import("sygv.zig");
+const gghrd_reduce = @import("gghrd.zig");
+const qz_complex = @import("qz_complex.zig");
+const qz_real = @import("qz_real.zig");
+const ggev_complex = @import("ggev_complex.zig");
+const ggev_real = @import("ggev_real.zig");
+const gges_schur = @import("gges.zig");
+const tgexc_move = @import("tgexc.zig");
+const tgsen_reorder = @import("tgsen.zig");
 const householder = @import("householder.zig");
 const qr = @import("qr.zig");
 const qr_solve = @import("qr_solve.zig");
 const lq = @import("lq.zig");
+const rq = @import("rq.zig");
+const gqr = @import("gqr.zig");
+const gls = @import("gls.zig");
 const qr_pivot = @import("qr_pivot.zig");
 const lsq = @import("lsq.zig");
 const tridiag = @import("tridiag.zig");
 const tridiag_evd = @import("tridiag_evd.zig");
 const evd = @import("evd.zig");
+const sytrd_reduce = @import("sytrd.zig");
+const pstrf_factor = @import("pstrf.zig");
+const drivers = @import("drivers.zig");
+const norm_structured = @import("norm_structured.zig");
+const condition_estimates = @import("condition_estimates.zig");
+const gbtrs_solve = @import("gbtrs.zig");
+const pbtrs_solve = @import("pbtrs.zig");
+const packed_cholesky = @import("pptrf.zig");
 const balance = @import("balance.zig");
 const hessenberg = @import("hessenberg.zig");
 const real_schur = @import("real_schur.zig");
@@ -37,6 +61,13 @@ const bidiag = @import("bidiag.zig");
 const bidiag_svd = @import("bidiag_svd.zig");
 const svd = @import("svd.zig");
 const norm = @import("norm.zig");
+const equilibrate = @import("equilibrate.zig");
+const refine = @import("gerfs.zig");
+const expert = @import("gesvx.zig");
+const bisect = @import("stebz.zig");
+const inverse_iteration = @import("stein.zig");
+const tridiagonal_q = @import("ormtr.zig");
+const selected = @import("syevx.zig");
 
 pub const Uplo = types.Uplo;
 pub const Trans = types.Trans;
@@ -56,10 +87,22 @@ pub const PotriError = cholesky.PotriError;
 /// `pbtrf`: `error.NotPositiveDefinite`.
 pub const PbtrfError = relapack.PbtrfError;
 pub const potrf = if (options.relapack) relapack.potrf else cholesky.potrf;
+/// `posv`: `potrf`'s errors, `B` untouched when `A` is not positive definite.
+pub const PosvError = drivers.PosvError;
+pub const posv = drivers.posv;
 pub const potf2 = cholesky.potf2;
 pub const potrs = cholesky.potrs;
 pub const potri = cholesky.potri;
 pub const pbtrf = relapack.pbtrf;
+/// `pbtrs`: a bad `uplo` or shape.
+pub const PbtrsError = pbtrs_solve.PbtrsError;
+pub const pbtrs = pbtrs_solve.pbtrs;
+/// `pptrf`: `error.NotPositiveDefinite`.
+pub const PptrfError = packed_cholesky.PptrfError;
+/// `pptrs`: a bad `uplo` or shape.
+pub const PptrsError = packed_cholesky.PptrsError;
+pub const pptrf = packed_cholesky.pptrf;
+pub const pptrs = packed_cholesky.pptrs;
 
 /// `getrf`: returns the first zero `U(i, i)`'s `i` (0-based), or null.
 pub const GetrfError = lu.GetrfError;
@@ -76,6 +119,19 @@ pub const getrs = lu.getrs;
 pub const gesv = lu.gesv;
 pub const getri = lu.getri;
 pub const gbtrf = gbtrf_factor.gbtrf;
+/// `gbtrs`: a bad `trans`, pivot or shape, before `B` is touched.
+pub const GbtrsError = gbtrs_solve.GbtrsError;
+pub const gbtrs = gbtrs_solve.gbtrs;
+/// `gbsv`: `Singular` for a zero `U(i, i)`, `B` untouched.
+pub const GbsvError = drivers.GbsvError;
+pub const gbsv = drivers.gbsv;
+/// `getrfComplete`: `P A Q = L U` with complete pivoting (faer's); returns
+/// the rank.
+pub const GetrfCompleteError = getrf_complete.GetrfCompleteError;
+/// `getrsComplete`: a bad `trans`, pivot or shape, before `B` is touched.
+pub const GetrsCompleteError = getrf_complete.GetrsCompleteError;
+pub const getrfComplete = getrf_complete.getrfComplete;
+pub const getrsComplete = getrf_complete.getrsComplete;
 
 /// `trtri`: `error.Singular`.
 pub const TrtriError = triangular.TrtriError;
@@ -102,6 +158,21 @@ pub const sytrf = sytrf_factor.sytrf;
 pub const hetrf = sytrf_factor.hetrf;
 pub const sytrfRook = sytrf_factor.sytrfRook;
 pub const hetrfRook = sytrf_factor.hetrfRook;
+/// `sytrs`, `hetrs`, `sytrsRook`, `hetrsRook`: a bad pivot or shape, before
+/// `B` is touched.
+pub const SytrsError = sytrs_solve.SytrsError;
+pub const sytrs = sytrs_solve.sytrs;
+pub const hetrs = sytrs_solve.hetrs;
+/// `sytri`, `hetri`: `error.Singular` for a zero 1 x 1 block, `A` untouched.
+pub const SytriError = sytri_invert.SytriError;
+pub const sytri = sytri_invert.sytri;
+pub const hetri = sytri_invert.hetri;
+pub const sytrsRook = sytrs_solve.sytrsRook;
+pub const hetrsRook = sytrs_solve.hetrsRook;
+/// `sysv`, `hesv`: `Singular` for a zero block of `D`, `B` untouched.
+pub const SysvError = drivers.SysvError;
+pub const sysv = drivers.sysv;
+pub const hesv = drivers.hesv;
 pub const sygst = relapack.sygst;
 pub const hegst = relapack.hegst;
 
@@ -115,8 +186,19 @@ pub const GelsError = qr_solve.GelsError;
 pub const GelqfError = lq.GelqfError;
 pub const OrglqError = lq.OrglqError;
 pub const OrmlqError = lq.OrmlqError;
+pub const GerqfError = rq.GerqfError;
+pub const OrgrqError = rq.OrgrqError;
+pub const OrmrqError = rq.OrmrqError;
+pub const GgqrfError = gqr.GgqrfError;
+pub const GgrqfError = gqr.GgrqfError;
+/// `gglse`, `ggglm`: an error per rank deficiency (the reference's `INFO` 1 and 2).
+pub const GglseError = gls.GglseError;
+pub const GgglmError = gls.GgglmError;
 pub const Geqp3Error = qr_pivot.Geqp3Error;
 pub const GelsyError = lsq.GelsyError;
+/// `gelss`, `gelsd`: `error.NoConvergence` from the SVD.
+pub const GelssError = lss.GelssError;
+pub const GelsdError = lss.GelsdError;
 pub const geqrf = qr.geqrf;
 pub const orgqr = qr.orgqr;
 pub const ungqr = qr.orgqr;
@@ -128,8 +210,19 @@ pub const orglq = lq.orglq;
 pub const unglq = lq.orglq;
 pub const ormlq = lq.ormlq;
 pub const unmlq = lq.ormlq;
+pub const gerqf = rq.gerqf;
+pub const orgrq = rq.orgrq;
+pub const ungrq = rq.orgrq;
+pub const ormrq = rq.ormrq;
+pub const unmrq = rq.ormrq;
+pub const ggqrf = gqr.ggqrf;
+pub const ggrqf = gqr.ggrqf;
+pub const gglse = gls.gglse;
+pub const ggglm = gls.ggglm;
 pub const geqp3 = qr_pivot.geqp3;
 pub const gelsy = lsq.gelsy;
+pub const gelss = lss.gelss;
+pub const gelsd = lss.gelsd;
 
 /// `syevd`, `heevd`, `syev`, `heev`: `error.NoConvergence`, also for a NaN or
 /// infinity in `A`.
@@ -137,9 +230,46 @@ pub const SyevError = evd.SyevError;
 /// The eigensolvers' `jobz`, `jobvl`, `jobvr`.
 pub const VectorJob = evd.VectorJob;
 pub const syevd = evd.syevd;
+/// `sytrd` (`hetrd`): the reduction to real tridiagonal form `syevd` runs.
+pub const SytrdError = sytrd_reduce.SytrdError;
+pub const sytrd = sytrd_reduce.sytrd;
+/// `pstrf`: the Cholesky factor with complete pivoting; returns the rank.
+pub const PstrfError = pstrf_factor.PstrfError;
+pub const pstrf = pstrf_factor.pstrf;
+pub const hetrd = sytrd_reduce.sytrd;
 pub const heevd = evd.syevd;
 pub const syev = evd.syev;
 pub const heev = evd.syev;
+/// `sygv`, `sygvd`, `hegv`, `hegvd`: a bad shape, `B` not positive
+/// definite, or no convergence.
+pub const SygvError = sygv_solve.SygvError;
+pub const sygv = sygv_solve.sygv;
+pub const sygvd = sygv_solve.sygvd;
+pub const hegv = sygv_solve.hegv;
+pub const hegvd = sygv_solve.hegvd;
+pub const GghrdError = gghrd_reduce.GghrdError;
+pub const gghrd = gghrd_reduce.gghrd;
+pub const HgeqzError = qz_complex.HgeqzError;
+pub const hgeqzComplex = qz_complex.hgeqzComplex;
+pub const hgeqzReal = qz_real.hgeqzReal;
+/// `ggevComplex`, `ggevReal`, `ggesComplex`, `ggesReal`: bad shapes, a NaN or
+/// infinity, or no convergence.
+pub const GgevError = ggev_complex.GgevError;
+pub const ggevComplex = ggev_complex.ggevComplex;
+pub const ggevReal = ggev_real.ggevReal;
+pub const ggesComplex = gges_schur.ggesComplex;
+pub const ggesReal = gges_schur.ggesReal;
+/// `tgexc`: `ifst` and `ilst` 0-based; `error.SwapRejected`: a swap too
+/// ill-conditioned to make.
+pub const TgexcError = tgexc_move.TgexcError;
+pub const tgexc = tgexc_move.tgexc;
+/// `tgsen`: returns `ReorderedPencil`; `error.SwapRejected`.
+pub const TgsenError = tgsen_reorder.TgsenError;
+/// `tgsen`'s `IJOB`.
+pub const TgsenJob = tgsen_reorder.TgsenJob;
+/// `tgsen`'s result: the cluster's size, its projections and separations as `job` asks.
+pub const ReorderedPencil = tgsen_reorder.ReorderedPencil;
+pub const tgsen = tgsen_reorder.tgsen;
 
 /// `geev`: a NaN in `A` is `error.NanInA`; `error.NoConvergence` (also for
 /// an infinity in `A`), the count of eigenvalues not found in the last
@@ -227,7 +357,53 @@ pub const LangeError = norm.LangeError;
 pub const GeconError = norm.GeconError;
 pub const LasetError = auxiliary.LasetError;
 pub const lange = norm.lange;
+/// `lansy`, `lanhe`, `lantr`: `lange` for one triangle or a trapezoid.
+pub const LansyError = norm_structured.LansyError;
+pub const LantrError = norm_structured.LantrError;
+pub const lansy = norm_structured.lansy;
+pub const lanhe = norm_structured.lanhe;
+pub const lantr = norm_structured.lantr;
+/// `trcon`, `pocon`: reciprocal condition estimates, as `gecon`'s.
+pub const TrconError = condition_estimates.TrconError;
+pub const PoconError = condition_estimates.PoconError;
+pub const trcon = condition_estimates.trcon;
+pub const pocon = condition_estimates.pocon;
 pub const gecon = norm.gecon;
+/// `geequ`, `laqge`: row and column equilibration; `geequ` reports a zero
+/// row or column as an error, `laqge` returns what it scaled.
+pub const Equilibration = equilibrate.Equilibration;
+pub const EquilibrationScaling = equilibrate.Scaling;
+pub const GeequError = equilibrate.GeequError;
+pub const LaqgeError = equilibrate.LaqgeError;
+pub const geequ = equilibrate.geequ;
+pub const laqge = equilibrate.laqge;
+/// `gerfs`: a `trans` it does not take, a bad pivot or shape.
+pub const GerfsError = refine.GerfsError;
+pub const gerfs = refine.gerfs;
+/// `gesvx`: `gesv` with equilibration, refinement and error bounds; a
+/// singular `U` or an ill-conditioned `A` is in its report, not an error.
+pub const FactorizationInput = expert.FactorizationInput;
+pub const LuSolveReport = expert.LuSolveReport;
+pub const GesvxError = expert.GesvxError;
+pub const gesvx = expert.gesvx;
+/// `stebz`: selected eigenvalues of a symmetric tridiagonal by bisection.
+pub const SpectrumRange = bisect.SpectrumRange;
+pub const SpectrumOrder = bisect.SpectrumOrder;
+pub const BisectedEigenvalues = bisect.BisectedEigenvalues;
+pub const StebzError = bisect.StebzError;
+pub const stebz = bisect.stebz;
+/// `stein`: eigenvectors of a symmetric tridiagonal by inverse iteration.
+pub const SteinError = inverse_iteration.SteinError;
+pub const stein = inverse_iteration.stein;
+/// `ormtr`, `unmtr`: multiplying by `sytrd`'s `Q`.
+pub const OrmtrError = tridiagonal_q.OrmtrError;
+pub const ormtr = tridiagonal_q.ormtr;
+pub const unmtr = tridiagonal_q.ormtr;
+/// `syevx`, `heevx`: selected eigenvalues and vectors by bisection and inverse iteration.
+pub const SelectedEigenpairs = selected.SelectedEigenpairs;
+pub const SyevxError = selected.SyevxError;
+pub const syevx = selected.syevx;
+pub const heevx = selected.syevx;
 pub const laset = auxiliary.laset;
 pub const lapy2 = auxiliary.lapy2;
 test {
@@ -261,6 +437,39 @@ test {
     _ = tgsyl_solve;
     _ = indefinite;
     _ = sytrf_factor;
+    _ = sytrs_solve;
+    _ = sygv_solve;
+    _ = gghrd_reduce;
+    _ = qz_complex;
+    _ = qz_real;
+    _ = @import("_test/qz_real.zig");
+    _ = ggev_complex;
+    _ = @import("_test/ggev_complex.zig");
+    _ = ggev_real;
+    _ = @import("_test/ggev_real.zig");
+    _ = gges_schur;
+    _ = @import("_test/tgexc.zig");
+    _ = @import("_test/lasq.zig");
+    _ = @import("_test/pstrf.zig");
+    _ = drivers;
+    _ = @import("_test/norm_structured.zig");
+    _ = @import("_test/condition_estimates.zig");
+    _ = @import("_test/gbtrs.zig");
+    _ = @import("_test/getrf_complete.zig");
+    _ = @import("_test/pptrf.zig");
+    _ = @import("_test/sytri.zig");
+    _ = @import("_test/rq.zig");
+    _ = @import("_test/gqr.zig");
+    _ = @import("_test/gls.zig");
+    _ = @import("_test/equilibrate.zig");
+    _ = @import("_test/gerfs.zig");
+    _ = @import("_test/gesvx.zig");
+    _ = @import("_test/stebz.zig");
+    _ = @import("_test/stein.zig");
+    _ = @import("_test/ormtr.zig");
+    _ = @import("_test/syevx.zig");
+    _ = pbtrs_solve;
+    _ = @import("tgsen_condition.zig");
     _ = relapack_tests;
     _ = evd_tests;
     _ = norm_tests;

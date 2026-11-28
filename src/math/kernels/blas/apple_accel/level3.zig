@@ -8,6 +8,7 @@ const binding = @import("binding.zig");
 const routines = @import("routines.zig");
 const parts = @import("split.zig");
 const quirks = @import("quirks.zig");
+const speed = @import("speed.zig");
 
 const Io = std.Io;
 const isComplex = types.isComplex;
@@ -23,7 +24,7 @@ const use = accel.use;
 const call = accel.call;
 const mat = accel.mat;
 const matrix_quantum = parts.matrix_quantum;
-const split = parts.split;
+const split3 = parts.split3;
 const fits = parts.fits;
 const column = parts.column;
 const units = parts.units;
@@ -37,6 +38,7 @@ const realDiagonal = quirks.realDiagonal;
 const nonFiniteTri = quirks.nonFiniteTri;
 const tinyDiagonal = quirks.tinyDiagonal;
 const nonFiniteMat = quirks.nonFiniteMat;
+const routes = speed.routes;
 
 /// `gemm`'s parts: columns of `C` if it has as many as rows, else rows;
 /// each takes the matching part of `op(B)` or `op(A)` and all of the other.
@@ -82,7 +84,7 @@ fn Gemm(comptime T: type) type {
 }
 
 pub inline fn gemm(io: Io, comptime T: type, transa: types.Trans, transb: types.Trans, m: isize, n: isize, k: isize, alpha: T, a: [*]const T, lda: isize, b_: [*]const T, ldb: isize, beta: T, c: [*]T, ldc: isize) Io.Cancelable!bool {
-    if (comptime !covers(T)) return false else {
+    if (comptime !covers(T) or !routes(.gemm, T)) return false else {
         const b = use(T) orelse return false;
         const ta = transpose(T, transa) orelse return false;
         const tb = transpose(T, transb) orelse return false;
@@ -93,7 +95,7 @@ pub inline fn gemm(io: Io, comptime T: type, transa: types.Trans, transb: types.
         if (!fits(G.name, b, &.{ m, n, k, lda, ldb, ldc, ea, eb, mat(m, n, ldc) })) return false;
         const g: G = .{ .b = b, .ta = ta, .tb = tb, .by_columns = n >= m, .m = m, .n = n, .k = k, .alpha = alpha, .a = a, .lda = lda, .b_ = b_, .ldb = ldb, .beta = beta, .c = c, .ldc = ldc };
         const work = threading.product(&.{ @intCast(m), @intCast(n), @intCast(k) });
-        try split(io, .gemm, T, work, @intCast(@max(m, n)), matrix_quantum, &g, G.part);
+        try split3(io, .gemm, T, work, @intCast(@max(m, n)), matrix_quantum, &g, G.part);
         return true;
     }
 }
@@ -132,7 +134,7 @@ fn Symm(comptime T: type, comptime herm: bool) type {
 
 /// `symm`, or `hemm` for `herm`.
 pub inline fn symm(io: Io, comptime T: type, comptime herm: bool, sd: types.Side, ul: types.Uplo, m: isize, n: isize, alpha: T, a: [*]const T, lda: isize, b_: [*]const T, ldb: isize, beta: T, c: [*]T, ldc: isize) Io.Cancelable!bool {
-    if (comptime !covers(T) or (herm and !isComplex(T))) return false else {
+    if (comptime !covers(T) or (herm and !isComplex(T)) or !routes(if (herm) .hemm else .symm, T)) return false else {
         const b = use(T) orelse return false;
         const u = uplo(ul) orelse return false;
         const ka = if (sd == .l) m else n;
@@ -141,7 +143,7 @@ pub inline fn symm(io: Io, comptime T: type, comptime herm: bool, sd: types.Side
         const g: S = .{ .b = b, .sd = side(sd), .u = u, .m = m, .n = n, .alpha = alpha, .a = a, .lda = lda, .b_ = b_, .ldb = ldb, .beta = beta, .c = c, .ldc = ldc };
         // the work `blas3/interface.zig` thresholds
         const work = threading.product(&.{ 2, @intCast(m), @intCast(m), @intCast(n) });
-        try split(io, .symm, T, work, @intCast(if (sd == .l) n else m), matrix_quantum, &g, S.part);
+        try split3(io, .symm, T, work, @intCast(if (sd == .l) n else m), matrix_quantum, &g, S.part);
         return true;
     }
 }
@@ -150,6 +152,9 @@ pub inline fn symm(io: Io, comptime T: type, comptime herm: bool, sd: types.Side
 /// `beta`), as `herm` and `b_` say; `t` is a transposed `op`.
 pub inline fn syrk(comptime T: type, comptime herm: bool, ul: types.Uplo, t: bool, n: isize, k: isize, alpha: T, a: [*]const T, lda: isize, b_: ?[*]const T, ldb: isize, beta: T, c: [*]T, ldc: isize) bool {
     if (comptime !covers(T) or (herm and !isComplex(T))) return false else {
+        if (b_ == null) {
+            if (comptime !routes(if (herm) .herk else .syrk, T)) return false;
+        } else if (comptime !routes(if (herm) .her2k else .syr2k, T)) return false;
         const b = use(T) orelse return false;
         const u = uplo(ul) orelse return false;
         const tr: Transpose = if (!t) .no_trans else if (herm) .conj_trans else .trans;
@@ -205,7 +210,7 @@ fn Trmm(comptime T: type, comptime solve: bool) type {
 
 /// `trmm`, or `trsm` for `solve`.
 pub inline fn trmm(io: Io, comptime T: type, comptime solve: bool, sd: types.Side, ul: types.Uplo, transa: types.Trans, dg: types.Diag, m: isize, n: isize, alpha: T, a: [*]const T, lda: isize, b_: [*]T, ldb: isize) Io.Cancelable!bool {
-    if (comptime !covers(T)) return false else {
+    if (comptime !covers(T) or !routes(if (solve) .trsm else .trmm, T)) return false else {
         const b = use(T) orelse return false;
         const u = uplo(ul) orelse return false;
         const t = transpose(T, transa) orelse return false;
@@ -216,7 +221,7 @@ pub inline fn trmm(io: Io, comptime T: type, comptime solve: bool, sd: types.Sid
         if (!fits(R.name, b, &.{ m, n, lda, ldb, mat(ka, ka, lda), mat(m, n, ldb) })) return false;
         const g: R = .{ .b = b, .sd = side(sd), .u = u, .t = t, .dg = diag(dg), .m = m, .n = n, .alpha = alpha, .a = a, .lda = lda, .b_ = b_, .ldb = ldb };
         const work = threading.product(&.{ @intCast(m), @intCast(n) });
-        try split(io, .trsm, T, work, @intCast(if (sd == .l) n else m), matrix_quantum, &g, R.part);
+        try split3(io, .trsm, T, work, @intCast(if (sd == .l) n else m), matrix_quantum, &g, R.part);
         return true;
     }
 }

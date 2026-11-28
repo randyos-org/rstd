@@ -304,7 +304,8 @@ test "level-1 calls go to Accelerate by routine, letter and stride as `sends` ha
     try expect1(Complex64, .nrm2, 1, false);
     try expect1(f64, .nrm2, 1, false);
     try expect1(f32, .dot, 1, false);
-    try expect1(f32, .dsdot, 1, true);
+    // kept since issue #844
+    try expect1(f32, .dsdot, 1, false);
     try expect1(f64, .dot, 2, true);
     try expect1(Complex64, .dot, 1, true);
     try expect1(Complex64, .dot, 2, false);
@@ -340,10 +341,10 @@ test "quirk cases run rstd's kernels, and the Hermitian diagonal comes out real"
 
     // the zero-part quirks and real `trmv`'s show on arm64 only (issue #388)
     try l1.scal(io, Complex64, 4, .init(1.5, 0), &z, 1);
-    try p.saw(x86_64, "complex scal, alpha with a zero part");
+    try p.saw(x86_64 and sent(.scal, Complex64, true), "complex scal, alpha with a zero part");
     try zigstd.testExpectTrue(std.math.isNan(z[0].im));
     try l1.axpy(io, Complex64, 4, .init(0, 1), &z, 1, &w, 1);
-    try p.saw(x86_64, "complex axpy, alpha with a zero part");
+    try p.saw(x86_64 and sent(.axpy, Complex64, true), "complex axpy, alpha with a zero part");
     try l1.axpby(io, f64, 4, 0, &x, 1, 2, &y, 1);
     try p.saw(false, "axpby, zero alpha");
     try zigstd.testExpectEqualSlices(f64, &.{ 2, 0, 4, 1 }, &y);
@@ -352,7 +353,7 @@ test "quirk cases run rstd's kernels, and the Hermitian diagonal comes out real"
     // real `symv`'s too (issue #410): arm64 gives NaN where this is inf
     var sv: [4]f64 = @splat(0);
     try l2.symv(al, io, f64, .u, 4, 1, &a, 4, &x, 1, 0, &sv, 1);
-    try p.saw(x86_64, "symv, x not finite");
+    try p.saw(x86_64 and accel.routes(.symv, f64), "symv, x not finite");
     for (sv) |v| try zigstd.testExpectEqual(inf, v);
     try l2.trmv(al, io, f64, .u, .n, .n, 4, &a, 4, &x, 1);
     try p.saw(x86_64, "trmv, x not finite");
@@ -370,7 +371,7 @@ test "quirk cases run rstd's kernels, and the Hermitian diagonal comes out real"
     try p.saw(false, "syr2, x(j) and y(j) zero and x not finite");
     sy[3] = 1;
     try l2.syr2(al, io, f64, .u, 4, 1, &sx, -1, &sy, 1, &a, 4);
-    try p.saw(true, "syr2, no j with both zero");
+    try p.saw(accel.routes(.syr2, f64), "syr2, no j with both zero");
     try l3.trmm(al, io, f64, .l, .l, .n, .n, 4, 4, 1, &a, 4, &b, 4);
     try p.saw(false, "trmm, B not finite");
     // the same cases, finite, call it
@@ -395,18 +396,18 @@ test "quirk cases run rstd's kernels, and the Hermitian diagonal comes out real"
         } else {
             try l3.herk(al, io, Complex64, .l, .n, 3, 4, 1.5, &h, 3, 0.5, &c, 3);
         }
-        try p.saw(true, "herk and her2k");
+        try p.saw(if (two) accel.routes(.her2k, Complex64) else accel.routes(.herk, Complex64), "herk and her2k");
         for (0..3) |i| try zigstd.testExpectEqual(@as(f64, 0), c[i * 4].im);
     };
     // and `her2`, packed too
     var hx: [3]Complex64 = .{ .init(inf, 1), .init(1, 2), .init(-1, 0.5) };
     check.fill(Complex64, &c, 5);
     try l2.her2(al, io, Complex64, .l, 3, .init(0.5, 0.25), &hx, 1, &hx, 1, &c, 3);
-    try p.saw(true, "her2");
+    try p.saw(accel.routes(.her2, Complex64), "her2");
     for (0..3) |i| try zigstd.testExpectEqual(@as(f64, 0), c[i * 4].im);
     check.fill(Complex64, &c, 5);
     try l2.hpr2(al, io, Complex64, .u, 3, .init(0.5, 0.25), &hx, 1, &hx, 1, &c);
-    try p.saw(true, "hpr2");
+    try p.saw(accel.routes(.hpr2, Complex64), "hpr2");
     for ([_]usize{ 0, 2, 5 }) |i| try zigstd.testExpectEqual(@as(f64, 0), c[i].im);
     // `beta` 1 and nothing added leaves `C` as it was, through rstd
     check.fill(Complex64, &c, 4);
@@ -423,5 +424,5 @@ test "quirk cases run rstd's kernels, and the Hermitian diagonal comes out real"
     try zigstd.testExpectTrue(!std.math.isNan(c[1].re));
     c[1] = .init(1, inf);
     try l3.herk(al, io, Complex64, .l, .n, 3, 4, 1.5, &h, 3, 0, &c, 3);
-    try p.saw(true, "herk, beta 0");
+    try p.saw(accel.routes(.herk, Complex64), "herk, beta 0");
 }

@@ -23,10 +23,9 @@ const SubtableHeader = extern struct {
 };
 
 /// The `coverage` field's format sub-field (bits 8-15) selects which
-/// OpenType-defined subtable layout follows. Only format 0 (a sorted pair
-/// list, "the only subtable format supported by Windows" per spec) is
-/// implemented; format 2 (a class-pair 2D array) is rare in practice and
-/// left unimplemented; KernSubtable.getKernValue() returns null for it.
+/// OpenType-defined subtable layout follows: format 0 (a sorted pair list)
+/// or format 2 (a class-pair 2D array); KernSubtable.getKernValue() returns
+/// null for any other.
 pub const Coverage = packed struct(u16) {
     horizontal: bool,
     minimum: bool,
@@ -138,13 +137,49 @@ pub const KernSubtable = struct {
         return bytes.typeBEToNative(KernPair, self.table_data[pairs_start + index * @sizeOf(KernPair) ..]);
     }
 
-    /// Binary search for an exact (left, right) glyph pair, per format 0's
-    /// combined-32-bit-key sort order (left in the high word). Returns null
-    /// if this isn't a format 0 subtable, or the pair has no explicit entry
-    /// (i.e. no kerning between them).
+    /// The kerning between `left` and `right`: format 0's pair list or
+    /// format 2's class array. Null for another format, or a pair with no
+    /// entry (no kerning between them).
     pub fn getKernValue(self: Self, left: GlyphIndex, right: GlyphIndex) ?types.FWord {
-        if (self.coverage().format != 0) return null;
+        return switch (self.coverage().format) {
+            0 => self.format0Value(left, right),
+            2 => self.format2Value(left, right),
+            else => null,
+        };
+    }
 
+    /// Format 2 (OpenType 1.9.1, "kern", "Format 2"): class values are byte
+    /// offsets, the left's pre-multiplied by the row width and including the
+    /// array's offset, the right's by 2, so a pair's value sits at their sum
+    /// from the subtable's start (as HarfBuzz's OT `kern` reads it). A glyph
+    /// outside a class table has no kerning.
+    fn format2Value(self: Self, left: GlyphIndex, right: GlyphIndex) ?types.FWord {
+        const d = self.table_data;
+        if (d.len < header_end + 8) return null;
+        const l = classValue(d, bytes.getU16BE(d[header_end + 2 ..]), left) orelse return null;
+        const r = classValue(d, bytes.getU16BE(d[header_end + 4 ..]), right) orelse return null;
+        const array_off = bytes.getU16BE(d[header_end + 6 ..]);
+        const at = @as(usize, l) + r;
+        if (at < array_off or at + 2 > d.len) return null;
+        return bytes.getI16BE(d[at..]);
+    }
+
+    /// `glyph`'s value in the class table at `off`: firstGlyph, nGlyphs,
+    /// then one u16 per glyph.
+    fn classValue(d: []const u8, off: usize, glyph: GlyphIndex) ?u16 {
+        if (off + 4 > d.len) return null;
+        const first = bytes.getU16BE(d[off..]);
+        const count = bytes.getU16BE(d[off + 2 ..]);
+        const g = @backingInt(glyph);
+        if (g < first or g - first >= count) return null;
+        const at = off + 4 + @as(usize, g - first) * 2;
+        if (at + 2 > d.len) return null;
+        return bytes.getU16BE(d[at..]);
+    }
+
+    /// Binary search for an exact (left, right) glyph pair, per format 0's
+    /// combined-32-bit-key sort order (left in the high word).
+    fn format0Value(self: Self, left: GlyphIndex, right: GlyphIndex) ?types.FWord {
         const Find = struct {
             t: Self,
             target: u32,
@@ -226,4 +261,32 @@ test "KernTable.getKernValue returns null for a pair with no entry" {
 
     try zigstd.testExpectEqual(@as(?types.FWord, null), kern.getKernValue(@fromBackingInt(@intCast(5)), @fromBackingInt(@intCast(11))));
     try zigstd.testExpectEqual(@as(?types.FWord, null), kern.getKernValue(@fromBackingInt(@intCast(6)), @fromBackingInt(@intCast(10))));
+}
+
+test "KernTable.getKernValue reads format 2's class array" {
+    // left glyphs 10 and 11 in rows 0 and 1, right glyphs 20 to 22 in
+    // columns 0 to 2; the array starts at 32 in the subtable
+    var buf: [4 + 44]u8 = undefined;
+    @memset(&buf, 0);
+    bytes.setU16BE(buf[2..], 1); // nTables
+    const sub = buf[4..];
+    bytes.setU16BE(sub[2..], 44); // length
+    const coverage: Coverage = .{ .horizontal = true, .minimum = false, .cross_stream = false, .override = false, .format = 2 };
+    bytes.setU16BE(sub[4..], @bitCast(coverage));
+    for ([_]u16{ 6, 14, 22, 32 }, 0..) |v, i| bytes.setU16BE(sub[6 + i * 2 ..], v); // rowWidth, class and array offsets
+    for ([_]u16{ 10, 2, 32, 38 }, 0..) |v, i| bytes.setU16BE(sub[14 + i * 2 ..], v); // left classes
+    for ([_]u16{ 20, 3, 0, 2, 4 }, 0..) |v, i| bytes.setU16BE(sub[22 + i * 2 ..], v); // right classes
+    for ([_]i16{ 0, -10, -20, 5, 0, 15 }, 0..) |v, i| bytes.setI16BE(sub[32 + i * 2 ..], v);
+
+    const kern = try KernTable.init(&buf, true);
+    const g = struct {
+        fn f(i: u16) GlyphIndex {
+            return @fromBackingInt(i);
+        }
+    }.f;
+    try zigstd.testExpectEqual(@as(?types.FWord, -10), kern.getKernValue(g(10), g(21)));
+    try zigstd.testExpectEqual(@as(?types.FWord, 15), kern.getKernValue(g(11), g(22)));
+    try zigstd.testExpectEqual(@as(?types.FWord, 5), kern.getKernValue(g(11), g(20)));
+    try zigstd.testExpectEqual(@as(?types.FWord, null), kern.getKernValue(g(12), g(20)));
+    try zigstd.testExpectEqual(@as(?types.FWord, null), kern.getKernValue(g(10), g(23)));
 }

@@ -5,7 +5,8 @@
 //! <https://developer.apple.com/documentation/accelerate/blassetthreading(_:)>.
 //!
 //! Here, the routing and the call; in `apple_accel/`, the table and its
-//! loading (`binding.zig`), a call's parts (`split.zig`), `quirks.zig`, and
+//! loading (`binding.zig`), a call's parts (`split.zig`), `quirks.zig`, the
+//! speed tables (`speed.zig`), and
 //! the routines by level (`level1.zig` to `level3.zig`, `lapack.zig`).
 
 const std = @import("std");
@@ -16,6 +17,7 @@ const binding = @import("apple_accel/binding.zig");
 const routines = @import("apple_accel/routines.zig");
 const parts = @import("apple_accel/split.zig");
 const quirks = @import("apple_accel/quirks.zig");
+const speed = @import("apple_accel/speed.zig");
 const level1 = @import("apple_accel/level1.zig");
 const level2 = @import("apple_accel/level2.zig");
 const level3 = @import("apple_accel/level3.zig");
@@ -49,8 +51,10 @@ pub const Symbol = routines.Symbol;
 
 pub const vector_quantum = parts.vector_quantum;
 pub const matrix_quantum = parts.matrix_quantum;
-pub const L1 = quirks.L1;
-pub const sent = quirks.sent;
+pub const L1 = speed.L1;
+pub const sent = speed.sent;
+pub const L23 = speed.L23;
+pub const routes = speed.routes;
 
 pub const copy = level1.copy;
 pub const swap = level1.swap;
@@ -80,6 +84,8 @@ pub const syrk = level3.syrk;
 pub const trmm = level3.trmm;
 
 pub const potrf = lapack.potrf;
+pub const getrf = lapack.getrf;
+pub const getrs = lapack.getrs;
 
 // ---- routing -----------------------------------------------------------------
 //

@@ -263,6 +263,40 @@ pub const Potri = struct {
     }
 };
 
+/// `potri`'s second half, timed alone (issue #841), on a Cholesky factor:
+/// `zlauu2` takes the diagonal as real.
+pub const Lauum = struct {
+    pub const name = "lauum";
+    pub const shape: Shape = .mm;
+    pub const fill: Fill = .spd;
+    pub const prep: Prep = .potrf;
+    pub const restore: Restore = .{ .a = true };
+    pub const out: Buf = .a;
+    pub fn flops(n: f64) f64 {
+        return n * n * n / 3;
+    }
+    pub const Sig = SigUplo;
+    pub const lib = libUplo;
+    pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
+        const n = w.in();
+        try lapack.lauum(rstd_alloc, libs.rstd_io, Num(p), .u, w.n, libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), w.n);
+    }
+    /// `U Uᴴ` against the upper triangle, `U` the factor it started from.
+    pub fn residual(comptime p: Prec, w: *const Work(p), i: usize, j: usize) ?[2]f64 {
+        if (i > j) return null;
+        const n = w.n;
+        var s: Pair = .{ 0, 0 };
+        var mag: f64 = 0;
+        for (j..n) |k| {
+            const x = w.at(.a0, i + k * n);
+            const y = cconj(w.at(.a0, j + k * n));
+            s = cadd(s, cmul(x, y));
+            mag += cmag(x) * cmag(y);
+        }
+        return .{ cdist(s, w.at(.a, i + j * n)), mag };
+    }
+};
+
 /// `orig` against `U diag(s) Vᵀ`.
 pub fn svdAt(comptime p: Prec, w: *const Work(p), i: usize, j: usize) [2]f64 {
     const n = w.n;
@@ -347,6 +381,33 @@ pub const Gesdd = struct {
     }
 };
 
+/// The Hessenberg reduction of all of `A` (`ilo = 1`, `ihi = n`), faer's
+/// below order 256 (64 on `haswell`, T271) and blocked from it (T250); nominal `10n³/3`. `tau` in
+/// `s`; only the agreement shows, as the reflections' signs may differ.
+pub const Gehrd = struct {
+    pub const name = "gehrd";
+    pub const shape: Shape = .mm;
+    pub const restore: Restore = .{ .a = true };
+    pub const out: Buf = .a;
+    pub fn flops(n: f64) f64 {
+        return 10 * n * n * n / 3;
+    }
+    pub fn Sig(comptime p: Prec) type {
+        return fn (In, In, In, [*]p.F, In, [*]p.F, [*]p.F, In, *c_int) callconv(.c) void;
+    }
+    pub fn lib(comptime p: Prec, f: *const Sig(p), w: *Work(p)) void {
+        const n = w.ni();
+        const lw = w.lw();
+        const lo: c_int = 1;
+        f(&n, &lo, &n, w.a.ptr, &n, w.s.ptr, w.work.ptr, &lw, &w.info);
+    }
+    pub const has_rstd = @hasDecl(lapack, "gehrd");
+    pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
+        const n = w.in();
+        try lapack.gehrd(rstd_alloc, libs.rstd_io, Num(p), w.n, 0, w.n, libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), w.n, cast(p, w.s.ptr)[0..w.n -| 1]);
+    }
+};
+
 /// faer's QR; rstd's call waits on issue #120. `tau` in `s`.
 pub const Geqrf = struct {
     pub const name = "geqrf";
@@ -366,7 +427,8 @@ pub const Geqrf = struct {
     }
 };
 
-/// `syevd`, `heevd` complex, with vectors; rstd's call waits on issue #120.
+/// `syevd`, `heevd` complex, with vectors: rstd's over faer's tridiagonalization
+/// (T251).
 pub const Syevd = struct {
     pub const name = "syevd";
     pub const shape: Shape = .mm;
@@ -394,6 +456,11 @@ pub const Syevd = struct {
             const lrw = w.lrw();
             f(&fc.V, &fc.U, &n, w.a.ptr, &n, w.s.ptr, w.work.ptr, &lw, w.rwork.ptr, &lrw, w.iwork.ptr, &liw, &w.info, 1, 1);
         } else f(&fc.V, &fc.U, &n, w.a.ptr, &n, w.s.ptr, w.work.ptr, &lw, w.iwork.ptr, &liw, &w.info, 1, 1);
+    }
+    pub const has_rstd = @hasDecl(lapack, "syevd");
+    pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
+        const n = w.in();
+        try lapack.syevd(rstd_alloc, libs.rstd_io, Num(p), .compute, .u, w.n, libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), w.n, w.s[0..w.n]);
     }
     /// `A Z` against `Z diag(w)`.
     pub fn residual(comptime p: Prec, w: *const Work(p), i: usize, j: usize) ?[2]f64 {

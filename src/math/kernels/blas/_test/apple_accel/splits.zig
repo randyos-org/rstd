@@ -168,8 +168,9 @@ pub fn splitType(comptime T: type, al: std.mem.Allocator, tio: Io) !void {
     threading.test_serial_max = std.math.maxInt(u64);
     const before_whole = calls.load(.monotonic);
     try splitRun(T, al, Io.failing, &whole_);
-    // the parts were Accelerate calls of their own
-    try zigstd.testExpectTrue(split_calls > 2 * (calls.load(.monotonic) - before_whole));
+    // the parts were Accelerate calls of their own (on arm64 level 3, and
+    // level 2 to 8 MB, make one: issues #729, #838)
+    try zigstd.testExpectTrue(split_calls > calls.load(.monotonic) - before_whole);
     const tol = check.tolerance(Float(T), split_k);
     for (whole_.vals.items, want.vals.items, 0..) |w, g, i| {
         const scale = @max(1, @abs(if (comptime isComplex(T)) w.re else w) + @abs(if (comptime isComplex(T)) w.im else 0));

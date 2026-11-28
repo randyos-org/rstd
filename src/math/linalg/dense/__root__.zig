@@ -36,14 +36,28 @@ pub const inv = inverse.inv;
 pub const invInto = inverse.invInto;
 pub const solve = inverse.solve;
 pub const solveInto = inverse.solveInto;
+pub const LsqminnormError = inverse.LsqminnormError;
+pub const LsqminnormOptions = inverse.LsqminnormOptions;
+pub const lsqminnorm = inverse.lsqminnorm;
+pub const lsqminnormWith = inverse.lsqminnormWith;
 
 const factor = @import("factor.zig");
 pub const CholError = factor.CholError;
+pub const Ldl = factor.Ldl;
+pub const LdlError = factor.LdlError;
 pub const Lu = factor.Lu;
+pub const LuComplete = factor.LuComplete;
 pub const Qr = factor.Qr;
 pub const QrMode = factor.QrMode;
 pub const chol = factor.chol;
+
+const cholupdate_ = @import("cholupdate.zig");
+pub const CholupdateError = cholupdate_.CholupdateError;
+pub const CholupdateOp = cholupdate_.CholupdateOp;
+pub const cholupdate = cholupdate_.cholupdate;
+pub const ldl = factor.ldl;
 pub const lu = factor.lu;
+pub const luComplete = factor.luComplete;
 pub const qr = factor.qr;
 
 const singular = @import("singular.zig");
@@ -62,6 +76,8 @@ const eigen = @import("eigen.zig");
 pub const Eig = eigen.Eig;
 pub const EigError = eigen.EigError;
 pub const eig = eigen.eig;
+pub const EigGeneralizedError = eigen.EigGeneralizedError;
+pub const eigGeneralized = eigen.eigGeneralized;
 
 const subspace = @import("subspace.zig");
 pub const orth = subspace.orth;
@@ -94,6 +110,20 @@ pub const realPart = elementwise.realPart;
 pub const imagPart = elementwise.imagPart;
 pub const conj = elementwise.conj;
 
+const sylvester_ = @import("sylvester.zig");
+pub const SylvesterError = sylvester_.SylvesterError;
+pub const sylvester = sylvester_.sylvester;
+pub const lyap = sylvester_.lyap;
+pub const lyapSylvester = sylvester_.lyapSylvester;
+const lyap_generalized = @import("lyap_generalized.zig");
+pub const lyapGeneralized = lyap_generalized.lyapGeneralized;
+
+const balancing = @import("balancing.zig");
+pub const Balance = balancing.Balance;
+pub const BalanceError = balancing.BalanceError;
+pub const BalanceMode = balancing.BalanceMode;
+pub const balance = balancing.balance;
+
 const schur_form = @import("schur_form.zig");
 pub const HessError = schur_form.HessError;
 pub const Hess = schur_form.Hess;
@@ -102,6 +132,20 @@ pub const SchurError = schur_form.SchurError;
 pub const Schur = schur_form.Schur;
 pub const schur = schur_form.schur;
 pub const schurComplex = schur_form.schurComplex;
+pub const QzError = schur_form.QzError;
+pub const Qz = schur_form.Qz;
+pub const qz = schur_form.qz;
+pub const qzComplex = schur_form.qzComplex;
+
+const ordschur_ = @import("ordschur.zig");
+pub const OrdschurError = ordschur_.OrdschurError;
+pub const OrdschurSelect = ordschur_.Select;
+pub const OrdschurRegion = ordschur_.Region;
+pub const ordschur = ordschur_.ordschur;
+
+const ordqz_ = @import("ordqz.zig");
+pub const OrdqzError = ordqz_.OrdqzError;
+pub const ordqz = ordqz_.ordqz;
 
 const expm_ = @import("expm.zig");
 pub const ExpmError = expm_.ExpmError;
@@ -135,6 +179,14 @@ test {
     _ = @import("sqrtm.zig");
     _ = @import("expm.zig");
     _ = @import("schur_form.zig");
+    _ = @import("ordschur.zig");
+    _ = @import("_test/ordschur.zig");
+    _ = @import("ordqz.zig");
+    _ = @import("reorder_select.zig");
+    _ = @import("_test/ordqz.zig");
+    _ = @import("cholupdate.zig");
+    _ = @import("_test/cholupdate.zig");
+    _ = @import("balancing.zig");
     _ = @import("elementwise.zig");
     _ = @import("vector_norm.zig");
     _ = @import("condition.zig");
@@ -149,5 +201,9 @@ test {
     _ = @import("_test/products.zig");
     _ = @import("_test/inverse.zig");
     _ = @import("_test/factor.zig");
+    _ = @import("_test/eigen.zig");
+    _ = @import("_test/balancing.zig");
+    _ = @import("_test/sylvester.zig");
+    _ = @import("sylvester.zig");
     _ = @import("_test/paths.zig");
 }

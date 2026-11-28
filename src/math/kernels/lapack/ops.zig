@@ -28,6 +28,7 @@ pub fn iterLimit(limit: usize) usize {
 
 pub const requireFloat = util.requireFloat;
 pub const requireComplex = util.requireComplex;
+pub const requireReal = util.requireReal;
 
 /// A column-major view: element `(i, j)` at `ptr[i + j * ld]`.
 pub fn Mat(comptime T: type) type {

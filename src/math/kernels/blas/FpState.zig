@@ -220,6 +220,19 @@ fn roundsDown() [2]bool {
     return .{ onePlus(f32) == 1, onePlus(f64) == 1 };
 }
 
+fn threadX87(out: *u16) void {
+    out.* = x87Word();
+}
+
+test "FpState: a new thread on Windows starts at 53-bit x87 precision, 0x27f" {
+    // x64's convention fixes FPCSR at 0x27f; 32-bit x86 threads start there too (#121)
+    if (comptime !fp_x87 or sysinfo.target.os.tag != .windows or sysinfo.single_threaded) return error.SkipZigTest;
+    var w: u16 = 0;
+    const t = try std.Thread.spawn(.{}, threadX87, .{&w});
+    t.join();
+    try std.testing.expectEqual(@as(u16, 0x27f), w);
+}
+
 test "FpState: apply sets what capture reads, the rounding follows, and the state comes back" {
     if (comptime FpState.empty) return error.SkipZigTest;
     const own: FpState = .capture();

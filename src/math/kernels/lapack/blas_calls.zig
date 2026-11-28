@@ -83,12 +83,15 @@ pub fn triRight(al: Allocator, io: Io, comptime T: type, comptime solve: bool, u
 }
 
 /// The upper triangle of `C := alpha Aᴴ A + beta C` (real: `Aᵀ A`), `A`
-/// being `k x n`; a complex diagonal comes out real.
-pub fn gramUpper(al: Allocator, io: Io, comptime T: type, alpha: Float(T), a: Mat(T), beta: Float(T), c: Mat(T)) Error!void {
-    const n = a.cols;
+/// being `k x n`, or with `upper` false the lower of `C := alpha A Aᴴ +
+/// beta C`, `A` being `n x k` (`?SYRK`, `?HERK`); a complex diagonal comes
+/// out real.
+pub fn gram(al: Allocator, io: Io, comptime T: type, upper: bool, alpha: Float(T), a: Mat(T), beta: Float(T), c: Mat(T)) Error!void {
+    const n = if (upper) a.cols else a.rows;
+    const k = if (upper) a.rows else a.cols;
     if (n == 0) return;
-    const w = threaded.syrkWorkers(T, false, n, a.rows);
-    try driver.syrk(al, io, T, table(T), comptime isComplex(T), true, true, n, a.rows, scalar(T, alpha), a.ptr, a.ld, null, 0, scalar(T, beta), c.ptr, c.ld, w);
+    const w = threaded.syrkWorkers(T, false, n, k);
+    try driver.syrk(al, io, T, table(T), comptime isComplex(T), upper, upper, n, k, scalar(T, alpha), a.ptr, a.ld, null, 0, scalar(T, beta), c.ptr, c.ld, w);
 }
 
 /// `y := alpha op(A) x + beta y` (`l2.gemv`; `trans` as its letters), `A`
@@ -184,25 +187,56 @@ pub fn zrot(comptime T: type, n: usize, x: [*]T, incx: usize, y: [*]T, incy: usi
     }
 }
 
+/// `?TBSV` through rstd's BLAS: `op(A) x = b` for the band triangle with
+/// `k` off-diagonals in band storage `a`.
+pub fn tbsv(al: Allocator, io: Io, comptime T: type, upper: bool, op: Trans, unit: bool, n: usize, k: usize, a: [*]const T, lda: usize, x: [*]T, incx: usize) Error!void {
+    if (n == 0) return;
+    l2.tbsv(al, io, T, if (upper) .u else .l, op, if (unit) .u else .n, @intCast(n), @intCast(k), @constCast(a), @intCast(lda), x, @intCast(incx)) catch |e| return narrow(Error, e);
+}
+
+/// `?TPSV` through rstd's BLAS: `op(A) x = b` for the packed triangle `ap`.
+pub fn tpsv(al: Allocator, io: Io, comptime T: type, upper: bool, op: Trans, unit: bool, n: usize, ap: [*]const T, x: [*]T) Error!void {
+    if (n == 0) return;
+    l2.tpsv(al, io, T, if (upper) .u else .l, op, if (unit) .u else .n, @intCast(n), @constCast(ap), x, 1) catch |e| return narrow(Error, e);
+}
+
+/// `A := alpha x xᴴ + A` for the packed Hermitian (real: symmetric) `ap`
+/// (`?SPR`, `?HPR`).
+pub fn packedRank1(al: Allocator, io: Io, comptime T: type, upper: bool, n: usize, alpha: Float(T), x: [*]T, ap: [*]T) Error!void {
+    if (n == 0) return;
+    const u: types.Uplo = if (upper) .u else .l;
+    if (comptime isComplex(T)) {
+        l2.hpr(al, io, T, u, @intCast(n), alpha, x, 1, ap) catch |e| return narrow(Error, e);
+    } else {
+        l2.spr(al, io, T, u, @intCast(n), alpha, x, 1, ap) catch |e| return narrow(Error, e);
+    }
+}
+
 /// `?TRSV` through rstd's BLAS.
 pub fn trsv(al: Allocator, io: Io, comptime T: type, upper: bool, op: Trans, unit: bool, n: usize, a: [*]const T, lda: usize, x: [*]T) Error!void {
     l2.trsv(al, io, T, if (upper) .u else .l, op, if (unit) .u else .n, @intCast(n), @constCast(a), @intCast(lda), x, 1) catch |e| return narrow(Error, e);
 }
 
 /// `y := alpha S x` for the `n x n` symmetric (complex: Hermitian) `S` whose
-/// lower triangle is `a` (`?SYMV`, `?HEMV` with `beta` 0).
-pub fn symvLower(al: Allocator, io: Io, comptime T: type, alpha: T, a: Mat(T), x: [*]T, y: [*]T) Error!void {
+/// upper or lower triangle is `a` (`?SYMV`, `?HEMV` with `beta` 0).
+pub fn symv(al: Allocator, io: Io, comptime T: type, upper: bool, alpha: T, a: Mat(T), x: [*]T, y: [*]T) Error!void {
+    return symvAs(al, io, T, isComplex(T), upper, alpha, a, x, y);
+}
+
+/// `symv`, a complex `S` Hermitian for `herm`, else complex symmetric.
+pub fn symvAs(al: Allocator, io: Io, comptime T: type, comptime herm: bool, upper: bool, alpha: T, a: Mat(T), x: [*]T, y: [*]T) Error!void {
     const n: isize = @intCast(a.rows);
     if (n == 0) return;
-    const r = if (comptime isComplex(T)) l2.hemv(al, io, T, .l, n, alpha, a.ptr, @intCast(a.ld), x, 1, zero(T), y, 1) else l2.symv(al, io, T, .l, n, alpha, a.ptr, @intCast(a.ld), x, 1, zero(T), y, 1);
+    const uplo: types.Uplo = if (upper) .u else .l;
+    const r = if (comptime herm and isComplex(T)) l2.hemv(al, io, T, uplo, n, alpha, a.ptr, @intCast(a.ld), x, 1, zero(T), y, 1) else l2.symv(al, io, T, uplo, n, alpha, a.ptr, @intCast(a.ld), x, 1, zero(T), y, 1);
     r catch |e| return narrow(Error, e);
 }
 
-/// The lower triangle of `C -= A Bᴴ + B Aᴴ` (`?SYR2K`, `?HER2K` lower `N`
-/// with `alpha` -1, `beta` 1), `A` and `B` being `n x k`.
-pub fn rank2kLower(al: Allocator, io: Io, comptime T: type, a: Mat(T), b: Mat(T), c: Mat(T)) Error!void {
+/// The upper or lower triangle of `C -= A Bᴴ + B Aᴴ` (`?SYR2K`, `?HER2K`
+/// `N` with `alpha` -1, `beta` 1), `A` and `B` being `n x k`.
+pub fn rank2k(al: Allocator, io: Io, comptime T: type, upper: bool, a: Mat(T), b: Mat(T), c: Mat(T)) Error!void {
     const n = c.rows;
     if (n == 0 or a.cols == 0) return;
     const w = threaded.syrkWorkers(T, true, n, a.cols);
-    try driver.syrk(al, io, T, table(T), comptime isComplex(T), false, false, n, a.cols, scalar(T, -1), a.ptr, a.ld, b.ptr, b.ld, scalar(T, 1), c.ptr, c.ld, w);
+    try driver.syrk(al, io, T, table(T), comptime isComplex(T), upper, false, n, a.cols, scalar(T, -1), a.ptr, a.ld, b.ptr, b.ld, scalar(T, 1), c.ptr, c.ld, w);
 }

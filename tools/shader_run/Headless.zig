@@ -204,51 +204,6 @@ pub fn image(h: *const Headless, format: vk.Format, width: u32, height: u32, usa
     return .{ .image = img, .mem = mem, .view = view, .format = format, .width = width, .height = height };
 }
 
-/// A sampled texture of `width` by `height` texels, filled from `bytes`
-/// (tightly packed) and left in `shader_read_only_optimal`.
-pub fn texture(h: *const Headless, format: vk.Format, width: u32, height: u32, bytes: []const u8) !Image {
-    const t = try h.image(format, width, height, .{ .sampled = true, .transfer_dst = true });
-    errdefer t.deinit(h);
-    const staging = try h.bufferWith(bytes, .{ .transfer_src = true });
-    defer staging.deinit(h);
-    const Upload = struct {
-        h: *const Headless,
-        t: Image,
-        src: vk.Buffer,
-        fn record(u: @This(), cmd: vk.CommandBuffer) !void {
-            u.h.barrier(cmd, u.t.image, .undefined, .transfer_dst_optimal);
-            const region = [_]vk.BufferImageCopy{.{
-                .buffer_offset = 0,
-                .buffer_row_length = 0,
-                .buffer_image_height = 0,
-                .image_subresource = color_layers,
-                .image_offset = .{ .x = 0, .y = 0, .z = 0 },
-                .image_extent = .{ .width = u.t.width, .height = u.t.height, .depth = 1 },
-            }};
-            u.h.dev.cmdCopyBufferToImage(cmd, u.src, u.t.image, .transfer_dst_optimal, &region);
-            u.h.barrier(cmd, u.t.image, .transfer_dst_optimal, .shader_read_only_optimal);
-        }
-    };
-    try h.submit(Upload{ .h = h, .t = t, .src = staging.buf }, Upload.record);
-    return t;
-}
-
-/// A layout transition of `img`, ordered after every earlier command.
-pub fn barrier(h: *const Headless, cmd: vk.CommandBuffer, img: vk.Image, from: vk.ImageLayout, to: vk.ImageLayout) void {
-    const all: vk.AccessFlags = .{ .memory_read = true, .memory_write = true };
-    const b = [_]vk.ImageMemoryBarrier{.{
-        .src_access_mask = all,
-        .dst_access_mask = all,
-        .old_layout = from,
-        .new_layout = to,
-        .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-        .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-        .image = img,
-        .subresource_range = color_range,
-    }};
-    h.dev.cmdPipelineBarrier(cmd, .{ .all_commands = true }, .{ .all_commands = true }, .{}, null, null, &b);
-}
-
 /// A color image to draw into: one subpass that clears it and leaves it
 /// ready to copy out.
 pub const Target = struct {

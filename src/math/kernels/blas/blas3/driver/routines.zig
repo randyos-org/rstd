@@ -59,8 +59,10 @@ pub fn gemmBlocked(allocator: Allocator, io: Io, comptime T: type, vt: *const Vt
 /// `m x m` `C`, `op(A)` being `m x k`: `gemm`'s operands over `syrk`'s
 /// triangle. Upstream's `interface/gemmt.c` took a `gemv` per column
 /// instead at commit a69062524, conjugating `B` in place for it; this
-/// reads `B` only. `m` positive.
-pub fn gemmt(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, upper: bool, ta: bool, tb: bool, conj: Conj, m: usize, k: usize, alpha: T, a: [*]const T, lda: usize, b: [*]const T, ldb: usize, beta: T, c: [*]T, ldc: usize) Error!void {
+/// reads `B` only. `m` positive. Up to `want` workers run it, over the rank-k
+/// updates' split, as `interface/gemmt.c` takes `syrk_thread` since
+/// OpenBLAS PR 6060.
+pub fn gemmt(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, upper: bool, ta: bool, tb: bool, conj: Conj, m: usize, k: usize, alpha: T, a: [*]const T, lda: usize, b: [*]const T, ldb: usize, beta: T, c: [*]T, ldc: usize, want: u32) Error!void {
     const region: Region = if (upper) .upper else .lower;
     if (k == 0 or isZero(T, alpha)) {
         if (!isOne(T, beta)) scaleBlock(T, vt, region, false, 0, m, 0, m, beta, c, ldc);
@@ -69,7 +71,7 @@ pub fn gemmt(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, 
     const x: Matrix(T) = .{ .p = @constCast(a), .ld = lda };
     const y: Matrix(T) = .{ .p = @constCast(b), .ld = ldb };
     const d: Desc = .{ .rows = if (ta) .t else .n, .cols = if (tb) .t else .n, .conj = if (comptime isComplex(T)) conj else .n, .region = region };
-    try run(allocator, io, T, vt, d, m, m, k, alpha, x, y, null, unlessOne(T, beta), c, ldc, 1);
+    try run(allocator, io, T, vt, d, m, m, k, alpha, x, y, null, unlessOne(T, beta), c, ldc, want);
 }
 
 /// `C := alpha*S*B + beta*C` (`left`) or `alpha*B*S + beta*C`, `S` the

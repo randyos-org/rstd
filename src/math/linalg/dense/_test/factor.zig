@@ -32,6 +32,7 @@ const test_io = Io.failing;
 
 const test_inverse = @import("inverse.zig");
 const hermitianPd = test_inverse.hermitianPd;
+const hermitianZeroDiag = test_inverse.hermitianZeroDiag;
 const maxAbs = test_inverse.maxAbs;
 const maxDiff = test_inverse.maxDiff;
 const randomMat = test_inverse.randomMat;
@@ -39,11 +40,14 @@ const shiftDiag = test_inverse.shiftDiag;
 const tolOf = test_inverse.tolOf;
 const eigen = @import("../eigen.zig");
 const eig = eigen.eig;
+const eigGeneralized = eigen.eigGeneralized;
 const factor = @import("../factor.zig");
 const Lu = factor.Lu;
 const QrMode = factor.QrMode;
 const chol = factor.chol;
+const ldl = factor.ldl;
 const lu = factor.lu;
+const luComplete = factor.luComplete;
 const qr = factor.qr;
 const products = @import("../products.zig");
 const ctranspose = products.ctranspose;
@@ -98,6 +102,34 @@ test "lu: P A = L U, singular too" {
     try testing.expectEqual(@as(?usize, 0), f.zero_pivot);
 }
 
+test "luComplete: P A Q = L U and its rank" {
+    const al = testing.allocator;
+    var prng: std.Random.DefaultPrng = .init(0xf1);
+    inline for (.{ f32, f64, C64 }) |T| for ([_][2]usize{ .{ 10, 7 }, .{ 7, 10 }, .{ 12, 12 }, .{ 1, 1 } }) |s| {
+        const a = try randomMat(T, prng.random(), s[0], s[1]);
+        defer a.deinit(al);
+        // a zero column: rank `min(m, n - 1)` exactly (a repeated one
+        // leaves rounding, not zeros)
+        if (s[1] > 3) @memset(a.data[2 * s[0] .. 3 * s[0]], ops.zero(T));
+        const f = try luComplete(al, test_io, a);
+        defer f.deinit(al);
+        const k = @min(s[0], s[1]);
+        try testing.expectEqual(if (s[1] > 3) @min(s[0], s[1] - 1) else k, f.rank);
+        const l = try f.l(al);
+        defer l.deinit(al);
+        const u = try f.u(al);
+        defer u.deinit(al);
+        const p = try mul(al, test_io, l, u);
+        defer p.deinit(al);
+        const paq = try copyOf(T, al, a.constView());
+        defer paq.deinit(al);
+        for (0..s[1]) |j| for (0..s[0]) |i| {
+            paq.data[i + j * s[0]] = a.at(f.p[i], f.q[j]);
+        };
+        try testing.expect(maxDiff(T, paq.constView(), p.constView()) <= tolOf(T, s[1]) * maxAbs(T, a.constView()));
+    };
+}
+
 test "chol: Rᴴ R is A, R upper" {
     const al = testing.allocator;
     var prng: std.Random.DefaultPrng = .init(0xc401);
@@ -113,6 +145,54 @@ test "chol: Rᴴ R is A, R upper" {
         defer p.deinit(al);
         try testing.expect(maxDiff(T, p.constView(), a.constView()) <= tolOf(T, n) * maxAbs(T, a.constView()));
     };
+}
+
+test "ldl: Pᵀ A P = L D Lᴴ, L unit lower, D Hermitian block diagonal" {
+    const al = testing.allocator;
+    var prng: std.Random.DefaultPrng = .init(0x1d1);
+    inline for (.{ f32, f64, C64 }) |T| for ([_]usize{ 1, 2, 5, 20 }) |n| for ([_]bool{ false, true }) |zd| {
+        const a = if (zd) try hermitianZeroDiag(T, prng.random(), n) else try hermitianPd(T, prng.random(), n);
+        defer a.deinit(al);
+        // the upper triangle is not read
+        for (0..n) |j| for (0..j) |i| {
+            a.data[i + j * n] = ops.zero(T);
+        };
+        const f = try ldl(al, test_io, a);
+        defer f.deinit(al);
+        for (0..n) |j| for (0..j + 1) |i| {
+            const want = if (i == j) ops.one(T) else ops.zero(T);
+            try testing.expectEqual(want, f.l.at(i, j));
+        };
+        // `D`: blocks of 1 or 2 on the diagonal, Hermitian
+        for (0..n) |j| for (0..n) |i| {
+            const d = f.d.at(i, j);
+            if (i > j + 1 or j > i + 1) try testing.expect(ops.isZero(T, d));
+            try testing.expectEqual(ops.conj(T, d), f.d.at(j, i));
+        };
+        const seen = try al.alloc(bool, n);
+        defer al.free(seen);
+        @memset(seen, false);
+        for (f.perm) |p| seen[p] = true;
+        for (seen) |s| try testing.expect(s);
+        // `Pᵀ A P`, `A` Hermitian from its lower triangle
+        const pap = try Mat(T).init(al, n, n);
+        defer pap.deinit(al);
+        for (0..n) |j| for (0..n) |i| {
+            const r = f.perm[i];
+            const c = f.perm[j];
+            pap.data[i + j * n] = if (r >= c) a.at(r, c) else ops.conj(T, a.at(c, r));
+        };
+        const ld = try mul(al, test_io, f.l, f.d);
+        defer ld.deinit(al);
+        const lh = try ctranspose(al, test_io, f.l);
+        defer lh.deinit(al);
+        const ldlh = try mul(al, test_io, ld, lh);
+        defer ldlh.deinit(al);
+        try testing.expect(maxDiff(T, ldlh.constView(), pap.constView()) <= tolOf(T, n) * @max(maxAbs(T, pap.constView()), 1));
+    };
+    const wide = try Mat(f64).zeros(al, 2, 3);
+    defer wide.deinit(al);
+    try testing.expectError(error.NotSquare, ldl(al, test_io, wide));
 }
 
 pub fn expectQr(comptime T: type, a: Mat(T), mode: QrMode) !void {
@@ -228,94 +308,6 @@ test "svd: U Σ Vᴴ is A, U and V orthonormal, every mode" {
     defer f.deinit(al);
     try testing.expectApproxEqRel(@as(f64, 4), f.s[0], 1e-15);
     try testing.expectApproxEqRel(@as(f64, 3), f.s[1], 1e-15);
-}
-
-/// `a V = V Λ`, `V` orthonormal, `Λ` nondecreasing.
-pub fn expectHermitianEig(comptime T: type, a: Mat(T)) !void {
-    const al = testing.allocator;
-    const n = a.rows;
-    const e = try eig(al, test_io, a, true);
-    defer e.deinit(al);
-    const h = e.hermitian;
-    const v = h.vectors.?;
-    for (h.values[1..], h.values[0 .. n - 1]) |x, y| try testing.expect(x >= y);
-    try expectOrthonormal(T, v);
-    const av = try mul(al, test_io, a, v);
-    defer av.deinit(al);
-    const vl = try copyOf(T, al, v.constView());
-    defer vl.deinit(al);
-    scaleCols(T, vl, h.values);
-    const bound = tolOf(T, n) * @as(f64, @floatFromInt(n)) * maxAbs(T, a.constView());
-    try testing.expect(maxDiff(T, av.constView(), vl.constView()) <= bound);
-    const values = try eig(al, test_io, a, false);
-    defer values.deinit(al);
-    try testing.expect(values.hermitian.vectors == null);
-    for (h.values, values.hermitian.values) |x, y| try testing.expect(@abs(x - y) <= bound);
-}
-
-/// `a v = λ v` per column, each `v` of unit norm.
-pub fn expectGeneralEig(comptime T: type, a: Mat(T)) !void {
-    const C = std.math.Complex(Real(T));
-    const al = testing.allocator;
-    const n = a.rows;
-    const e = try eig(al, test_io, a, true);
-    defer e.deinit(al);
-    const g = e.general;
-    const v = g.vectors.?;
-    const ac = try Mat(C).init(al, n, n);
-    defer ac.deinit(al);
-    for (ac.data, a.data) |*d, x| d.* = if (comptime isComplex(T)) x else C.init(x, 0);
-    const av = try mul(al, test_io, ac, v);
-    defer av.deinit(al);
-    const vl = try copyOf(C, al, v.constView());
-    defer vl.deinit(al);
-    for (g.values, 0..) |l, j| for (vl.data[j * n ..][0..n]) |*x| {
-        x.* = x.mul(l);
-    };
-    const bound = tolOf(T, n) * @as(f64, @floatFromInt(n)) * maxAbs(T, a.constView());
-    try testing.expect(maxDiff(C, av.constView(), vl.constView()) <= bound);
-    for (0..n) |j| {
-        var s: f64 = 0;
-        for (v.constView().col(j)) |x| s += x.re * x.re + x.im * x.im;
-        try testing.expect(@abs(s - 1) <= tolOf(T, n));
-    }
-    const values = try eig(al, test_io, a, false);
-    defer values.deinit(al);
-    try testing.expect(values.general.vectors == null);
-    for (g.values, values.general.values) |x, y| try testing.expect(x.re == y.re and x.im == y.im);
-}
-
-test "eig: Hermitian input real, the rest complex" {
-    const al = testing.allocator;
-    var prng: std.Random.DefaultPrng = .init(0xe16);
-    inline for (.{ f32, f64, C64 }) |T| for ([_]usize{ 1, 5, 20 }) |n| {
-        const h = try hermitianPd(T, prng.random(), n);
-        defer h.deinit(al);
-        try expectHermitianEig(T, h);
-        const a = try randomMat(T, prng.random(), n, n);
-        defer a.deinit(al);
-        // exactly Hermitian at random is impossible past 1 by 1
-        if (n > 1) try expectGeneralEig(T, a);
-    };
-    // a rotation: `±i`, the positive imaginary part first, vectors conjugate
-    const r = matrix.fromRows(matrix.M2f64, .{ .{ 0, -1 }, .{ 1, 0 } });
-    const e = try eig(al, test_io, &r, true);
-    defer e.deinit(al);
-    const w = e.general.values;
-    try testing.expect(@abs(w[0].re) + @abs(w[0].im - 1) <= 1e-15 and @abs(w[1].re) + @abs(w[1].im + 1) <= 1e-15);
-    const v = e.general.vectors.?;
-    for (v.constView().col(0), v.constView().col(1)) |x, y| try testing.expect(x.re == y.re and x.im == -y.im);
-    // symmetric: real, ascending
-    const s = matrix.fromRows(matrix.M2f64, .{ .{ 2, 1 }, .{ 1, 2 } });
-    const es = try eig(al, test_io, &s, false);
-    defer es.deinit(al);
-    try testing.expectApproxEqRel(@as(f64, 1), es.hermitian.values[0], 1e-15);
-    try testing.expectApproxEqRel(@as(f64, 3), es.hermitian.values[1], 1e-15);
-    // empty is Hermitian; not square fails
-    const z = try eig(al, test_io, try ConstView(f64).init(&.{}, 0, 0, 1), true);
-    defer z.deinit(al);
-    try testing.expect(z.hermitian.values.len == 0 and z.hermitian.vectors.?.data.len == 0);
-    try testing.expectError(error.NotSquare, eig(al, test_io, try ConstView(f64).init(&.{ 1, 2 }, 2, 1, 2), false));
 }
 
 test "a NaN gives error.NoConvergence" {

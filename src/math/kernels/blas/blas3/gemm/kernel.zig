@@ -18,6 +18,7 @@ const S390x = std.Target.s390x.Feature;
 pub const copyFrom = kpack.copyFrom;
 pub const pack = kpack.pack;
 pub const packWith = kpack.packWith;
+pub const packTriangle = kpack.packTriangle;
 pub const sideKernel = kpack.sideKernel;
 const RealKernels = kreal.RealKernels;
 const ComplexKernels = kcplx.ComplexKernels;

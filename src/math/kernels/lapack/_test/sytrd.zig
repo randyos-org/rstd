@@ -15,16 +15,24 @@ const Float = ops.Float;
 
 const sizes = [_]usize{ 1, 2, 3, 5, 31, 32, 33, 34, 63, 64, 65, 97, 130 };
 
-/// `H(i) = I - tau(i) v vᴴ` applied from both sides to `x` (`n x n`) in
-/// order `i = 0, 1, ...`: `x := H(i)ᴴ x H(i)`, so `x` goes from `A` to `T`.
-fn applyBoth(comptime T: type, x: Mat(T), a: Mat(T), tau: []const T) void {
+/// `H(i) = I - tau(i) v vᴴ` applied from both sides to `x` (`n x n`),
+/// `x := H(i)ᴴ x H(i)`, so `x` goes from `A` to `T`: lower, `i = 0, 1, ...`
+/// with `v` below the subdiagonal; upper, `i = n - 2, ..., 0` with `v` above
+/// the superdiagonal, as `?SYTRD` stores them.
+fn applyBoth(comptime T: type, upper: bool, x: Mat(T), a: Mat(T), tau: []const T) void {
     const n = x.rows;
     const v = std.heap.page_allocator.alloc(T, n) catch unreachable;
     defer std.heap.page_allocator.free(v);
-    for (0..n -| 1) |i| {
+    for (0..n -| 1) |step| {
+        const i = if (upper) n - 2 - step else step;
         @memset(v, ops.zero(T));
-        v[i + 1] = ops.one(T);
-        for (i + 2..n) |r| v[r] = a.get(r, i);
+        if (upper) {
+            v[i] = ops.one(T);
+            for (0..i) |r| v[r] = a.get(r, i + 1);
+        } else {
+            v[i + 1] = ops.one(T);
+            for (i + 2..n) |r| v[r] = a.get(r, i);
+        }
         const t = tau[i];
         // x := (I - conj(t) v vᴴ) x
         for (0..n) |j| {
@@ -47,7 +55,7 @@ test "sytrd: Qᴴ A Q is the tridiagonal of d and e, every type, around the bloc
     const al = testing.allocator;
     inline for (.{ f64, f32, types.Complex64, types.Complex32 }) |T| {
         const F = Float(T);
-        for (sizes) |n| {
+        for (sizes) |n| for ([_]types.Uplo{ .l, .u }) |uplo| {
             const a0 = try ops.alloc(T, al, n, n);
             defer ops.free(T, al, a0);
             lcheck.hermitian(T, a0, 7 * n + 1);
@@ -60,26 +68,36 @@ test "sytrd: Qᴴ A Q is the tridiagonal of d and e, every type, around the bloc
             defer al.free(e);
             const tau = try al.alloc(T, @max(n, 1) - 1);
             defer al.free(tau);
-            try sytrd.sytrd(al, check.io, T, a, d, e, tau);
+            try sytrd.sytrd(al, check.io, T, uplo, n, a.ptr[0 .. n * n], @max(n, 1), d, e, tau);
             const x = try ops.alloc(T, al, n, n);
             defer ops.free(T, al, x);
             x.copyFrom(a0);
-            // the full Hermitian `A`, from its lower triangle
+            // the full Hermitian `A`, from the triangle `sytrd` read
             for (0..n) |j| for (0..j) |i| {
-                x.at(i, j).* = ops.conj(T, x.get(j, i));
+                if (uplo == .u) x.at(j, i).* = ops.conj(T, x.get(i, j)) else x.at(i, j).* = ops.conj(T, x.get(j, i));
             };
-            applyBoth(T, x, a, tau);
+            applyBoth(T, uplo == .u, x, a, tau);
             const tol = 64 * std.math.floatEps(F) * @as(F, @floatFromInt(n + 1)) * @max(normLower(T, a0), 1);
             for (0..n) |j| for (0..n) |i| {
                 const want: T = if (i == j) ops.scalar(T, d[i]) else if (i == j + 1) ops.scalar(T, e[j]) else if (j == i + 1) ops.scalar(T, e[i]) else ops.zero(T);
                 const err = ops.abs(T, ops.sub(T, x.get(i, j), want));
                 if (!(err <= tol)) {
-                    check.say("sytrd {s} n={d}: (Qᴴ A Q)({d},{d}) off by {e}, allowed {e}\n", .{ @typeName(T), n, i, j, err, tol });
+                    check.say("sytrd {s} {t} n={d}: (Qᴴ A Q)({d},{d}) off by {e}, allowed {e}\n", .{ @typeName(T), uplo, n, i, j, err, tol });
                     return error.TestUnexpectedResult;
                 }
             };
-        }
+        };
     }
+}
+
+test "sytrd: bad shapes" {
+    var a: [4]f64 = .{ 1, 2, 2, 1 };
+    var d: [2]f64 = undefined;
+    var e: [1]f64 = undefined;
+    var tau: [1]f64 = undefined;
+    try testing.expectError(error.LeadingDimensionTooSmall, sytrd.sytrd(testing.allocator, check.io, f64, .u, 2, &a, 1, &d, &e, &tau));
+    try testing.expectError(error.SliceTooShort, sytrd.sytrd(testing.allocator, check.io, f64, .l, 2, &a, 2, d[0..1], &e, &tau));
+    try sytrd.sytrd(testing.allocator, check.io, f64, .l, 0, a[0..0], 1, d[0..0], e[0..0], tau[0..0]);
 }
 
 fn normLower(comptime T: type, a: Mat(T)) Float(T) {

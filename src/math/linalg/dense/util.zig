@@ -198,3 +198,23 @@ pub fn copyOf(comptime T: type, allocator: Allocator, a: ConstView(T)) Allocator
     copyInto(T, r.data, @max(a.rows, 1), a);
     return r;
 }
+
+/// `m := mᴴ` in place, `m` square and packed.
+pub fn adjointInPlace(comptime T: type, m: Mat(T)) void {
+    const n = m.rows;
+    for (0..n) |j| for (0..j + 1) |i| {
+        const x = ops.conj(T, m.data[i + j * n]);
+        m.data[i + j * n] = ops.conj(T, m.data[j + i * n]);
+        m.data[j + i * n] = x;
+    };
+}
+
+/// A packed complex copy of `a`.
+pub fn complexOf(comptime T: type, allocator: Allocator, a: ConstView(T)) Allocator.Error!Mat(std.math.Complex(Real(T))) {
+    const C = std.math.Complex(Real(T));
+    const r = try Mat(C).init(allocator, a.rows, a.cols);
+    for (0..a.cols) |j| for (r.data[j * a.rows ..][0..a.rows], a.col(j)) |*d, x| {
+        d.* = if (comptime isComplex(T)) x else C.init(x, 0);
+    };
+    return r;
+}

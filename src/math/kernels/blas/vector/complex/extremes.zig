@@ -45,7 +45,7 @@ pub fn Extremes(comptime F: type, comptime U: comptime_int) type {
                     pub inline fn key(p: [*]const F, s: usize, i: usize) F {
                         return util.rounded(F, abs(p[i * s]) + abs(p[i * s + 1]));
                     }
-                    pub inline fn block(p: [*]const F, s: usize, i: usize, chk: *V) F {
+                    pub inline fn keys(p: [*]const F, s: usize, i: usize, chk: *V) [4]V {
                         // `4 * W` inlined keys: 256 at x280's 512 bits
                         @setEvalBranchQuota(100_000);
                         var m: [4]V = undefined;
@@ -61,6 +61,9 @@ pub fn Extremes(comptime F: type, comptime U: comptime_int) type {
                             }
                             chk.* += m[q];
                         }
+                        return m;
+                    }
+                    pub inline fn extreme(m: [4]V) F {
                         return util.rounded(F, S.pick(find, m));
                     }
                 };

@@ -3,13 +3,18 @@
 //! compressed rows its row-major twin over the same arrays. The kernels a
 //! sparse SQP solver needs: `A x`, `Aᵀ y`, sparse `axpy` and `dot`, `scal`,
 //! extraction, Gustavson `spgemm` and triangular solves (T150, #84). The
-//! iterative solvers are stubs (N2).
+//! iterative solvers: conjugate gradients, restarted GMRES, BiCGSTAB and
+//! MINRES.
 
 const csc = @import("csc.zig");
 const csr = @import("csr.zig");
 const triplets = @import("triplets.zig");
 const vector = @import("vector.zig");
 const iterative = @import("iterative.zig");
+const cg_solver = @import("cg.zig");
+const gmres_solver = @import("gmres.zig");
+const bicgstab_solver = @import("bicgstab.zig");
+const minres_solver = @import("minres.zig");
 const zigstd = @import("../../../zigstd.zig");
 
 pub const CompressedColumns = csc.CompressedColumns;
@@ -31,16 +36,20 @@ pub const VectorError = vector.VectorError;
 pub const LinearOperator = iterative.LinearOperator;
 pub const SolveReport = iterative.SolveReport;
 pub const SolveError = iterative.SolveError;
-pub const cg = iterative.cg;
-pub const gmres = iterative.gmres;
+pub const cg = cg_solver.cg;
+pub const gmres = gmres_solver.gmres;
+pub const bicgstab = bicgstab_solver.bicgstab;
+pub const minres = minres_solver.minres;
 
 test {
     zigstd.testRefAllDecls(@This());
     _ = @import("mul.zig");
     _ = @import("spgemm.zig");
     _ = @import("triangular.zig");
+    _ = @import("_test/bicgstab.zig");
     _ = @import("_test/build.zig");
     _ = @import("_test/iterative.zig");
+    _ = @import("_test/minres.zig");
     _ = @import("_test/mul.zig");
     _ = @import("_test/spgemm.zig");
     _ = @import("_test/triangular.zig");

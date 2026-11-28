@@ -121,8 +121,8 @@ test "decide follows the VFP and NEON capability bits" {
     try std.testing.expectEqual(CoreType.armv7, decide(.{ .hwcap = HWCAP_VFP | HWCAP_VFPv3 | HWCAP_VFPD32, .part = 0xc09 }).core);
     // Cortex-A7/A15 with VFPv4
     try std.testing.expectEqual(CoreType.armv7, decide(.{ .hwcap = HWCAP_VFP | HWCAP_NEON | HWCAP_VFPv3 | HWCAP_VFPv4 | HWCAP_VFPD32 }).core);
-    // Tegra 2: VFPv3 with 16 registers only (no NEON: wiki.debian.org/ArmHardFloatPort;
-    // D16: archlinuxarm.org/forum/viewtopic.php?p=8507, secondary); the VFPv3 kernels would fault
+    // Tegra 2: VFPv3 with 16 registers only, no NEON (wiki.debian.org/ArmHardFloatPort's SoC
+    // table, "Tegra2 | armv7 | VFPv3 D16 | none"; secondary, #121); the VFPv3 kernels would fault
     try std.testing.expectEqual(CoreType.armv6, decide(.{ .hwcap = HWCAP_VFP | HWCAP_VFPv3 | HWCAP_VFPv3D16 }).core);
     // ARM11
     try std.testing.expectEqual(CoreType.armv6, decide(.{ .hwcap = HWCAP_VFP }).core);

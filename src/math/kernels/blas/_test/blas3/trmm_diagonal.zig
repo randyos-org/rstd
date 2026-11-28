@@ -5,7 +5,7 @@ const gk = @import("../../blas3/gemm/kernel.zig");
 const tk = @import("../../blas3/trmm/kernel.zig");
 
 /// Mixed magnitudes with infinities, NaNs and signed zeros sprinkled in.
-fn fill(comptime F: type, rand: std.Random, x: []F) void {
+pub fn fill(comptime F: type, rand: std.Random, x: []F) void {
     for (x) |*v| v.* = switch (rand.uintLessThan(u8, 16)) {
         0 => std.math.inf(F),
         1 => -std.math.inf(F),

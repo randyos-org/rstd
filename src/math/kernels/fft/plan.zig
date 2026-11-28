@@ -3,7 +3,11 @@
 //! mixed radix (`cfftp/`) unless its cost model prefers Bluestein's
 //! (`bluestein.zig`) for a large prime factor. For f32 at pffft's sizes
 //! (`n = 16 2^a 3^b 5^c`, at most `2^26`), pffft's SIMD instead
-//! (`pffft/`). A batch runs through `io` (`batch.zig`).
+//! (`pffft/`). On macOS, before either, vDSP's lengths where it ran faster
+//! (`vdsp.faster`, issues #155, #856): on x86_64 all but pffft's, 1.3 to
+//! 2.4 times rstd's own for `f64`; on aarch64 pffft's from 3840 too (past
+//! 65536 powers of 2 only, #870), 1.1 to 1.8 times pffft's, but `f64` at
+//! powers of 2 only. A batch runs through `io` (`batch.zig`).
 
 const std = @import("std");
 const fft = @import("__root__.zig");
@@ -12,6 +16,7 @@ const util = @import("util.zig");
 const cfftp = @import("cfftp/__root__.zig");
 const bluestein = @import("bluestein.zig");
 const pffft = @import("pffft/__root__.zig");
+const vdsp = @import("vdsp.zig");
 const batch_ = @import("batch.zig");
 
 const Allocator = std.mem.Allocator;
@@ -21,6 +26,7 @@ const Direction = fft.Direction;
 const BatchLayout = fft.BatchLayout;
 const BatchLayouts = fft.BatchLayouts;
 const Normalization = fft.Normalization;
+const Vdsp = vdsp.Vdsp;
 
 pub fn Plan(comptime T: type) type {
     if (@typeInfo(T) != .float) @compileError("rstd.math.kernels.fft: " ++ @typeName(T) ++ " is not a float type");
@@ -30,10 +36,14 @@ pub fn Plan(comptime T: type) type {
         kind: Kind,
 
         const Self = @This();
-        const Kind = union(enum) { pack: cfftp.Cfftp(T), blue: bluestein.Bluestein(T), simd: pffft.Simd(T) };
+        const Kind = union(enum) { pack: cfftp.Cfftp(T), blue: bluestein.Bluestein(T), simd: pffft.Simd(T), vdsp: Vdsp(T, false) };
 
         pub fn init(allocator: Allocator, n: usize) fft.InitError!Self {
             if (n == 0) return error.ZeroLength;
+            if (Vdsp(T, false).init(n)) |v| {
+                // one gathered transform and the split input and output
+                return .{ .n = n, .scratch_len = 3 * n, .kind = .{ .vdsp = v } };
+            }
             if (T == f32 and pffft.validSize(n, .complex)) {
                 const s = try pffft.Setup.init(allocator, n, .complex);
                 // one gathered transform and pffft's work buffer
@@ -57,6 +67,11 @@ pub fn Plan(comptime T: type) type {
             const p = try cfftp.Cfftp(T).init(allocator, n);
             // one gathered transform and the ping-pong buffer
             return .{ .n = n, .scratch_len = 2 * n, .kind = .{ .pack = p } };
+        }
+
+        /// Whether vDSP runs this plan's transforms.
+        pub fn routed(self: Self) bool {
+            return self.kind == .vdsp;
         }
 
         pub fn deinit(self: *Self, allocator: Allocator) void {
@@ -130,7 +145,13 @@ pub fn Plan(comptime T: type) type {
         /// One contiguous transform in place, `rest` its working space.
         fn run(self: *const Self, c: []C(T), rest: []C(T), direction: Direction, normalization: Normalization) void {
             const fwd = direction == .forward;
-            const f = factor(T, self.n, fwd, normalization);
+            self.exec(c, rest, factor(T, self.n, fwd, normalization), fwd);
+        }
+
+        /// `c := f * FFT(c)`, one contiguous transform in place, `rest` (at
+        /// least `scratchLen() - n`) its working space: for the transforms
+        /// built on it (`trig_plan.zig`).
+        pub fn exec(self: *const Self, c: []C(T), rest: []C(T), f: T, fwd: bool) void {
             switch (self.kind) {
                 .pack => |*p| p.exec(c, rest, f, fwd),
                 .blue => |*b| b.exec(c, rest, f, fwd),
@@ -141,6 +162,7 @@ pub fn Plan(comptime T: type) type {
                         x.* = cmplx.scale(T, x.*, f);
                     };
                 } else unreachable,
+                .vdsp => |*v| v.run(c, rest, fwd, f),
             }
         }
     };
