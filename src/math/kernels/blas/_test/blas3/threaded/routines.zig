@@ -24,16 +24,16 @@ const precisions = th.precisions;
 pub const Routine = check3.Routine;
 
 /// The threaded routines besides `gemm`.
-pub const routines = [_]Routine{ .symm, .hemm, .syrk, .herk, .syr2k, .her2k, .trmm, .trsm };
+pub const routines = [_]Routine{ .symm, .hemm, .syrk, .herk, .syr2k, .her2k, .gemmt, .trmm, .trsm };
 
 /// `r` on `vt` at up to `want` workers: `C` (`trmm`'s and `trsm`'s `B`) is
 /// `m x n` (`n x n` for the rank updates), the depth `k`; `opt` is the side
-/// or `trans`, then `upper`, then for `trmm` and `trsm` `trans` (and for
-/// complex, conjugating).
+/// or `trans` (`gemmt`'s `transa`), then `upper`, then for `trmm` and
+/// `trsm` `trans` (and for complex, conjugating), for `gemmt` `transb`.
 pub fn routine(comptime T: type, vt: *const Vtable, al: Allocator, io: Io, r: Routine, opt: [3]bool, m: usize, n: usize, k: usize, alpha: T, beta: T, a: [*]const T, b: [*]const T, ld: usize, c: [*]T, want: u32) !void {
     const tri = r == .trmm or r == .trsm;
     const rank = r == .syrk or r == .herk or r == .syr2k or r == .her2k;
-    const case: check3.Case = .{ .r = r, .left = opt[0], .upper = opt[1], .ta = if (tri) .of(opt[2], opt[2]) else .of(rank and opt[0], false), .m = m, .n = n, .k = k };
+    const case: check3.Case = .{ .r = r, .left = opt[0], .upper = opt[1], .ta = if (tri) .of(opt[2], opt[2]) else .of((rank or r == .gemmt) and opt[0], false), .tb = .of(r == .gemmt and opt[2], false), .m = m, .n = n, .k = k };
     // `herk`'s `alpha` is real
     const al_s = if (comptime types.isComplex(T)) (if (r == .herk) scalar(T, alpha.re, 0) else alpha) else alpha;
     try check3.callAny(T, al, io, vt, r, case, a, ld, b, ld, al_s, beta, c, ld, want);
@@ -56,7 +56,8 @@ pub fn routineShapes(comptime T: type, vt: *const Vtable, io: Io, r: Routine) !v
     const al = std.testing.allocator;
     const blk = Blocking.of(T, vt);
     const herm = r == .herk or r == .her2k;
-    const rank = r == .syrk or r == .herk or r == .syr2k or r == .her2k;
+    // `gemmt` too has a square `C` and a depth
+    const rank = r == .syrk or r == .herk or r == .syr2k or r == .her2k or r == .gemmt;
     const tri = r == .trmm or r == .trsm;
     const ns = [_]usize{ 1, blk.un + 1, 2 * blk.p + blk.um + 1, blk.r + 1, 2 * blk.r + 3 };
     const ks = [_]usize{ 1, blk.q + 1, 2 * blk.q + 3 };
@@ -83,7 +84,7 @@ pub fn routineShapes(comptime T: type, vt: *const Vtable, io: Io, r: Routine) !v
     var x: usize = 0;
     for (0..8) |bits| {
         const opt: [3]bool = .{ bits & 1 != 0, bits & 2 != 0, bits & 4 != 0 };
-        if (!tri and opt[2]) continue;
+        if (!tri and r != .gemmt and opt[2]) continue;
         for (ns) |m| for (ns) |n| for (ks) |k| {
             // the rank updates' `C` is square; the others have no depth
             if ((rank and m != n) or (!rank and k != 1)) continue;
@@ -113,7 +114,7 @@ pub fn shrunkCore(comptime T: type) Vtable {
     return vt;
 }
 
-test "threaded symm, hemm, rank-k updates, trmm and trsm match the serial loops' bits and kernel depths at 1 to 9 workers" {
+test "threaded symm, hemm, rank-k updates, gemmt, trmm and trsm match the serial loops' bits and kernel depths at 1 to 9 workers" {
     inline for (precisions) |T| {
         const vt = Depths.spied(T, shrunkCore(T));
         for (routines) |r| {

@@ -3,7 +3,7 @@
 This document specifies how rstd's BLAS routines use multiple threads: the public API, how
 work is divided, how results stay reproducible, and how the design degrades on targets
 without threads. The plan is implemented (`threading.zig`, `blas3/threaded.zig`, the level 1
-and 2 interfaces): every level 3 routine but `gemmt` threads, and levels 1 and 2 thread where
+and 2 interfaces): every level 3 routine threads, and levels 1 and 2 thread where
 the split keeps the bits ([Levels 1 and 2](#levels-1-and-2-fixed-chunks-dynamic-claiming-ordered-combine)).
 Upstream references are to the OpenBLAS checkout the kernels were converted from
 (v0.3.34-794), BLIS references to its tag 2.1, std references to Zig's `lib/std` at
@@ -262,8 +262,8 @@ their `jc` groups are balanced by cost (`Shape.rising`, `falling`), as OpenBLAS'
 are added, which rounds differently from the kernel's own update, so a triangle's column cuts
 fall where the serial driver's chunks start, and its rows follow the serial column block
 (`drive`'s `r_lo`, `r_hi`); a full region's columns may split anywhere. `syr2k` runs its
-second pass over the same split. `gemmt` stays serial; upstream threads it through
-`syrk_thread` (`interface/gemmt.c`), which is T189
+second pass over the same split. `gemmt` runs the same loops over its triangle, as upstream's
+`interface/gemmt.c` takes `syrk_thread`, at that file's threshold
 ([#529](https://github.com/randyos-org/rstd/issues/529)).
 
 `trmm` and `trsm` split `B` into independent parts, as OpenBLAS's `gemm_thread_n` (left side,
@@ -300,7 +300,7 @@ Inside `potrf` a level-3 call takes one worker per `team_grain` (`threading/grai
 
 On Zen 3 (Windows, 16 CPUs) a team costs more (an order 16 `herk`: 0.8 us on one worker, 7 on 2, 16 on 4, 117 on 12), and so does fresh packing space: each driver asks its allocator, and with `malloc`'s new pages every call no team paid below order 512 (`herk` of order 256, `f64`: 466 us on one worker, 497 on 4 from `malloc`, 200 from a buffer touched before). With the grain alone `potrf` at n = 512 ran 12.5 GFLOP/s against 18.7 on one worker, and 25.2 from a warm buffer; at 1024, 23.0, 22.4 and 43.9. So `potrf` keeps what its calls free for the next ones (`../lapack/Kept.zig`), as upstream takes its buffer once per interface call (`blas_memory_alloc`). The M6 shows no difference between the two. Each `potrf` call still pays for its first buffer, which upstream's pool keeps between calls: at 1000000 the workers lost to one worker at n = 256 on Zen 3 (0.63 to 0.82 of its rate) and gained from 1024 (1.3 to 2.2), hence Windows' grain of 4000000, where n = 256 real runs on one worker.
 
-What is left to upstream's rate past n = 128 is the drivers' own scaling at these sizes, not `potrf`'s (the M6, `f64`, us on 1, 4 and 12 workers): `herk` of order 256 364, 216 and 157, of order 512 3009, 1180 and 538; `trsm` of order 256 640, 271 and 229, of order 512 4765, 1629 and 859. Twelve workers give 2.3 to 5.6 times one where upstream's `potrf` gets 5.6 at n = 1024. Dividing the triangle by columns alone (`ic` 1, as `level3_syrk_threaded.c`) halves `herk`'s time at orders 32 to 128 on 3 to 8 workers and changes nothing from 256 or in `potrf`; packing space from a warm buffer changes nothing either. `lauum` (so `potri`'s second half) caps each call by its public entry point's rule (`blas3/threaded.zig`'s `syrkWorkers`, `triWorkers`): with each call's whole count it ran slower on 12 workers than on one up to n = 256 to 512 on the M6, `c` at 128 a third of one's rate, and now never drops below one ([#841](https://github.com/randyos-org/rstd/issues/841)). `trtri`, `getrs` and `trtrs` still hand each call their whole count.
+What is left to upstream's rate past n = 128 is the drivers' own scaling at these sizes, not `potrf`'s (the M6, `f64`, us on 1, 4 and 12 workers): `herk` of order 256 364, 216 and 157, of order 512 3009, 1180 and 538; `trsm` of order 256 640, 271 and 229, of order 512 4765, 1629 and 859. Twelve workers give 2.3 to 5.6 times one where upstream's `potrf` gets 5.6 at n = 1024. Dividing the triangle by columns alone (`ic` 1, as `level3_syrk_threaded.c`) halves `herk`'s time at orders 32 to 128 on 3 to 8 workers and changes nothing from 256 or in `potrf`; packing space from a warm buffer changes nothing either. `trtri`, `lauum` (so `potri`), `getrs` and `trtrs` still hand each call their whole count.
 
 ### Thresholds
 
@@ -310,6 +310,7 @@ What is left to upstream's rate past n = 128 is the drivers' own scaling at thes
 | complex `gemm` | `MNK > 8192 * 4` | same |
 | `syrk`, `symm` | `(n+1)nk` over `109944 * 4`; `2m^2 n` over `65536 * 4` | triangle-balanced ways; `gemm`'s |
 | `syr2k` | `n * k >= 1000` | triangle-balanced ways |
+| `gemmt` | `(m+1)mk` over `65536 * 4` (`8192 * 4` complex) | triangle-balanced ways |
 | `trsm`, `trmm` | `m * n >= SMP_FACTOR (256 real, 128 cplx) * 4` | left: N panels; right: M panels |
 | `gemv` | `m * n >= 115200 * 4` | N: 4096-row chunks (arm64: 256-row); T: column chunks |
 | `gbmv` | `m * n >= 250000` (125000 complex), `kl + ku >= 15` | T: column chunks; N: partials |
@@ -658,7 +659,7 @@ wash to 4% ahead (geometric mean of the 32 cells per run).
 4. **Level 2** (done): `gemv`, `ger`, the rank updates and transposed `gbmv`; the symmetric,
    triangular, banded and packed products and untransposed `gbmv` by partial vectors.
 5. **Remaining level 3** (done): `symm`, `hemm` and the rank-k updates over the same
-   driver; `trmm` and `trsm` by panels of `B`.
+   driver, and `gemmt`; `trmm` and `trsm` by panels of `B`.
 6. **LAPACK** (done): `potrf`, `potri`, `trtri`, `lauum` by size-picked parallel algorithms,
    `getrf`'s lookahead, and `getrs`, `gesv`, `trtrs` through the drivers.
 

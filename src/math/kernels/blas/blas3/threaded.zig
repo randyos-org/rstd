@@ -48,6 +48,13 @@ pub fn syrkWorkers(comptime T: type, two: bool, n: u64, k: u64) u32 {
     return if (two) workers(.syr2k, T, threading.product(&.{ n, k }), nnk) else workers(.syrk, T, nnk, nnk / 2);
 }
 
+/// `gemmt`'s for an order `m` `C` and depth `k`; `gemmt.c` counts
+/// `(m + 1) * m * k`, twice the triangle's products.
+pub fn gemmtWorkers(comptime T: type, m: u64, k: u64) u32 {
+    const mmk = threading.product(&.{ m +| 1, m, k });
+    return workers(.gemmt, T, mmk, mmk / 2);
+}
+
 /// `trsm`'s and `trmm`'s for an `m x n` `B`, `A` of order `ka`: `m * n *
 /// ka`, twice the products, as their drivers run well under `gemm`'s rate
 /// per product (half started teams too late at order 128 on the M6, #591).
