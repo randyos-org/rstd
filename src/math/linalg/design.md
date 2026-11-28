@@ -1550,7 +1550,7 @@ routine and matches the reference; `apple_accel.zig` binds it and routes to it.
   letter and stride (`sends`): Accelerate gets every call, the unit-stride ones only (every
   stride 1), the strided ones only, or none. Levels 2 and 3 go by routine and letter (`kept`).
   Rerun timings revise the tables, not the code; untimed slots stay routed.
-- **Kept for speed, arm64.** Level 1 only. A slot is kept where rstd's kernel ran faster than
+- **Kept for speed, arm64.** Level 1 here, levels 2 and 3 in the next item. A slot is kept where rstd's kernel ran faster than
   Accelerate past noise (ratio under 0.97) in the flyoff of 2026-10-29
   ([`results-flyoff-macos-aarch64.md`](../../../tools/blasbench/results/results-flyoff-macos-aarch64.md#accelerate-routing),
   routed against `--rstd-accelerate=0`, strided at 2); a slot within noise or faster stays
@@ -1567,6 +1567,7 @@ routine and matches the reference; `apple_accel.zig` binds it and routes to it.
 
   Left routed though slower: contiguous `zcopy` at 4M elements (0.83, where 64K is 4.2), a size
   limit no row places.
+- **Kept for speed, arm64, levels 2 and 3.** The M6 sweep of 2026-11-25 ([#712](https://github.com/randyos-org/rstd/issues/712), [#726](https://github.com/randyos-org/rstd/issues/726)), by x86_64's rule (below) at `--threads=12` (`rstd/ob alone`): `gbmv` (medians 0.23 to 0.36; it is not split, so one Accelerate call against rstd's workers), `ger` (0.74 to 0.88; `gerc` follows it) and the real `symv` (0.27, 0.30). `sger` and `dger` win at one thread (1.26, 1.64) and lose at 12, where their split slows them ([#838](https://github.com/randyos-org/rstd/issues/838)). `gemv`, `trsv` and level 3 stay routed (medians 0.97 to 4.6, the one-thread ones 1.02 and over).
 - **Kept for speed, x86_64.** The Intel Mac's sweep of 2026-11-26
   ([#772](https://github.com/randyos-org/rstd/issues/772)): each slot's median over its rows of
   `rstd/ob` routed (`--threads=6`) over the same with `--rstd-accelerate=0`, in one process each;
