@@ -67,6 +67,7 @@ const expert = @import("gesvx.zig");
 const bisect = @import("stebz.zig");
 const inverse_iteration = @import("stein.zig");
 const tridiagonal_q = @import("ormtr.zig");
+const selected = @import("syevx.zig");
 
 pub const Uplo = types.Uplo;
 pub const Trans = types.Trans;
@@ -398,6 +399,11 @@ pub const stein = inverse_iteration.stein;
 pub const OrmtrError = tridiagonal_q.OrmtrError;
 pub const ormtr = tridiagonal_q.ormtr;
 pub const unmtr = tridiagonal_q.ormtr;
+/// `syevx`, `heevx`: selected eigenvalues and vectors by bisection and inverse iteration.
+pub const SelectedEigenpairs = selected.SelectedEigenpairs;
+pub const SyevxError = selected.SyevxError;
+pub const syevx = selected.syevx;
+pub const heevx = selected.syevx;
 pub const laset = auxiliary.laset;
 pub const lapy2 = auxiliary.lapy2;
 test {
@@ -461,6 +467,7 @@ test {
     _ = @import("_test/stebz.zig");
     _ = @import("_test/stein.zig");
     _ = @import("_test/ormtr.zig");
+    _ = @import("_test/syevx.zig");
     _ = pbtrs_solve;
     _ = @import("tgsen_condition.zig");
     _ = relapack_tests;
