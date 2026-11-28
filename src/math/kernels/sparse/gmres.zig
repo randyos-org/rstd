@@ -64,7 +64,7 @@ pub fn gmres(allocator: Allocator, io: Io, comptime T: type, a: LinearOperator(T
     var presid: F = 0;
     var inner: usize = 0;
 
-    if (anyNonzero(T, x)) try it.residual(io, T, a, b, x, r) else @memcpy(r, b);
+    if (it.anyNonzero(T, x)) try it.residual(io, T, a, b, x, r) else @memcpy(r, b);
     var rnorm = it.nrm2(io, T, r);
     if (rnorm < atol) return it.report(0, rnorm, bnrm2);
     if (max_iterations == 0) return error.NoConvergence;
@@ -149,11 +149,6 @@ pub fn gmres(allocator: Allocator, io: Io, comptime T: type, a: LinearOperator(T
         ptol_max_factor = if (presid <= ptol) @max(eps, 0.25 * ptol_max_factor) else @min(1, 1.5 * ptol_max_factor);
         ptol = presid * @min(ptol_max_factor, atol / rnorm);
     }
-}
-
-fn anyNonzero(comptime T: type, x: []const T) bool {
-    for (x) |xi| if (!ops.isZero(T, xi)) return true;
-    return false;
 }
 
 /// `?LARTG` as SciPy calls it: `[c s; -conj(s) c] [f; g] = [r; 0]`.

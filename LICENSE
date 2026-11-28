@@ -598,7 +598,8 @@ DEALINGS IN THE SOFTWARE.
 
 SciPy (https://github.com/scipy/scipy, commit
 19b7878a83e70d1e7b3966c23501ca59f57bd03d: scipy/sparse/linalg/_isolve/iterative.py's
-gmres, ported in src/math/kernels/sparse/gmres.zig)
+gmres and minres.py's minres, ported in src/math/kernels/sparse/gmres.zig and
+minres.zig)
 
 Copyright (c) 2001-2002 Enthought, Inc. 2003, SciPy Developers.
 All rights reserved.

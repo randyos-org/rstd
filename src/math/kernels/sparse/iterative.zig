@@ -51,6 +51,11 @@ pub fn axpy(io: Io, comptime T: type, alpha: T, x: []const T, y: []T) Io.Cancela
 }
 
 /// `x := alpha x`.
+pub fn scal(io: Io, comptime T: type, alpha: T, x: []T) Io.Cancelable!void {
+    return api.scal(io, T, alpha, Strided(T).of(x));
+}
+
+/// `x := alpha x`, `alpha` real.
 pub fn scalReal(io: Io, comptime T: type, alpha: Float(T), x: []T) Io.Cancelable!void {
     if (comptime types.isComplex(T)) return api.scalReal(io, T, alpha, Strided(T).of(x));
     return api.scal(io, T, alpha, Strided(T).of(x));
@@ -60,6 +65,12 @@ pub fn scalReal(io: Io, comptime T: type, alpha: Float(T), x: []T) Io.Cancelable
 pub fn residual(io: Io, comptime T: type, a: LinearOperator(T), b: []const T, x: []const T, r: []T) Io.Cancelable!void {
     try a.apply(a.ctx, io, x, r);
     for (r, b) |*ri, bi| ri.* = ops.sub(T, bi, ri.*);
+}
+
+/// Whether `x` has a nonzero, so `b - A x` is worth a product.
+pub fn anyNonzero(comptime T: type, x: []const T) bool {
+    for (x) |xi| if (!ops.isZero(T, xi)) return true;
+    return false;
 }
 
 /// `y := M x`, or `y := x` without a preconditioner.
