@@ -167,7 +167,12 @@ pub fn call(
         // `{trmv,tbmv,tpmv}_thread.c` split the columns on multiples of 8,
         // balanced by length but for the band
         const shape: threading.Shape = if (kind == .tbmv) .even else if (uplo == .l) .falling else .rising;
-        const p = threading.plan(if (kind == .trmv) .trmv else .tpmv, T, nu, nu, shape, 8);
+        const family: threading.Family = switch (kind) {
+            .trmv => .trmv,
+            .tbmv => .tbmv,
+            else => .tpmv,
+        };
+        const p = threading.plan(family, T, nu, nu, shape, 8);
         if (p.chunks.count > 1) return split(allocator, io, T, kind, o, &p, uplo, trans, diag, kn, k, a, lda, px, incx);
     }
 
