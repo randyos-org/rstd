@@ -67,6 +67,8 @@ pub const Routine = enum {
 
     // LAPACK
     potrf,
+    getrf,
+    getrs,
 };
 
 /// The symbols of `r` over `f32`, `f64`, `Complex32` and `Complex64`; null
@@ -120,6 +122,8 @@ fn symbols(comptime r: Routine) [4]?Symbol {
         .trmm => .{ .cblas_strmm, .cblas_dtrmm, .cblas_ctrmm, .cblas_ztrmm },
         .trsm => .{ .cblas_strsm, .cblas_dtrsm, .cblas_ctrsm, .cblas_ztrsm },
         .potrf => .{ .spotrf_, .dpotrf_, .cpotrf_, .zpotrf_ },
+        .getrf => .{ .sgetrf_, .dgetrf_, .cgetrf_, .zgetrf_ },
+        .getrs => .{ .sgetrs_, .dgetrs_, .cgetrs_, .zgetrs_ },
     };
 }
 

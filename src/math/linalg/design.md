@@ -1508,9 +1508,9 @@ routine and matches the reference; `apple_accel.zig` binds it and routes to it.
   `ACCELERATE_NEW_LAPACK`, `ACCELERATE_LAPACK_ILP64`,
   <https://developer.apple.com/documentation/macos-release-notes/macos-13_3-release-notes>).
   The spellings are ours, checked by `_test/apple_accel/binding.zig` on the M6 ("the 32-bit table binds
-  the new names first"). macOS 27 binds 150 of the `Table`'s 154 CBLAS fields: there is no
+  the new names first"). macOS 27 binds 158 of the `Table`'s 162 fields: there is no
   `cblas_i?amin` (seen on the M6; no SDK since 11.3 lists it). `axpby` is
-  `catlas_?axpby`. LAPACK's `?potrf_` is bound as `dpotrf$NEWLAPACK$ILP64` or
+  `catlas_?axpby`. LAPACK's `?potrf_` (and `?getrf_`, `?getrs_`) is bound as `dpotrf$NEWLAPACK$ILP64` or
   `dpotrf_$NEWLAPACK$ILP64` (and the 32-bit forms, then the classic `dpotrf_`); the 13.3 SDK
   lists the first. The fallbacks for macOS before 13.3 (zfls supports 11.0), which no Mac here
   runs, are tested with recorded inputs: `bindBlas` against the MacOSX11.3, 12.3 and 13.3 SDKs'
@@ -1543,7 +1543,7 @@ routine and matches the reference; `apple_accel.zig` binds it and routes to it.
   `hpr2`, and the six triangular routines; all of level 3; less, in each level, what is kept for
   speed (below);
   LAPACK's `potrf` (its `INFO` becomes rstd's error, 0-based in `potrfChecked`; after a failure
-  `A` holds Accelerate's partial factor).
+  `A` holds Accelerate's partial factor); on arm64 `getrf`, `getrs` but for `z` (rstd's threaded solve wins there), and with them `gesv` ([#840](https://github.com/randyos-org/rstd/issues/840): Accelerate's single-threaded `getrf` ran 1.2 to 5.8 times OpenBLAS on the M6), `IPIV` 0-based on both sides, with the ILP64 table only, not for an `A` holding NaN or an infinity (Accelerate's `i?amax` does not take the first NaN, which rstd's pivot search does), nor for `getrs` a `B` that is not finite or a tiny pivot, as `trsm`.
   Routed, `sdot` is `cblas_dsdot` rounded, and `snrm2` and `scnrm2` the root of `dsdot(x, x)`,
   so `s` sums in `f64` as rstd's kernels do. `d` and `z` `nrm2`, and `asum`, take `incx > 0` only.
 - **Kept for speed.** Per architecture, in `apple_accel/speed.zig`. Level 1 goes by routine,

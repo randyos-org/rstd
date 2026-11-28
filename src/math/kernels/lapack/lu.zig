@@ -19,6 +19,7 @@ const Vtable = @import("../blas/Vtable.zig");
 const ops = @import("ops.zig");
 const interface = @import("interface.zig");
 const lapack_tri = @import("triangular.zig");
+const accel = @import("../blas/apple_accel.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -50,8 +51,17 @@ pub fn getrf(allocator: Allocator, io: Io, comptime T: type, m: usize, n: usize,
     try util.holds(a.len, m, n, lda);
     if (ipiv.len < @min(m, n)) return error.SliceTooShort;
     if (m == 0 or n == 0) return null;
+    if (getrfAccel(T, m, n, a, lda, ipiv)) |k| return k;
     const want = interface.threads(.getrf, T, @as(u64, m) * n) orelse 1;
     return factorWith(allocator, io, T, m, n, a.ptr, lda, ipiv.ptr, want);
+}
+
+/// `accel.getrf` (macOS on arm64; issue #840), `INFO` as `getrf`'s result,
+/// or null where rstd runs it.
+fn getrfAccel(comptime T: type, m: usize, n: usize, a: []T, lda: usize, ipiv: []usize) ??usize {
+    const info = accel.getrf(T, @intCast(m), @intCast(n), a.ptr, @intCast(lda), ipiv[0..@min(m, n)]) orelse return null;
+    // 1-based at its ABI
+    return if (info == 0) @as(?usize, null) else @as(usize, @intCast(info - 1));
 }
 
 /// The factorization on up to `want` workers: the first zero pivot, or null.
@@ -282,6 +292,7 @@ pub fn getrs(allocator: Allocator, io: Io, comptime T: type, trans: Trans, n: us
     try util.holds(b.len, n, nrhs, ldb);
     try interface.pivotsIn(ipiv, n);
     if (n == 0 or nrhs == 0) return;
+    if (try accel.getrs(allocator, T, trans, @intCast(n), @intCast(nrhs), a.ptr, @intCast(lda), ipiv[0..n], b.ptr, @intCast(ldb))) return;
     const want = interface.threads(.getrs, T, n) orelse 1;
     try solve(allocator, io, T, trans, n, nrhs, a.ptr, lda, ipiv.ptr, b.ptr, ldb, want);
 }
@@ -321,6 +332,12 @@ pub fn gesv(allocator: Allocator, io: Io, comptime T: type, n: usize, nrhs: usiz
     if (ipiv.len < n) return error.SliceTooShort;
     if (n == 0) return;
     const want = interface.threads(.gesv, T, @as(u64, n) * n) orelse 1;
+    if (getrfAccel(T, n, n, a, lda, ipiv)) |k| {
+        if (k != null) return error.Singular;
+        if (nrhs == 0) return;
+        if (try accel.getrs(allocator, T, .n, @intCast(n), @intCast(nrhs), a.ptr, @intCast(lda), ipiv[0..n], b.ptr, @intCast(ldb))) return;
+        return solve(allocator, io, T, .n, n, nrhs, a.ptr, lda, ipiv.ptr, b.ptr, ldb, want);
+    }
     if (try factorWith(allocator, io, T, n, n, a.ptr, lda, ipiv.ptr, want) != null) return error.Singular;
     if (nrhs == 0) return;
     try solve(allocator, io, T, .n, n, nrhs, a.ptr, lda, ipiv.ptr, b.ptr, ldb, want);

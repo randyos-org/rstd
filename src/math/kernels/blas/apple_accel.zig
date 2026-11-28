@@ -84,6 +84,8 @@ pub const syrk = level3.syrk;
 pub const trmm = level3.trmm;
 
 pub const potrf = lapack.potrf;
+pub const getrf = lapack.getrf;
+pub const getrs = lapack.getrs;
 
 // ---- routing -----------------------------------------------------------------
 //
