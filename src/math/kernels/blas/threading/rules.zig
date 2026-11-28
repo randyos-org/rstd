@@ -96,11 +96,30 @@ pub const Rule = struct {
     }
 };
 
+/// rstd's own level-2 thresholds on `haswell` (Coffee Lake, the Intel Mac), a
+/// worker per call from each order up: where a second one paid in the bench's
+/// `l2thread` runs (issue #845), against OpenBLAS's 50 to 100, below which
+/// rstd's pool costs more than the call. The complex symmetric `syr` keeps
+/// OpenBLAS's, untimed.
+fn haswellLevel2(comptime family: Family, comptime T: type, core: anytype) ?Rule {
+    if (!isX86(core, .haswell)) return null;
+    const complex = comptime types.isComplex(T);
+    const F = types.Float(T);
+    return switch (family) {
+        .syr => if (complex) null else .{ .serial_max = 511 },
+        .tpmv => .{ .serial_max = 511 },
+        .her => .{ .serial_max = 255 },
+        .trmv => .{ .serial_max = if (!complex) 511 else if (F == f32) 383 else 255 },
+        else => null,
+    };
+}
+
 /// `family`'s rule for `T` on `core` (`blas.coreType()`; any architecture's
 /// core enum, or null for none): OpenBLAS's
 /// interface or kernel thresholds, with its per-core overrides as a
 /// `DYNAMIC_ARCH` build applies them.
 pub fn rule(comptime family: Family, comptime T: type, core: anytype) Rule {
+    if (haswellLevel2(family, T, core)) |r| return r;
     const complex = comptime types.isComplex(T);
     const F = types.Float(T);
     const s: u64 = @sizeOf(F);
@@ -148,6 +167,14 @@ fn is(core: anytype, comptime c: coretypes.Arm64CoreType) bool {
     const C = @TypeOf(core);
     if (C == coretypes.Arm64CoreType) return core == c;
     if (C == ?coretypes.Arm64CoreType) return if (core) |k| k == c else false;
+    return false;
+}
+
+/// Whether `core` (`rule`'s) is the x86_64 core `c`.
+fn isX86(core: anytype, comptime c: coretypes.X86CoreType) bool {
+    const C = @TypeOf(core);
+    if (C == coretypes.X86CoreType) return core == c;
+    if (C == ?coretypes.X86CoreType) return if (core) |k| k == c else false;
     return false;
 }
 
