@@ -107,7 +107,7 @@ const kept: std.enums.EnumFieldStruct(L23, Kept, .{}) = if (x86_64) .{
     .trsm = complex,
 } else .{
     .gbmv = all,
-    .ger = all,
+    .ger = complex,
     .symv = all,
 };
 

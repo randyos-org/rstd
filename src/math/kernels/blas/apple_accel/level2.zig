@@ -25,7 +25,7 @@ const call = accel.call;
 const span = accel.span;
 const mat = accel.mat;
 const matrix_quantum = parts.matrix_quantum;
-const split = parts.split;
+const split2 = parts.split2;
 const fits = parts.fits;
 const mag = parts.mag;
 const sub = parts.sub;
@@ -84,7 +84,7 @@ pub inline fn gemv(io: Io, comptime T: type, trans: types.Trans, m: isize, n: is
         const G = Gemv(T);
         if (!fits(G.name, b, &.{ m, n, lda, mag(incx), mag(incy), mat(m, n, lda), span(lenx, incx), span(leny, incy) })) return false;
         const g: G = .{ .b = b, .t = t, .m = m, .n = n, .alpha = alpha, .a = a, .lda = lda, .x = x, .incx = incx, .beta = beta, .y = y, .incy = incy };
-        try split(io, .gemv, T, threading.product(&.{ @intCast(m), @intCast(n) }), @intCast(leny), matrix_quantum, &g, G.part);
+        try split2(io, .gemv, T, threading.product(&.{ @intCast(m), @intCast(n) }), @intCast(leny), matrix_quantum, threading.product(&.{ @intCast(m), @intCast(n), @sizeOf(T) }), &g, G.part);
         return true;
     }
 }
@@ -132,7 +132,7 @@ pub inline fn ger(io: Io, comptime T: type, comptime conj: bool, m: isize, n: is
         const G = Ger(T, conj);
         if (!fits(G.name, b, &.{ m, n, lda, mag(incx), mag(incy), span(m, incx), span(n, incy), mat(m, n, lda) })) return false;
         const g: G = .{ .b = b, .m = m, .n = n, .alpha = alpha, .x = x, .incx = incx, .y = y, .incy = incy, .a = a, .lda = lda };
-        try split(io, .ger, T, threading.product(&.{ @intCast(m), @intCast(n) }), @intCast(n), matrix_quantum, &g, G.part);
+        try split2(io, .ger, T, threading.product(&.{ @intCast(m), @intCast(n) }), @intCast(n), matrix_quantum, threading.product(&.{ @intCast(m), @intCast(n), @sizeOf(T) }), &g, G.part);
         return true;
     }
 }
