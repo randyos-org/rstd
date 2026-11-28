@@ -64,6 +64,7 @@ const norm = @import("norm.zig");
 const equilibrate = @import("equilibrate.zig");
 const refine = @import("gerfs.zig");
 const expert = @import("gesvx.zig");
+const bisect = @import("stebz.zig");
 
 pub const Uplo = types.Uplo;
 pub const Trans = types.Trans;
@@ -382,6 +383,12 @@ pub const FactorizationInput = expert.FactorizationInput;
 pub const LuSolveReport = expert.LuSolveReport;
 pub const GesvxError = expert.GesvxError;
 pub const gesvx = expert.gesvx;
+/// `stebz`: selected eigenvalues of a symmetric tridiagonal by bisection.
+pub const SpectrumRange = bisect.SpectrumRange;
+pub const SpectrumOrder = bisect.SpectrumOrder;
+pub const BisectedEigenvalues = bisect.BisectedEigenvalues;
+pub const StebzError = bisect.StebzError;
+pub const stebz = bisect.stebz;
 pub const laset = auxiliary.laset;
 pub const lapy2 = auxiliary.lapy2;
 test {
@@ -442,6 +449,7 @@ test {
     _ = @import("_test/equilibrate.zig");
     _ = @import("_test/gerfs.zig");
     _ = @import("_test/gesvx.zig");
+    _ = @import("_test/stebz.zig");
     _ = pbtrs_solve;
     _ = @import("tgsen_condition.zig");
     _ = relapack_tests;
