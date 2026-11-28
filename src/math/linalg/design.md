@@ -1582,8 +1582,14 @@ routine and matches the reference; `apple_accel.zig` binds it and routes to it.
     0.61), `ger` (0.79 to 1.03; `gerc` follows it), the real `symv` (0.66, 0.70), complex `trsv`
     (0.60, 0.48).
   - Level 3: `gemm` (0.26 to 0.94), `symm` but `dsymm` (0.27 to 0.94; `dsymm` is 1.21), `syrk`
-    (0.11 to 0.46; `syr2k` was not timed), complex `trmm` and `trsm` (0.33 to 0.46; real ones
+    (0.11 to 0.46), complex `trmm` and `trsm` (0.33 to 0.46; real ones
     1.05 to 3.71).
+- **Kept for speed, x86_64, the rest.** The slots #772 left, timed on the Intel Mac on 2026-11-27 ([#797](https://github.com/randyos-org/rstd/issues/797)) by the bench's `accroute` section: rstd's public routine with routing on and off in one process, the two calls' batches in turn, twice at 6 threads and twice at one; each slot's median of routed over own, by #772's rule. Kept, routed over rstd's own:
+  - Level 1 strided only: `saxpby` 0.47. Routed: `rotm` (1.14 to 6.4), `dsdot` and `sdsdot` (0.99 and 1.00 unit, one-thread 1.00; 1.21 and 1.19 strided), the other `axpby` (1.04 to 4.0).
+  - Level 2: `hemv`, `hbmv`, `hpmv` (0.30 to 0.35); `sbmv` (0.66, 0.62), `spmv` (0.88, 0.65); `syr` (0.84, 0.82), `her` (0.77, 0.82), `sspr` (0.76), `hpr` (0.73, 0.71); `syr2` (0.70, 0.75), `her2` (0.60, 0.60), `sspr2` (0.96), `hpr2` (0.57, 0.64); `ztrmv` (0.81); `tbmv` (0.37 to 0.67), `tpmv` (0.32 to 0.77); complex `tbsv` (0.67, 0.59) and `tpsv` (0.66, 0.68). Routed: `dspr` (0.97, one-thread 1.12), `dspr2` (0.98, one-thread 1.71), `strmv`, `dtrmv`, `ctrmv` (1.65, 1.42, 1.12), real `tbsv` and `tpsv` (1.28 to 1.44).
+  - Level 3: `syr2k` (0.11 to 0.84), `hemm` (0.28, 0.29), `herk` and `her2k` (0.11 to 0.12).
+
+  Each level 2 slot's rows spread widely: routing wins at the smallest order (to 16 times rstd's rate for `dsyr` at n = 64) and loses past it, as rstd's threads take the larger ones while Accelerate runs single-threaded in rstd's process; the medians weigh the three orders alike, as #772's did.
 - **Not routed:** what CBLAS lacks: `sum`, the extremes, `axpyc`, `rotg`, `zrotg`, `rotmg`, the
   complex symmetric level 2, the conjugated-`x` letters `o` to `d`, a complex `r`, `HEMVREV`'s
   `v` and `m`; `i?amax`, which does not take the first NaN.

@@ -134,7 +134,7 @@ fn Symm(comptime T: type, comptime herm: bool) type {
 
 /// `symm`, or `hemm` for `herm`.
 pub inline fn symm(io: Io, comptime T: type, comptime herm: bool, sd: types.Side, ul: types.Uplo, m: isize, n: isize, alpha: T, a: [*]const T, lda: isize, b_: [*]const T, ldb: isize, beta: T, c: [*]T, ldc: isize) Io.Cancelable!bool {
-    if (comptime !covers(T) or (herm and !isComplex(T)) or (!herm and !routes(.symm, T))) return false else {
+    if (comptime !covers(T) or (herm and !isComplex(T)) or !routes(if (herm) .hemm else .symm, T)) return false else {
         const b = use(T) orelse return false;
         const u = uplo(ul) orelse return false;
         const ka = if (sd == .l) m else n;
@@ -152,8 +152,9 @@ pub inline fn symm(io: Io, comptime T: type, comptime herm: bool, sd: types.Side
 /// `beta`), as `herm` and `b_` say; `t` is a transposed `op`.
 pub inline fn syrk(comptime T: type, comptime herm: bool, ul: types.Uplo, t: bool, n: isize, k: isize, alpha: T, a: [*]const T, lda: isize, b_: ?[*]const T, ldb: isize, beta: T, c: [*]T, ldc: isize) bool {
     if (comptime !covers(T) or (herm and !isComplex(T))) return false else {
-        // `syr2k` was not timed
-        if (comptime !herm and !routes(.syrk, T)) if (b_ == null) return false;
+        if (b_ == null) {
+            if (comptime !routes(if (herm) .herk else .syrk, T)) return false;
+        } else if (comptime !routes(if (herm) .her2k else .syr2k, T)) return false;
         const b = use(T) orelse return false;
         const u = uplo(ul) orelse return false;
         const tr: Transpose = if (!t) .no_trans else if (herm) .conj_trans else .trans;
