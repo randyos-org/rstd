@@ -16,6 +16,7 @@ const ext = @import("ext.zig");
 const obx86 = @import("obx86.zig");
 const compensated_bench = @import("compensated_bench.zig");
 const calls_bench = @import("calls_bench.zig");
+const accroute_bench = @import("accroute_bench.zig");
 const matcopy_bench = @import("matcopy_bench.zig");
 const sparse_bench = @import("sparse_bench.zig");
 const potrf_bench = @import("potrf_bench.zig");
@@ -219,6 +220,7 @@ pub fn main(init: std.process.Init) !void {
         try calls_bench.run(io, gpa);
     }
     if (!alone and want(sections.items, "rotreals")) try rot_reals_bench.run(io, gpa);
+    if (!alone and want(sections.items, "accroute")) try accroute_bench.run(io, gpa);
     const lib_sections = want(sections.items, "lib1") or want(sections.items, "lib2") or want(sections.items, "lib3") or want(sections.items, "lapack");
     if (lib_sections or (all and (opts.paths.get(.openblas) != null or alone))) {
         // each library alone on its own threads first: rstd's init makes

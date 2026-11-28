@@ -5,7 +5,9 @@
 //! for levels 2 and 3, by x86_64's rule. x86_64: the Intel Mac's sweep of
 //! 2026-11-26 (issue #772), each slot's median of `rstd/ob` routed
 //! (`--threads=6`) over `--rstd-accelerate=0`, the one-thread runs deciding
-//! the slots within noise. Rerun timings revise the tables, not the code.
+//! the slots within noise; the slots it left, the `accroute` bench section's
+//! runs of 2026-11-27 (issue #797), routed against rstd's own in one process.
+//! Rerun timings revise the tables, not the code.
 
 const std = @import("std");
 const portable = @import("../portable.zig");
@@ -23,10 +25,12 @@ const Strides = enum { all, unit, strided, none };
 /// `Strides` by letter.
 const Letters = struct { s: Strides = .all, d: Strides = .all, c: Strides = .all, z: Strides = .all };
 
-/// The level-1 table; untimed slots (`rotm`, `dsdot`, `axpby`) stay routed.
+/// The level-1 table; on arm64 the slots the flyoff did not time (`rotm`,
+/// `dsdot`, `axpby`) stay routed.
 const sends: std.enums.EnumFieldStruct(L1, Letters, .{}) = if (x86_64) .{
     .asum = .{ .c = .strided, .z = .unit },
     .axpy = .{ .s = .unit, .c = .none, .z = .strided },
+    .axpby = .{ .s = .unit },
     .copy = .{ .s = .unit, .d = .unit, .c = .unit },
     .dot = .{ .z = .none },
     .dotc = .{ .z = .none },
@@ -55,17 +59,16 @@ pub inline fn sent(comptime r: L1, comptime T: type, unit: bool) bool {
     };
 }
 
-/// The level-2 and level-3 routines the sweep timed: `gemv` both ways,
-/// `ger` (`gerc` follows it), the real `symv`, `trsv`, and `syrk` without
-/// `B`. The rest (`hemv`, the packed and band forms but `gbmv`, the other
-/// triangular solves and products, `syr2k`, `hemm`, `herk`, `her2k`) were
-/// not timed and stay routed.
-pub const L23 = enum { gemv, gbmv, ger, symv, trsv, gemm, symm, syrk, trmm, trsm };
+/// The level-2 and level-3 routines by their reference names, the Hermitian
+/// ones apart: `gemv` both ways, `ger` (`gerc` follows it), `syrk` and `herk`
+/// without `B`, `syr2k` and `her2k` with it.
+pub const L23 = enum { gemv, gbmv, ger, symv, hemv, sbmv, hbmv, spmv, hpmv, syr, her, spr, hpr, syr2, her2, spr2, hpr2, trmv, trsv, tbmv, tbsv, tpmv, tpsv, gemm, symm, hemm, syrk, herk, syr2k, her2k, trmm, trsm };
 
 /// Whether rstd's kernels run, by letter.
 const Kept = struct { s: bool = false, d: bool = false, c: bool = false, z: bool = false };
 
 const all: Kept = .{ .s = true, .d = true, .c = true, .z = true };
+const real: Kept = .{ .s = true, .d = true };
 const complex: Kept = .{ .c = true, .z = true };
 
 /// The level-2 and level-3 table.
@@ -74,10 +77,32 @@ const kept: std.enums.EnumFieldStruct(L23, Kept, .{}) = if (x86_64) .{
     .gbmv = all,
     .ger = all,
     .symv = all,
+    .hemv = complex,
+    .sbmv = real,
+    .hbmv = complex,
+    .spmv = real,
+    .hpmv = complex,
+    .syr = real,
+    .her = complex,
+    .spr = .{ .s = true },
+    .hpr = complex,
+    .syr2 = real,
+    .her2 = complex,
+    .spr2 = .{ .s = true },
+    .hpr2 = complex,
+    .trmv = .{ .z = true },
     .trsv = complex,
+    .tbmv = all,
+    .tbsv = complex,
+    .tpmv = all,
+    .tpsv = complex,
     .gemm = all,
     .symm = .{ .s = true, .c = true, .z = true },
+    .hemm = complex,
     .syrk = all,
+    .herk = complex,
+    .syr2k = all,
+    .her2k = complex,
     .trmm = complex,
     .trsm = complex,
 } else .{
