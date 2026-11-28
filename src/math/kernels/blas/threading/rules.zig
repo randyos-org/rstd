@@ -40,7 +40,9 @@ pub const Family = enum {
     hemv,
     /// `trmv`: `n`.
     trmv,
-    /// `tbmv`, `tpmv`: `n`.
+    /// `tbmv`: `n`.
+    tbmv,
+    /// `tpmv`: `n`.
     tpmv,
     /// `syr`, `spr`, `syr2`, `spr2`, real and complex symmetric: `n`.
     syr,
@@ -101,6 +103,9 @@ pub const Rule = struct {
 /// `l2thread` runs (issue #845), against OpenBLAS's 50 to 100, below which
 /// rstd's pool costs more than the call. The complex symmetric `syr` keeps
 /// OpenBLAS's, untimed.
+/// `tbmv` pays later than `tpmv`, its columns `k + 1` long: from n = 1024 at
+/// `k = 32` (1536 `s`), 768 at 128, 1536 at 8 (issue #854); chunked as
+/// `tpmv`.
 fn haswellLevel2(comptime family: Family, comptime T: type, core: anytype) ?Rule {
     if (!isX86(core, .haswell)) return null;
     const complex = comptime types.isComplex(T);
@@ -108,6 +113,7 @@ fn haswellLevel2(comptime family: Family, comptime T: type, core: anytype) ?Rule
     return switch (family) {
         .syr => if (complex) null else .{ .serial_max = 511 },
         .tpmv => .{ .serial_max = 511 },
+        .tbmv => .{ .serial_max = if (!complex and F == f32) 1535 else 1023, .chunk = 511 },
         .her => .{ .serial_max = 255 },
         .trmv => .{ .serial_max = if (!complex) 511 else if (F == f32) 383 else 255 },
         else => null,
@@ -150,7 +156,7 @@ pub fn rule(comptime family: Family, comptime T: type, core: anytype) Rule {
         // of `zsymv.c`'s 50 columns, not 361, which ran 2 or 3 workers (#706)
         .hemv => .{ .serial_max = 361, .chunk = 50 },
         // `tbmv.c`, `tpmv.c`, `ztbmv.c`, `ztpmv.c`: `n < 50`, `n < 500`
-        .tpmv => .{ .serial_max = 49, .tiers = comptime &.{.{ .below = 500, .max = 2 }} },
+        .tbmv, .tpmv => .{ .serial_max = 49, .tiers = comptime &.{.{ .below = 500, .max = 2 }} },
         .gemm => (if (complex) null else gemmCore(F, core)) orelse .{ .serial_max = @as(u64, if (complex) 8192 else 65536) * mt, .per_unit = true },
         .syrk => .{ .serial_max = @as(u64, if (complex) 14824 else 109944) * mt },
         // `syr2k.c`: `n * k < 1000`

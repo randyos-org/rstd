@@ -129,6 +129,12 @@ test "rules: haswell's own level-2 thresholds (issue #845), the other cores keep
     try zigstd.testExpectEqual(@as(u32, 1), rule(.trmv, f32, X86.haswell).sizeMax(511));
     try zigstd.testExpectEqual(@as(u32, 1), rule(.trmv, C(f32), X86.haswell).sizeMax(383));
     try zigstd.testExpectEqual(@as(usize, 2), rule(.trmv, C(f64), X86.haswell).chunkCount(256));
+    // `tbmv` (issue #854), chunked as `tpmv`
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.tbmv, f32, X86.haswell).sizeMax(1535));
+    try zigstd.testExpectEqual(@as(usize, 4), rule(.tbmv, f32, X86.haswell).chunkCount(1536));
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.tbmv, C(f32), X86.haswell).sizeMax(1023));
+    try zigstd.testExpectEqual(@as(usize, 3), rule(.tbmv, f64, X86.haswell).chunkCount(1024));
+    try zigstd.testExpectEqual(@as(usize, 2), rule(.tbmv, f64, X86.zen).chunkCount(50));
     // the complex symmetric `syr` and other cores keep OpenBLAS's
     try zigstd.testExpectEqual(@as(usize, 2), rule(.syr, C(f64), X86.haswell).chunkCount(50));
     try zigstd.testExpectEqual(@as(usize, 2), rule(.syr, f64, X86.zen).chunkCount(50));
