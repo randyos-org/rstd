@@ -65,11 +65,13 @@ pub fn useAccelerateEverywhere(enable: bool) void {
 /// the bench's `fft` section. x86_64 (the Intel Mac, #155): everywhere but
 /// complex `f32` at pffft's sizes. aarch64 (the M6, #856): complex `f32`
 /// from 3840 and where pffft lacks `n`, complex `f64` at powers of 2, real
-/// from 32, `f64` only at powers of 2 up to 16384.
+/// from 32, `f64` only at powers of 2 up to 16384. Not complex `f32` past
+/// 65536 but at powers of 2 on aarch64, where vDSP's error from an `f64`
+/// transform was 18 to 24 eps of the largest entry, pffft's 2 to 4 (#870).
 pub fn faster(comptime T: type, comptime real: bool, n: usize) bool {
     const pow2 = std.math.isPowerOfTwo(n);
     if (comptime sysinfo.target.cpu.arch == .aarch64) return switch (T) {
-        f32 => if (real) n >= 32 else n >= 3840 or !pffft.validSize(n, .complex),
+        f32 => if (real) n >= 32 else (n >= 3840 and (pow2 or n <= 65536)) or !pffft.validSize(n, .complex),
         f64 => if (real) pow2 and n >= 32 and n <= 16384 else pow2,
         else => false,
     };
