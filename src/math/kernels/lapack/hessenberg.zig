@@ -1,8 +1,8 @@
 //! Hessenberg reduction, from faer v0.24.4
 //! (<https://codeberg.org/sarah-quinones/faer>, tag `faer-v0.24.4`, MIT):
 //! `faer/src/linalg/evd/hessenberg.rs`'s `hessenberg_rearranged_unblocked`,
-//! its fused pass serial (faer's `Par::Seq` path); the blocked form is not
-//! ported yet.
+//! its fused pass serial (faer's `Par::Seq` path), and from order 256 the
+//! blocked form (`hessenberg_blocked.zig`).
 
 const std = @import("std");
 const ops = @import("ops.zig");
@@ -12,6 +12,7 @@ const hh = @import("householder.zig");
 const qr = @import("qr.zig");
 const util = @import("../blas/util.zig");
 const interface = @import("interface.zig");
+const blocked_form = @import("hessenberg_blocked.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -19,10 +20,21 @@ const Mat = ops.Mat;
 const Float = ops.Float;
 const Error = ops.Error;
 
+/// `HessenbergParams`' `blocking_threshold`: the `n²` from which faer
+/// reduces by blocks.
+pub const blocking_threshold = 256 * 256;
+
 /// `hessenberg_in_place`: `a` is `n x n`, `h` `bs x (n - 1)` (`bs > 0`).
 pub fn hessenberg(al: Allocator, io: Io, comptime T: type, a: Mat(T), h: Mat(T)) Error!void {
+    return hessenbergWith(al, io, T, a, h, blocking_threshold);
+}
+
+/// `hessenberg`, blocked from `n² >= threshold` (`h`'s rows the block
+/// size), so tests reach the blocked form at small orders.
+pub fn hessenbergWith(al: Allocator, io: Io, comptime T: type, a: Mat(T), h: Mat(T), threshold: usize) Error!void {
     const n = a.rows;
     if (n == 0) return;
+    if (n * n >= threshold) return blocked_form.blocked(al, io, T, a, h);
     const buf = try al.alloc(T, 4 * n);
     defer al.free(buf);
     const y = buf[0..n];
@@ -193,11 +205,11 @@ const testing = std.testing;
 const check = @import("../blas/_test/check.zig");
 const types = @import("../blas/types.zig");
 
-test "faer hessenberg: Qᴴ A Q = H, real and complex" {
+test "faer hessenberg: Qᴴ A Q = H, real and complex, unblocked and blocked" {
     const al = testing.allocator;
     inline for (.{ f64, types.Complex64, f32, types.Complex32 }) |T| {
         const F = Float(T);
-        for ([_]usize{ 1, 2, 3, 5, 8, 21, 60 }) |n| {
+        for ([_]usize{ blocking_threshold, 0 }) |threshold| for ([_]usize{ 1, 2, 3, 5, 8, 21, 60 }) |n| {
             const a0 = try ops.alloc(T, al, n, n);
             defer ops.free(T, al, a0);
             check.fill(T, a0.ptr[0 .. n * n], 5 * n);
@@ -207,7 +219,7 @@ test "faer hessenberg: Qᴴ A Q = H, real and complex" {
             const b = 4;
             const h = try ops.alloc(T, al, b, @max(n, 1) - 1);
             defer ops.free(T, al, h);
-            try hessenberg(al, check.io, T, hm, h);
+            try hessenbergWith(al, check.io, T, hm, h, threshold);
             const x = try ops.alloc(T, al, n, n);
             defer ops.free(T, al, x);
             x.copyFrom(a0);
@@ -221,11 +233,11 @@ test "faer hessenberg: Qᴴ A Q = H, real and complex" {
                 const want = if (i <= j + 1) hm.get(i, j) else ops.zero(T);
                 const err = ops.abs(T, ops.sub(T, x.get(i, j), want));
                 if (!(err <= tol)) {
-                    check.say("hessenberg {s} n={d}: ({d},{d}) off by {e}\n", .{ @typeName(T), n, i, j, err });
+                    check.say("hessenberg {s} n={d} threshold {d}: ({d},{d}) off by {e}\n", .{ @typeName(T), n, threshold, i, j, err });
                     return error.TestUnexpectedResult;
                 }
             };
-        }
+        };
     }
 }
 
