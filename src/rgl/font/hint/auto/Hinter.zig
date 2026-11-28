@@ -119,7 +119,9 @@ pub fn load(h: *Hinter, allocator: Allocator, gid: u16, ppem: u16, mode: RenderM
     }
     var g = try h.src.load(allocator, gid);
     errdefer g.deinit(allocator);
-    const advance_units = h.src.loadedAdvance(g, gid);
+    // the unscaled load's own advance (`slot->metrics.horiAdvance`): `hmtx`'s, but varied or
+    // through a CFF FontMatrix
+    const advance_units = g.advance;
     var pp1x: i32 = 0;
     var pp2x = fixed.mul(advance_units, hints.x_scale);
     var lsb_delta: i32 = 0;

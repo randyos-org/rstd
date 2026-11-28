@@ -17,8 +17,7 @@ pub fn add(b: *Build, host: []const u8) !void {
     // 26.05-darwin's nixpkgs on either Mac, so either writes the same files
     const rev = (try tools.lockRevs(b)).darwin;
     for (testfonts.refs) |r| {
-        const f = testfonts.find(r.font);
-        const dep = b.lazyDependency(f.dep, .{}) orelse continue;
+        const font = testfonts.file(b, testfonts.find(r.font)) orelse continue;
         const run = b.addRunArtifact(tools.hostTool(b, .ssh_test));
         run.addArg(host);
         run.addFileArg(b.path("tools/nix/hintrefs.sh"));
@@ -26,7 +25,7 @@ pub fn add(b: *Build, host: []const u8) !void {
         // `ssh_test` copies a `local:` path over; a directory's contents are not hashed
         run.addDirectoryArg2(b.path("tools/hintrefs"), .{ .prefix = "local:" });
         for ([_][]const u8{ "hintrefs.c", "hintrefs.nix" }) |file| run.addFileInput(b.path(b.fmt("tools/hintrefs/{s}", .{file})));
-        run.addFileArg2(dep.path(f.path), .{ .prefix = "local:" });
+        run.addFileArg2(font, .{ .prefix = "local:" });
         for (r.design) |v| run.addArg(b.fmt("{d}", .{v}));
         update.addCopyFileToSource(run.captureStdOut(.{}), b.fmt("src/rgl/font/hint/_test/refs/{s}.bin.gz", .{r.name}));
     }

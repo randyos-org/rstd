@@ -14,4 +14,5 @@ pub const GlyphPath = @import("GlyphPath.zig");
 test {
     _ = @import("_test/path.zig");
     _ = @import("_test/seac.zig");
+    _ = @import("_test/fontmatrix.zig");
 }

@@ -51,7 +51,8 @@ test "hinting refs: each file parses, every glyph loads, hinting keeps the conto
         for (r.modes, 0..) |m, i| switch (m) {
             .unhinted => try testing.expect(!moved[i]),
             .native, .native_v35, .native_light => native_moved = native_moved or moved[i],
-            .autohint, .autohint_light => try testing.expect(moved[i]),
+            // the autohinter leaves a synthetic font's glyphs, of no script, alone
+            .autohint, .autohint_light => if (!f.synthetic) try testing.expect(moved[i]),
         };
         try testing.expectEqual(r.cff or r.fpgm_len + r.prep_len > 0, native_moved);
     }

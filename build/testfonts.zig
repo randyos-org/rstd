@@ -1,19 +1,24 @@
 //! The fonts of rstd's font-backed tests and `hint-refs` (issue #805):
 //! rgui's, `build.zig.zon`'s lazy `font_*` dependencies, fetched only with
-//! `-Dtest-fonts`, as a lazy dependency is fetched whenever it is asked for.
+//! `-Dtest-fonts`, as a lazy dependency is fetched whenever it is asked for;
+//! and synthetic CFF fonts `tools/cfffonts.zig` writes (issue #832).
 
 const std = @import("std");
 const rstdbuild = @import("../src/buildutils/__root__.zig");
 const Build = rstdbuild.Build;
 const Module = Build.Module;
+const LazyPath = Build.LazyPath;
+const tools = @import("tools.zig");
 
 pub const Font = struct {
     /// Its field in `rstd_test_fonts`, and its `hint-refs` file's name.
     name: []const u8,
     /// Its `build.zig.zon` dependency.
-    dep: []const u8,
-    /// The file in that dependency.
+    dep: []const u8 = "",
+    /// The file in that dependency, or the name of the one generated.
     path: []const u8,
+    /// `tools/cfffonts.zig`'s font of this name instead of a dependency.
+    generated: ?[]const u8 = null,
 };
 
 pub const fonts = [_]Font{
@@ -30,6 +35,9 @@ pub const fonts = [_]Font{
     .{ .name = "noto_sans_limbu", .dep = "font_noto_sans_limbu", .path = "NotoSansLimbu/hinted/ttf/NotoSansLimbu-Regular.ttf" },
     // variable (wght 200 to 700, avar), VTT bytecode with cvar, for variable hinting
     .{ .name = "cascadia_code", .dep = "font_cascadia_code", .path = "ttf/CascadiaCode.ttf" },
+    // CID-keyed with FontMatrix shears and units per em, and SEAC accents
+    .{ .name = "cff_cid", .path = "rstd-cff-cid.otf", .generated = "cid" },
+    .{ .name = "cff_seac", .path = "rstd-cff-seac.otf", .generated = "seac" },
 };
 
 /// A `hint-refs` file: a font at an instance, its axis values in 16.16
@@ -51,6 +59,17 @@ pub const refs = blk: {
     break :blk r;
 };
 
+/// `f`'s file, null until fetched.
+pub fn file(b: *Build, f: Font) ?LazyPath {
+    if (f.generated) |which| {
+        const run = b.addRunArtifact(tools.hostTool(b, .cfffonts));
+        run.addArg(which);
+        return run.addOutputFileArg(f.path);
+    }
+    const dep = b.lazyDependency(f.dep, .{}) orelse return null;
+    return dep.path(f.path);
+}
+
 pub fn find(name: []const u8) Font {
     for (fonts) |f| if (std.mem.eql(u8, f.name, name)) return f;
     unreachable;
@@ -69,11 +88,11 @@ pub fn module(b: *Build) !*Module {
     var src: std.ArrayList(u8) = .empty;
     try src.appendSlice(b.allocator, "//! The test fonts (build/testfonts.zig).\n\n");
     for (fonts) |f| {
-        const dep = if (enabled) b.lazyDependency(f.dep, .{}) else null;
-        if (dep) |d| {
-            const file = std.Io.Dir.path.basename(f.path);
-            _ = wf.addCopyFile(d.path(f.path), file);
-            try src.print(b.allocator, "pub const {s}: ?[]const u8 = @embedFile(\"{s}\");\n", .{ f.name, file });
+        const path = if (enabled) file(b, f) else null;
+        if (path) |p| {
+            const base = std.Io.Dir.path.basename(f.path);
+            _ = wf.addCopyFile(p, base);
+            try src.print(b.allocator, "pub const {s}: ?[]const u8 = @embedFile(\"{s}\");\n", .{ f.name, base });
         } else try src.print(b.allocator, "pub const {s}: ?[]const u8 = null;\n", .{f.name});
     }
     const m = b.createModule(.{ .root_source_file = wf.add("test_fonts.zig", src.items) });

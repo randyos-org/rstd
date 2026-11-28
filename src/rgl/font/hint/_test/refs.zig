@@ -16,10 +16,22 @@ const vary = @import("../vary/__root__.zig");
 const Allocator = std.mem.Allocator;
 
 /// A file, with its font's field in `rstd_test_fonts`.
-pub const File = struct { font: []const u8, name: []const u8, gz: []const u8 };
+pub const File = struct {
+    font: []const u8,
+    name: []const u8,
+    gz: []const u8,
+    /// `tools/cfffonts.zig`'s: no glyph of a script the autohinter knows.
+    synthetic: bool = false,
+};
 
 fn file(comptime font: []const u8, comptime name: []const u8) File {
     return .{ .font = font, .name = name, .gz = @embedFile("refs/" ++ name ++ ".bin.gz") };
+}
+
+fn synthetic(comptime name: []const u8) File {
+    var f = file(name, name);
+    f.synthetic = true;
+    return f;
 }
 
 /// `build/testfonts.zig`'s `refs`.
@@ -36,6 +48,8 @@ pub const files = [_]File{
     file("cascadia_code", "cascadia_code_wght300"),
     file("cascadia_code", "cascadia_code_wght550"),
     file("cascadia_code", "cascadia_code_wght700"),
+    synthetic("cff_cid"),
+    synthetic("cff_seac"),
 };
 
 /// The instance `r` is at, null for the default; the caller owns it.

@@ -60,12 +60,6 @@ pub fn advance(s: *Source, allocator: Allocator, gid: u16) ?i32 {
     return g.advance;
 }
 
-/// The advance of `g`, loaded by `load`: its own at an instance, where its
-/// phantom points or `HVAR` set it, else `hmtx`'s.
-pub fn loadedAdvance(s: *const Source, g: Glyph, gid: u16) i32 {
-    return if (s.blend != null) g.advance else s.hmtxAdvance(gid);
-}
-
 pub fn glyphCount(s: *const Source) u16 {
     return if (s.sfnt.maxp) |m| m.numGlyphs() else 0;
 }
