@@ -3,7 +3,7 @@
 //! `faer/src/linalg/evd/hessenberg.rs`'s `hessenberg_rearranged_unblocked`,
 //! its fused pass in fixed chunks of columns (faer's `Par::Rayon` splits by
 //! its thread count instead), so the bits never depend on the worker count;
-//! from order 256 the blocked form (`hessenberg_blocked.zig`).
+//! from `coreThreshold` the blocked form (`hessenberg_blocked.zig`).
 
 const std = @import("std");
 const ops = @import("ops.zig");
@@ -16,6 +16,7 @@ const interface = @import("interface.zig");
 const blocked_form = @import("hessenberg_blocked.zig");
 const blas = @import("../blas/__root__.zig");
 const threading = @import("../blas/threading.zig");
+const coretypes = @import("../blas/cpu/coretypes.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -27,9 +28,19 @@ const Error = ops.Error;
 /// reduces by blocks.
 pub const blocking_threshold = 256 * 256;
 
+/// The `n²` from which `hessenberg` blocks on the selected core: order 64 on
+/// `haswell`, where the blocked form ran 1.5 to 2.7 times the fused pass at
+/// orders 64 and 128 on one thread, every type (issue #877); faer's
+/// `blocking_threshold` elsewhere, untimed.
+pub fn coreThreshold() usize {
+    const core = blas.coreType();
+    if (@TypeOf(core) == ?coretypes.X86CoreType) if (core) |c| if (c == .haswell) return 64 * 64;
+    return blocking_threshold;
+}
+
 /// `hessenberg_in_place`: `a` is `n x n`, `h` `bs x (n - 1)` (`bs > 0`).
 pub fn hessenberg(al: Allocator, io: Io, comptime T: type, a: Mat(T), h: Mat(T)) Error!void {
-    return hessenbergWith(al, io, T, a, h, blocking_threshold);
+    return hessenbergWith(al, io, T, a, h, coreThreshold());
 }
 
 /// `hessenberg`, blocked from `n² >= threshold` (`h`'s rows the block
