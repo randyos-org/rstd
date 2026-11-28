@@ -382,7 +382,7 @@ pub const Gesdd = struct {
 };
 
 /// The Hessenberg reduction of all of `A` (`ilo = 1`, `ihi = n`), faer's
-/// below order 256 and blocked from it (T250); nominal `10n³/3`. `tau` in
+/// below order 256 (64 on `haswell`, T271) and blocked from it (T250); nominal `10n³/3`. `tau` in
 /// `s`; only the agreement shows, as the reflections' signs may differ.
 pub const Gehrd = struct {
     pub const name = "gehrd";
