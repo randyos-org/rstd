@@ -32,7 +32,7 @@ pub fn opAt(comptime T: type, trans: Trans, a: []const T, n: usize, i: usize, k:
 /// under `thresh`.
 pub fn ratios(comptime T: type, al: std.mem.Allocator, trans: Trans, n: usize, nrhs: usize, a: []const T, b: []const T, x: []const T, xact: []const T, ferr: []const Float(T), berr: []const Float(T)) ![3]Float(T) {
     const F = Float(T);
-    const eps = std.math.floatEps(F);
+    const eps = std.math.floatEps(F) / 2; // `DLAMCH('Epsilon')`
     const unfl = std.math.floatMin(F);
     // `dget04`'s `rcond`: from the inverse, as `dchkge.f`'s `RCONDC`
     const inv = try al.dupe(T, a);

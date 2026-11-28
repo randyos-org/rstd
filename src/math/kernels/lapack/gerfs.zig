@@ -61,7 +61,7 @@ pub fn gerfs(allocator: Allocator, io: Io, comptime T: type, trans: Trans, n: us
     const transn: Trans = if (notran) .n else if (comptime isComplex(T)) .c else .t;
     const transt: Trans = if (!notran) .n else if (comptime isComplex(T)) .c else .t;
     const nz: F = @floatFromInt(n + 1);
-    const eps = std.math.floatEps(F);
+    const eps = std.math.floatEps(F) / 2; // `DLAMCH('Epsilon')`
     const safmin = std.math.floatMin(F);
     const safe1 = nz * safmin;
     const safe2 = safe1 / eps;
