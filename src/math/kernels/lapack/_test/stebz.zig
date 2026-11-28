@@ -18,9 +18,9 @@ const SpectrumOrder = interface.SpectrumOrder;
 /// `T`'s kinds: random; random with every seventh `e` zero; graded, `d(i)`
 /// and `e(i)` halving down the diagonal; Wilkinson's `W⁺`, `d(i) = |m - i|`
 /// and `e = 1`, whose eigenvalues come in close pairs.
-const Kind = enum { random, split, graded, wilkinson };
+pub const Kind = enum { random, split, graded, wilkinson };
 
-fn tridiagonal(comptime F: type, kind: Kind, d: []F, e: []F) void {
+pub fn tridiagonal(comptime F: type, kind: Kind, d: []F, e: []F) void {
     const n = d.len;
     check.fill(F, d, n * 13 + 1);
     check.fill(F, e, n * 17 + 2);
