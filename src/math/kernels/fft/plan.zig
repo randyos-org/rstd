@@ -5,9 +5,9 @@
 //! (`n = 16 2^a 3^b 5^c`, at most `2^26`), pffft's SIMD instead
 //! (`pffft/`). On macOS, before either, vDSP's lengths where it ran faster
 //! (`vdsp.faster`, issues #155, #856): on x86_64 all but pffft's, 1.3 to
-//! 2.4 times rstd's own for `f64`; on aarch64 pffft's from 3840 too, 1.1 to
-//! 1.8 times pffft's, but `f64` at powers of 2 only. A batch runs through
-//! `io` (`batch.zig`).
+//! 2.4 times rstd's own for `f64`; on aarch64 pffft's from 3840 too (past
+//! 65536 powers of 2 only, #870), 1.1 to 1.8 times pffft's, but `f64` at
+//! powers of 2 only. A batch runs through `io` (`batch.zig`).
 
 const std = @import("std");
 const fft = @import("__root__.zig");

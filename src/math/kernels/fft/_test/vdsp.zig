@@ -162,6 +162,8 @@ test "plans take vDSP where it ran faster: per architecture" {
         .{ .real = false, .double = false, .n = 3840, .arm = true, .x86 = false },
         .{ .real = false, .double = false, .n = 3072, .arm = false, .x86 = false },
         .{ .real = false, .double = false, .n = 120, .arm = true, .x86 = true },
+        .{ .real = false, .double = false, .n = 3 << 15, .arm = false, .x86 = false },
+        .{ .real = false, .double = false, .n = 1 << 17, .arm = true, .x86 = false },
         .{ .real = false, .double = true, .n = 4096, .arm = true, .x86 = true },
         .{ .real = false, .double = true, .n = 3 << 10, .arm = false, .x86 = true },
         .{ .real = true, .double = false, .n = 16, .arm = false, .x86 = true },
@@ -179,4 +181,35 @@ test "plans take vDSP where it ran faster: per architecture" {
         defer p.deinit(al);
         try testing.expectEqual(vdsp.available and want, p.routed());
     };
+}
+
+test "default f32 plans keep pffft's accuracy around 65536: within 8 eps of an f64 transform" {
+    // vDSP's arm64 transform past 65536 at 3, 5, 15 times 2^k was 18 to 24 (#870)
+    const al = testing.allocator;
+    _ = fft.useAccelerate(true);
+    for ([_]usize{ 15 << 12, 1 << 17, 3 << 15, 5 << 14 }) |n| {
+        const x = try al.alloc(Complex(f32), n);
+        defer al.free(x);
+        fill(f32, floats(f32, x), n);
+        const want = try al.alloc(Complex(f64), n);
+        defer al.free(want);
+        for (x, want) |a, *b| b.* = .init(a.re, a.im);
+        var pd = try fft.Plan(f64).init(al, n);
+        defer pd.deinit(al);
+        const sd = try al.alloc(Complex(f64), pd.scratchLen());
+        defer al.free(sd);
+        try pd.transform(testing.io, want, sd, .forward, .{}, .backward);
+        var p = try fft.Plan(f32).init(al, n);
+        defer p.deinit(al);
+        const s = try al.alloc(Complex(f32), p.scratchLen());
+        defer al.free(s);
+        try p.transform(testing.io, x, s, .forward, .{}, .backward);
+        var big: f64 = 0;
+        var worst: f64 = 0;
+        for (x, want) |a, b| {
+            big = @max(big, @abs(b.re), @abs(b.im));
+            worst = @max(worst, @abs(a.re - b.re), @abs(a.im - b.im));
+        }
+        try testing.expect(worst <= 8 * std.math.floatEps(f32) * big);
+    }
 }
