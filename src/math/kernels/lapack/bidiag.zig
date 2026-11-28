@@ -2,13 +2,14 @@
 //! (<https://codeberg.org/sarah-quinones/faer>, tag `faer-v0.24.4`, MIT):
 //! `faer/src/linalg/svd/bidiag.rs`, its fused "BLAS 2.5" pass (Howell et al.,
 //! ACM TOMS 34(3), 2008) split by column chunks, so the bits never depend on
-//! the worker count.
+//! the worker count; a column's arithmetic in `bidiag_fused.zig`.
 
 const std = @import("std");
 const ops = @import("ops.zig");
 const blas_calls = @import("blas_calls.zig");
 const hh = @import("householder.zig");
 const threading = @import("../blas/threading.zig");
+const fused_column = @import("bidiag_fused.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -127,25 +128,12 @@ fn fused(io: Io, comptime T: type, a22: Mat(T), u: [*]const T, up: [*]const T, z
         ldv: usize,
 
         fn run(ctx: *const @This(), ch: threading.Chunk) void {
-            for (ch.start..ch.end) |j| ctx.y[j] = column(T, ctx.a.rows, ctx.a.col(j), ctx.u, ctx.up, ctx.z, ops.neg(T, ctx.y[j]), ops.neg(T, ctx.vp[j * ctx.ldv]));
+            for (ch.start..ch.end) |j| ctx.y[j] = fused_column.column(T, ctx.a.rows, ctx.a.col(j), ctx.u, ctx.up, ctx.z, ops.neg(T, ctx.y[j]), ops.neg(T, ctx.vp[j * ctx.ldv]));
         }
     };
     const ctx: Ctx = .{ .a = a22, .u = u, .up = up, .z = z, .y = y, .vp = vp, .ldv = ldv };
     const p = threading.plan(.gemv, T, threading.product(&.{ a22.rows, a22.cols }), a22.cols, .even, 1);
     try threading.forEach(io, &p, &ctx, Ctx.run);
-}
-
-/// One column of `fused`: `a += up yj + z vj`, then `uᴴ a` in four partial
-/// sums, as faer's `simd_iter!` over `[indices; 4]` keeps them.
-fn column(comptime T: type, m: usize, a: [*]T, u: [*]const T, up: [*]const T, z: [*]const T, yj: T, vj: T) T {
-    var acc: [4]T = @splat(ops.zero(T));
-    for (0..m) |i| {
-        var x = ops.add(T, a[i], ops.mul(T, up[i], yj));
-        x = ops.add(T, x, ops.mul(T, z[i], vj));
-        a[i] = x;
-        acc[i % 4] = ops.add(T, acc[i % 4], ops.mul(T, ops.conj(T, u[i]), x));
-    }
-    return ops.add(T, ops.add(T, acc[0], acc[1]), ops.add(T, acc[2], acc[3]));
 }
 
 // ---- tests -----------------------------------------------------------------------

@@ -945,7 +945,8 @@ allows.
   `dgebak.f`, which faer lacks), `trevc.zig` (Reference-LAPACK's `dtrevc3.f`, `ztrevc3.f`
   and `dlaln2.f`, whose scaling faer lacks), and `evd.zig` (`evd/mod.rs`, with `syevd`,
   `syev` and `geev`). Faer's `rayon` parallelism becomes rstd's: the fused bidiagonalization pass
-  splits by column chunks (independent columns, so the same bits at any worker count); the
+  splits by column chunks (independent columns, so the same bits at any worker count), each
+  column in `@Vector`s with faer's four partial sums (`bidiag_fused.zig`, T247); the
   fused tridiagonalization and Hessenberg passes, whose threads each sum a partial
   product, run serially (faer's `Par::Seq` path), so no sum depends on the worker count;
   the products thread inside the BLAS; and divide-and-conquer's two halves run in turn, as
