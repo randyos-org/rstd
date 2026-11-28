@@ -36,10 +36,10 @@ pub const fonts = [_]Font{
     // variable (wght 200 to 700, avar), VTT bytecode with cvar, for variable hinting
     .{ .name = "cascadia_code", .dep = "font_cascadia_code", .path = "ttf/CascadiaCode.ttf" },
     // variable CFF2 (wght 200 to 900, avar, HVAR), for blended charstrings and Private DICTs
-    .{ .name = "source_sans_3", .dep = "font_source_sans_3_vf", .path = "VF/SourceSans3VF-Upright.otf" },
+    .{ .name = "source_sans_3", .dep = "font_source_sans_3_vf", .path = "SourceSans3VF-Upright.otf" },
     // the italics of both, for the autohinter's italic rule
     .{ .name = "cascadia_code_italic", .dep = "font_cascadia_code", .path = "ttf/CascadiaCodeItalic.ttf" },
-    .{ .name = "source_sans_3_italic", .dep = "font_source_sans_3_vf", .path = "VF/SourceSans3VF-Italic.otf" },
+    .{ .name = "source_sans_3_italic", .dep = "font_source_sans_3_vf", .path = "SourceSans3VF-Italic.otf" },
     // CID-keyed with FontMatrix shears and units per em, and SEAC accents
     .{ .name = "cff_cid", .path = "rstd-cff-cid.otf", .generated = "cid" },
     .{ .name = "cff_seac", .path = "rstd-cff-seac.otf", .generated = "seac" },
