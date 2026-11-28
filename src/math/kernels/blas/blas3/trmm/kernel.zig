@@ -174,16 +174,56 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
         pub const tile_rows = mr;
 
         /// The diagonal block of a whole tile, `mr` rows by `wn` columns, as
-        /// `run`'s scalar loop sums it, a column of rows at a time: a product
-        /// outside the triangle becomes an exact zero, which no sum here
-        /// changes by, so an infinity meets no zero and the bits are its own,
-        /// a NaN's sign and payload aside (LLVM keeps neither).
+        /// `run`'s scalar loop sums it: a product outside the triangle becomes
+        /// an exact zero, which no sum here changes by, so an infinity meets no
+        /// zero and the bits are its own, a NaN's sign and payload aside (LLVM
+        /// keeps neither). Each element sums its depths in order either way.
         pub fn diagonal(left: bool, from: bool, wn: usize, d0: usize, d1: usize, off: isize, pa: [*]const F, pb: [*]const F, pc: [*]F, ld: usize, alpha: F) void {
-            const V = @Vector(mr, F);
-            const I = @Vector(mr, isize);
+            if (across_columns) diagonalAcross(left, from, wn, d0, d1, off, pa, pb, pc, ld, alpha) else diagonalDown(left, from, wn, d0, d1, off, pa, pb, pc, ld, alpha);
+        }
+
+        /// A depth at a time across the columns, each depth's mask and A loaded
+        /// once: `f32` trmm on Zen 3 rose from 0.22 to 0.38 of OpenBLAS at
+        /// n = 64 and 0.83 to 0.91 at 2048 (#719); `f64` fell (0.70 to 0.55
+        /// at 64), so it keeps a column at a time.
+        const across_columns = @bitSizeOf(F) == 32;
+
+        // row numbers as lanes as wide as `F`'s: one compare per vector
+        const Ix = if (@bitSizeOf(F) == 64) i64 else i32;
+        const V = @Vector(mr, F);
+        const I = @Vector(mr, Ix);
+
+        /// Left: row `i` of the tile is row `off + i` of `op(A)`.
+        fn tileRows(off: isize) I {
+            return @as(I, @splat(@as(Ix, @intCast(off)))) + std.simd.iota(Ix, mr);
+        }
+
+        fn diagonalAcross(left: bool, from: bool, wn: usize, d0: usize, d1: usize, off: isize, pa: [*]const F, pb: [*]const F, pc: [*]F, ld: usize, alpha: F) void {
             const zero: V = @splat(0);
-            // left: row `i` of the tile is row `off + i` of `op(A)`
-            const rows: I = @as(I, @splat(off)) + std.simd.iota(isize, mr);
+            const rows = tileRows(off);
+            var s: [nr]V = @splat(zero);
+            for (d0..d1) |d| {
+                const di: isize = @intCast(d);
+                const x: V = pa[d * mr ..][0..mr].*;
+                const at: I = @splat(@as(Ix, @intCast(di)));
+                const keep = if (from) at >= rows else at <= rows;
+                // right: column `j` of the tile is column `off + j`
+                inline for (0..nr) |j| if (j < wn) {
+                    const p = x * @as(V, @splat(pb[d * wn + j]));
+                    if (left) {
+                        s[j] += @select(F, keep, p, zero);
+                    } else if (if (from) di >= off + j else di <= off + j) s[j] += p;
+                };
+            }
+            inline for (0..nr) |j| if (j < wn) {
+                const c = pc + j * ld;
+                c[0..mr].* = @as(V, c[0..mr].*) + @as(V, @splat(alpha)) * s[j];
+            };
+        }
+
+        fn diagonalDown(left: bool, from: bool, wn: usize, d0: usize, d1: usize, off: isize, pa: [*]const F, pb: [*]const F, pc: [*]F, ld: usize, alpha: F) void {
+            const zero: V = @splat(0);
+            const rows = tileRows(off);
             for (0..wn) |j| {
                 // right: column `j` of the tile is column `off + j`
                 const col: isize = off + @as(isize, @intCast(j));
@@ -192,7 +232,7 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
                     const di: isize = @intCast(d);
                     const p = @as(V, pa[d * mr ..][0..mr].*) * @as(V, @splat(pb[d * wn + j]));
                     if (left) {
-                        const at: I = @splat(di);
+                        const at: I = @splat(@as(Ix, @intCast(di)));
                         s += @select(F, if (from) at >= rows else at <= rows, p, zero);
                     } else if (if (from) di >= col else di <= col) s += p;
                 }
