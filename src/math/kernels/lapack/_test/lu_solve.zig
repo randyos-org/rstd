@@ -15,6 +15,7 @@ const lcheck = @import("check.zig");
 const fixtures = @import("fixtures.zig");
 const lu = @import("../lu.zig");
 const lu_tests = @import("lu.zig");
+const accel = @import("../../blas/apple_accel.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -376,4 +377,61 @@ test "getri: a zero pivot is Singular with A as getrf left it; bad arguments; em
     try testing.expectError(error.PivotOutOfRange, getri(fa, check.io, f64, 2, &a, 2, &ipiv));
     try getri(fa, check.io, f64, 0, &a, 1, &ipiv);
     for (a) |v| try testing.expect(std.math.isNan(v));
+}
+
+test "getrf, getrs and gesv go to Accelerate on arm64 macOS and agree with rstd's; a NaN in A stays on rstd" {
+    if (comptime !accel.available or accel.x86_64) return error.SkipZigTest;
+    _ = blas.vtable();
+    const was = accel.routing();
+    defer _ = accel.route(was);
+    if (!accel.route(true)) return error.SkipZigTest;
+    const al = testing.allocator;
+    inline for (.{ f32, f64, types.Complex32, types.Complex64 }) |T| {
+        const n = 40;
+        var p = try fixtures.LuProblem(T).init(al, n, n, 91);
+        defer p.deinit(al);
+        // a dominant diagonal: no interchanges, a well-conditioned solve
+        for (0..n) |i| p.a[i * (p.lda + 1)] = fromF64(T, 2 * n);
+        const a0 = try al.dupe(T, p.a);
+        defer al.free(a0);
+        const b = try al.alloc(T, n * 3);
+        defer al.free(b);
+        const b2 = try al.alloc(T, n * 3);
+        defer al.free(b2);
+        const ipiv2 = try al.alloc(usize, n);
+        defer al.free(ipiv2);
+        // `z`'s solve stays rstd's
+        const solves: usize = if (T == types.Complex64) 0 else 1;
+        // routed: the factor, then the solve, each one Accelerate call
+        var before = accel.calls.load(.monotonic);
+        try testing.expectEqual(@as(?usize, null), try p.factorIt(al));
+        try testing.expect(accel.calls.load(.monotonic) == before + 1);
+        check.fill(T, b, 5);
+        try getrs(al, check.io, T, .n, n, 3, p.a, p.lda, p.ipiv, b, n);
+        try testing.expect(accel.calls.load(.monotonic) == before + 1 + solves);
+        // rstd's own: the same pivots, factors and solutions within rounding
+        _ = accel.route(false);
+        const own = try al.dupe(T, a0);
+        defer al.free(own);
+        try testing.expectEqual(@as(?usize, null), try getrf(al, check.io, T, n, n, own, p.lda, ipiv2));
+        check.fill(T, b2, 5);
+        try getrs(al, check.io, T, .n, n, 3, own, p.lda, ipiv2, b2, n);
+        _ = accel.route(true);
+        try testing.expectEqualSlices(usize, ipiv2, p.ipiv);
+        const tol = check.tolerance(Float(T), 4 * n);
+        for (0..n) |j| try check.expectCloseSlices(T, own[j * p.lda ..][0..n], p.a[j * p.lda ..][0..n], tol);
+        try check.expectCloseSlices(T, b2, b, 16 * tol);
+        // gesv: two calls
+        @memcpy(p.a, a0);
+        check.fill(T, b, 5);
+        before = accel.calls.load(.monotonic);
+        try gesv(al, check.io, T, n, 3, p.a, p.lda, p.ipiv, b, n);
+        try testing.expect(accel.calls.load(.monotonic) == before + 1 + solves);
+        // a NaN: rstd's pivot search takes it, Accelerate's would not
+        @memcpy(p.a, a0);
+        p.a[3 + 2 * p.lda] = fromF64(T, nan);
+        before = accel.calls.load(.monotonic);
+        _ = try p.factorIt(al);
+        try testing.expect(accel.calls.load(.monotonic) == before);
+    }
 }

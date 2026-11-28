@@ -86,12 +86,14 @@ fn Sig(comptime I: type, comptime T: type) type {
 
         // LAPACK: Fortran's, every argument by pointer
         const Potrf = *const fn (*const u8, *const I, Y, *const I, *I) callconv(.c) void;
+        const Getrf = *const fn (*const I, *const I, Y, *const I, [*]I, *I) callconv(.c) void;
+        const Getrs = *const fn (*const u8, *const I, *const I, X, *const I, [*]const I, Y, *const I, *I) callconv(.c) void;
     };
 }
 
-/// The CBLAS routines rstd has, and the LAPACK ones it routes (`?potrf_`),
-/// with `I` its integer (`i64` for ILP64,
-/// `c_int` otherwise). `catlas_?axpby` is Apple's `axpby`. A field is null
+/// The CBLAS routines rstd has, and the LAPACK ones it routes (`?potrf_`,
+/// `?getrf_`, `?getrs_`), with `I` its integer (`i64` for ILP64, `c_int`
+/// otherwise). `catlas_?axpby` is Apple's `axpby`. A field is null
 /// where this Accelerate has no such symbol.
 pub fn Table(comptime I: type) type {
     const s = Sig(I, f32);
@@ -264,6 +266,14 @@ pub fn Table(comptime I: type) type {
         dpotrf_: ?d.Potrf,
         cpotrf_: ?c.Potrf,
         zpotrf_: ?z.Potrf,
+        sgetrf_: ?s.Getrf,
+        dgetrf_: ?d.Getrf,
+        cgetrf_: ?c.Getrf,
+        zgetrf_: ?z.Getrf,
+        sgetrs_: ?s.Getrs,
+        dgetrs_: ?d.Getrs,
+        cgetrs_: ?c.Getrs,
+        zgetrs_: ?z.Getrs,
     };
 }
 
