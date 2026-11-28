@@ -2,6 +2,7 @@
 //! transforms, the lengths vDSP takes, and the switch.
 
 const std = @import("std");
+const sysinfo = @import("builtin");
 const fft = @import("../__root__.zig");
 const vdsp = @import("../vdsp.zig");
 const pffft = @import("../pffft/__root__.zig");
@@ -30,13 +31,16 @@ fn floats(comptime T: type, v: []Complex(T)) []T {
     return @as([*]T, @ptrCast(v.ptr))[0 .. 2 * v.len];
 }
 
-/// The two plans of `P` at `n`: vDSP's (where it takes `n`) and rstd's own.
+/// The two plans of `P` at `n`: vDSP's (where it takes `n`, faster or not)
+/// and rstd's own.
 fn both(comptime P: type, n: usize) ![2]P {
     const al = testing.allocator;
     _ = fft.useAccelerate(false);
     var own = try P.init(al, n);
     errdefer own.deinit(al);
     _ = fft.useAccelerate(true);
+    fft.useAccelerateEverywhere(true);
+    defer fft.useAccelerateEverywhere(false);
     const routed = try P.init(al, n);
     try testing.expect(!own.routed());
     return .{ routed, own };
@@ -54,8 +58,8 @@ test "Plan on vDSP matches rstd's own: every type, normalization and direction, 
     inline for (.{ f32, f64 }) |T| for ([_]usize{ 8, 16, 24, 40, 48, 120, 1024, 3 << 10, 15 << 6 }) |n| {
         var ps = try both(fft.Plan(T), n);
         defer for (&ps) |*p| p.deinit(al);
-        // `f32` at pffft's sizes keeps pffft, which ran faster
-        try testing.expectEqual(vdsp.available and !(T == f32 and pffft.validSize(n, .complex)), ps[0].routed());
+        // vDSP comes before pffft
+        try testing.expectEqual(vdsp.available, ps[0].routed());
         const len = layout.count * n * layout.stride;
         const in = try al.alloc(Complex(T), len);
         defer al.free(in);
@@ -115,10 +119,10 @@ test "RealPlan on vDSP matches rstd's own: every type and normalization, both wa
 test "a routed batch: the same bits on Io.failing and on testing.io with many slots" {
     const al = testing.allocator;
     _ = fft.useAccelerate(true);
-    var p = try fft.Plan(f64).init(al, 240);
+    var p = try fft.Plan(f64).init(al, 256);
     defer p.deinit(al);
     const count = 8;
-    const in = try al.alloc(Complex(f64), count * 240);
+    const in = try al.alloc(Complex(f64), count * 256);
     defer al.free(in);
     fill(f64, floats(f64, in), 9);
     const a = try al.alloc(Complex(f64), in.len);
@@ -148,4 +152,31 @@ test "useAccelerate(false) keeps rstd's own transforms, and other lengths never 
     var h = try fft.Plan(f16).init(al, 64);
     defer h.deinit(al);
     try testing.expect(!h.routed());
+}
+
+test "plans take vDSP where it ran faster: per architecture" {
+    const al = testing.allocator;
+    const Case = struct { real: bool, double: bool, n: usize, arm: bool, x86: bool };
+    const cases = [_]Case{
+        .{ .real = false, .double = false, .n = 1024, .arm = false, .x86 = false },
+        .{ .real = false, .double = false, .n = 3840, .arm = true, .x86 = false },
+        .{ .real = false, .double = false, .n = 3072, .arm = false, .x86 = false },
+        .{ .real = false, .double = false, .n = 120, .arm = true, .x86 = true },
+        .{ .real = false, .double = true, .n = 4096, .arm = true, .x86 = true },
+        .{ .real = false, .double = true, .n = 3 << 10, .arm = false, .x86 = true },
+        .{ .real = true, .double = false, .n = 16, .arm = false, .x86 = true },
+        .{ .real = true, .double = false, .n = 240, .arm = true, .x86 = true },
+        .{ .real = true, .double = true, .n = 1024, .arm = true, .x86 = true },
+        .{ .real = true, .double = true, .n = 1 << 15, .arm = false, .x86 = true },
+        .{ .real = true, .double = true, .n = 15 << 4, .arm = false, .x86 = true },
+    };
+    _ = fft.useAccelerate(true);
+    inline for (.{ false, true }) |real| inline for (.{ f32, f64 }) |T| for (cases) |c| {
+        if (c.real != real or c.double != (T == f64)) continue;
+        const want = if (sysinfo.cpu.arch == .aarch64) c.arm else c.x86;
+        try testing.expectEqual(want, vdsp.faster(T, real, c.n));
+        var p = try (if (real) fft.RealPlan(T) else fft.Plan(T)).init(al, c.n);
+        defer p.deinit(al);
+        try testing.expectEqual(vdsp.available and want, p.routed());
+    };
 }

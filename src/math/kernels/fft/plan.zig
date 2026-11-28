@@ -3,10 +3,11 @@
 //! mixed radix (`cfftp/`) unless its cost model prefers Bluestein's
 //! (`bluestein.zig`) for a large prime factor. For f32 at pffft's sizes
 //! (`n = 16 2^a 3^b 5^c`, at most `2^26`), pffft's SIMD instead
-//! (`pffft/`). On macOS, vDSP's other `f32` lengths and its `f64` ones go
-//! to vDSP (`vdsp.zig`, issue #155), 1.3 to 2.4 times rstd's own on
-//! x86_64, where pffft beat it at pffft's. A batch runs through `io`
-//! (`batch.zig`).
+//! (`pffft/`). On macOS, before either, vDSP's lengths where it ran faster
+//! (`vdsp.faster`, issues #155, #856): on x86_64 all but pffft's, 1.3 to
+//! 2.4 times rstd's own for `f64`; on aarch64 pffft's from 3840 too, 1.1 to
+//! 1.8 times pffft's, but `f64` at powers of 2 only. A batch runs through
+//! `io` (`batch.zig`).
 
 const std = @import("std");
 const fft = @import("__root__.zig");
@@ -39,14 +40,14 @@ pub fn Plan(comptime T: type) type {
 
         pub fn init(allocator: Allocator, n: usize) fft.InitError!Self {
             if (n == 0) return error.ZeroLength;
+            if (Vdsp(T, false).init(n)) |v| {
+                // one gathered transform and the split input and output
+                return .{ .n = n, .scratch_len = 3 * n, .kind = .{ .vdsp = v } };
+            }
             if (T == f32 and pffft.validSize(n, .complex)) {
                 const s = try pffft.Setup.init(allocator, n, .complex);
                 // one gathered transform and pffft's work buffer
                 return .{ .n = n, .scratch_len = 2 * n, .kind = .{ .simd = s } };
-            }
-            if (Vdsp(T, false).init(n)) |v| {
-                // one gathered transform and the split input and output
-                return .{ .n = n, .scratch_len = 3 * n, .kind = .{ .vdsp = v } };
             }
             // `pocketfft_c`'s choice
             const lpf = if (n < 50) 0 else util.largestPrimeFactor(n);

@@ -5,7 +5,8 @@
 //! through FFTPACK's halfcomplex order either way. For f32 at pffft's sizes
 //! (`n = 32 2^a 3^b 5^c`, at most `2^26`), pffft's SIMD instead
 //! (`pffft/`), which alone has the unordered forms. On macOS, the other
-//! `f32` and `f64` lengths of vDSP's go to vDSP (`vdsp.zig`, issue #155).
+//! `f32` and `f64` lengths of vDSP's go to vDSP where it ran faster
+//! (`vdsp.faster`, issues #155, #856).
 
 const std = @import("std");
 const fft = @import("__root__.zig");

@@ -53,9 +53,13 @@ pub const Plan = complex_plan.Plan;
 pub const RealPlan = real_plan.RealPlan;
 
 /// Whether plans made from now on hand vDSP's lengths to Apple's vDSP (macOS,
-/// `f32` and `f64`; on by default); true if they will. A plan keeps what it
-/// was made with (`vdsp.zig`).
+/// `f32` and `f64`, where it ran faster; on by default); true if they will.
+/// A plan keeps what it was made with (`vdsp.zig`).
 pub const useAccelerate = vdsp.useAccelerate;
+
+/// Whether plans made from now on take vDSP at all its lengths, faster or not
+/// (off by default): for comparing them (`vdsp.zig`).
+pub const useAccelerateEverywhere = vdsp.useAccelerateEverywhere;
 
 /// `Plan` for a comptime `n`: factors and twiddles at comptime, unrolled, no
 /// allocator; the same calls on a value `.{}`.
