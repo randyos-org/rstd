@@ -1057,6 +1057,7 @@ allows.
 - **`gerqf`, `orgrq`, `ormrq`** (`rq.zig`): `gelqf`, `orglq` and `ormlq` on `J A J`, `J` the reversal: `J A J = (J R J)(J Q J)` is an LQ, and its reflections and `tau`s, reversed, are the reference's (`dgerqf.f`).
 - **`ggqrf`, `ggrqf`** (`gqr.zig`): `dggqrf.f` and `dggrqf.f` over them: `geqrf`, `ormqr`, `gerqf`, or `gerqf`, `ormrq`, `geqrf`.
 - **`geequ`, `laqge`** (`equilibrate.zig`): `dgeequ.f` and `dlaqge.f`; a zero row or column is `geequ`'s error (the reference's `INFO > 0`), `laqge` returns the `Equilibration` it applied (`EQUED`).
+- **`gesvx`** (`gesvx.zig`): `dgesvx.f` over rstd's `geequ`, `laqge`, `getrf`, `gecon`, `getrs` and `gerfs`; its `LuSolveReport` carries `RCOND`, `RPVGRW` and the reference's `INFO > 0` (the first zero pivot, or `rcond` below `eps`) as fields, not errors, as `getrf` returns its zero pivot.
 - **`gglse`, `ggglm`** (`gls.zig`): `dgglse.f` and `dggglm.f` over `ggrqf` and `ggqrf`, with 3.12.0's scaling of `A`, `B` and the right-hand sides by powers of two into `[smlnum, bignum)`; each rank deficiency (the reference's `INFO` 1 and 2) is its own error.
 - **Not positive definite:** `potrf`, `potf2` and `pbtrf` return `error.NotPositiveDefinite`
   without the failing minor's order (user, 2026-11-16,

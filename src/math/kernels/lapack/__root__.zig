@@ -63,6 +63,7 @@ const svd = @import("svd.zig");
 const norm = @import("norm.zig");
 const equilibrate = @import("equilibrate.zig");
 const refine = @import("gerfs.zig");
+const expert = @import("gesvx.zig");
 
 pub const Uplo = types.Uplo;
 pub const Trans = types.Trans;
@@ -375,6 +376,12 @@ pub const laqge = equilibrate.laqge;
 /// `gerfs`: a `trans` it does not take, a bad pivot or shape.
 pub const GerfsError = refine.GerfsError;
 pub const gerfs = refine.gerfs;
+/// `gesvx`: `gesv` with equilibration, refinement and error bounds; a
+/// singular `U` or an ill-conditioned `A` is in its report, not an error.
+pub const FactorizationInput = expert.FactorizationInput;
+pub const LuSolveReport = expert.LuSolveReport;
+pub const GesvxError = expert.GesvxError;
+pub const gesvx = expert.gesvx;
 pub const laset = auxiliary.laset;
 pub const lapy2 = auxiliary.lapy2;
 test {
@@ -434,6 +441,7 @@ test {
     _ = @import("_test/gls.zig");
     _ = @import("_test/equilibrate.zig");
     _ = @import("_test/gerfs.zig");
+    _ = @import("_test/gesvx.zig");
     _ = pbtrs_solve;
     _ = @import("tgsen_condition.zig");
     _ = relapack_tests;

@@ -170,3 +170,7 @@ pub const VectorJob = enum { none, compute };
 
 /// LAPACK's `EQUED`: what `laqge` and `gesvx` scaled, `diag(R) A diag(C)`.
 pub const Equilibration = enum { none, rows, columns, both };
+
+/// LAPACK's `FACT`: `gesvx` factors `A` (`N`), takes its given factor
+/// (`F`), or equilibrates `A` first (`E`).
+pub const FactorizationInput = enum { factor, factored, equilibrate_and_factor };
