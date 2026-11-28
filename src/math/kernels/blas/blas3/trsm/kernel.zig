@@ -16,7 +16,6 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
     const G = gk.Kernels(T, geo);
     const mr = geo.mr();
     const nr = geo.nr;
-    const one: E = if (complex) .{ 1, 0 } else 1;
     return struct {
         // ---- arithmetic on elements -----------------------------------------
 
@@ -42,36 +41,11 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
 
         // ---- copies --------------------------------------------------------
 
-        const Source = struct {
-            a: [*]const E,
-            ld: usize,
-            offset: isize,
-            across: bool,
-            upper: bool,
-            unit: bool,
-
-            pub fn at(s: Source, j: usize, i: usize) ?E {
-                const jj = s.offset + @as(isize, @intCast(j));
-                const ii: isize = @intCast(i);
-                const v = s.a[if (s.across) j + i * s.ld else i + j * s.ld];
-                if (ii == jj) return if (s.unit) one else v;
-                // the element's row and column in the triangle
-                const row = if (s.across) jj else ii;
-                const col = if (s.across) ii else jj;
-                if (if (s.upper) row > col else row < col) return null;
-                return v;
-            }
-        };
-
-        fn copy(u: usize, upper: bool, across: bool, unit: bool, m: BlasLong, n: BlasLong, a: [*]F, lda: BlasLong, offset: BlasLong, b: [*]F) i32 {
-            const src: Source = .{ .a = @ptrCast(a), .ld = @intCast(lda), .offset = offset, .across = across, .upper = upper, .unit = unit };
-            return gk.copyFrom(E, u, m, n, b, src);
-        }
-
         fn Copy(comptime u: usize, comptime upper: bool, comptime across: bool, comptime unit: bool) type {
             return struct {
                 fn f(m: BlasLong, n: BlasLong, a: [*]F, lda: BlasLong, offset: BlasLong, b: [*]F) callconv(cc) i32 {
-                    return copy(u, upper, across, unit, m, n, a, lda, offset, b);
+                    gk.packTriangle(E, upper, across, unit, u, @intCast(m), @intCast(n), @ptrCast(b), @ptrCast(a), @intCast(lda), offset);
+                    return 0;
                 }
             };
         }

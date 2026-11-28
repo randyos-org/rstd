@@ -64,6 +64,33 @@ pub fn packWith(comptime E: type, u: usize, depth: usize, lines: usize, dst: [*]
     }
 }
 
+/// Packs as `packWith` the triangle the trmm and trsm copies take: line `j`,
+/// depth `i` is `a[j + i ld]` (`across`) or `a[i + j ld]`, the diagonal where
+/// `i == j + off`, kept on `upper`'s side of it and 1 there for `unit`; the
+/// other side is left unwritten. Each depth's kept lines are one run, copied
+/// without a test per element.
+pub fn packTriangle(comptime E: type, comptime upper: bool, comptime across: bool, comptime unit: bool, u: usize, depth: usize, lines: usize, dst: [*]E, a: [*]const E, ld: usize, off: isize) void {
+    const one: E = if (@typeInfo(E) == .array) .{ 1, 0 } else 1;
+    // the kept lines are `j <= i - off`, else `j >= i - off`
+    const below = across == upper;
+    var c0: usize = 0;
+    while (c0 < lines) {
+        const w = panelWidth(lines - c0, u);
+        const wi: isize = @intCast(w);
+        const out = dst + depth * c0;
+        for (0..depth) |i| {
+            // the panel's diagonal line
+            const t = @as(isize, @intCast(i)) - off - @as(isize, @intCast(c0));
+            const lo: usize = if (below) 0 else @intCast(std.math.clamp(t, 0, wi));
+            const hi: usize = if (below) @intCast(std.math.clamp(t + 1, 0, wi)) else w;
+            const row = out + i * w;
+            for (lo..hi) |c| row[c] = if (across) a[c0 + c + i * ld] else a[i + (c0 + c) * ld];
+            if (unit and t >= 0 and t < wi) row[@intCast(t)] = one;
+        }
+        c0 += w;
+    }
+}
+
 /// A copy in the reference's ABI on `packWith`: `m` deep, `n` lines into
 /// `b`, from `src`; the trmm, trsm, symm and 3M copies.
 pub fn copyFrom(comptime E: type, u: usize, m: BlasLong, n: BlasLong, b: anytype, src: anytype) i32 {

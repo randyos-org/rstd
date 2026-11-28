@@ -22,36 +22,16 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
     return struct {
         // ---- copies --------------------------------------------------------
 
-        const Source = struct {
-            a: [*]const E,
-            ld: usize,
-            x: usize,
-            y: usize,
-            across: bool,
-            upper: bool,
-            unit: bool,
-
-            pub fn at(s: Source, j: usize, l: usize) ?E {
-                const line = s.y + j;
-                const depth = s.x + l;
-                const row = if (s.across) line else depth;
-                const col = if (s.across) depth else line;
-                if (if (s.upper) row > col else row < col) return null;
-                if (s.unit and row == col) return if (complex) .{ 1, 0 } else 1;
-                return s.a[row + col * s.ld];
-            }
-        };
-
-        fn copy(u: usize, upper: bool, across: bool, unit: bool, m: BlasLong, n: BlasLong, a: [*]F, lda: BlasLong, posX: BlasLong, posY: BlasLong, b: [*]F) i32 {
-            const src: Source = .{ .a = @ptrCast(a), .ld = @intCast(lda), .x = @intCast(posX), .y = @intCast(posY), .across = across, .upper = upper, .unit = unit };
-            return gk.copyFrom(E, u, m, n, b, src);
-        }
-
         /// The copy `trmm_<io><ul><nt><un>copy`.
         fn Copy(comptime u: usize, comptime upper: bool, comptime across: bool, comptime unit: bool) type {
             return struct {
                 fn f(m: BlasLong, n: BlasLong, a: [*]F, lda: BlasLong, posX: BlasLong, posY: BlasLong, b: [*]F) callconv(cc) i32 {
-                    return copy(u, upper, across, unit, m, n, a, lda, posX, posY, b);
+                    const ld: usize = @intCast(lda);
+                    const x: usize = @intCast(posX);
+                    const y: usize = @intCast(posY);
+                    const base = @as([*]const E, @ptrCast(a)) + if (across) y + x * ld else x + y * ld;
+                    gk.packTriangle(E, upper, across, unit, u, @intCast(m), @intCast(n), @ptrCast(b), base, ld, @as(isize, @intCast(y)) - @as(isize, @intCast(x)));
+                    return 0;
                 }
             };
         }
