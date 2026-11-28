@@ -99,7 +99,7 @@ pub fn setDesignCoordinates(f: *Font, design: []const i32) vary.Blend.Error!void
 pub fn defaultMode(f: *const Font, target: Target) Mode {
     if (f.tricky) return .designer;
     // the CFF engine hints lightly itself; the TrueType one does not
-    if (f.sfnt.cff == null) {
+    if (f.sfnt.cffOutlines() == null) {
         if (target == .light) return .auto;
         const fpgm = if (f.sfnt.fpgm) |t| t.len else 0;
         const prep = if (f.sfnt.prep) |t| t.len else 0;
@@ -127,8 +127,9 @@ pub fn load(f: *Font, allocator: Allocator, gid: u16, ppem: u16, opts: Options) 
     switch (mode) {
         .none, .designer => {
             const hinted = mode == .designer;
-            if (f.sfnt.cff != null) {
-                const inst: cff.Instance = try .init(f.sfnt, ppem);
+            if (f.sfnt.cffOutlines() != null) {
+                var inst: cff.Instance = try .init(f.sfnt, ppem);
+                inst.blend = f.blend;
                 return cff.load(allocator, &inst, @fromBackingInt(gid), hinted);
             }
             return truetype.Loader.load(allocator, try f.instance(ppem, opts.target), gid, hinted);

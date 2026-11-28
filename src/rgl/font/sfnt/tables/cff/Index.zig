@@ -11,44 +11,60 @@ const std = @import("std");
 const Index = @This();
 
 table_data: []const u8,
+/// CFF2's INDEX, with a 32-bit count (`initCff2`).
+long: bool = false,
 
 pub fn init(table_data: []const u8, check: bool) bytes.BytesError!Index {
-    if (check) try bytes.checkSize(table_data, 0, u16);
-    const entry_count = bytes.getU16BE(table_data[0..]);
-    if (entry_count == 0) return .{ .table_data = table_data[0..2] };
+    return initWith(table_data, check, false);
+}
 
-    if (check) try bytes.checkSize(table_data, 2, u8);
-    const off_size = table_data[2];
-    if (check) try bytes.checkSlice(table_data, offsets_start, (@as(usize, entry_count) + 1) * @as(usize, off_size));
+/// A CFF2 INDEX; counts past 65535 are refused as malformed.
+pub fn initCff2(table_data: []const u8, check: bool) bytes.BytesError!Index {
+    return initWith(table_data, check, true);
+}
 
-    const self: Index = .{ .table_data = table_data };
+fn initWith(table_data: []const u8, check: bool, long: bool) bytes.BytesError!Index {
+    const n: usize = if (long) 4 else 2;
+    if (table_data.len < n) return error.EndOfStream;
+    const entry_count: u32 = if (long) std.mem.readInt(u32, table_data[0..4], .big) else bytes.getU16BE(table_data[0..]);
+    if (entry_count == 0) return .{ .table_data = table_data[0..n], .long = long };
+    if (entry_count > 0xFFFF) return error.EndOfStream;
+
+    if (check) try bytes.checkSize(table_data, n, u8);
+    const off_size = table_data[n];
+    if (check) try bytes.checkSlice(table_data, n + 1, (@as(usize, entry_count) + 1) * @as(usize, off_size));
+
+    const self: Index = .{ .table_data = table_data, .long = long };
     const total = self.byteSizeUnchecked();
     if (check) try bytes.checkSlice(table_data, 0, total);
-    return .{ .table_data = table_data[0..total] };
+    return .{ .table_data = table_data[0..total], .long = long };
 }
 
 pub inline fn count(self: Index) u16 {
+    if (self.long) return @intCast(std.mem.readInt(u32, self.table_data[0..4], .big));
     return bytes.getU16BE(self.table_data[0..]);
+}
+
+inline fn countLen(self: Index) usize {
+    return if (self.long) 4 else 2;
 }
 
 /// Byte width used to encode each offset in the offset array (1-4);
 /// meaningless when count() == 0.
 pub inline fn offSize(self: Index) u8 {
-    return self.table_data[2];
+    return self.table_data[self.countLen()];
 }
-
-const offsets_start = 3;
 
 fn rawOffset(self: Index, index: usize) usize {
     const off_size: usize = self.offSize();
-    const off = offsets_start + index * off_size;
+    const off = self.countLen() + 1 + index * off_size;
     var v: usize = 0;
     for (0..off_size) |b| v = (v << 8) | self.table_data[off + b];
     return v;
 }
 
 fn dataStart(self: Index) usize {
-    return offsets_start + (@as(usize, self.count()) + 1) * @as(usize, self.offSize());
+    return self.countLen() + 1 + (@as(usize, self.count()) + 1) * @as(usize, self.offSize());
 }
 
 /// Computes the total byte size from table_data directly, without

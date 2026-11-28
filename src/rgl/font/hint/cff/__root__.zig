@@ -10,9 +10,11 @@ pub const hintmap = @import("hintmap.zig");
 pub const Blues = @import("blues.zig").Blues;
 pub const Builder = @import("Builder.zig");
 pub const GlyphPath = @import("GlyphPath.zig");
+pub const VarStore = @import("VarStore.zig");
 
 test {
     _ = @import("_test/path.zig");
     _ = @import("_test/seac.zig");
     _ = @import("_test/fontmatrix.zig");
+    _ = @import("_test/cff2.zig");
 }

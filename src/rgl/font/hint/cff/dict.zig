@@ -7,20 +7,29 @@
 
 const std = @import("std");
 const fixed_point = @import("../fixed.zig");
+const VarStore = @import("VarStore.zig");
 
-pub const Error = error{InvalidDict};
+pub const Error = error{InvalidDict} || VarStore.Error;
 
-const max_stack = 48;
+/// FreeType's DICT stack for CFF2 (`CFF2_DEFAULT_STACK`).
+const max_stack = 513;
 
-/// A number on the DICT stack: an integer, or 16.16 from a real.
+/// A number on the DICT stack: an integer, 16.16 from a real, or a blend.
 pub const Operand = struct {
     v: i32,
     real: bool,
     /// The real's digits, for rescaling.
     bcd: ?Bcd = null,
+    /// A blend's 16.16 sum; `v` is it rounded, as `cff_parse_num` reads it.
+    blended: ?i32 = null,
 
     pub fn fixed(o: Operand) i32 {
         return if (o.real) o.v else o.v *% 65536;
+    }
+
+    /// `cff_parse_fixed`, which takes a blend's sum as it is.
+    fn exact(o: Operand) i32 {
+        return o.blended orelse o.fixed();
     }
 
     /// `cff_parse_fixed_dynamic`: the number as precisely as 16.16 holds
@@ -38,11 +47,15 @@ pub const Operand = struct {
     }
 };
 
-/// The DICT's operators in order, each with its operands.
+/// The DICT's operators in order, each with its operands. With `vectors`
+/// (a CFF2 Private DICT) it takes `vsindex` and does `blend` itself.
 pub const Parser = struct {
     data: []const u8,
     at: usize = 0,
     stack: [max_stack]Operand = undefined,
+    vectors: ?*VarStore.Vectors = null,
+    vsindex: usize = 0,
+    blended: bool = false,
 
     pub const Op = struct { op: u16, args: []const Operand };
 
@@ -75,9 +88,45 @@ pub const Parser = struct {
                 op = 0x0C00 | @as(u16, p.data[p.at]);
                 p.at += 1;
             }
+            if (p.vectors) |vs| switch (op) {
+                // `cff_parse_vsindex`: not after a blend
+                22 => {
+                    if (p.blended or n == 0) return error.InvalidDict;
+                    p.vsindex = @intCast(@max(p.stack[0].v, 0));
+                },
+                23 => {
+                    n = try p.blend(vs, n);
+                    continue;
+                },
+                else => {},
+            };
             return .{ .op = op, .args = p.stack[0..n] };
         }
         return null;
+    }
+
+    /// `cff_blend_doBlend`: each of the last operand's count of values plus
+    /// its weighted deltas, the deltas popped; returns the new depth.
+    fn blend(p: *Parser, vs: *VarStore.Vectors, n: usize) Error!usize {
+        const bv = try vs.get(p.vsindex);
+        if (n == 0) return error.InvalidDict;
+        const count = n - 1;
+        const blends: usize = @intCast(@max(p.stack[count].v, 0));
+        const operands = blends * bv.len;
+        if (operands > count) return error.InvalidDict;
+        const base = count - operands;
+        var delta = base + blends;
+        for (p.stack[base..][0..blends]) |*o| {
+            var sum = o.exact();
+            for (bv[1..]) |w| {
+                sum +%= fixed_point.mul(p.stack[delta].exact(), w);
+                delta += 1;
+            }
+            const rounded: i16 = @truncate(@as(i32, @bitCast(((@as(u32, @bitCast(sum)) >> 8) +% 0x80) >> 8)));
+            o.* = .{ .v = rounded, .real = false, .blended = sum };
+        }
+        p.blended = true;
+        return base + blends;
     }
 };
 

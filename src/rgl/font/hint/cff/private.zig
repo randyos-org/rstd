@@ -5,6 +5,7 @@
 
 const std = @import("std");
 const dict = @import("dict.zig");
+const VarStore = @import("VarStore.zig");
 
 pub const Error = dict.Error;
 
@@ -43,15 +44,18 @@ pub const Private = struct {
     subrs: ?usize = null,
     default_width: ?i32 = null,
     nominal_width: i32 = 0,
+    /// CFF2: the item variation data its blends, and its charstrings', start from.
+    vsindex: usize = 0,
 };
 
 fn fromF64(comptime v: f64) i32 {
     return @intFromFloat(@round(v * 65536.0));
 }
 
-pub fn parse(data: []const u8) Error!Private {
+/// The DICT `data`; a CFF2 one blends with `vectors`.
+pub fn parse(data: []const u8, vectors: ?*VarStore.Vectors) Error!Private {
     var p: Private = .{};
-    var parser: dict.Parser = .{ .data = data };
+    var parser: dict.Parser = .{ .data = data, .vectors = vectors };
     while (try parser.next()) |item| {
         const args = item.args;
         const op = item.op;
@@ -99,13 +103,14 @@ pub fn parse(data: []const u8) Error!Private {
             else => {},
         }
     }
+    p.vsindex = parser.vsindex;
     return p;
 }
 
 test "cff private: a BlueScale real, deltas into zones, widths floored" {
     // BlueValues -20 20 480 20 (deltas), BlueScale 0.039625 as BCD, nominalWidthX 500.5
     const data = [_]u8{ 139 - 20, 139 + 20, 248, 116, 139 + 20, 6, 30, 0x0A, 0x03, 0x96, 0x25, 0xFF, 12, 9, 30, 0x50, 0x0A, 0x5F, 21 };
-    const p = try parse(&data);
+    const p = try parse(&data, null);
     try std.testing.expectEqual(@as(usize, 2), p.blues.len);
     try std.testing.expectEqual([2]i32{ -20 << 16, 0 }, p.blues.values[0]);
     try std.testing.expectEqual([2]i32{ 480 << 16, 500 << 16 }, p.blues.values[1]);

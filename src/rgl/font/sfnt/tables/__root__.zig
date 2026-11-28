@@ -29,6 +29,7 @@ pub const StatTable = @import("stat.zig").StatTable;
 
 const cff = @import("cff/__root__.zig");
 pub const CffTable = cff.CffTable;
+pub const cff2 = cff.cff2;
 pub const CffError = cff.CffError;
 pub const CharstringError = cff.CharstringError;
 

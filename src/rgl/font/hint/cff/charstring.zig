@@ -9,18 +9,30 @@
 const std = @import("std");
 const fixed = @import("../fixed.zig");
 const Index = @import("../../sfnt/tables/cff/Index.zig");
+const VarStore = @import("VarStore.zig");
 
-pub const Error = error{ InvalidCharstring, StackOverflow, StackUnderflow, LimitExceeded };
+pub const Error = error{ InvalidCharstring, StackOverflow, StackUnderflow, LimitExceeded } || VarStore.Error;
 
 const nesting_limit = 10;
 const max_operations = 1_000_000;
 const max_stack = 513;
 const storage_len = 32;
 
-/// The subroutines a glyph can call.
+/// The subroutines a glyph can call, and a CFF2 font's blends.
 pub const Context = struct {
     global: Index,
     local: ?Index,
+    cff2: ?Cff2 = null,
+};
+
+/// A CFF2 charstring (`psintrp.c`, `font->isCFF2`): no widths, no
+/// `endchar` or `return`, a stack of `maxstack`, `blend` and `vsindex`.
+pub const Cff2 = struct {
+    /// Null without a variation store: a `blend` then fails.
+    vectors: ?*VarStore.Vectors,
+    /// The Private DICT's.
+    vsindex: usize,
+    maxstack: usize,
 };
 
 /// The bias added to a subroutine number (Type 2 spec, section 4.7).
@@ -87,6 +99,11 @@ pub const Result = struct {
 /// Evaluates `charstring` into `sink`, from `start` (16.16).
 pub fn evaluate(ctx: Context, charstring: []const u8, sink: anytype, start: [2]i32) Error!Result {
     var e: Evaluator(@TypeOf(sink)) = .{ .ctx = ctx, .sink = sink, .x = start[0], .y = start[1] };
+    if (ctx.cff2) |c| {
+        // a CFF2 glyph has its default width already
+        e.seen_width = true;
+        e.vsindex = c.vsindex;
+    }
     const seen_endchar = try e.run(charstring, 0);
     if (!seen_endchar) _ = try e.endchar();
     if (e.is_open) e.sink.close();
@@ -112,6 +129,33 @@ fn Evaluator(comptime Sink: type) type {
         ops: u32 = 0,
         storage: [storage_len]i32 = @splat(0),
         seac: ?Seac = null,
+        vsindex: usize = 0,
+        blended: bool = false,
+
+        /// `cf2_doBlend`: each of the top count's values plus its weighted
+        /// deltas, the deltas popped; the stack is not cleared.
+        fn blend(e: *Self, c: Cff2) Error!void {
+            const vs = c.vectors orelse return error.InvalidCharstring;
+            const bv = try vs.get(e.vsindex);
+            const s = &e.stack;
+            const n: usize = @intCast(@max(try s.popInt(), 0));
+            if (n > c.maxstack) return error.InvalidCharstring;
+            const operands = n * bv.len;
+            if (operands > s.top) return error.StackUnderflow;
+            const base = s.top - operands;
+            var delta = base + n;
+            for (base..base + n) |i| {
+                var sum = s.get(i);
+                for (bv[1..]) |w| {
+                    sum +%= fixed.mul(w, s.get(delta));
+                    delta += 1;
+                }
+                s.values[i] = sum;
+                s.is_fixed[i] = true;
+            }
+            s.top = base + n;
+            e.blended = true;
+        }
 
         fn reset(e: *Self) void {
             e.stack.top = 0;
@@ -234,6 +278,8 @@ fn Evaluator(comptime Sink: type) type {
         }
 
         fn endchar(e: *Self) Error!bool {
+            // CFF2: no width, no SEAC
+            if (e.ctx.cff2 != null) return false;
             const n = e.stack.top;
             if ((n == 1 or n == 5) and !e.seen_width) e.readWidth();
             e.seen_width = true;
@@ -271,6 +317,11 @@ fn Evaluator(comptime Sink: type) type {
                             if (at >= code.len) return error.InvalidCharstring;
                             op = 0x0C00 | @as(u16, code[at]);
                             at += 1;
+                        }
+                        // CFF2 ignores `return` and `endchar`: the stack clears
+                        if (e.ctx.cff2 != null and (op == 11 or op == 14)) {
+                            e.reset();
+                            continue;
                         }
                         if (op == 14) seen_endchar = true;
                         if (!try e.operator(op, code, &at, depth)) break;
@@ -490,8 +541,16 @@ fn Evaluator(comptime Sink: type) type {
                 },
                 // HSBW, DOTSECTION, SBW, POP, SETCURRENTPOINT: nothing in Type 2
                 13, 0x0C00, 0x0C07, 0x0C11, 0x0C21 => {},
-                // VSINDEX and BLEND belong to CFF2
-                15, 16 => return error.InvalidCharstring,
+                // VSINDEX and BLEND belong to CFF2; elsewhere they clear the stack
+                15 => if (e.ctx.cff2 != null) {
+                    if (e.blended) return error.InvalidCharstring;
+                    const v = try s.popInt();
+                    if (v >= 0) e.vsindex = @intCast(v);
+                    e.reset();
+                } else e.reset(),
+                16 => if (e.ctx.cff2) |c| {
+                    try e.blend(c);
+                } else e.reset(),
                 // the reserved operators, HSTEM3, VSTEM3, RANDOM and Type 1's SEAC clear the stack
                 else => e.reset(),
             }

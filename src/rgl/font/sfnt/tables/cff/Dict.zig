@@ -26,6 +26,10 @@ pub const Operator = enum(u16) {
     ros = 0x100 | 30,
     fd_array = 0x100 | 36,
     fd_select = 0x100 | 37,
+    /// CFF2: the variation store's offset.
+    vstore = 24,
+    /// CFF2: the charstrings' operand stack depth.
+    maxstack = 25,
     _,
 };
 

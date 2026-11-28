@@ -48,6 +48,10 @@ pub const files = [_]File{
     file("cascadia_code", "cascadia_code_wght300"),
     file("cascadia_code", "cascadia_code_wght550"),
     file("cascadia_code", "cascadia_code_wght700"),
+    file("source_sans_3", "source_sans_3"),
+    file("source_sans_3", "source_sans_3_wght400"),
+    file("source_sans_3", "source_sans_3_wght650"),
+    file("source_sans_3", "source_sans_3_wght900"),
     synthetic("cff_cid"),
     synthetic("cff_seac"),
 };

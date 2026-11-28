@@ -7,6 +7,7 @@ pub const CffTable = cff_table;
 pub const CffError = cff_table.CffError;
 
 pub const charset = @import("charset.zig");
+pub const cff2 = @import("cff2.zig");
 
 const charstring = @import("charstring.zig");
 pub const CharstringError = charstring.CharstringError;

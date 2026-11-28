@@ -7,6 +7,8 @@
 //! (`psintrp.c` `cf2_cmdENDCHAR`, `psft.c` `cf2_getSeacComponent`). The
 //! FontMatrix (`FontMatrix.zig`) then transforms the drawn outline and
 //! offsets it in font units, and a CID subfont's units per em rescale it.
+//! A CFF2 glyph blends its Private DICT and charstring at the instance
+//! (`VarStore.zig`) and its advance by `HVAR`.
 
 const std = @import("std");
 const fixed = @import("../fixed.zig");
@@ -20,6 +22,7 @@ const Glyph = @import("../Glyph.zig");
 const GlyphIndex = @import("../../sfnt/types.zig").GlyphIndex;
 const charset = @import("../../sfnt/tables/cff/charset.zig");
 const FontMatrix = @import("FontMatrix.zig");
+const VarStore = @import("VarStore.zig");
 
 const Allocator = std.mem.Allocator;
 
@@ -34,7 +37,16 @@ pub const Error = error{
 pub fn load(allocator: Allocator, inst: *const Instance, glyph: GlyphIndex, hinted: bool) Error!Glyph {
     const cff = inst.cff;
     if (@backingInt(glyph) >= cff.charstrings_index.count()) return error.InvalidGlyphIndex;
-    const priv: private.Private = if (cff.privateDictForGlyph(glyph)) |d| try private.parse(d.data) else .{};
+    // a CFF2 font blends its Private DICT and charstrings at the instance
+    var store: ?VarStore = null;
+    if (cff.cff2) if (cff.vstore_offset) |o| {
+        store = try VarStore.init(allocator, cff.table_data, o);
+    };
+    defer if (store) |*s| s.deinit(allocator);
+    var vectors: ?VarStore.Vectors = if (store) |*s| .{ .allocator = allocator, .store = s, .coords = if (inst.blend) |b| b.coords else &.{} } else null;
+    defer if (vectors) |*v| v.deinit();
+    const vp: ?*VarStore.Vectors = if (vectors) |*v| v else null;
+    const priv: private.Private = if (cff.privateDictForGlyph(glyph)) |d| try private.parse(d.data, vp) else .{};
     const face_upem: u16 = if (inst.sfnt.head) |h| h.unitsPerEm() else 1000;
     const fm = try FontMatrix.forGlyph(cff, face_upem, glyph);
     // a subfont of other units per em scales by their ratio
@@ -44,7 +56,11 @@ pub fn load(allocator: Allocator, inst: *const Instance, glyph: GlyphIndex, hint
     const blues: Blues = .init(&priv, scale);
     var out: Builder = .{ .allocator = allocator };
     defer out.deinit();
-    const ctx: charstring.Context = .{ .global = cff.global_subrs_index, .local = cff.getLocalSubrIndexForGlyph(glyph) };
+    const ctx: charstring.Context = .{
+        .global = cff.global_subrs_index,
+        .local = cff.getLocalSubrIndexForGlyph(glyph),
+        .cff2 = if (cff.cff2) .{ .vectors = vp, .vsindex = priv.vsindex, .maxstack = cff.maxstack } else null,
+    };
     const result = try draw(ctx, cff.getCharString(glyph), &blues, &out, scale, hinted, .{ 0, 0 });
     if (result.seac) |seac| {
         // the accent at its offset, its stems counted from it, then the base
@@ -64,9 +80,9 @@ pub fn load(allocator: Allocator, inst: *const Instance, glyph: GlyphIndex, hint
         p.* = .{ p[0] +% fm.offset[0], p[1] +% fm.offset[1] };
         if (!hinted) p.* = .{ fixed.mul(p[0], glyph_scale), fixed.mul(p[1], glyph_scale) };
     }
-    // hmtx's advance, else the charstring's
+    // hmtx's advance, varied by HVAR, else the charstring's
     var advance: i32 = if (inst.sfnt.hmtx) |hmtx|
-        hmtx.getMetrics(glyph).advance_width
+        varied(inst, glyph, hmtx.getMetrics(glyph).advance_width)
     else if (width) |w|
         (w +% priv.nominal_width +% 0x8000) >> 16
     else
@@ -79,6 +95,13 @@ pub fn load(allocator: Allocator, inst: *const Instance, glyph: GlyphIndex, hint
     const tags = try allocator.dupe(u8, out.tags.items);
     errdefer allocator.free(tags);
     return .{ .points = points, .tags = tags, .contours = try allocator.dupe(u16, out.contours.items), .advance = advance };
+}
+
+/// `tt_face_get_metrics`'s `HVAR` delta at the instance, as a `u16`.
+fn varied(inst: *const Instance, glyph: GlyphIndex, advance: u16) i32 {
+    const b = inst.blend orelse return advance;
+    const h = if (b.hvar) |*h| h else return advance;
+    return @as(u16, @truncate(@as(u32, @bitCast(@as(i32, advance) +% h.advanceDelta(@backingInt(glyph), b.coords)))));
 }
 
 /// One charstring on a path of its own (`cf2_interpT2CharString`), from

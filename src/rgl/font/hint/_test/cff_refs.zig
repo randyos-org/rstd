@@ -5,6 +5,7 @@ const std = @import("std");
 const refs = @import("refs.zig");
 const Sfnt = @import("../../sfnt/Sfnt.zig");
 const cff = @import("../cff/__root__.zig");
+const vary = @import("../vary/__root__.zig");
 const Glyph = @import("../Glyph.zig");
 const test_fonts = @import("rstd_test_fonts");
 
@@ -26,13 +27,14 @@ fn same(g: Glyph, o: refs.Outline) bool {
     return true;
 }
 
-fn expectMode(comptime name: []const u8, sfnt: *const Sfnt, r: refs.Refs, mode: refs.Mode, hinted: bool) !void {
+fn expectMode(comptime name: []const u8, sfnt: *const Sfnt, r: refs.Refs, blend: ?*const vary.Blend, mode: refs.Mode, hinted: bool) !void {
     const al = testing.allocator;
     var bad: usize = 0;
     var compared: usize = 0;
     var first: ?struct { cp: u21, size: u16 } = null;
     for (r.sizes, 0..) |ppem, s| {
-        const inst: cff.Instance = try .init(sfnt, ppem);
+        var inst: cff.Instance = try .init(sfnt, ppem);
+        inst.blend = blend;
         for (r.glyphs) |g| {
             const o = r.outline(g, s, mode) orelse continue;
             var got = try cff.load(al, &inst, @fromBackingInt(g.gid), hinted);
@@ -60,7 +62,9 @@ test "cff glyphs: FreeType's outlines and advances, unhinted and hinted (-Dtest-
         any = true;
         const r = try refs.parse(arena.allocator(), f.gz);
         const sfnt = try Sfnt.init(arena.allocator(), bytes, .{});
-        for (setups) |s| if (r.cff) expectMode(f.name, &sfnt, r, s.mode, s.hinted) catch |e| switch (e) {
+        var b = try refs.blend(testing.allocator, &sfnt, r);
+        defer if (b) |*x| x.deinit();
+        for (setups) |s| if (r.cff) expectMode(f.name, &sfnt, r, if (b) |*x| x else null, s.mode, s.hinted) catch |e| switch (e) {
             error.TestExpectedEqual => failed = true,
             else => return e,
         };

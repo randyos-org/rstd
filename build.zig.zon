@@ -78,6 +78,12 @@
             .hash = "N-V-__8AANgOrQ1hsWxAoTjfIlDeafqAWgpNfVESANGMmZJQ",
             .lazy = true,
         },
+        // a variable CFF2 face (OFL-1.1) for blended charstrings and Private DICTs (issue #833)
+        .font_source_sans_3_vf = .{
+            .url = "https://github.com/adobe-fonts/source-sans/releases/download/3.052R/VF-source-sans-3.052R.zip",
+            .hash = "N-V-__8AAAS9HAAwCKOUBVr0ZmTZPDW4Ce7X5R-XKpvry76U",
+            .lazy = true,
+        },
         // .rc = .{
         //     .url = "git+https://codeberg.org/ziglang/rc#23b64112d428b13f59967a0e6587b3391d0aeb76",
         //     .hash = "rc-0.0.0-rMftL9REAADo6nZWJwkxvJGHVKNNwXT-SxFQGdbiv5DW",

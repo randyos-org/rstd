@@ -26,7 +26,7 @@ outlines: union(enum) {
 },
 
 pub fn init(allocator: Allocator, sfnt: *const Sfnt, blend: ?*const vary.Blend) InitError!Source {
-    if (sfnt.cff) |table| return .{ .sfnt = sfnt, .outlines = .{ .cff = .{ .sfnt = sfnt, .cff = table, .scale = 1 << 16 } } };
+    if (sfnt.cffOutlines()) |table| return .{ .sfnt = sfnt, .blend = blend, .outlines = .{ .cff = .{ .sfnt = sfnt, .cff = table, .scale = 1 << 16, .blend = blend } } };
     return .{ .sfnt = sfnt, .blend = blend, .outlines = .{ .truetype = try .initUnscaled(allocator, sfnt, blend) } };
 }
 

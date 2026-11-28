@@ -67,7 +67,7 @@ test "hinting refs: glyph indexes, units per em and outline format match Sfnt (-
         const r = try refs.parse(arena.allocator(), f.gz);
         const sfnt = try Sfnt.init(arena.allocator(), bytes, .{});
         try testing.expectEqual(r.units_per_em, sfnt.head.?.unitsPerEm());
-        try testing.expectEqual(r.cff, sfnt.cff != null);
+        try testing.expectEqual(r.cff, sfnt.cffOutlines() != null);
         for (r.glyphs) |g| {
             const gid = if (sfnt.getGlyphIndex(g.codepoint)) |i| @backingInt(i) else 0;
             try testing.expectEqual(g.gid, gid);

@@ -46,6 +46,8 @@ glyf: ?tables.GlyfTable = null,
 loca: ?tables.LocaTable = null,
 /// Only if not glyf.
 cff: ?tables.CffTable = null,
+/// A variable font's CFF outlines, which only the hinter reads (issue #833).
+cff2: ?tables.CffTable = null,
 
 // Optional tables.
 
@@ -160,6 +162,7 @@ pub fn init(alloc: Allocator, font_data: []const u8, options: InitOptions) SfntE
             .kern => self.kern = try tables.KernTable.init(table_data, options.check),
             .GPOS => self.gpos = try tables.GposTable.init(table_data, options.check),
             .CFF => self.cff = try tables.CffTable.init(table_data, options.check),
+            .CFF2 => self.cff2 = try tables.cff2.init(table_data, options.check),
             .@"OS/2" => self.os2 = try tables.Os2Table.init(table_data, options.check),
             .fvar => self.fvar = try tables.FvarTable.init(table_data, options.check),
             .avar => self.avar = try tables.AvarTable.init(table_data, options.check),
@@ -283,6 +286,11 @@ pub fn getGlyphMetrics(self: Self, glyph: GlyphIndex) aux_types.GlyphMetricsDesi
 }
 
 /// The preferred Unicode cmap subtable, as `getGlyphIndex` picks it.
+/// The CFF outlines the hinter reads: `CFF`, else `CFF2`.
+pub fn cffOutlines(self: Self) ?tables.CffTable {
+    return self.cff orelse self.cff2;
+}
+
 pub fn unicodeCmap(self: Self) ?tables.CmapSubtable {
     const cmap = self.cmap orelse return null;
     const record = cmap.findUnicodeFullRecord() orelse cmap.findUnicodeBmpRecord() orelse return null;
