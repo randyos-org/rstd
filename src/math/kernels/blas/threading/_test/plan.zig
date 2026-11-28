@@ -141,6 +141,22 @@ test "rules: haswell's own level-2 thresholds (issue #845), the other cores keep
     try zigstd.testExpectEqual(@as(usize, 2), rule(.trmv, f64, X86.skylakex).chunkCount(50));
 }
 
+test "rules: vortexm4's own axpy and dot split (issue #728), the other cores keeping OpenBLAS's" {
+    const C = std.math.Complex;
+    inline for (.{ .axpy, .dot }) |f| inline for (.{ f32, f64, C(f32), C(f64) }) |T| {
+        const r = rule(f, T, Arm64.vortexm4);
+        try zigstd.testExpectEqual(@as(u32, 1), r.sizeMax(10000));
+        try zigstd.testExpectEqual(@as(u32, 2), r.sizeMax(20000));
+        try zigstd.testExpectEqual(@as(u32, 4), r.sizeMax(32768));
+        try zigstd.testExpectEqual(@as(u32, 6), r.sizeMax(65536));
+        try zigstd.testExpectEqual(@as(u32, std.math.maxInt(u32)), r.sizeMax(70001));
+        try zigstd.testExpectEqual(@as(usize, 7), r.chunkCount(32768));
+        try zigstd.testExpectEqual(@as(usize, 14), r.chunkCount(65536));
+        try zigstd.testExpectEqual(@as(usize, 2), rule(f, T, Arm64.vortex).chunkCount(10001));
+        try zigstd.testExpectEqual(@as(u32, std.math.maxInt(u32)), rule(f, T, Arm64.vortex).sizeMax(65536));
+    };
+}
+
 test "rules: OpenBLAS's per-core overrides apply to their core and precision only" {
     try zigstd.testExpectEqual(@as(u32, 1), rule(.dot, f64, Arm64.neoversev1).sizeMax(64500));
     try zigstd.testExpectEqual(@as(u32, 2), rule(.dot, f64, Arm64.neoversev1).sizeMax(64501));
