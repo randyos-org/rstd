@@ -2,6 +2,7 @@
 //! kernels (`trsm_kernel_{LT,LN,RN,RT}.c`) over the gemm tile; `solve` divides
 //! by the diagonal, where upstream packs its reciprocal (`comparisons.md`, 10).
 
+const std = @import("std");
 const types = @import("../../types.zig");
 const util = @import("../../util.zig");
 const gk = @import("../gemm/kernel.zig");
@@ -200,7 +201,13 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
         /// `solve` of `trsm_kernel_LT.c` (`forward`) and `_LN.c`: the `m x n`
         /// block of `C` by the diagonal block `a` (`m x m`), into `C` and the
         /// packed `b`; a `unit` diagonal is not divided by.
-        fn solveLeft(forward: bool, comptime conj: bool, unit: bool, m: usize, n: usize, a: [*]E, b: [*]E, c: [*]E, ldc: usize) void {
+        pub fn solveLeft(forward: bool, comptime conj: bool, unit: bool, m: usize, n: usize, a: [*]E, b: [*]E, c: [*]E, ldc: usize) void {
+            if (comptime vector_solve) if (m == mr) return if (forward) solveLeftVector(true, unit, n, a, b, c, ldc) else solveLeftVector(false, unit, n, a, b, c, ldc);
+            solveLeftScalar(forward, conj, unit, m, n, a, b, c, ldc);
+        }
+
+        /// `solveLeft` an element at a time.
+        pub fn solveLeftScalar(forward: bool, comptime conj: bool, unit: bool, m: usize, n: usize, a: [*]E, b: [*]E, c: [*]E, ldc: usize) void {
             for (0..m) |s| {
                 const i = if (forward) s else m - 1 - s;
                 const d = conjIf(a[i * m + i], conj);
@@ -218,7 +225,13 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
         /// `solve` of `trsm_kernel_RN.c` (`forward`) and `_RT.c`: the `m x n`
         /// block of `C` by the diagonal block `b` (`n x n`), into `C` and the
         /// packed `a`; a `unit` diagonal is not divided by.
-        fn solveRight(forward: bool, comptime conj: bool, unit: bool, m: usize, n: usize, a: [*]E, b: [*]E, c: [*]E, ldc: usize) void {
+        pub fn solveRight(forward: bool, comptime conj: bool, unit: bool, m: usize, n: usize, a: [*]E, b: [*]E, c: [*]E, ldc: usize) void {
+            if (comptime vector_solve) if (m == mr) return solveRightVector(forward, unit, n, a, b, c, ldc);
+            solveRightScalar(forward, conj, unit, m, n, a, b, c, ldc);
+        }
+
+        /// `solveRight` an element at a time.
+        pub fn solveRightScalar(forward: bool, comptime conj: bool, unit: bool, m: usize, n: usize, a: [*]E, b: [*]E, c: [*]E, ldc: usize) void {
             for (0..n) |s| {
                 const i = if (forward) s else n - 1 - s;
                 const d = conjIf(b[i * n + i], conj);
@@ -231,6 +244,74 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
                     for (lo..hi) |q| c[j + q * ldc] = sub(c[j + q * ldc], mul(x, conjIf(b[i * n + q], conj)));
                 }
             }
+        }
+
+        /// Whether a whole tile solves `mr` lanes at a time: real, on vectors
+        /// that keep denormals (`geo.vl`). Each element takes the scalar
+        /// solve's operations in its order, so the bits are the same (#720).
+        pub const vector_solve = !complex and geo.vl > 1;
+        pub const tile_rows = mr;
+        const V = @Vector(mr, F);
+        const Lane = std.math.IntFittingRange(0, mr);
+
+        /// `solveLeft` on a whole tile (`mr` rows): `C`'s columns in vector
+        /// registers, the solved row's element taken by lane and put back by
+        /// a select, the rows past it updated under a mask (a scalar store
+        /// into a column reloaded as a vector stalled: 0.34 to 0.11 of
+        /// OpenBLAS at n = 64).
+        pub fn solveLeftVector(comptime forward: bool, unit: bool, n: usize, a: [*]const F, b: [*]F, c: [*]F, ldc: usize) void {
+            @setEvalBranchQuota(100_000);
+            var cols: [nr]V = undefined;
+            inline for (0..nr) |j| if (j < n) {
+                cols[j] = c[j * ldc ..][0..mr].*;
+            };
+            const lanes = std.simd.iota(Lane, mr);
+            inline for (0..mr) |s| {
+                const i = if (forward) s else mr - 1 - s;
+                const acol: V = a[i * mr ..][0..mr].*;
+                const at: @Vector(mr, Lane) = @splat(@intCast(i));
+                const rest = if (forward) lanes > at else lanes < at;
+                const here = lanes == at;
+                const d = a[i * mr + i];
+                inline for (0..nr) |j| if (j < n) {
+                    const col = cols[j];
+                    const x = if (unit) col[i] else col[i] / d;
+                    b[i * n + j] = x;
+                    const xs: V = @splat(x);
+                    cols[j] = @select(F, here, xs, @select(F, rest, col - xs * acol, col));
+                };
+            }
+            inline for (0..nr) |j| if (j < n) {
+                c[j * ldc ..][0..mr].* = cols[j];
+            };
+        }
+
+        /// `solveRight` on a whole tile (`mr` rows): each of `C`'s columns
+        /// solved as one vector, then taken from the later ones.
+        pub fn solveRightVector(forward: bool, unit: bool, n: usize, a: [*]F, b: [*]const F, c: [*]F, ldc: usize) void {
+            var cols: [nr]V = undefined;
+            inline for (0..nr) |j| if (j < n) {
+                cols[j] = c[j * ldc ..][0..mr].*;
+            };
+            if (forward) {
+                inline for (0..nr) |i| if (i < n) solveColumn(i, true, unit, n, a, b, &cols);
+            } else inline for (0..nr) |t| {
+                const i = nr - 1 - t;
+                if (i < n) solveColumn(i, false, unit, n, a, b, &cols);
+            }
+            inline for (0..nr) |j| if (j < n) {
+                c[j * ldc ..][0..mr].* = cols[j];
+            };
+        }
+
+        /// Column `i` of `solveRightVector`, then its share of the others.
+        inline fn solveColumn(comptime i: usize, comptime forward: bool, unit: bool, n: usize, a: [*]F, b: [*]const F, cols: *[nr]V) void {
+            const x = if (unit) cols[i] else cols[i] / @as(V, @splat(b[i * n + i]));
+            a[i * mr ..][0..mr].* = x;
+            cols[i] = x;
+            inline for (0..nr) |q| if ((if (forward) q > i else q < i) and q < n) {
+                cols[q] = cols[q] - x * @as(V, @splat(b[i * n + q]));
+            };
         }
     };
 }
