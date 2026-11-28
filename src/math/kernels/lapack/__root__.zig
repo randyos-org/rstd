@@ -62,6 +62,7 @@ const bidiag_svd = @import("bidiag_svd.zig");
 const svd = @import("svd.zig");
 const norm = @import("norm.zig");
 const equilibrate = @import("equilibrate.zig");
+const refine = @import("gerfs.zig");
 
 pub const Uplo = types.Uplo;
 pub const Trans = types.Trans;
@@ -371,6 +372,9 @@ pub const GeequError = equilibrate.GeequError;
 pub const LaqgeError = equilibrate.LaqgeError;
 pub const geequ = equilibrate.geequ;
 pub const laqge = equilibrate.laqge;
+/// `gerfs`: a `trans` it does not take, a bad pivot or shape.
+pub const GerfsError = refine.GerfsError;
+pub const gerfs = refine.gerfs;
 pub const laset = auxiliary.laset;
 pub const lapy2 = auxiliary.lapy2;
 test {
@@ -429,6 +433,7 @@ test {
     _ = @import("_test/gqr.zig");
     _ = @import("_test/gls.zig");
     _ = @import("_test/equilibrate.zig");
+    _ = @import("_test/gerfs.zig");
     _ = pbtrs_solve;
     _ = @import("tgsen_condition.zig");
     _ = relapack_tests;
