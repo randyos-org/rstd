@@ -48,12 +48,32 @@ pub fn nonFinite(comptime T: type, n: isize, x: [*]const T, inc: isize) bool {
     const w: usize = if (comptime isComplex(T)) 2 else 1;
     const f: [*]const F = @ptrCast(x);
     const step = w * @abs(inc);
+    const un: usize = @intCast(n);
+    if (step == w) return nanTimesZero(F, f[0 .. un * w]);
     // `v * 0` is NaN only for NaN and the infinities
     var acc: F = 0;
-    for (0..@intCast(n)) |i| {
+    for (0..un) |i| {
         for (0..w) |p| acc += f[i * step + p] * 0;
     }
     return acc != acc;
+}
+
+/// Whether some `v[i] * 0` is NaN, summed in vectors: each product is a zero
+/// or NaN, so any order finds it; one chain of scalar adds cost routed `trmm`
+/// up to half its time on the M6 (issue #729).
+fn nanTimesZero(comptime F: type, v: []const F) bool {
+    const L = std.simd.suggestVectorLength(F) orelse 1;
+    const V = @Vector(L, F);
+    const zero: V = @splat(0);
+    var acc: [4]V = .{ zero, zero, zero, zero };
+    var i: usize = 0;
+    while (i + 4 * L <= v.len) : (i += 4 * L) {
+        for (&acc, 0..) |*a, k| a.* += @as(V, v[i + k * L ..][0..L].*) * zero;
+    }
+    var s: F = 0;
+    for (v[i..]) |e| s += e * 0;
+    const t = (acc[0] + acc[1]) + (acc[2] + acc[3]);
+    return s != s or @reduce(.Or, t != t);
 }
 
 /// Whether some `j` has `x(j)`, and `y(j)` if given, zero: a column the
@@ -91,6 +111,8 @@ pub fn tinyDiagonal(comptime T: type, n: isize, a: [*]const T, lda: isize) bool 
 
 /// `nonFinite` of a `rows` by `cols` matrix at leading dimension `ld`.
 pub fn nonFiniteMat(comptime T: type, rows: isize, cols: isize, b: [*]const T, ld: isize) bool {
+    // contiguous columns, one pass
+    if (ld == rows) return nonFinite(T, rows * cols, b, 1);
     for (0..@intCast(cols)) |j| {
         if (nonFinite(T, rows, b + j * @as(usize, @intCast(ld)), 1)) return true;
     }

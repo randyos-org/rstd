@@ -1526,8 +1526,8 @@ routine and matches the reference; `apple_accel.zig` binds it and routes to it.
   <https://developer.apple.com/documentation/accelerate/blassetthreading(_:)>). One thread cost `gemm` 1.15x at 2000 (our timing for 72b2efc; no results file kept).
   Rstd's workers thread it instead: above a routine's threshold a routed call splits into parts
   of its output fixed by the problem size, one single-threaded Accelerate call each
-  ([`threading.md`](../kernels/blas/threading.md#vendor-backends) has which routines and why). The split's
-  speed against one Accelerate call is untimed (T05).
+  ([`threading.md`](../kernels/blas/threading.md#vendor-backends) has which routines and why). On the
+  M6 one call ran level 3 as fast as its parts or faster on nearly every row at 1 and 12 workers, so arm64 makes one call there ([#729](https://github.com/randyos-org/rstd/issues/729)); level 2's split is [#838](https://github.com/randyos-org/rstd/issues/838)'s, x86_64's untimed (T05).
 - **Loading and the off switch.** `blas.init` loads it (`apple_accel.start`), since `setenv` is
   not thread-safe ("need not be thread-safe", POSIX.1-2024,
   <https://pubs.opengroup.org/onlinepubs/9799919799/functions/setenv.html>), unless `RSTD_BLAS_ACCELERATE` is 0 (`Config.accelerate`).

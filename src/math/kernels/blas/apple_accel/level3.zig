@@ -24,7 +24,7 @@ const use = accel.use;
 const call = accel.call;
 const mat = accel.mat;
 const matrix_quantum = parts.matrix_quantum;
-const split = parts.split;
+const split3 = parts.split3;
 const fits = parts.fits;
 const column = parts.column;
 const units = parts.units;
@@ -95,7 +95,7 @@ pub inline fn gemm(io: Io, comptime T: type, transa: types.Trans, transb: types.
         if (!fits(G.name, b, &.{ m, n, k, lda, ldb, ldc, ea, eb, mat(m, n, ldc) })) return false;
         const g: G = .{ .b = b, .ta = ta, .tb = tb, .by_columns = n >= m, .m = m, .n = n, .k = k, .alpha = alpha, .a = a, .lda = lda, .b_ = b_, .ldb = ldb, .beta = beta, .c = c, .ldc = ldc };
         const work = threading.product(&.{ @intCast(m), @intCast(n), @intCast(k) });
-        try split(io, .gemm, T, work, @intCast(@max(m, n)), matrix_quantum, &g, G.part);
+        try split3(io, .gemm, T, work, @intCast(@max(m, n)), matrix_quantum, &g, G.part);
         return true;
     }
 }
@@ -143,7 +143,7 @@ pub inline fn symm(io: Io, comptime T: type, comptime herm: bool, sd: types.Side
         const g: S = .{ .b = b, .sd = side(sd), .u = u, .m = m, .n = n, .alpha = alpha, .a = a, .lda = lda, .b_ = b_, .ldb = ldb, .beta = beta, .c = c, .ldc = ldc };
         // the work `blas3/interface.zig` thresholds
         const work = threading.product(&.{ 2, @intCast(m), @intCast(m), @intCast(n) });
-        try split(io, .symm, T, work, @intCast(if (sd == .l) n else m), matrix_quantum, &g, S.part);
+        try split3(io, .symm, T, work, @intCast(if (sd == .l) n else m), matrix_quantum, &g, S.part);
         return true;
     }
 }
@@ -221,7 +221,7 @@ pub inline fn trmm(io: Io, comptime T: type, comptime solve: bool, sd: types.Sid
         if (!fits(R.name, b, &.{ m, n, lda, ldb, mat(ka, ka, lda), mat(m, n, ldb) })) return false;
         const g: R = .{ .b = b, .sd = side(sd), .u = u, .t = t, .dg = diag(dg), .m = m, .n = n, .alpha = alpha, .a = a, .lda = lda, .b_ = b_, .ldb = ldb };
         const work = threading.product(&.{ @intCast(m), @intCast(n) });
-        try split(io, .trsm, T, work, @intCast(if (sd == .l) n else m), matrix_quantum, &g, R.part);
+        try split3(io, .trsm, T, work, @intCast(if (sd == .l) n else m), matrix_quantum, &g, R.part);
         return true;
     }
 }
