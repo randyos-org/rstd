@@ -263,6 +263,40 @@ pub const Potri = struct {
     }
 };
 
+/// `potri`'s second half, timed alone (issue #841), on a Cholesky factor:
+/// `zlauu2` takes the diagonal as real.
+pub const Lauum = struct {
+    pub const name = "lauum";
+    pub const shape: Shape = .mm;
+    pub const fill: Fill = .spd;
+    pub const prep: Prep = .potrf;
+    pub const restore: Restore = .{ .a = true };
+    pub const out: Buf = .a;
+    pub fn flops(n: f64) f64 {
+        return n * n * n / 3;
+    }
+    pub const Sig = SigUplo;
+    pub const lib = libUplo;
+    pub fn rstd(comptime p: Prec, w: *Work(p)) !void {
+        const n = w.in();
+        try lapack.lauum(rstd_alloc, libs.rstd_io, Num(p), .u, w.n, libs.matrix(Num(p), cast(p, w.a.ptr), n, n, n), w.n);
+    }
+    /// `U Uᴴ` against the upper triangle, `U` the factor it started from.
+    pub fn residual(comptime p: Prec, w: *const Work(p), i: usize, j: usize) ?[2]f64 {
+        if (i > j) return null;
+        const n = w.n;
+        var s: Pair = .{ 0, 0 };
+        var mag: f64 = 0;
+        for (j..n) |k| {
+            const x = w.at(.a0, i + k * n);
+            const y = cconj(w.at(.a0, j + k * n));
+            s = cadd(s, cmul(x, y));
+            mag += cmag(x) * cmag(y);
+        }
+        return .{ cdist(s, w.at(.a, i + j * n)), mag };
+    }
+};
+
 /// `orig` against `U diag(s) Vᵀ`.
 pub fn svdAt(comptime p: Prec, w: *const Work(p), i: usize, j: usize) [2]f64 {
     const n = w.n;

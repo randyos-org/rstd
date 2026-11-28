@@ -39,6 +39,7 @@ const Gesv = el.Gesv;
 const Gesvd = el.Gesvd;
 const Getrf = el.Getrf;
 const Getrs = el.Getrs;
+const Lauum = el.Lauum;
 const Potrf = el.Potrf;
 const Potri = el.Potri;
 const Syevd = el.Syevd;
@@ -131,7 +132,7 @@ pub const ext_l3 = .{ Gemm3, Symm, Syrk, Trmm, Trsm };
 /// rstd's LAPACK. An entry gates rstd's call on `@hasDecl`, so it races
 /// once the routine lands; `Geqrf` races the libraries alone until its rstd
 /// call is added (issue #120).
-pub const lapack_ops = .{ Potrf, Getrf, Getrs, Gesv, Trtri, Potri, Gesvd, Gesdd, Geqrf, Gehrd, Syevd, SyevdN, Sytrf, Gbtrf };
+pub const lapack_ops = .{ Potrf, Getrf, Getrs, Gesv, Trtri, Potri, Lauum, Gesvd, Gesdd, Geqrf, Gehrd, Syevd, SyevdN, Sytrf, Gbtrf };
 
 pub fn libLapack(io: Io, gpa: std.mem.Allocator) !void {
     sectionMark("lapack");

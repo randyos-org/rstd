@@ -888,6 +888,7 @@ allows.
   `lauu2_[UL].c` and `zlauu2_[UL].c` are loops in upstream order (`scal`, then `dot` and
   `gemv`), not the reference's (`dot` and `gemv` with `beta`). Threaded, `lauum_[UL]_parallel.c`:
   blocks of half `n` rounded up to `unroll_n`, at most `GEMM_Q` (`:91`), down to `2 * unroll_n`.
+  Each `herk` and `trmm` takes at most the workers its public entry point would, where upstream gives each the whole count (measured, [#841](https://github.com/randyos-org/rstd/issues/841)); the bits never depend on the workers.
 - **`trtrs`** (`triangular.zig`): `trtrs_single.c` and `ztrtrs_single.c`, `trsm` through the
   driver, `trsv` for one right-hand side; `trtrs_parallel.c` is that `trsm` on threads. It
   takes `trans` `r`, as upstream does, and checks its arguments in the reference's order
