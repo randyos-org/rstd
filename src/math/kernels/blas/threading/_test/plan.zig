@@ -109,6 +109,9 @@ test "rules: thresholds at their edges, tiers and the chunk cap" {
     try zigstd.testExpectEqual(@as(u32, 1), rule(.asum, f32, X86.haswell).sizeMax(100000));
     try zigstd.testExpectEqual(@as(u32, 3), rule(.asum, f32, X86.haswell).sizeMax(300000));
     try zigstd.testExpectEqual(@as(u32, 3), rule(.asum, std.math.Complex(f32), X86.haswell).sizeMax(30000));
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.asum, f64, Arm64.vortexm4).sizeMax(10000));
+    try zigstd.testExpectEqual(@as(u32, std.math.maxInt(u32)), rule(.asum, f64, Arm64.vortexm4).sizeMax(10001));
+    try zigstd.testExpectEqual(@as(u32, 3), rule(.asum, f32, Arm64.cortexa53).sizeMax(300000));
     try zigstd.testExpectEqual(@as(u32, 1), rule(.trsm, f64, X86.haswell).sizeMax(1023));
     try zigstd.testExpectEqual(@as(u32, 1), rule(.syrk, f64, X86.haswell).sizeMax(product(&.{ 101, 100, 43 })));
     try zigstd.testExpectEqual(@as(u32, std.math.maxInt(u32)), rule(.syrk, f64, X86.haswell).sizeMax(product(&.{ 101, 100, 44 })));

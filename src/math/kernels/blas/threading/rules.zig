@@ -131,7 +131,7 @@ pub fn rule(comptime family: Family, comptime T: type, core: anytype) Rule {
         .copy => .{ .serial_max = 10000 },
         .rot => .{ .serial_max = 100000 },
         .dot => (if (complex) null else dotCore(F, core)) orelse .{ .serial_max = 10000 },
-        .asum => .{ .serial_max = if (complex) 10000 else 100000, .per_unit = true },
+        .asum => asumCore(core) orelse .{ .serial_max = if (complex) 10000 else 100000, .per_unit = true },
         // `kernel/arm64/iamax_thunderx2t99.c`, `izamax_thunderx2t99.c`: `n <= 10000`
         .index => .{ .serial_max = 10000 },
         .gemv => if (complex) .{ .serial_max = 1024 * mt - 1 } else gemvCore(F, core) orelse .{ .serial_max = 115200 * mt - 1 },
@@ -176,6 +176,17 @@ fn isX86(core: anytype, comptime c: coretypes.X86CoreType) bool {
     if (C == coretypes.X86CoreType) return core == c;
     if (C == ?coretypes.X86CoreType) return if (core) |k| k == c else false;
     return false;
+}
+
+/// The arm64 cores whose `KERNEL.<core>` takes `?asum_thunderx2t99.c`.
+const thunder_asum = [_]coretypes.Arm64CoreType{ .thunderx2t99, .neoversen1, .neoversev1, .neoversev2, .neoversen2, .thunderx3t110, .armv8sve, .a64fx, .armv9sme, .vortex, .vortexm4, .cortexa510, .cortexa710, .cortexx2, .ampere1 };
+
+/// `kernel/arm64/?asum_thunderx2t99.c`: past `n <= 10000`, every thread
+/// (issue #728); `?sum_thunderx2t99.c`, on `neoversen1`, `vortex`,
+/// `vortexm4` and `ampere1`, alike. Elsewhere `kernel/x86_64/dasum.c`'s.
+fn asumCore(core: anytype) ?Rule {
+    inline for (thunder_asum) |c| if (is(core, c)) return .{ .serial_max = 10000 };
+    return null;
 }
 
 /// `kernel/arm64/dot.c`'s tables.
