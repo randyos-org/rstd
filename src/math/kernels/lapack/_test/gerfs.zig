@@ -20,7 +20,7 @@ const abs1 = ops.abs1;
 const thresh = 30;
 
 /// `op(A)(i, k)` of the `n x n` `a`.
-fn opAt(comptime T: type, trans: Trans, a: []const T, n: usize, i: usize, k: usize) T {
+pub fn opAt(comptime T: type, trans: Trans, a: []const T, n: usize, i: usize, k: usize) T {
     return switch (trans) {
         .n => a[i + k * n],
         .t => a[k + i * n],
@@ -30,7 +30,7 @@ fn opAt(comptime T: type, trans: Trans, a: []const T, n: usize, i: usize, k: usi
 
 /// The ratios of one solve: `dget07`'s two and `dget04`'s, each to stay
 /// under `thresh`.
-fn ratios(comptime T: type, al: std.mem.Allocator, trans: Trans, n: usize, nrhs: usize, a: []const T, b: []const T, x: []const T, xact: []const T, ferr: []const Float(T), berr: []const Float(T)) ![3]Float(T) {
+pub fn ratios(comptime T: type, al: std.mem.Allocator, trans: Trans, n: usize, nrhs: usize, a: []const T, b: []const T, x: []const T, xact: []const T, ferr: []const Float(T), berr: []const Float(T)) ![3]Float(T) {
     const F = Float(T);
     const eps = std.math.floatEps(F);
     const unfl = std.math.floatMin(F);
