@@ -121,8 +121,9 @@ fn swapBack(comptime T: type, mn: usize, blocking: usize, a: [*]T, lda: usize, i
 /// then for each block its interchanges, `trsm` and `gemm` on the columns
 /// right of it, which the caller does for the next block's columns and then
 /// factors that block (`GETRF_SINGLE`), while the other workers do the rest
-/// (`inner_basic_thread`). Every column gets `factor`'s kernel calls, cut at
-/// whole `unroll_n` panels, so the bits are `factor`'s.
+/// (`inner_basic_thread`); with no columns past the next block, all update
+/// and the next block recurses (`Step`). Every column gets `factor`'s kernel
+/// calls, cut at whole `unroll_n` panels, so the bits are `factor`'s.
 pub fn factorAhead(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, blk: driver.Blocking, m: usize, n: usize, a: [*]T, lda: usize, ipiv: [*]usize, want: u32) driver.Error!?usize {
     const mn = @min(m, n);
     const blocking = blockWidth(mn, blk.un, blk.q) orelse return getf2(T, vt, m, n, a, lda, ipiv);
@@ -145,11 +146,13 @@ pub fn factorAhead(allocator: Allocator, io: Io, comptime T: type, vt: *const Vt
 }
 
 /// One step of `factorAhead`: block `j` (`jb` wide) applied to the columns
-/// right of it, and the next block (`next` wide) factored. Part 0 is the
-/// caller's: the next block's columns, rounded up to whole `unroll_n`
-/// panels; the rest is cut into chunks at panel edges, which the other
-/// workers claim, and the caller too once its block is done. Each part has
-/// packing space of its own, allocated before any task starts.
+/// right of it, and the next block (`next` wide) factored. With columns past
+/// the next block's, part 0 is the caller's: the next block's columns,
+/// rounded up to whole `unroll_n` panels, which it then factors; the rest is
+/// cut into chunks at panel edges, which the other workers claim, and the
+/// caller too once its block is done. Without, every worker takes chunks
+/// and the next block is factored after, by `factorAhead` (issue #839).
+/// Each part has packing space of its own, allocated before any task starts.
 fn Step(comptime T: type) type {
     return struct {
         const Self = @This();
@@ -164,6 +167,8 @@ fn Step(comptime T: type) type {
         jb: usize,
         next: usize,
         allocator: Allocator,
+        /// Whether part 0 is the caller's lookahead.
+        ahead: bool = true,
         /// Part 0's width, the chunks of the rest, and where each part's
         /// packing space starts in `buf` (part `i + 1` is chunk `i`).
         w0: usize = 0,
@@ -178,23 +183,34 @@ fn Step(comptime T: type) type {
 
         pub fn run(s: *Self, io: Io, rest: usize, want: u32) driver.Error!?usize {
             const un = s.blk.un;
-            s.w0 = @min(rest, (s.next + un - 1) / un * un);
-            s.chunks = .init(rest - s.w0, want - 1, .even, un);
+            const panel = (s.next + un - 1) / un * un;
+            s.ahead = rest > panel;
+            s.w0 = if (s.ahead) panel else 0;
+            // without the lookahead, one worker per `team_grain` of the update
+            const crew = if (s.ahead) want else threading.crew(T, want, threading.team_grain, threading.product(&.{ s.m - s.j, rest, s.jb }));
+            s.chunks = .init(rest - s.w0, if (s.ahead) want - 1 else crew, .even, un);
             const parts = 1 + if (rest > s.w0) s.chunks.count else 0;
             var total: usize = 0;
             for (0..parts) |i| {
                 s.at[i] = total;
                 total += Work(T).up(s.space(s.width(i)));
             }
-            const buf = try s.allocator.alignedAlloc(T, .fromByteUnits(Work(T).alignment), @max(total, 1));
-            defer s.allocator.free(buf);
-            s.buf = buf.ptr;
-            if (parts == 1) {
-                try s.work(io, 0, null);
-            } else {
-                try threading.team(io, s, want);
+            {
+                // freed before the next block recurses
+                const buf = try s.allocator.alignedAlloc(T, .fromByteUnits(Work(T).alignment), @max(total, 1));
+                defer s.allocator.free(buf);
+                s.buf = buf.ptr;
+                if (parts == 1) {
+                    try s.work(io, 0, null);
+                } else {
+                    try threading.team(io, s, crew);
+                }
             }
             if (s.failed) return error.OutOfMemory;
+            if (!s.ahead and s.next > 0) {
+                const off = s.j + s.jb;
+                s.info = try factorAhead(s.allocator, io, T, s.vt, s.blk, s.m - off, s.next, s.a + off * (s.lda + 1), s.lda, s.ipiv + off, want);
+            }
             return s.info;
         }
 
@@ -224,13 +240,13 @@ fn Step(comptime T: type) type {
             return started;
         }
 
-        /// Worker 0, the caller, does part 0 and the next block, then claims
-        /// chunks as the others do.
+        /// Worker 0, the caller, does part 0 and, ahead, the next block, then
+        /// claims chunks as the others do.
         pub fn work(s: *Self, io: Io, i: u32, lent: ?*threading.Lent) Io.Cancelable!void {
             _ = lent;
             if (i == 0) {
                 s.update(0);
-                if (s.next > 0) {
+                if (s.ahead and s.next > 0) {
                     const off = s.j + s.jb;
                     const d = s.a + off * (s.lda + 1);
                     s.info = factor(s.allocator, io, T, s.vt, s.blk.un, s.blk.q, s.m - off, s.next, d, s.lda, s.ipiv + off) catch |e| switch (e) {

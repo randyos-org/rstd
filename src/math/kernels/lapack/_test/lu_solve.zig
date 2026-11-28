@@ -253,7 +253,8 @@ fn aheadOn(comptime T: type, v: *const Vtable, vi: usize) anyerror!void {
     _ = v;
     _ = vi;
     const al = testing.allocator;
-    for ([_][2]usize{ .{ 130, 130 }, .{ 150, 90 }, .{ 90, 150 }, .{ 41, 41 } }) |s| {
+    // 260: the last block's update past `team_grain`, on several workers (#839)
+    for ([_][2]usize{ .{ 130, 130 }, .{ 150, 90 }, .{ 90, 150 }, .{ 41, 41 }, .{ 260, 260 } }) |s| {
         if (check.rig() and s[0] * s[1] > 70 * 70) continue;
         var p = try fixtures.LuProblem(T).init(al, s[0], s[1], s[0] + 7 * s[1]);
         defer p.deinit(al);

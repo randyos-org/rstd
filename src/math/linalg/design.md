@@ -913,8 +913,11 @@ allows.
   factored recursively; then for each block the caller updates the next block's columns
   (rounded up to whole `unroll_n` panels) and factors that block, while the other workers
   update the rest in chunks cut at panel edges (`inner_basic_thread`), each on packing space
-  allocated before the tasks start (`threading.team`). Upstream sizes its blocks by its thread
-  count (`FORMULA1`, `FORMULA2`, `:527`), which would change the bits; here they are
+  allocated before the tasks start (`threading.team`). With no columns past the next block, as
+  at the last block of each level, every worker updates in chunks, one per `team_grain` of
+  the update, and the next block recurses after them ([#839](https://github.com/randyos-org/rstd/issues/839)),
+  where the caller alone did both. Upstream sizes its blocks by its thread count (`FORMULA1`,
+  `FORMULA2`, `:527`), which would change the bits; here they are
   `getrf_single.c`'s, and every column gets the serial kernel calls, so the factors are the
   serial ones. The closing interchanges, threaded upstream, are serial.
 - **`getrs`** (`lu.zig`): `getrs_single.c` and `zgetrs_single.c`, which are `xGETRS`: the
