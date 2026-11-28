@@ -66,6 +66,7 @@ const refine = @import("gerfs.zig");
 const expert = @import("gesvx.zig");
 const bisect = @import("stebz.zig");
 const inverse_iteration = @import("stein.zig");
+const tridiagonal_q = @import("ormtr.zig");
 
 pub const Uplo = types.Uplo;
 pub const Trans = types.Trans;
@@ -393,6 +394,10 @@ pub const stebz = bisect.stebz;
 /// `stein`: eigenvectors of a symmetric tridiagonal by inverse iteration.
 pub const SteinError = inverse_iteration.SteinError;
 pub const stein = inverse_iteration.stein;
+/// `ormtr`, `unmtr`: multiplying by `sytrd`'s `Q`.
+pub const OrmtrError = tridiagonal_q.OrmtrError;
+pub const ormtr = tridiagonal_q.ormtr;
+pub const unmtr = tridiagonal_q.ormtr;
 pub const laset = auxiliary.laset;
 pub const lapy2 = auxiliary.lapy2;
 test {
@@ -455,6 +460,7 @@ test {
     _ = @import("_test/gesvx.zig");
     _ = @import("_test/stebz.zig");
     _ = @import("_test/stein.zig");
+    _ = @import("_test/ormtr.zig");
     _ = pbtrs_solve;
     _ = @import("tgsen_condition.zig");
     _ = relapack_tests;
